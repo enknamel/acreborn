@@ -179,9 +179,9 @@ impl Player {
         b.collision.as_ref()
     }
 
-    /// Pull a third-person camera in front of any wall between the
-    /// character's head (`from`) and the wanted camera spot (`to`).
-    pub fn clamp_camera(&mut self, assets: &Assets, from: Vec3, to: Vec3) -> Vec3 {
+    /// Fraction along `from`..`to` where static geometry first blocks the
+    /// segment, if it does.
+    pub fn first_wall(&mut self, assets: &Assets, from: Vec3, to: Vec3) -> Option<f32> {
         let block_of = |w: Vec3| {
             (((w.x / 192.0).floor().clamp(0.0, 255.0) as u32) << 24)
                 | (((w.y / 192.0).floor().clamp(0.0, 255.0) as u32) << 16)
@@ -200,7 +200,13 @@ impl Player {
                 }
             }
         }
-        match best {
+        best
+    }
+
+    /// Pull a third-person camera in front of any wall between the
+    /// character's head (`from`) and the wanted camera spot (`to`).
+    pub fn clamp_camera(&mut self, assets: &Assets, from: Vec3, to: Vec3) -> Vec3 {
+        match self.first_wall(assets, from, to) {
             // Stop a little short of the wall so the near plane stays inside.
             Some(f) => from + (to - from) * (f - 0.3 / (to - from).length()).max(0.0),
             None => to,

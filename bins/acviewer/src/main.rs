@@ -199,6 +199,14 @@ impl App {
                 }
             }
         }
+        // A wall in front of the hit hides it.
+        if let (Some((t, _)), Some(pl)) = (best, net.player.as_mut()) {
+            let assets = &net.assets;
+            if pl.first_wall(assets, near, near + dir * t).is_some() {
+                tracing::debug!("click blocked by static geometry");
+                best = None;
+            }
+        }
         let Some((_, guid)) = best else {
             net.selected = None;
             return;
