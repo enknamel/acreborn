@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use ac_formats::landblock::{CellLandblock, EnvCell};
+use ac_formats::landblock::CellLandblock;
 use ac_net::messages::{self, action, motion, RawMotion, WirePosition};
 use ac_net::session::Session;
 use ac_scene::anim::AnimPlayer;
@@ -21,8 +21,8 @@ pub struct Input {
 
 struct Block {
     lb: CellLandblock,
-    /// Interior cells: (cell id, landblock-local origin).
-    cells: Vec<(u32, Vec3)>,
+    /// Static collision geometry, built on first use.
+    collision: Option<ac_scene::collision::CollisionWorld>,
 }
 
 pub struct Player {
@@ -151,23 +151,32 @@ impl Player {
         if !self.blocks.contains_key(&block_id) {
             let lb_id = block_id | 0xFFFF;
             let lb = CellLandblock::parse(lb_id, &assets.cell.read(lb_id).ok()?).ok()?;
-            let mut cells = Vec::new();
-            let info_id = block_id | 0xFFFE;
-            if let Ok(b) = assets.cell.read(info_id) {
-                if let Ok(info) = ac_formats::landblock::LandblockInfo::parse(info_id, &b) {
-                    for i in 0..info.num_cells {
-                        let cid = block_id | (0x100 + i);
-                        if let Ok(cb) = assets.cell.read(cid) {
-                            if let Ok(c) = EnvCell::parse(cid, &cb) {
-                                cells.push((cid, c.position.origin));
-                            }
-                        }
-                    }
-                }
-            }
-            self.blocks.insert(block_id, Block { lb, cells });
+            self.blocks.insert(
+                block_id,
+                Block {
+                    lb,
+                    collision: None,
+                },
+            );
         }
         self.blocks.get(&block_id)
+    }
+
+    /// Collision world for a landblock, built from the assembled scene on
+    /// first use (this loads the block's models once, ~0.5 s).
+    fn collision(
+        &mut self,
+        assets: &Assets,
+        block_id: u32,
+    ) -> Option<&ac_scene::collision::CollisionWorld> {
+        let block_id = block_id & 0xFFFF_0000;
+        self.block(assets, block_id)?;
+        let b = self.blocks.get_mut(&block_id)?;
+        if b.collision.is_none() {
+            let scene = ac_scene::landblock::load(assets, block_id).ok()?;
+            b.collision = ac_scene::collision::CollisionWorld::from_scene(assets, &scene).ok();
+        }
+        b.collision.as_ref()
     }
 
     /// Apply one frame of input. Returns true if the position changed.
@@ -190,34 +199,64 @@ impl Player {
         let bx = (world.x / 192.0).floor().clamp(0.0, 255.0) as u32;
         let by = (world.y / 192.0).floor().clamp(0.0, 255.0) as u32;
         let new_block = (bx << 24) | (by << 16);
-        let indoors = self.is_indoors();
-        if indoors {
-            // Dungeons keep their landblock; pick the nearest cell origin.
-            let block_id = self.landblock();
-            let local = world - ac_world::landblock_origin(block_id);
-            if let Some(b) = self.block(assets, block_id) {
-                if let Some((cid, _)) = b.cells.iter().min_by(|a, c| {
-                    (a.1 - local)
-                        .truncate()
-                        .length()
-                        .partial_cmp(&(c.1 - local).truncate().length())
-                        .unwrap()
-                }) {
-                    self.cell = *cid;
-                }
+        // Walls: push the capsule out of steep collision triangles in the
+        // block we're moving into (and the one we're leaving, at a boundary).
+        let cur_block = self.landblock();
+        for blk in [new_block, cur_block] {
+            if let Some(c) = self.collision(assets, blk) {
+                world = c.resolve(world, 0.4, 1.7);
             }
-            self.local = local;
-        } else {
-            let local = world - ac_world::landblock_origin(new_block);
-            let height_table = self.height_table.clone();
-            if let Some(b) = self.block(assets, new_block) {
-                let sampler = TerrainSampler::new(&b.lb, &height_table);
-                if let Some(z) = sampler.height_at(local) {
-                    world.z = z;
-                }
+        }
+        // Floors: the highest walkable triangle under us decides height and,
+        // indoors, the cell. Otherwise outdoor terrain sets the height.
+        let probe = world + Vec3::new(0.0, 0.0, 0.5);
+        let floor = [new_block, cur_block]
+            .into_iter()
+            .filter_map(|blk| {
+                self.collision(assets, blk)
+                    .and_then(|c| c.floor_at(probe, 1.0, 3.0))
+            })
+            .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let block_x = |w: Vec3| ((w.x / 192.0).floor().clamp(0.0, 255.0) as u32) << 24;
+        let block_y = |w: Vec3| ((w.y / 192.0).floor().clamp(0.0, 255.0) as u32) << 16;
+        match floor {
+            Some((z, cell)) if cell != 0 => {
+                // Standing on an interior cell's floor: that cell owns us.
+                world.z = z;
+                self.cell = cell;
+                self.local = world - ac_world::landblock_origin(cell);
             }
-            self.local = Vec3::new(local.x, local.y, world.z);
-            self.cell = ac_world::outdoor_cell(new_block, self.local);
+            Some((z, _)) if !self.is_indoors() || z > world.z - 0.5 => {
+                // An outdoor floor (dock, bridge, building step): stand on it
+                // if it is at least as high as the terrain.
+                let blk = block_x(world) | block_y(world);
+                let local = world - ac_world::landblock_origin(blk);
+                let height_table = self.height_table.clone();
+                let terrain = self
+                    .block(assets, blk)
+                    .and_then(|b| TerrainSampler::new(&b.lb, &height_table).height_at(local));
+                world.z = terrain.map(|t| t.max(z)).unwrap_or(z);
+                self.local = world - ac_world::landblock_origin(blk);
+                self.cell = ac_world::outdoor_cell(blk, self.local);
+            }
+            _ if self.is_indoors() => {
+                // No floor found: stay in the current cell at the same height.
+                let block_id = self.landblock();
+                self.local = world - ac_world::landblock_origin(block_id);
+            }
+            _ => {
+                let blk = block_x(world) | block_y(world);
+                let local = world - ac_world::landblock_origin(blk);
+                let height_table = self.height_table.clone();
+                if let Some(b) = self.block(assets, blk) {
+                    let sampler = TerrainSampler::new(&b.lb, &height_table);
+                    if let Some(z) = sampler.height_at(local) {
+                        world.z = z;
+                    }
+                }
+                self.local = Vec3::new(local.x, local.y, world.z);
+                self.cell = ac_world::outdoor_cell(blk, self.local);
+            }
         }
         self.moving = true;
         self.dirty = true;

@@ -16,6 +16,8 @@ use crate::{Assets, Error, Result};
 #[derive(Debug, Clone)]
 pub struct CellScene {
     pub cell_id: u32,
+    pub environment_id: u32,
+    pub cell_structure: u16,
     /// Landblock-local transform of the cell structure.
     pub transform: Mat4,
     pub submeshes: Vec<SubMesh>,
@@ -166,6 +168,8 @@ pub fn load_cells(
         }
         out.push(CellScene {
             cell_id,
+            environment_id: cell.environment_id,
+            cell_structure: cell.cell_structure,
             transform,
             submeshes,
             parts,

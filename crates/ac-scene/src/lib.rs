@@ -9,6 +9,7 @@
 //!   buildings) as a list of placed models.
 
 pub mod anim;
+pub mod collision;
 pub mod interior;
 pub mod landblock;
 pub mod model;
