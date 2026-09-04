@@ -20,4 +20,7 @@ wgpu = "30"
 winit = "0.30"
 pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
+egui = "0.36"
+egui-wgpu = "0.36"
+egui-winit = { version = "0.36", default-features = false, features = ["links"] }
 image = { version = "0.25", default-features = false, features = ["png"] }

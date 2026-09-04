@@ -21,6 +21,9 @@ pub mod opcode {
     pub const ACCOUNT_BOOT: u32 = 0xF7DC;
     pub const UPDATE_OBJECT: u32 = 0xF7DB;
     pub const CHARACTER_ENTER_WORLD_SERVER_READY: u32 = 0xF7DF;
+    pub const EMOTE_TEXT: u32 = 0x01E0;
+    pub const HEAR_SPEECH: u32 = 0x02BB;
+    pub const HEAR_RANGED_SPEECH: u32 = 0x02BC;
     pub const SERVER_MESSAGE: u32 = 0xF7E0;
     pub const SERVER_NAME: u32 = 0xF7E1;
     pub const DDD_INTERROGATION: u32 = 0xF7E5;
@@ -337,6 +340,96 @@ pub fn split_game_event(body: &[u8]) -> Option<(u32, u32, u32, &[u8])> {
     Some((guid, seq, ev, r.remaining()))
 }
 
+/// GameEvent (0xF7B0) sub-opcodes.
+pub mod event {
+    pub const PLAYER_DESCRIPTION: u32 = 0x0013;
+    pub const CHANNEL_BROADCAST: u32 = 0x0147;
+    pub const WEENIE_ERROR: u32 = 0x028A;
+    pub const TELL: u32 = 0x02BD;
+}
+
+/// A line of chat from any of the speech-carrying messages.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChatLine {
+    pub text: String,
+    pub sender: String,
+    pub sender_id: u32,
+    /// ChatMessageType (0 broadcast, 2 speech, 3 tell, 0x1F emote...).
+    pub kind: u32,
+}
+
+impl ChatLine {
+    /// HearSpeech 0x02BB: text, sender, sender id, type.
+    pub fn parse_hear_speech(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let text = r.string16()?;
+        let sender = r.string16()?;
+        let sender_id = r.u32()?;
+        let kind = r.u32()?;
+        Ok(ChatLine {
+            text,
+            sender,
+            sender_id,
+            kind,
+        })
+    }
+    /// HearRangedSpeech 0x02BC: text, sender, sender id, range, type.
+    pub fn parse_hear_ranged_speech(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let text = r.string16()?;
+        let sender = r.string16()?;
+        let sender_id = r.u32()?;
+        let _range = r.f32()?;
+        let kind = r.u32()?;
+        Ok(ChatLine {
+            text,
+            sender,
+            sender_id,
+            kind,
+        })
+    }
+    /// ServerMessage 0xF7E0: text, type.
+    pub fn parse_server_message(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let text = r.string16()?;
+        let kind = r.i32()? as u32;
+        Ok(ChatLine {
+            text,
+            sender: String::new(),
+            sender_id: 0,
+            kind,
+        })
+    }
+    /// EmoteText 0x01E0: sender id, sender, text.
+    pub fn parse_emote_text(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let sender_id = r.u32()?;
+        let sender = r.string16()?;
+        let text = r.string16()?;
+        Ok(ChatLine {
+            text,
+            sender,
+            sender_id,
+            kind: 0x1F,
+        })
+    }
+    /// GameEvent Tell 0x02BD: text, sender, sender id, target id, type.
+    pub fn parse_tell(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let text = r.string16()?;
+        let sender = r.string16()?;
+        let sender_id = r.u32()?;
+        let _target = r.u32()?;
+        let kind = r.u32()?;
+        Ok(ChatLine {
+            text,
+            sender,
+            sender_id,
+            kind,
+        })
+    }
+}
+
 /// Build a GameAction (0xF7B1) message: opcode, sequence, action type, body.
 pub fn game_action(sequence: u32, action: u32, body: &[u8]) -> Vec<u8> {
     let mut w = Writer::new();
@@ -350,6 +443,40 @@ pub fn game_action(sequence: u32, action: u32, body: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_layouts() {
+        // HearSpeech: "hi" from "Bob" (guid 0x50000001), speech (2).
+        let mut w = Writer::new();
+        w.string16("hi").string16("Bob").u32(0x5000_0001).u32(2);
+        let l = ChatLine::parse_hear_speech(&w.finish()).unwrap();
+        assert_eq!(
+            l,
+            ChatLine {
+                text: "hi".into(),
+                sender: "Bob".into(),
+                sender_id: 0x5000_0001,
+                kind: 2
+            }
+        );
+        let mut w = Writer::new();
+        w.string16("yo").string16("Al").u32(9).f32(30.0).u32(2);
+        assert_eq!(
+            ChatLine::parse_hear_ranged_speech(&w.finish())
+                .unwrap()
+                .kind,
+            2
+        );
+        let mut w = Writer::new();
+        w.string16("motd").i32(0);
+        let l = ChatLine::parse_server_message(&w.finish()).unwrap();
+        assert_eq!((l.text.as_str(), l.sender.as_str()), ("motd", ""));
+        let mut w = Writer::new();
+        w.u32(7).string16("Al").string16("waves.");
+        let l = ChatLine::parse_emote_text(&w.finish()).unwrap();
+        assert_eq!((l.sender_id, l.text.as_str()), (7, "waves."));
+        assert!(ChatLine::parse_hear_speech(&[2, 0]).is_err());
+    }
 
     #[test]
     fn login_request_layout() {

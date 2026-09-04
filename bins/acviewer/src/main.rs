@@ -10,6 +10,7 @@ mod camera;
 mod gpu;
 mod player;
 mod scene;
+mod ui;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -56,6 +57,9 @@ struct Cli {
     /// With --connect --screenshot: walk forward for this many seconds first
     #[arg(long, default_value_t = 0.0)]
     walk: f32,
+    /// Connected headless mode: say this line once the player is placed.
+    #[arg(long)]
+    say: Option<String>,
     /// Camera override for --screenshot: x,y,z,yaw_deg,pitch_deg
     #[arg(long)]
     camera: Option<String>,
@@ -96,9 +100,82 @@ struct App {
     looking: bool,
     last_cursor: Option<(f64, f64)>,
     last_frame: Instant,
+    ui: Option<ui::Ui>,
+    fps: f32,
 }
 
 impl App {
+    fn chat_message(&mut self, op: u32, body: &[u8]) {
+        use ac_net::messages::{event, opcode, ChatLine};
+        let line = match op {
+            opcode::HEAR_SPEECH => ChatLine::parse_hear_speech(body),
+            opcode::HEAR_RANGED_SPEECH => ChatLine::parse_hear_ranged_speech(body),
+            opcode::SERVER_MESSAGE => ChatLine::parse_server_message(body),
+            opcode::EMOTE_TEXT => ChatLine::parse_emote_text(body),
+            opcode::GAME_EVENT => match ac_net::messages::split_game_event(body) {
+                Some((_, _, event::TELL, rest)) => ChatLine::parse_tell(rest),
+                _ => return,
+            },
+            _ => return,
+        };
+        let line = match line {
+            Ok(l) => l,
+            Err(e) => {
+                tracing::warn!("chat message {op:#06x}: {e}");
+                return;
+            }
+        };
+        let text = match (op, line.sender.is_empty()) {
+            (_, true) => line.text.clone(),
+            (opcode::EMOTE_TEXT, _) => format!("{} {}", line.sender, line.text),
+            (opcode::GAME_EVENT, _) => format!("{} tells you, \"{}\"", line.sender, line.text),
+            _ => format!("{} says, \"{}\"", line.sender, line.text),
+        };
+        tracing::info!("chat: {text}");
+        if let Some(ui) = &mut self.ui {
+            ui.push_chat(text, line.kind);
+        }
+    }
+
+    fn refresh_status(&mut self) {
+        let Some(ui) = &mut self.ui else { return };
+        let mut s = format!("{:.0} fps", self.fps);
+        if let Some(net) = &self.net {
+            match net.world.player().and_then(|o| o.position) {
+                Some(p) => {
+                    s += &format!(
+                        "  cell {:#010x}  x {:.1} y {:.1} z {:.1}  objects {}",
+                        p.cell,
+                        p.local.x,
+                        p.local.y,
+                        p.local.z,
+                        net.world.drawable().count()
+                    );
+                }
+                None => s += "  connecting...",
+            }
+        } else {
+            let c = &self.camera;
+            s += &format!(
+                "  x {:.1} y {:.1} z {:.1}",
+                c.position.x, c.position.y, c.position.z
+            );
+        }
+        ui.status = s;
+    }
+
+    fn send_chat(&mut self) {
+        let Some(ui) = &mut self.ui else { return };
+        let lines = std::mem::take(&mut ui.outgoing);
+        let Some(net) = self.net.as_mut() else { return };
+        for t in lines {
+            let mut w = ac_net::wire::Writer::new();
+            w.string16(&t);
+            net.session
+                .send_action(ac_net::messages::action::TALK, &w.finish());
+        }
+    }
+
     fn start_connect(&mut self) -> Result<()> {
         use ac_net::messages::DatIteration;
         use ac_net::session::{Config, Session};
@@ -176,6 +253,7 @@ impl App {
         use ac_net::session::{Event, Port};
         let Some(net) = self.net.as_mut() else { return };
         let now = Instant::now();
+        let mut chat_pending: Vec<(u32, Vec<u8>)> = Vec::new();
         for (port, dg) in net.session.outgoing() {
             let to = if port == Port::Primary {
                 net.primary
@@ -211,6 +289,9 @@ impl App {
                         | ac_world::Applied::Deleted => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
                         ac_world::Applied::Ignored => {}
+                    }
+                    if let Some((op, body)) = messages::split(&msg) {
+                        chat_pending.push((op, body.to_vec()));
                     }
                     let Some((op, body)) = messages::split(&msg) else {
                         continue;
@@ -286,6 +367,11 @@ impl App {
                 }
             }
         }
+        for (op, body) in chat_pending {
+            self.chat_message(op, &body);
+        }
+        self.send_chat();
+        let Some(net) = self.net.as_mut() else { return };
         // Build the static scene once the player is placed.
         if net.scene_block.is_none() {
             if let Some(p) = net.world.player().and_then(|o| o.position) {
@@ -477,12 +563,28 @@ impl ApplicationHandler for App {
             event_loop.exit();
             return;
         }
+        let (w, h) = gpu.size();
+        self.ui = Some(ui::Ui::new(gpu.device(), gpu.format(), Some(&window), w, h));
         self.gpu = Some(gpu);
         self.window = Some(window);
         self.last_frame = Instant::now();
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if let (Some(ui), Some(w)) = (&mut self.ui, &self.window) {
+            if !matches!(event, WindowEvent::RedrawRequested) && ui.on_event(w, &event) {
+                // egui took it (typing in the chat box, clicking the overlay).
+                if matches!(event, WindowEvent::KeyboardInput { .. }) {
+                    self.keys.clear();
+                }
+                return;
+            }
+        }
+        let typing = self
+            .ui
+            .as_ref()
+            .map(|u| u.wants_keyboard())
+            .unwrap_or(false);
         match event {
             WindowEvent::CloseRequested => {
                 if let Some(net) = self.net.as_mut() {
@@ -505,6 +607,19 @@ impl ApplicationHandler for App {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
+                    if typing {
+                        return;
+                    }
+                    if code == KeyCode::Enter
+                        && event.state == ElementState::Pressed
+                        && self.net.is_some()
+                    {
+                        if let Some(ui) = &mut self.ui {
+                            ui.chat_focus = true;
+                        }
+                        self.keys.clear();
+                        return;
+                    }
                     if code == KeyCode::Escape {
                         if let Some(net) = self.net.as_mut() {
                             net.session.disconnect(Instant::now());
@@ -566,9 +681,28 @@ impl ApplicationHandler for App {
                     self.tick_net(&mut g);
                     self.gpu = Some(g);
                 }
+                self.fps = if self.fps == 0.0 {
+                    1.0 / dt.max(1e-3)
+                } else {
+                    self.fps * 0.95 + 0.05 / dt.max(1e-3)
+                };
+                self.refresh_status();
                 if let Some(g) = &mut self.gpu {
                     let vp = self.camera.view_proj(g.aspect());
-                    if let Err(e) = g.render(vp, Vec3::new(0.4, 0.3, 1.0)) {
+                    let (w, h) = g.size();
+                    let mut ui = self.ui.as_mut();
+                    if let Some(ui) = ui.as_deref_mut() {
+                        ui.begin(self.window.as_deref(), g.device(), g.queue(), w, h);
+                    }
+                    let mut paint = |d: &wgpu::Device,
+                                     q: &wgpu::Queue,
+                                     e: &mut wgpu::CommandEncoder,
+                                     v: &wgpu::TextureView| {
+                        if let Some(ui) = ui.as_deref_mut() {
+                            ui.paint(d, q, e, v);
+                        }
+                    };
+                    if let Err(e) = g.render(vp, Vec3::new(0.4, 0.3, 1.0), Some(&mut paint)) {
                         tracing::error!("render: {e:#}");
                     }
                 }
@@ -610,8 +744,12 @@ fn main() -> Result<()> {
             looking: false,
             last_cursor: None,
             last_frame: Instant::now(),
+            ui: None,
+            fps: 0.0,
         };
         app.load_scene(&mut gpu)?;
+        let (w, h) = gpu.size();
+        app.ui = Some(ui::Ui::new(gpu.device(), gpu.format(), None, w, h));
         if app.cli.connect.is_some() {
             // Pump the connection until the player is placed and the world
             // has settled, then render from the character's viewpoint.
@@ -632,6 +770,11 @@ fn main() -> Result<()> {
                     let t = started.elapsed().as_secs_f32();
                     // Hold W for `walk` seconds after a short settle, then settle again.
                     let walking = t > 1.0 && t < 1.0 + app.cli.walk;
+                    if t > 1.0 {
+                        if let (Some(line), Some(ui)) = (app.cli.say.take(), app.ui.as_mut()) {
+                            ui.outgoing.push(line);
+                        }
+                    }
                     if walking {
                         app.keys.insert(KeyCode::KeyW);
                     } else {
@@ -673,7 +816,16 @@ fn main() -> Result<()> {
             app.camera.pitch = v[4].to_radians();
         }
         let vp = app.camera.view_proj(gpu.aspect());
-        gpu.render_to_png(vp, Vec3::new(0.4, 0.3, 1.0), &path)?;
+        app.refresh_status();
+        let mut ui = app.ui.take().unwrap();
+        // egui's first frame only loads fonts and asks for a repaint.
+        ui.begin(None, gpu.device(), gpu.queue(), w, h);
+        ui.begin(None, gpu.device(), gpu.queue(), w, h);
+        let mut paint = |d: &wgpu::Device,
+                         q: &wgpu::Queue,
+                         e: &mut wgpu::CommandEncoder,
+                         v: &wgpu::TextureView| ui.paint(d, q, e, v);
+        gpu.render_to_png(vp, Vec3::new(0.4, 0.3, 1.0), &path, Some(&mut paint))?;
         tracing::info!("wrote {}", path.display());
         if let Some(net) = app.net.as_mut() {
             net.session.disconnect(Instant::now());
@@ -709,6 +861,8 @@ fn main() -> Result<()> {
         looking: false,
         last_cursor: None,
         last_frame: Instant::now(),
+        ui: None,
+        fps: 0.0,
     };
     event_loop.run_app(&mut app)?;
     Ok(())

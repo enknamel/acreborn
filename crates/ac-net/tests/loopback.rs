@@ -137,7 +137,7 @@ fn full_login_flow() {
     let p = srv.receive(&out[0].1);
     assert!(p.header.has(flags::LOGIN_REQUEST));
     assert_eq!(p.header.sequence, 0);
-    let mut r = ac_net::wire::Reader::new(&p.optional_bytes);
+    let r = ac_net::wire::Reader::new(&p.optional_bytes);
     // LoginRequest body is not parsed by Packet::parse (client-only flag); check raw.
     assert!(r.remaining().is_empty() || true);
     assert_eq!(s.state(), State::LoginSent);

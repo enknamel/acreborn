@@ -80,6 +80,10 @@ struct DrawBatch {
     bind_group: std::rc::Rc<wgpu::BindGroup>,
 }
 
+/// Callback that draws an overlay onto the frame after the 3D pass.
+pub type UiPaint<'a> =
+    &'a mut dyn FnMut(&wgpu::Device, &wgpu::Queue, &mut wgpu::CommandEncoder, &wgpu::TextureView);
+
 pub struct Gpu {
     surface: Option<wgpu::Surface<'static>>,
     device: wgpu::Device,
@@ -357,6 +361,22 @@ impl Gpu {
             .create_view(&Default::default())
     }
 
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.config.format
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        (self.config.width, self.config.height)
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
@@ -606,7 +626,12 @@ impl Gpu {
         out
     }
 
-    pub fn render(&mut self, view_proj: Mat4, light_dir: Vec3) -> Result<()> {
+    pub fn render(
+        &mut self,
+        view_proj: Mat4,
+        light_dir: Vec3,
+        ui: Option<UiPaint<'_>>,
+    ) -> Result<()> {
         let surface = self.surface.as_ref().context("no surface")?;
         let frame = match surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) => t,
@@ -618,6 +643,11 @@ impl Gpu {
         };
         let view = frame.texture.create_view(&Default::default());
         self.draw(&view, view_proj, light_dir);
+        if let Some(ui) = ui {
+            let mut enc = self.device.create_command_encoder(&Default::default());
+            ui(&self.device, &self.queue, &mut enc, &view);
+            self.queue.submit([enc.finish()]);
+        }
         self.queue.present(frame);
         Ok(())
     }
@@ -628,6 +658,7 @@ impl Gpu {
         view_proj: Mat4,
         light_dir: Vec3,
         path: &std::path::Path,
+        ui: Option<UiPaint<'_>>,
     ) -> Result<()> {
         let (w, h) = (self.config.width, self.config.height);
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -646,6 +677,11 @@ impl Gpu {
         });
         let view = target.create_view(&Default::default());
         self.draw(&view, view_proj, light_dir);
+        if let Some(ui) = ui {
+            let mut enc = self.device.create_command_encoder(&Default::default());
+            ui(&self.device, &self.queue, &mut enc, &view);
+            self.queue.submit([enc.finish()]);
+        }
         let bytes_per_row = (w * 4).div_ceil(256) * 256;
         let buf = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("readback"),
