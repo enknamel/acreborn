@@ -38,6 +38,13 @@ pub struct Blip {
     pub kind: BlipKind,
 }
 
+pub struct Item {
+    pub guid: u32,
+    pub name: String,
+    pub stack: u32,
+    pub wielded: bool,
+}
+
 pub struct Ui {
     pub ctx: egui::Context,
     state: Option<egui_winit::State>,
@@ -50,6 +57,11 @@ pub struct Ui {
     pub outgoing: Vec<String>,
     pub status: String,
     pub sheet: Option<Sheet>,
+    /// Inventory panel contents.
+    pub items: Vec<Item>,
+    /// Items double-clicked in the panel; drained by the caller.
+    pub activated: Vec<u32>,
+    pub show_inventory: bool,
     pub blips: Vec<Blip>,
     /// Radar range in metres (edge of the circle).
     pub radar_range: f32,
@@ -94,6 +106,9 @@ impl Ui {
             outgoing: Vec::new(),
             status: String::new(),
             sheet: None,
+            items: Vec::new(),
+            activated: Vec::new(),
+            show_inventory: true,
             blips: Vec::new(),
             radar_range: 100.0,
             frames: Vec::new(),
@@ -258,6 +273,78 @@ impl Ui {
                             p.circle_filled(at, rad, col);
                         }
                         p.circle_filled(c, 3.0, egui::Color32::WHITE);
+                    });
+            }
+            if self.sheet.is_some() && self.show_inventory {
+                let r = 80.0;
+                egui::Window::new("inventory")
+                    .fade_in(false)
+                    .title_bar(false)
+                    .resizable(false)
+                    .frame(
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_black_alpha(170))
+                            .inner_margin(6),
+                    )
+                    .fixed_pos(egui::pos2(w - 268.0, 2.0 * r + 40.0))
+                    .fixed_size(egui::vec2(260.0, 300.0))
+                    .show(ctx, |ui| {
+                        ui.set_min_size(egui::vec2(248.0, 288.0));
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Inventory ({})",
+                                self.items.iter().filter(|i| !i.wielded).count()
+                            ))
+                            .color(egui::Color32::WHITE)
+                            .strong(),
+                        );
+                        egui::ScrollArea::vertical()
+                            .max_height(260.0)
+                            .show(ui, |ui| {
+                                ui.set_min_width(240.0);
+                                let mut shown_wielded_header = false;
+                                let mut shown_pack_header = false;
+                                for it in &self.items {
+                                    if it.wielded && !shown_wielded_header {
+                                        ui.label(
+                                            egui::RichText::new("Worn")
+                                                .color(egui::Color32::from_gray(170))
+                                                .small(),
+                                        );
+                                        shown_wielded_header = true;
+                                    }
+                                    if !it.wielded && !shown_pack_header {
+                                        ui.label(
+                                            egui::RichText::new("Pack")
+                                                .color(egui::Color32::from_gray(170))
+                                                .small(),
+                                        );
+                                        shown_pack_header = true;
+                                    }
+                                    let label = if it.stack > 1 {
+                                        format!("{} ({})", it.name, it.stack)
+                                    } else {
+                                        it.name.clone()
+                                    };
+                                    let color = if it.wielded {
+                                        egui::Color32::from_rgb(180, 230, 180)
+                                    } else {
+                                        egui::Color32::WHITE
+                                    };
+                                    let resp = ui.add(
+                                        egui::Label::new(egui::RichText::new(label).color(color))
+                                            .sense(egui::Sense::click()),
+                                    );
+                                    if resp.double_clicked() {
+                                        self.activated.push(it.guid);
+                                    }
+                                    if resp.hovered() {
+                                        ui.output_mut(|o| {
+                                            o.cursor_icon = egui::CursorIcon::PointingHand
+                                        });
+                                    }
+                                }
+                            });
                     });
             }
             egui::Window::new("chat")

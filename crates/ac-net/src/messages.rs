@@ -22,6 +22,11 @@ pub mod opcode {
     pub const UPDATE_OBJECT: u32 = 0xF7DB;
     pub const CHARACTER_ENTER_WORLD_SERVER_READY: u32 = 0xF7DF;
     pub const EMOTE_TEXT: u32 = 0x01E0;
+    pub const SET_STACK_SIZE: u32 = 0x0197;
+    pub const PUBLIC_UPDATE_INSTANCE_ID: u32 = 0x02DA;
+    pub const PICKUP_EVENT: u32 = 0xF74A;
+    pub const OBJ_DESC_EVENT: u32 = 0xF625;
+    pub const PUBLIC_UPDATE_PROPERTY_INT: u32 = 0x02CE;
     pub const PRIVATE_UPDATE_PROPERTY_INT: u32 = 0x02CD;
     pub const PRIVATE_UPDATE_PROPERTY_INT64: u32 = 0x02CF;
     pub const PRIVATE_UPDATE_PROPERTY_STRING: u32 = 0x02D5;
@@ -348,7 +353,12 @@ pub fn split_game_event(body: &[u8]) -> Option<(u32, u32, u32, &[u8])> {
 
 /// GameEvent (0xF7B0) sub-opcodes.
 pub mod event {
+    pub const POPUP_STRING: u32 = 0x0004;
     pub const PLAYER_DESCRIPTION: u32 = 0x0013;
+    pub const INVENTORY_PUT_OBJ_IN_CONTAINER: u32 = 0x0022;
+    pub const WIELD_OBJECT: u32 = 0x0023;
+    pub const INVENTORY_PUT_OBJECT_IN_3D: u32 = 0x019A;
+    pub const VIEW_CONTENTS: u32 = 0x0196;
     pub const CHANNEL_BROADCAST: u32 = 0x0147;
     pub const IDENTIFY_OBJECT_RESPONSE: u32 = 0x00C9;
     pub const USE_DONE: u32 = 0x01C7;
@@ -629,6 +639,9 @@ mod tests {
 /// GameAction type ids (inside a 0xF7B1 message).
 pub mod action {
     pub const TALK: u32 = 0x0015;
+    pub const PUT_ITEM_IN_CONTAINER: u32 = 0x0019;
+    pub const GET_AND_WIELD_ITEM: u32 = 0x001A;
+    pub const DROP_ITEM: u32 = 0x001B;
     pub const USE: u32 = 0x0036;
     pub const IDENTIFY_OBJECT: u32 = 0x00C8;
     /// Sent after entering the world and after each teleport; the server

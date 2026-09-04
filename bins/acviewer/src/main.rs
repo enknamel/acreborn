@@ -131,6 +131,17 @@ impl App {
                     self.appraisal(rest);
                     return;
                 }
+                Some((_, _, event::POPUP_STRING, rest)) => {
+                    match ac_net::wire::Reader::new(rest).string16() {
+                        Ok(t) => Ok(ChatLine {
+                            text: t,
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 0,
+                        }),
+                        Err(e) => Err(e),
+                    }
+                }
                 _ => return,
             },
             _ => return,
@@ -203,9 +214,8 @@ impl App {
             .map(|o| o.name.clone())
             .unwrap_or_default();
         if again {
-            tracing::info!("use {name} ({guid:#010x})");
-            net.session.send_action(action::USE, &guid.to_le_bytes());
             net.last_click = None;
+            self.interact(guid);
         } else {
             tracing::info!("select {name} ({guid:#010x})");
             net.session
@@ -213,31 +223,79 @@ impl App {
         }
     }
 
+    /// Double-click semantics: ground items are picked up, carried
+    /// wieldables are put on, worn items are taken off, everything else
+    /// is used.
+    fn interact(&mut self, guid: u32) {
+        use ac_net::messages::action;
+        use ac_world::{item_type, object_desc_flags};
+        let Some(net) = self.net.as_mut() else { return };
+        let me = net.world.player_guid;
+        let Some(o) = net.world.objects.get(&guid) else {
+            return;
+        };
+        let stuck = o.object_desc_flags
+            & (object_desc_flags::STUCK
+                | object_desc_flags::PLAYER
+                | object_desc_flags::DOOR
+                | object_desc_flags::VENDOR
+                | object_desc_flags::PORTAL
+                | object_desc_flags::CORPSE)
+            != 0
+            || o.item_type & item_type::CREATURE != 0;
+        let carried = me.is_some() && (o.container == me || o.wielder == me);
+        let name = o.name.clone();
+        let mut w = ac_net::wire::Writer::new();
+        if carried && o.wielder != me && o.item_type & item_type::WIELDABLE != 0 {
+            tracing::info!("wield {name} ({guid:#010x}) at {:#x}", o.valid_locations);
+            w.u32(guid).u32(o.valid_locations);
+            net.session
+                .send_action(action::GET_AND_WIELD_ITEM, &w.finish());
+        } else if carried && o.wielder == me {
+            tracing::info!("take off {name} ({guid:#010x})");
+            w.u32(guid).u32(me.unwrap_or(0)).u32(0);
+            net.session
+                .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
+        } else if !carried && !stuck && o.position.is_some() {
+            tracing::info!("pick up {name} ({guid:#010x})");
+            w.u32(guid).u32(me.unwrap_or(0)).u32(0);
+            net.session
+                .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
+        } else {
+            tracing::info!("use {name} ({guid:#010x})");
+            net.session.send_action(action::USE, &guid.to_le_bytes());
+        }
+    }
+
     /// Send Use for the nearest drawable object called `name` (test hook).
     fn use_by_name(&mut self, name: &str) {
         let Some(net) = self.net.as_mut() else { return };
         let me = net.player.as_ref().map(|p| p.world_position());
+        let my_guid = net.world.player_guid;
         let mut best: Option<(f32, u32)> = None;
-        for o in net.world.drawable() {
+        for o in net.world.objects.values() {
             if o.name != name {
                 continue;
             }
-            let Some(p) = o.display.or(o.position) else {
-                continue;
+            // Carried items count as distance zero, so they win over the floor.
+            let carried = my_guid.is_some() && (o.container == my_guid || o.wielder == my_guid);
+            let d = if carried {
+                0.0
+            } else {
+                let Some(p) = o.display.or(o.position) else {
+                    continue;
+                };
+                me.map(|m| (ac_world::landblock_origin(p.cell) + p.local).distance(m))
+                    .unwrap_or(0.0)
             };
-            let d = me
-                .map(|m| (ac_world::landblock_origin(p.cell) + p.local).distance(m))
-                .unwrap_or(0.0);
             if best.map(|(bd, _)| d < bd).unwrap_or(true) {
                 best = Some((d, o.guid));
             }
         }
         match best {
             Some((_, guid)) => {
-                tracing::info!("use {name} ({guid:#010x})");
                 net.selected = Some(guid);
-                net.session
-                    .send_action(ac_net::messages::action::USE, &guid.to_le_bytes());
+                self.interact(guid);
             }
             None => tracing::warn!("no object named {name:?} in view"),
         }
@@ -288,6 +346,25 @@ impl App {
                 })
                 .collect(),
         });
+        ui.items.clear();
+        for o in net.world.wielded() {
+            ui.items.push(ui::Item {
+                guid: o.guid,
+                name: o.name.clone(),
+                stack: o.stack_size,
+                wielded: true,
+            });
+        }
+        for o in net.world.inventory() {
+            ui.items.push(ui::Item {
+                guid: o.guid,
+                name: o.name.clone(),
+                stack: o.stack_size,
+                wielded: false,
+            });
+        }
+        ui.items
+            .sort_by(|a, b| b.wielded.cmp(&a.wielded).then(a.name.cmp(&b.name)));
         ui.blips.clear();
         let (me, heading) = match (&net.player, net.world.player()) {
             (Some(p), _) => (ac_world::landblock_origin(p.cell) + p.local, p.heading),
@@ -499,9 +576,17 @@ impl App {
                             }
                             continue;
                         }
+                        ac_world::Applied::Appearance => {
+                            // Our own look changed: redraw the character.
+                            if let Some(pl) = net.player.as_mut() {
+                                pl.dirty = true;
+                            }
+                            continue;
+                        }
                         ac_world::Applied::Created
                         | ac_world::Applied::Deleted
-                        | ac_world::Applied::Stats => continue,
+                        | ac_world::Applied::Stats
+                        | ac_world::Applied::Inventory => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
                         ac_world::Applied::Ignored => {}
                     }
@@ -579,7 +664,12 @@ impl App {
                         }
                         opcode::GAME_EVENT => {
                             if let Some((_, _, ev, rest)) = messages::split_game_event(body) {
-                                if ev == ac_net::messages::event::USE_DONE && rest.len() >= 4 {
+                                if ev == 0x00A0 && rest.len() >= 8 {
+                                    let err =
+                                        u32::from_le_bytes([rest[4], rest[5], rest[6], rest[7]]);
+                                    tracing::warn!("inventory action failed, error {err:#x}");
+                                } else if ev == ac_net::messages::event::USE_DONE && rest.len() >= 4
+                                {
                                     let err =
                                         u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
                                     tracing::debug!("use done, error {err:#x}");
@@ -597,6 +687,14 @@ impl App {
             self.chat_message(op, &body);
         }
         self.send_chat();
+        let activated: Vec<u32> = self
+            .ui
+            .as_mut()
+            .map(|u| std::mem::take(&mut u.activated))
+            .unwrap_or_default();
+        for guid in activated {
+            self.interact(guid);
+        }
         let Some(net) = self.net.as_mut() else { return };
         // Build the static scene once the player is placed.
         if net.scene_block.is_none() {
@@ -871,6 +969,12 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     if typing {
+                        return;
+                    }
+                    if code == KeyCode::KeyI && event.state == ElementState::Pressed {
+                        if let Some(ui) = &mut self.ui {
+                            ui.show_inventory = !ui.show_inventory;
+                        }
                         return;
                     }
                     if code == KeyCode::Enter

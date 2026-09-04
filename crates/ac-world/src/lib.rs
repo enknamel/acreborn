@@ -8,7 +8,8 @@ pub mod stats;
 
 use std::collections::HashMap;
 
-use ac_net::messages::{self, opcode};
+use ac_net::messages::{self, event, opcode};
+use ac_net::wire::Reader;
 use glam::{Mat4, Quat, Vec3};
 
 pub use object::{MoveTarget, MovementEvent, ObjectCreate, Position};
@@ -37,8 +38,28 @@ impl Default for Motion {
 /// One object the server has placed in the world.
 pub mod object_desc_flags {
     pub const OPENABLE: u32 = 0x0000_0001;
+    /// Cannot be picked up (NPCs, doors, signs, furniture).
+    pub const STUCK: u32 = 0x0000_0004;
     pub const PLAYER: u32 = 0x0000_0008;
+    pub const ATTACKABLE: u32 = 0x0000_0010;
+    pub const VENDOR: u32 = 0x0000_0200;
     pub const DOOR: u32 = 0x0000_1000;
+    pub const CORPSE: u32 = 0x0000_2000;
+    pub const PORTAL: u32 = 0x0004_0000;
+}
+
+/// ItemType bits.
+pub mod item_type {
+    pub const MELEE_WEAPON: u32 = 0x1;
+    pub const ARMOR: u32 = 0x2;
+    pub const CLOTHING: u32 = 0x4;
+    pub const JEWELRY: u32 = 0x8;
+    pub const CREATURE: u32 = 0x10;
+    pub const MISSILE_WEAPON: u32 = 0x100;
+    pub const CONTAINER: u32 = 0x200;
+    pub const CASTER: u32 = 0x8000;
+    /// Item types that go on the body: wield them rather than use them.
+    pub const WIELDABLE: u32 = MELEE_WEAPON | ARMOR | CLOTHING | JEWELRY | MISSILE_WEAPON | CASTER;
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +79,15 @@ pub struct WorldObject {
     pub is_player: bool,
     /// ObjectDescriptionFlag bits (0x8 = another player, 0x1000 = door...).
     pub object_desc_flags: u32,
+    pub item_type: u32,
+    pub icon_id: u32,
+    pub stack_size: u32,
+    /// Container holding this item (a pack, or a creature's inventory).
+    pub container: Option<u32>,
+    /// Creature wielding this item.
+    pub wielder: Option<u32>,
+    pub valid_locations: u32,
+    pub wielded_location: u32,
     pub palette_id: u32,
     pub sub_palettes: Vec<(u32, u8, u8)>,
     pub texture_changes: Vec<(u8, u32, u32)>,
@@ -123,6 +153,10 @@ pub enum Applied {
     PlayerSet,
     /// Name, level, attributes or vitals changed.
     Stats,
+    /// An item moved between the world, a container and a wielder.
+    Inventory,
+    /// An object's look changed (equipment).
+    Appearance,
     Ignored,
     Failed,
 }
@@ -134,6 +168,22 @@ impl World {
 
     pub fn player_mut(&mut self) -> Option<&mut WorldObject> {
         self.objects.get_mut(&self.player_guid?)
+    }
+
+    /// Items in the player's own inventory (top-level pack contents).
+    pub fn inventory(&self) -> impl Iterator<Item = &WorldObject> {
+        let me = self.player_guid;
+        self.objects
+            .values()
+            .filter(move |o| me.is_some() && o.container == me)
+    }
+
+    /// Items the player is wielding.
+    pub fn wielded(&self) -> impl Iterator<Item = &WorldObject> {
+        let me = self.player_guid;
+        self.objects
+            .values()
+            .filter(move |o| me.is_some() && o.wielder == me)
     }
 
     pub fn apply(&mut self, msg: &[u8]) -> Applied {
@@ -156,6 +206,13 @@ impl World {
                         no_draw: oc.no_draw,
                         is_player,
                         object_desc_flags: oc.object_desc_flags,
+                        item_type: oc.item_type,
+                        icon_id: oc.icon_id,
+                        stack_size: oc.stack_size,
+                        container: oc.container,
+                        wielder: oc.wielder,
+                        valid_locations: oc.valid_locations,
+                        wielded_location: oc.wielded_location,
                         palette_id: oc.palette_id,
                         sub_palettes: oc.sub_palettes,
                         texture_changes: oc.texture_changes,
@@ -261,6 +318,95 @@ impl World {
                     }
                 }
                 Applied::Ignored
+            }
+            opcode::GAME_EVENT => match messages::split_game_event(body) {
+                Some((_, _, event::INVENTORY_PUT_OBJ_IN_CONTAINER, rest)) => {
+                    let mut r = Reader::new(rest);
+                    match (r.u32(), r.u32(), r.u32()) {
+                        (Ok(item), Ok(container), Ok(_placement)) => {
+                            if let Some(o) = self.objects.get_mut(&item) {
+                                o.container = Some(container);
+                                o.wielder = None;
+                                o.wielded_location = 0;
+                                o.position = None;
+                                o.display = None;
+                                o.parent = Some(container);
+                                self.generation += 1;
+                            }
+                            Applied::Inventory
+                        }
+                        _ => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::WIELD_OBJECT, rest)) => {
+                    let mut r = Reader::new(rest);
+                    match (r.u32(), r.u32()) {
+                        (Ok(item), Ok(location)) => {
+                            if let Some(o) = self.objects.get_mut(&item) {
+                                o.wielder = self.player_guid;
+                                o.wielded_location = location;
+                                o.container = None;
+                                o.position = None;
+                                o.display = None;
+                                o.parent = self.player_guid;
+                                self.generation += 1;
+                            }
+                            Applied::Inventory
+                        }
+                        _ => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::INVENTORY_PUT_OBJECT_IN_3D, rest)) => {
+                    if let Ok(item) = Reader::new(rest).u32() {
+                        if let Some(o) = self.objects.get_mut(&item) {
+                            o.container = None;
+                            o.wielder = None;
+                            o.parent = None;
+                            self.generation += 1;
+                        }
+                    }
+                    Applied::Inventory
+                }
+                _ if self.stats.apply(op, body) => Applied::Stats,
+                _ => Applied::Ignored,
+            },
+            opcode::OBJ_DESC_EVENT => match object::ObjDescEvent::parse(body) {
+                Ok(ev) => {
+                    if let Some(o) = self.objects.get_mut(&ev.guid) {
+                        o.palette_id = ev.desc.palette_id;
+                        o.sub_palettes = ev.desc.sub_palettes;
+                        o.texture_changes = ev.desc.texture_changes;
+                        o.anim_part_changes = ev.desc.anim_part_changes;
+                        self.generation += 1;
+                        Applied::Appearance
+                    } else {
+                        Applied::Ignored
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("ObjDescEvent: {e}");
+                    Applied::Failed
+                }
+            },
+            opcode::PUBLIC_UPDATE_INSTANCE_ID => {
+                let mut r = Reader::new(body);
+                let _seq = r.u8();
+                match (r.u32(), r.u32(), r.u32()) {
+                    (Ok(guid), Ok(prop), Ok(value)) => {
+                        if let Some(o) = self.objects.get_mut(&guid) {
+                            let v = (value != 0).then_some(value);
+                            match prop {
+                                2 => o.container = v,
+                                3 => o.wielder = v,
+                                _ => {}
+                            }
+                            o.parent = o.wielder.or(o.container);
+                            self.generation += 1;
+                        }
+                        Applied::Inventory
+                    }
+                    _ => Applied::Failed,
+                }
             }
             _ if self.stats.apply(op, body) => Applied::Stats,
             _ => Applied::Ignored,

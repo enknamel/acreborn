@@ -151,7 +151,80 @@ pub struct ObjectCreate {
     pub weenie_flags: u32,
     pub container: Option<u32>,
     pub wielder: Option<u32>,
+    pub stack_size: u32,
+    /// EquipMask bits the item can be wielded in.
+    pub valid_locations: u32,
+    pub wielded_location: u32,
     pub no_draw: bool,
+}
+
+/// The ObjDesc block: palette, texture and part swaps that dress a model.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ObjDesc {
+    pub palette_id: u32,
+    pub sub_palettes: Vec<(u32, u8, u8)>,
+    pub texture_changes: Vec<(u8, u32, u32)>,
+    pub anim_part_changes: Vec<(u8, u32)>,
+}
+
+impl ObjDesc {
+    pub fn parse(r: &mut Reader) -> Result<Self> {
+        let _eleven = r.u8()?;
+        let n_pal = r.u8()? as usize;
+        let n_tex = r.u8()? as usize;
+        let n_parts = r.u8()? as usize;
+        let palette_id = if n_pal > 0 {
+            packed_of_type(r, 0x0400_0000)?
+        } else {
+            0
+        };
+        let mut sub_palettes = Vec::with_capacity(n_pal);
+        for _ in 0..n_pal {
+            sub_palettes.push((packed_of_type(r, 0x0400_0000)?, r.u8()?, r.u8()?));
+        }
+        let mut texture_changes = Vec::with_capacity(n_tex);
+        for _ in 0..n_tex {
+            texture_changes.push((
+                r.u8()?,
+                packed_of_type(r, 0x0500_0000)?,
+                packed_of_type(r, 0x0500_0000)?,
+            ));
+        }
+        let mut anim_part_changes = Vec::with_capacity(n_parts);
+        for _ in 0..n_parts {
+            anim_part_changes.push((r.u8()?, packed_of_type(r, 0x0100_0000)?));
+        }
+        r.align4()?;
+        Ok(ObjDesc {
+            palette_id,
+            sub_palettes,
+            texture_changes,
+            anim_part_changes,
+        })
+    }
+}
+
+/// ObjDescEvent (0xF625): an object's new look after (un)equipping.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ObjDescEvent {
+    pub guid: u32,
+    pub desc: ObjDesc,
+    pub instance_seq: u16,
+    pub visual_seq: u16,
+}
+
+impl ObjDescEvent {
+    pub fn parse(body: &[u8]) -> Result<Self> {
+        let mut r = Reader::new(body);
+        let guid = r.u32()?;
+        let desc = ObjDesc::parse(&mut r)?;
+        Ok(ObjDescEvent {
+            guid,
+            desc,
+            instance_seq: r.u16()?,
+            visual_seq: r.u16()?,
+        })
+    }
 }
 
 impl ObjectCreate {
@@ -160,32 +233,12 @@ impl ObjectCreate {
         let guid = r.u32()?;
 
         // Model data (ObjDesc).
-        let _eleven = r.u8()?;
-        let n_pal = r.u8()? as usize;
-        let n_tex = r.u8()? as usize;
-        let n_parts = r.u8()? as usize;
-        let palette_id = if n_pal > 0 {
-            packed_of_type(&mut r, 0x0400_0000)?
-        } else {
-            0
-        };
-        let mut sub_palettes = Vec::with_capacity(n_pal);
-        for _ in 0..n_pal {
-            sub_palettes.push((packed_of_type(&mut r, 0x0400_0000)?, r.u8()?, r.u8()?));
-        }
-        let mut texture_changes = Vec::with_capacity(n_tex);
-        for _ in 0..n_tex {
-            texture_changes.push((
-                r.u8()?,
-                packed_of_type(&mut r, 0x0500_0000)?,
-                packed_of_type(&mut r, 0x0500_0000)?,
-            ));
-        }
-        let mut anim_part_changes = Vec::with_capacity(n_parts);
-        for _ in 0..n_parts {
-            anim_part_changes.push((r.u8()?, packed_of_type(&mut r, 0x0100_0000)?));
-        }
-        r.align4()?;
+        let ObjDesc {
+            palette_id,
+            sub_palettes,
+            texture_changes,
+            anim_part_changes,
+        } = ObjDesc::parse(&mut r)?;
 
         // Physics data.
         use physics_flags::*;
@@ -323,9 +376,11 @@ impl ObjectCreate {
         if weenie_flags & MAX_STRUCTURE != 0 {
             r.u16()?;
         }
-        if weenie_flags & STACK_SIZE != 0 {
-            r.u16()?;
-        }
+        let stack_size = if weenie_flags & STACK_SIZE != 0 {
+            r.u16()? as u32
+        } else {
+            1
+        };
         if weenie_flags & MAX_STACK_SIZE != 0 {
             r.u16()?;
         }
@@ -339,12 +394,16 @@ impl ObjectCreate {
         } else {
             None
         };
-        if weenie_flags & VALID_LOCATIONS != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & CURRENTLY_WIELDED_LOCATION != 0 {
-            r.u32()?;
-        }
+        let valid_locations = if weenie_flags & VALID_LOCATIONS != 0 {
+            r.u32()?
+        } else {
+            0
+        };
+        let wielded_location = if weenie_flags & CURRENTLY_WIELDED_LOCATION != 0 {
+            r.u32()?
+        } else {
+            0
+        };
         if weenie_flags & PRIORITY != 0 {
             r.u32()?;
         }
@@ -428,6 +487,9 @@ impl ObjectCreate {
             weenie_flags,
             container,
             wielder,
+            stack_size,
+            valid_locations,
+            wielded_location,
             no_draw: physics_state & (PHYSICS_STATE_NO_DRAW | PHYSICS_STATE_HIDDEN) != 0,
         })
     }
