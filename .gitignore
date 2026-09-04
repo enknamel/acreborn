@@ -10,3 +10,6 @@
 *.exe
 .DS_Store
 /reference/ace-run/
+
+# agent worktrees
+.claude/worktrees/

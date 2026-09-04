@@ -175,6 +175,7 @@ impl Session {
             iteration: 0,
             ..Default::default()
         };
+        tracing::debug!("-> LoginRequest for {}", self.cfg.account);
         self.outgoing
             .push((Port::Primary, packet::build(h, &body, &[], 0)));
         self.state = State::LoginSent;

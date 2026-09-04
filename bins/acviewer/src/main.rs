@@ -1203,6 +1203,9 @@ fn main() -> Result<()> {
             let mut listed = false;
             loop {
                 app.tick_net(&mut gpu);
+                // No frames are presented headlessly, so recycle GPU
+                // staging buffers here or they pile up for the final poll.
+                let _ = gpu.device().poll(wgpu::PollType::Poll);
                 let placed = app
                     .net
                     .as_ref()
