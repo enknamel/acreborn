@@ -208,6 +208,13 @@ fn describe(msg: &[u8]) -> String {
                 .unwrap_or(0)
         ),
         opcode::UPDATE_POSITION => "UpdatePosition".into(),
+        opcode::MOVEMENT_EVENT => match ac_world::MovementEvent::parse(body) {
+            Ok(ev) => format!(
+                "MovementEvent guid={:#010x} type={} forward={:#x} target={:?}",
+                ev.guid, ev.movement_type, ev.forward, ev.target
+            ),
+            Err(e) => format!("MovementEvent (bad: {e})"),
+        },
         opcode::GAME_EVENT => match messages::split_game_event(body) {
             Some((guid, seq, ev, rest)) => format!(
                 "GameEvent {ev:#06x} guid={guid:#010x} seq={seq} ({} bytes)",
@@ -355,10 +362,7 @@ fn main() -> Result<()> {
                             session.send_action(messages::action::LOGIN_COMPLETE, &[]);
                         }
                         ac_world::Applied::Moved => {
-                            tracing::info!(
-                                "<- UpdatePosition applied ({} objects)",
-                                world.objects.len()
-                            );
+                            tracing::info!("<- {} (applied)", describe(&msg));
                             continue;
                         }
                         ac_world::Applied::Failed => {
@@ -436,7 +440,7 @@ fn main() -> Result<()> {
                             }
                         }
                     }
-                    let Some((op, body)) = messages::split(&msg) else {
+                    let Some((op, _body)) = messages::split(&msg) else {
                         continue;
                     };
                     match op {

@@ -479,3 +479,158 @@ impl UpdatePosition {
         })
     }
 }
+
+/// Motion commands relevant to remote animation.
+pub mod motion_cmd {
+    pub const READY: u32 = 0x4100_0003;
+    pub const WALK_FORWARD: u32 = 0x4500_0005;
+    pub const RUN_FORWARD: u32 = 0x4400_0007;
+}
+
+/// A movement target from a MoveTo* movement.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MoveTarget {
+    Position { cell: u32, local: Vec3 },
+    Object(u32),
+}
+
+/// MovementEvent (0xF74C, "UpdateMotion"): the server's description of what
+/// an object is doing: its stance and forward/sidestep/turn commands, or a
+/// move-to / turn-to instruction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MovementEvent {
+    pub guid: u32,
+    pub instance_seq: u16,
+    pub movement_seq: u16,
+    pub autonomous: bool,
+    pub movement_type: u8,
+    pub motion_flags: u8,
+    /// Stance (low 16 bits of the MotionStance id).
+    pub style: u16,
+    pub forward: u32,
+    pub forward_speed: f32,
+    pub sidestep: u32,
+    pub sidestep_speed: f32,
+    pub turn: u32,
+    pub turn_speed: f32,
+    /// One-shot motions (emotes, attacks): (command, sequence, speed).
+    pub commands: Vec<(u16, u16, f32)>,
+    pub target: Option<MoveTarget>,
+    pub run_rate: f32,
+    pub desired_heading: Option<f32>,
+}
+
+impl MovementEvent {
+    pub fn parse(body: &[u8]) -> Result<Self> {
+        let mut r = Reader::new(body);
+        let guid = r.u32()?;
+        let instance_seq = r.u16()?;
+        let movement_seq = r.u16()?;
+        let _server_control_seq = r.u16()?;
+        let autonomous = r.u8()? != 0;
+        r.align4()?;
+        let movement_type = r.u8()?;
+        let motion_flags = r.u8()?;
+        let style = r.u16()?;
+        let mut ev = MovementEvent {
+            guid,
+            instance_seq,
+            movement_seq,
+            autonomous,
+            movement_type,
+            motion_flags,
+            style,
+            forward: motion_cmd::READY,
+            forward_speed: 1.0,
+            sidestep: 0,
+            sidestep_speed: 1.0,
+            turn: 0,
+            turn_speed: 1.0,
+            commands: Vec::new(),
+            target: None,
+            run_rate: 1.0,
+            desired_heading: None,
+        };
+        let move_params = |r: &mut Reader| -> Result<(u32, f32)> {
+            let flags = r.u32()?;
+            let _dist = r.f32()?;
+            let _min = r.f32()?;
+            let _fail = r.f32()?;
+            let _speed = r.f32()?;
+            let _threshold = r.f32()?;
+            let heading = r.f32()?;
+            Ok((flags, heading))
+        };
+        let turn_params = |r: &mut Reader| -> Result<f32> {
+            let _flags = r.u32()?;
+            let _speed = r.f32()?;
+            Ok(r.f32()?)
+        };
+        match movement_type {
+            0 => {
+                // InterpretedMotionState
+                let packed = r.u32()?;
+                let flags = packed & 0x7F;
+                let n_cmds = (packed >> 7) as usize;
+                if flags & 0x1 != 0 {
+                    ev.style = r.u16()?;
+                }
+                if flags & 0x2 != 0 {
+                    ev.forward = r.u16()? as u32;
+                }
+                if flags & 0x8 != 0 {
+                    ev.sidestep = r.u16()? as u32;
+                }
+                if flags & 0x20 != 0 {
+                    ev.turn = r.u16()? as u32;
+                }
+                if flags & 0x4 != 0 {
+                    ev.forward_speed = r.f32()?;
+                }
+                if flags & 0x10 != 0 {
+                    ev.sidestep_speed = r.f32()?;
+                }
+                if flags & 0x40 != 0 {
+                    ev.turn_speed = r.f32()?;
+                }
+                for _ in 0..n_cmds {
+                    ev.commands.push((r.u16()?, r.u16()?, r.f32()?));
+                }
+                r.align4()?;
+                if motion_flags & 0x1 != 0 {
+                    let _sticky = r.u32()?;
+                }
+            }
+            6 => {
+                let target = r.u32()?;
+                let _cell = r.u32()?;
+                let _origin = Vec3::new(r.f32()?, r.f32()?, r.f32()?);
+                let (_, heading) = move_params(&mut r)?;
+                ev.run_rate = r.f32()?;
+                ev.target = Some(MoveTarget::Object(target));
+                ev.desired_heading = Some(heading);
+                ev.forward = motion_cmd::RUN_FORWARD;
+            }
+            7 => {
+                let cell = r.u32()?;
+                let local = Vec3::new(r.f32()?, r.f32()?, r.f32()?);
+                let (_, heading) = move_params(&mut r)?;
+                ev.run_rate = r.f32()?;
+                ev.target = Some(MoveTarget::Position { cell, local });
+                ev.desired_heading = Some(heading);
+                ev.forward = motion_cmd::RUN_FORWARD;
+            }
+            8 => {
+                let target = r.u32()?;
+                let _heading_of_target = r.f32()?;
+                ev.desired_heading = Some(turn_params(&mut r)?);
+                ev.target = Some(MoveTarget::Object(target));
+            }
+            9 => {
+                ev.desired_heading = Some(turn_params(&mut r)?);
+            }
+            _ => {}
+        }
+        Ok(ev)
+    }
+}

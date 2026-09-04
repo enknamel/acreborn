@@ -10,7 +10,28 @@ use std::collections::HashMap;
 use ac_net::messages::{self, opcode};
 use glam::{Mat4, Quat, Vec3};
 
-pub use object::{ObjectCreate, Position};
+pub use object::{MoveTarget, MovementEvent, ObjectCreate, Position};
+
+/// What an object is currently doing, for animation and prediction.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Motion {
+    /// Forward motion command (Ready, WalkForward, RunForward, ...).
+    pub forward: u32,
+    pub forward_speed: f32,
+    pub style: u16,
+    pub run_rate: f32,
+}
+
+impl Default for Motion {
+    fn default() -> Self {
+        Motion {
+            forward: object::motion_cmd::READY,
+            forward_speed: 1.0,
+            style: 0,
+            run_rate: 1.0,
+        }
+    }
+}
 
 /// One object the server has placed in the world.
 #[derive(Debug, Clone)]
@@ -32,18 +53,30 @@ pub struct WorldObject {
     pub sub_palettes: Vec<(u32, u8, u8)>,
     pub texture_changes: Vec<(u8, u32, u32)>,
     pub anim_part_changes: Vec<(u8, u32)>,
+    pub motion: Motion,
+    /// Where the object is being drawn: eases toward `position` so
+    /// server updates don't snap.
+    pub display: Option<Position>,
+    /// Server-issued move-to target, predicted locally until an update.
+    pub target: Option<MoveTarget>,
 }
 
 impl WorldObject {
     /// World-space transform (landblock origin + local frame), if placed.
+    /// Uses the smoothed display position when available.
     pub fn transform(&self) -> Option<Mat4> {
-        let p = self.position?;
+        let p = self.display.or(self.position)?;
         let origin = landblock_origin(p.cell);
         Some(Mat4::from_scale_rotation_translation(
             Vec3::splat(self.scale),
             p.rotation,
             origin + p.local,
         ))
+    }
+
+    pub fn world_pos(&self) -> Option<Vec3> {
+        let p = self.position?;
+        Some(landblock_origin(p.cell) + p.local)
     }
 }
 
@@ -113,6 +146,9 @@ impl World {
                         sub_palettes: oc.sub_palettes,
                         texture_changes: oc.texture_changes,
                         anim_part_changes: oc.anim_part_changes,
+                        motion: Motion::default(),
+                        display: oc.position,
+                        target: None,
                     };
                     self.objects.insert(obj.guid, obj);
                     self.generation += 1;
@@ -161,6 +197,11 @@ impl World {
                             );
                         }
                         o.position = Some(up.position);
+                        if o.display.is_none() {
+                            o.display = Some(up.position);
+                        }
+                        // The server's own position supersedes local prediction.
+                        o.target = None;
                         self.generation += 1;
                         Applied::Moved
                     } else {
@@ -169,6 +210,31 @@ impl World {
                 }
                 Err(e) => {
                     tracing::warn!("UpdatePosition: {e}");
+                    Applied::Failed
+                }
+            },
+            opcode::MOVEMENT_EVENT => match MovementEvent::parse(body) {
+                Ok(ev) => {
+                    let Some(o) = self.objects.get_mut(&ev.guid) else {
+                        return Applied::Ignored;
+                    };
+                    o.motion = Motion {
+                        forward: ev.forward,
+                        forward_speed: ev.forward_speed,
+                        style: ev.style,
+                        run_rate: ev.run_rate,
+                    };
+                    o.target = ev.target;
+                    if let (Some(h), Some(p)) = (ev.desired_heading, o.position.as_mut()) {
+                        if !matches!(ev.target, Some(MoveTarget::Position { .. })) {
+                            p.rotation = heading_quat(h);
+                        }
+                    }
+                    self.generation += 1;
+                    Applied::Moved
+                }
+                Err(e) => {
+                    tracing::warn!("MovementEvent: {e}");
                     Applied::Failed
                 }
             },
@@ -186,6 +252,72 @@ impl World {
         }
     }
 
+    /// Advance smoothing and local prediction by `dt` seconds. Returns true
+    /// if any drawn object moved.
+    pub fn tick(&mut self, dt: f32) -> bool {
+        let mut moved = false;
+        let player = self.player_guid;
+        for o in self.objects.values_mut() {
+            if Some(o.guid) == player {
+                continue;
+            }
+            let Some(mut pos) = o.position else { continue };
+            // Predict move-to-position: walk toward the target at the
+            // motion's speed until the server says otherwise.
+            if let Some(MoveTarget::Position { cell, local }) = o.target {
+                let here = landblock_origin(pos.cell) + pos.local;
+                let there = landblock_origin(cell) + local;
+                let d = there - here;
+                let flat = Vec3::new(d.x, d.y, 0.0);
+                let dist = flat.length();
+                if dist > 0.05 {
+                    // Events carry only the low 16 bits of a motion command.
+                    let running =
+                        o.motion.forward & 0xFFFF == object::motion_cmd::RUN_FORWARD & 0xFFFF;
+                    let base = if running { 6.0 } else { 2.5 };
+                    let speed = base * o.motion.run_rate.max(0.1);
+                    let step = (speed * dt).min(dist);
+                    let dir = flat / dist;
+                    let next = here + dir * step + Vec3::new(0.0, 0.0, d.z * (step / dist));
+                    pos.local = next - landblock_origin(pos.cell);
+                    pos.rotation = heading_quat_from_dir(dir);
+                    o.position = Some(pos);
+                } else {
+                    o.target = None;
+                    o.motion.forward = object::motion_cmd::READY;
+                }
+            }
+            // Ease the display toward the authoritative position.
+            let disp = o.display.get_or_insert(pos);
+            let a = landblock_origin(disp.cell) + disp.local;
+            let b = landblock_origin(pos.cell) + pos.local;
+            let gap = b - a;
+            let dist = gap.length();
+            if dist > 0.001 {
+                // Snap for teleports, ease otherwise (reach the target in ~0.25 s).
+                let t = if dist > 15.0 {
+                    1.0
+                } else {
+                    (dt / 0.25).min(1.0)
+                };
+                let np = a + gap * t;
+                *disp = Position {
+                    cell: pos.cell,
+                    local: np - landblock_origin(pos.cell),
+                    rotation: disp.rotation.slerp(pos.rotation, t),
+                };
+                moved = true;
+            } else if disp.rotation != pos.rotation {
+                disp.rotation = disp.rotation.slerp(pos.rotation, (dt / 0.25).min(1.0));
+                moved = true;
+            }
+        }
+        if moved {
+            self.generation += 1;
+        }
+        moved
+    }
+
     /// Objects that have a world position and a model.
     pub fn drawable(&self) -> impl Iterator<Item = &WorldObject> {
         self.objects
@@ -197,4 +329,14 @@ impl World {
 /// Convenience for callers building a camera.
 pub fn quat_forward(q: Quat) -> Vec3 {
     q * Vec3::Y
+}
+
+/// Client heading (degrees, 0 = north, clockwise) to an orientation.
+pub fn heading_quat(deg: f32) -> Quat {
+    Quat::from_rotation_z(-deg.to_radians())
+}
+
+/// Orientation facing a horizontal direction.
+pub fn heading_quat_from_dir(dir: Vec3) -> Quat {
+    Quat::from_rotation_z((-dir.x).atan2(dir.y))
 }

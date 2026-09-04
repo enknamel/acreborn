@@ -312,10 +312,12 @@ pub fn push_model(
 }
 
 /// Batches for the objects a server has placed (players, NPCs, items).
-/// Idle animation state for a server object.
+/// Animation state for a server object: the cycle for its current motion.
 pub struct ObjectAnim {
     pub player: Option<ac_scene::anim::AnimPlayer>,
     pub n_parts: usize,
+    /// Forward motion command the current cycle was chosen for.
+    pub motion: u32,
 }
 
 /// Look up (and cache) the idle cycle for an object's motion table.
@@ -326,10 +328,12 @@ pub fn object_anim(
 ) -> ObjectAnim {
     use ac_scene::anim::{motion, AnimPlayer};
     let n_parts = assets.setup(o.setup_id).map(|s| s.parts.len()).unwrap_or(0);
+    let wanted = o.motion.forward;
     if o.motion_table_id == 0 {
         return ObjectAnim {
             player: None,
             n_parts,
+            motion: wanted,
         };
     }
     let table = tables
@@ -337,10 +341,23 @@ pub fn object_anim(
         .or_insert_with(|| ac_scene::anim::motion_table(assets, o.motion_table_id).ok());
     let player = table.as_ref().and_then(|t| {
         let style = t.default_style;
-        let idle = t.default_motion(style).unwrap_or(motion::READY);
-        AnimPlayer::cycle(assets, t, style, idle)
+        // Ready plays the table's default motion for its style (idle).
+        // Movement events carry only the low 16 bits of a command.
+        let m = if wanted & 0xFFFF == motion::READY & 0xFFFF || wanted == 0 {
+            t.default_motion(style).unwrap_or(motion::READY)
+        } else {
+            wanted
+        };
+        AnimPlayer::cycle(assets, t, style, m).or_else(|| {
+            let idle = t.default_motion(style).unwrap_or(motion::READY);
+            AnimPlayer::cycle(assets, t, style, idle)
+        })
     });
-    ObjectAnim { player, n_parts }
+    ObjectAnim {
+        player,
+        n_parts,
+        motion: wanted,
+    }
 }
 
 /// Batches for the objects a server has placed (players, NPCs, items).
@@ -358,9 +375,14 @@ pub fn build_objects(
     for o in world.drawable().filter(|o| !o.is_player) {
         let Some(t) = o.transform() else { continue };
         let (app, key) = appearance_of(assets, o, palettes);
-        let anim = anims
-            .entry(o.guid)
-            .or_insert_with(|| object_anim(assets, o, tables));
+        let stale = anims
+            .get(&o.guid)
+            .map(|a| a.motion != o.motion.forward)
+            .unwrap_or(true);
+        if stale {
+            anims.insert(o.guid, object_anim(assets, o, tables));
+        }
+        let anim = anims.get_mut(&o.guid).unwrap();
         let pose = anim.player.as_mut().map(|p| {
             p.advance(dt);
             p.part_transforms(anim.n_parts)

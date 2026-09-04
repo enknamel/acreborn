@@ -324,6 +324,7 @@ impl App {
                 net.scene_block = Some(block);
             }
         }
+        net.world.tick(self.frame_dt);
         let changed = net.world.generation != net.last_generation;
         let animate = scene::any_animated(&net.anims)
             && net.last_anim_refresh.elapsed() > Duration::from_millis(66);
