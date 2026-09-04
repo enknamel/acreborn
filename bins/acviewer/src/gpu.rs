@@ -77,7 +77,7 @@ struct DrawBatch {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
     index_count: u32,
-    bind_group: wgpu::BindGroup,
+    bind_group: std::rc::Rc<wgpu::BindGroup>,
 }
 
 pub struct Gpu {
@@ -94,6 +94,9 @@ pub struct Gpu {
     batches: Vec<DrawBatch>,
     dynamic: Vec<DrawBatch>,
     player: Vec<DrawBatch>,
+    /// Uploaded materials by key: decoded and mip-mapped once, shared by
+    /// every batch that uses them.
+    materials: std::cell::RefCell<HashMap<MaterialKey, std::rc::Rc<wgpu::BindGroup>>>,
 }
 
 impl Gpu {
@@ -263,6 +266,7 @@ impl Gpu {
             batches: Vec::new(),
             dynamic: Vec::new(),
             player: Vec::new(),
+            materials: Default::default(),
         })
     }
 
@@ -432,22 +436,30 @@ impl Gpu {
             if b.indices.is_empty() {
                 continue;
             }
-            let img = match key {
-                MaterialKey::Solid(argb) => Rgba {
-                    width: 1,
-                    height: 1,
-                    pixels: vec![(argb >> 16) as u8, (argb >> 8) as u8, argb as u8, 255],
-                },
-                MaterialKey::Texture { .. } => match materials(key) {
-                    Some(i) => i,
-                    None => Rgba {
-                        width: 1,
-                        height: 1,
-                        pixels: vec![255, 0, 255, 255],
-                    },
-                },
+            let cached = self.materials.borrow().get(&key).cloned();
+            let bind_group = match cached {
+                Some(bg) => bg,
+                None => {
+                    let img = match key {
+                        MaterialKey::Solid(argb) => Rgba {
+                            width: 1,
+                            height: 1,
+                            pixels: vec![(argb >> 16) as u8, (argb >> 8) as u8, argb as u8, 255],
+                        },
+                        MaterialKey::Texture { .. } => match materials(key) {
+                            Some(i) => i,
+                            None => Rgba {
+                                width: 1,
+                                height: 1,
+                                pixels: vec![255, 0, 255, 255],
+                            },
+                        },
+                    };
+                    let bg = std::rc::Rc::new(self.make_material(&img));
+                    self.materials.borrow_mut().insert(key, bg.clone());
+                    bg
+                }
             };
-            let bind_group = self.make_material(&img);
             let vertex_buf = self
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -615,7 +627,7 @@ impl Gpu {
                 .chain(self.dynamic.iter())
                 .chain(self.player.iter())
             {
-                pass.set_bind_group(1, &b.bind_group, &[]);
+                pass.set_bind_group(1, &*b.bind_group, &[]);
                 pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
                 pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..b.index_count, 0, 0..1);

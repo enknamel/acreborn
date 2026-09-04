@@ -620,6 +620,8 @@ fn main() -> Result<()> {
             let deadline = Instant::now() + Duration::from_secs(40);
             let mut settled_at: Option<Instant> = None;
             let mut last_tick = Instant::now();
+            let mut ticks = 0u32;
+            let mut ticks_since = Instant::now();
             loop {
                 app.tick_net(&mut gpu);
                 let placed = app
@@ -639,6 +641,12 @@ fn main() -> Result<()> {
                     }
                     app.frame_dt = last_tick.elapsed().as_secs_f32().min(0.1);
                     last_tick = Instant::now();
+                    ticks += 1;
+                    if ticks_since.elapsed() >= Duration::from_secs(1) {
+                        tracing::info!("{ticks} ticks/s (frame work incl. player rebuild)");
+                        ticks = 0;
+                        ticks_since = Instant::now();
+                    }
                     // Capture while still walking so the walk pose is visible,
                     // or after a short settle when not walking.
                     let done = if app.cli.walk > 0.0 {
@@ -653,7 +661,7 @@ fn main() -> Result<()> {
                 if Instant::now() > deadline {
                     anyhow::bail!("timed out waiting for the player to be placed");
                 }
-                std::thread::sleep(Duration::from_millis(10));
+                std::thread::sleep(Duration::from_millis(1));
             }
         }
         if let Some(c) = &app.cli.camera {
