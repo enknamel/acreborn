@@ -8,6 +8,7 @@
 
 mod camera;
 mod gpu;
+mod player;
 mod scene;
 
 use std::collections::HashSet;
@@ -52,6 +53,9 @@ struct Cli {
     /// Render one frame to this PNG and exit (no window)
     #[arg(long)]
     screenshot: Option<PathBuf>,
+    /// With --connect --screenshot: walk forward for this many seconds first
+    #[arg(long, default_value_t = 0.0)]
+    walk: f32,
     /// Camera override for --screenshot: x,y,z,yaw_deg,pitch_deg
     #[arg(long)]
     camera: Option<String>,
@@ -66,11 +70,15 @@ struct Net {
     world: ac_world::World,
     assets: ac_scene::Assets,
     characters: Vec<ac_net::messages::CharacterEntry>,
+    characters_known: bool,
+    ddd_done: bool,
     enter_requested: bool,
     /// Landblock the static scene is built around, once the player is placed.
     scene_block: Option<u32>,
     last_generation: u64,
     mesh_cache: std::collections::HashMap<u32, ac_scene::model::Mesh>,
+    player: Option<player::Player>,
+    player_setup: u32,
 }
 
 struct App {
@@ -78,6 +86,7 @@ struct App {
     window: Option<Arc<Window>>,
     gpu: Option<gpu::Gpu>,
     net: Option<Net>,
+    frame_dt: f32,
     camera: camera::Camera,
     keys: HashSet<KeyCode>,
     looking: bool,
@@ -141,10 +150,14 @@ impl App {
             world: ac_world::World::default(),
             assets,
             characters: Vec::new(),
+            characters_known: false,
+            ddd_done: false,
             enter_requested: false,
             scene_block: None,
             last_generation: 0,
             mesh_cache: Default::default(),
+            player: None,
+            player_setup: 0,
         });
         Ok(())
     }
@@ -179,10 +192,15 @@ impl App {
                 Event::Terminated(why) => tracing::warn!("terminated: {why}"),
                 Event::Message(msg) => {
                     match net.world.apply(&msg) {
+                        ac_world::Applied::PlayerSet => {
+                            // The server ignores our positions until we say we landed.
+                            net.session
+                                .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
+                            continue;
+                        }
                         ac_world::Applied::Created
                         | ac_world::Applied::Moved
-                        | ac_world::Applied::Deleted
-                        | ac_world::Applied::PlayerSet => continue,
+                        | ac_world::Applied::Deleted => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
                         ac_world::Applied::Ignored => {}
                     }
@@ -197,9 +215,17 @@ impl App {
                                     cl.characters.iter().map(|c| &c.name).collect::<Vec<_>>()
                                 );
                                 net.characters = cl.characters;
+                                net.characters_known = true;
                             }
                         }
-                        opcode::DDD_END_DDD if !net.enter_requested => {
+                        opcode::DDD_END_DDD => net.ddd_done = true,
+                        _ => {}
+                    }
+                    let Some((op, _)) = messages::split(&msg) else {
+                        continue;
+                    };
+                    match op {
+                        _ if net.ddd_done && net.characters_known && !net.enter_requested => {
                             let pick = match &self.cli.character {
                                 Some(name) => net
                                     .characters
@@ -230,6 +256,20 @@ impl App {
                                     .send_message(queue::UI, messages::enter_world(c.id, &account));
                             }
                         }
+                        opcode::PLAYER_TELEPORT => {
+                            // After a server teleport, take the new position and
+                            // tell the server we landed.
+                            if let (Some(pl), Some(p)) = (
+                                net.player.as_mut(),
+                                net.world.player().and_then(|o| o.position),
+                            ) {
+                                pl.cell = p.cell;
+                                pl.local = p.local;
+                                pl.dirty = true;
+                            }
+                            net.session
+                                .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
+                        }
                         opcode::CHARACTER_ERROR | opcode::ACCOUNT_BOOT => {
                             tracing::error!("server refused: {}", op)
                         }
@@ -254,14 +294,18 @@ impl App {
                     }
                     Err(e) => tracing::error!("scene: {e:#}"),
                 }
-                let origin = ac_world::landblock_origin(p.cell);
-                let eye = origin + p.local + Vec3::new(0.0, 0.0, 1.7);
-                // Face the way the character faces (heading from the quaternion).
-                let fwd = p.rotation * Vec3::Y;
-                self.camera.position = eye - fwd * 3.0;
-                self.camera.yaw = (-fwd.x).atan2(fwd.y);
-                self.camera.pitch = -0.1;
-                self.camera.speed = 6.0;
+                net.player_setup = net
+                    .world
+                    .player()
+                    .map(|o| o.setup_id)
+                    .unwrap_or(0x0200_0001);
+                net.player = Some(player::Player::new(
+                    &net.assets,
+                    p.cell,
+                    p.local,
+                    p.rotation,
+                ));
+                self.camera.pitch = -0.15;
                 self.camera.far = 3000.0;
                 net.scene_block = Some(block);
             }
@@ -271,6 +315,55 @@ impl App {
             let batches = scene::build_objects(&net.assets, &net.world, &mut net.mesh_cache);
             let assets = &net.assets;
             gpu.set_dynamic(batches, |k| scene::material_image(assets, k));
+        }
+        // Player movement, camera, and reporting.
+        if let Some(pl) = net.player.as_mut() {
+            let input = player::Input {
+                forward: (self.keys.contains(&KeyCode::KeyW) as i8
+                    - self.keys.contains(&KeyCode::KeyS) as i8) as f32,
+                strafe: (self.keys.contains(&KeyCode::KeyD) as i8
+                    - self.keys.contains(&KeyCode::KeyA) as i8) as f32,
+                run: !self.keys.contains(&KeyCode::ShiftLeft),
+            };
+            let now = Instant::now();
+            let dt = self.frame_dt;
+            pl.update(&net.assets, &input, dt);
+            pl.report(&mut net.session, &input, now);
+            // Third-person camera behind the character.
+            let pos = pl.world_position();
+            let fwd = pl.forward();
+            let (sp, cp) = self.camera.pitch.sin_cos();
+            let back = Vec3::new(-fwd.x * cp, -fwd.y * cp, -sp) * 4.0;
+            self.camera.position = pos + Vec3::new(0.0, 0.0, 1.6) + back;
+            self.camera.yaw = pl.heading;
+            if pl.dirty {
+                pl.dirty = false;
+                if let Some(o) = net.world.player_mut() {
+                    o.position = Some(ac_world::Position {
+                        cell: pl.cell,
+                        local: pl.local,
+                        rotation: pl.rotation(),
+                    });
+                }
+                let t = glam::Mat4::from_rotation_translation(pl.rotation(), pos);
+                let mut batches = std::collections::HashMap::new();
+                if let Ok(parts) = ac_scene::model::place(&net.assets, net.player_setup, t) {
+                    for part in parts {
+                        if !net.mesh_cache.contains_key(&part.gfxobj_id) {
+                            if let Ok(g) = net.assets.gfxobj(part.gfxobj_id) {
+                                if let Ok(m) = ac_scene::model::build_mesh(&net.assets, &g) {
+                                    net.mesh_cache.insert(part.gfxobj_id, m);
+                                }
+                            }
+                        }
+                        if let Some(m) = net.mesh_cache.get(&part.gfxobj_id) {
+                            scene::push_mesh(&mut batches, m, part.transform);
+                        }
+                    }
+                }
+                let assets = &net.assets;
+                gpu.set_player(batches, |k| scene::material_image(assets, k));
+            }
         }
     }
 
@@ -413,8 +506,16 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 if self.looking {
                     if let Some((lx, ly)) = self.last_cursor {
-                        self.camera
-                            .look((position.x - lx) as f32, (position.y - ly) as f32);
+                        let dx = (position.x - lx) as f32;
+                        let dy = (position.y - ly) as f32;
+                        match self.net.as_mut().and_then(|n| n.player.as_mut()) {
+                            Some(pl) => {
+                                pl.turn(-dx * 0.003);
+                                self.camera.pitch =
+                                    (self.camera.pitch - dy * 0.003).clamp(-1.2, 0.6);
+                            }
+                            None => self.camera.look(dx, dy),
+                        }
                     }
                     self.last_cursor = Some((position.x, position.y));
                 }
@@ -423,7 +524,10 @@ impl ApplicationHandler for App {
                 let now = Instant::now();
                 let dt = (now - self.last_frame).as_secs_f32().min(0.1);
                 self.last_frame = now;
-                self.update(dt);
+                self.frame_dt = dt;
+                if self.net.is_none() {
+                    self.update(dt);
+                }
                 if let Some(mut g) = self.gpu.take() {
                     self.tick_net(&mut g);
                     self.gpu = Some(g);
@@ -446,8 +550,8 @@ impl ApplicationHandler for App {
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("acviewer=info".parse()?),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("acviewer=info")),
         )
         .init();
     let cli = Cli::parse();
@@ -458,6 +562,7 @@ fn main() -> Result<()> {
             window: None,
             gpu: None,
             net: None,
+            frame_dt: 0.0,
             camera: camera::Camera {
                 position: Vec3::ZERO,
                 yaw: 0.0,
@@ -478,6 +583,7 @@ fn main() -> Result<()> {
             // has settled, then render from the character's viewpoint.
             let deadline = Instant::now() + Duration::from_secs(40);
             let mut settled_at: Option<Instant> = None;
+            let mut last_tick = Instant::now();
             loop {
                 app.tick_net(&mut gpu);
                 let placed = app
@@ -486,8 +592,18 @@ fn main() -> Result<()> {
                     .map(|n| n.scene_block.is_some())
                     .unwrap_or(false);
                 if placed {
-                    settled_at.get_or_insert_with(Instant::now);
-                    if settled_at.unwrap().elapsed() > Duration::from_secs(3) {
+                    let started = *settled_at.get_or_insert_with(Instant::now);
+                    let t = started.elapsed().as_secs_f32();
+                    // Hold W for `walk` seconds after a short settle, then settle again.
+                    let walking = t > 1.0 && t < 1.0 + app.cli.walk;
+                    if walking {
+                        app.keys.insert(KeyCode::KeyW);
+                    } else {
+                        app.keys.remove(&KeyCode::KeyW);
+                    }
+                    app.frame_dt = last_tick.elapsed().as_secs_f32().min(0.1);
+                    last_tick = Instant::now();
+                    if t > 3.0 + app.cli.walk {
                         break;
                     }
                 }
@@ -530,6 +646,7 @@ fn main() -> Result<()> {
         window: None,
         gpu: None,
         net: None,
+        frame_dt: 0.0,
         camera: camera::Camera {
             position: Vec3::ZERO,
             yaw: 0.0,

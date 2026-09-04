@@ -32,6 +32,9 @@ struct Cli {
     /// first template, Holtburg). Needs --data-dir for the CharGen table.
     #[arg(long)]
     create: Option<String>,
+    /// Send this chat line 2 s after entering the world (e.g. "@telepoi holtburg")
+    #[arg(long)]
+    say: Option<String>,
     /// Seconds to stay connected after entering the world (0 = forever)
     #[arg(long, default_value_t = 20)]
     duration: u64,
@@ -187,6 +190,10 @@ fn describe(msg: &[u8]) -> String {
                 .unwrap_or(0)
         ),
         opcode::ACCOUNT_BOOT => "AccountBoot".into(),
+        opcode::SERVER_MESSAGE => {
+            let mut r = ac_net::wire::Reader::new(body);
+            format!("ServerMessage {:?}", r.string16().unwrap_or_default())
+        }
         opcode::OBJECT_CREATE => format!(
             "ObjectCreate guid={:#010x} ({} bytes)",
             body.get(..4)
@@ -268,7 +275,10 @@ fn main() -> Result<()> {
     let mut world = ac_world::World::default();
     let mut buf = [0u8; 2048];
     let mut characters: Vec<messages::CharacterEntry> = Vec::new();
+    let mut characters_known = false;
+    let mut ddd_done = false;
     let mut entered_at: Option<Instant> = None;
+    let mut said = false;
     let mut enter_requested = false;
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
@@ -341,6 +351,9 @@ fn main() -> Result<()> {
                             );
                             continue;
                         }
+                        ac_world::Applied::PlayerSet => {
+                            session.send_action(messages::action::LOGIN_COMPLETE, &[]);
+                        }
                         ac_world::Applied::Moved => {
                             tracing::info!(
                                 "<- UpdatePosition applied ({} objects)",
@@ -361,6 +374,7 @@ fn main() -> Result<()> {
                         opcode::CHARACTER_LIST => {
                             if let Ok(cl) = messages::CharacterList::parse(body) {
                                 characters = cl.characters;
+                                characters_known = true;
                             }
                         }
                         opcode::CHARACTER_CREATE_RESPONSE => {
@@ -387,6 +401,15 @@ fn main() -> Result<()> {
                             }
                         }
                         opcode::DDD_END_DDD => {
+                            ddd_done = true;
+                        }
+                        _ => {}
+                    }
+                    // Enter (or create) once both the DDD exchange is done and
+                    // the character list has arrived, whichever comes last.
+                    if ddd_done && characters_known && !enter_requested {
+                        ddd_done = false;
+                        {
                             if characters.is_empty() {
                                 if let (Some(name), Some(dir)) = (&cli.create, &cli.data_dir) {
                                     let cc = build_character(dir, &cli.account, name, 1)?;
@@ -412,6 +435,11 @@ fn main() -> Result<()> {
                                 }
                             }
                         }
+                    }
+                    let Some((op, body)) = messages::split(&msg) else {
+                        continue;
+                    };
+                    match op {
                         opcode::CHARACTER_ENTER_WORLD_SERVER_READY => {
                             let pick = match &cli.character {
                                 Some(name) => characters
@@ -435,6 +463,15 @@ fn main() -> Result<()> {
         }
         if session.state() == State::Terminated {
             return Ok(());
+        }
+        if let (Some(t), Some(text)) = (entered_at, cli.say.as_deref()) {
+            if t.elapsed() > Duration::from_secs(2) && !said {
+                said = true;
+                tracing::info!("-> Talk {text:?}");
+                let mut w = ac_net::wire::Writer::new();
+                w.string16(text);
+                session.send_action(messages::action::TALK, &w.finish());
+            }
         }
         if let Some(t) = entered_at {
             if cli.duration > 0 && t.elapsed() > Duration::from_secs(cli.duration) {

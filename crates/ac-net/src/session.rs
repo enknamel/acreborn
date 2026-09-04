@@ -314,23 +314,11 @@ impl Session {
 
         // Ordering of data packets.
         let seq = p.header.sequence;
-        let control_only = p.fragments.is_empty();
-        if control_only {
-            // Acks/time syncs may repeat sequences; nothing to order.
-            if seq > self.last_recv
-                && p.header.flags
-                    & !(flags::ENCRYPTED_CHECKSUM
-                        | flags::ACK_SEQUENCE
-                        | flags::TIME_SYNC
-                        | flags::ECHO_RESPONSE
-                        | flags::ECHO_REQUEST
-                        | flags::FLOW)
-                    == 0
-            {
-                // pure control packets still advance the sequence
-                self.last_recv = seq;
-                self.ack_dirty = true;
-            }
+        // A pure AckSequence packet reuses the sender's current sequence
+        // number (ACE sends it without incrementing), so it carries no
+        // ordering information; everything else consumes a sequence and is
+        // ordered like data, even when it has no fragments.
+        if p.header.flags & !flags::ENCRYPTED_CHECKSUM == flags::ACK_SEQUENCE {
             return;
         }
         if seq <= self.last_recv {

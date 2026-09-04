@@ -3,10 +3,11 @@
 A from-scratch Rust reimplementation of the Asheron's Call client, built to
 play against the [ACE](https://github.com/ACEmulator/ACE) server emulator.
 
-Status: **Phase 3** (network). The DAT reader is verified byte-for-byte
+Status: **Phase 4** (world). The DAT reader is verified byte-for-byte
 against ACE; thirteen asset types decode every file in both archives;
-`acviewer` renders outdoor landblocks with scenery and models; `acclient`
-logs in to a local ACE server, creates a character and enters the world.
+`acviewer` renders outdoor landblocks with scenery, interiors and models,
+and in `--connect` mode logs in to a local ACE server and walks your
+character around the live world with server-accepted movement.
 See `docs/` for the subsystem specs and `reference/README.md` for how the
 reverse-engineering material is regenerated.
 
@@ -25,10 +26,14 @@ cargo run --release -p acviewer -- --landblock A9B4 --screenshot out.png   # hea
 Viewer controls: right-drag to look, WASD to move, Q/E down/up, Shift to
 boost, Escape to quit.
 
-Headless login against a local ACE (`tools/ace/up.sh` starts one in Docker):
+Against a local ACE (`tools/ace/up.sh` starts one in Docker):
 
 ```
+# headless: log in, create a character, enter the world, print messages
 cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --create Reborn
+# admin accounts can teleport: --say "@telepoi holtburg"
+# play: third-person view, WASD walks the character, mouse turns, Shift walks slowly
+cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
 ```
 
 Workspace: `crates/ac-dat` (container), `crates/ac-formats` (asset

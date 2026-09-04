@@ -13,6 +13,7 @@ pub mod opcode {
     pub const PLAYER_CREATE: u32 = 0xF746;
     pub const OBJECT_DELETE: u32 = 0xF747;
     pub const UPDATE_POSITION: u32 = 0xF748;
+    pub const PLAYER_TELEPORT: u32 = 0xF751;
     pub const MOVEMENT_EVENT: u32 = 0xF74C;
     pub const GAME_EVENT: u32 = 0xF7B0;
     pub const GAME_ACTION: u32 = 0xF7B1;
@@ -386,4 +387,123 @@ mod tests {
         assert_eq!(cl.slot_count, 11);
         assert_eq!(cl.account, "acct");
     }
+}
+
+/// GameAction type ids (inside a 0xF7B1 message).
+pub mod action {
+    pub const TALK: u32 = 0x0015;
+    /// Sent after entering the world and after each teleport; the server
+    /// ignores position reports until it arrives.
+    pub const LOGIN_COMPLETE: u32 = 0x00A1;
+    pub const JUMP: u32 = 0xF61B;
+    pub const MOVE_TO_STATE: u32 = 0xF61C;
+    pub const AUTONOMOUS_POSITION: u32 = 0xF753;
+}
+
+/// Motion commands and stances used for basic movement.
+pub mod motion {
+    pub const INVALID: u32 = 0x0;
+    pub const READY: u32 = 0x4100_0003;
+    pub const WALK_FORWARD: u32 = 0x4500_0005;
+    pub const WALK_BACKWARDS: u32 = 0x4500_0006;
+    pub const RUN_FORWARD: u32 = 0x4400_0007;
+    pub const TURN_RIGHT: u32 = 0x6500_000D;
+    pub const TURN_LEFT: u32 = 0x6500_000E;
+    pub const SIDE_STEP_RIGHT: u32 = 0x6500_000F;
+    pub const SIDE_STEP_LEFT: u32 = 0x6500_0010;
+    pub const STANCE_NON_COMBAT: u32 = 0x8000_003D;
+    pub const HOLD_KEY_NONE: u32 = 1;
+    pub const HOLD_KEY_RUN: u32 = 2;
+}
+
+/// A position as the client reports it: cell id, local origin, orientation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WirePosition {
+    pub cell: u32,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub qw: f32,
+    pub qx: f32,
+    pub qy: f32,
+    pub qz: f32,
+}
+
+fn write_position(w: &mut Writer, p: &WirePosition) {
+    w.u32(p.cell)
+        .f32(p.x)
+        .f32(p.y)
+        .f32(p.z)
+        .f32(p.qw)
+        .f32(p.qx)
+        .f32(p.qy)
+        .f32(p.qz);
+}
+
+/// Body of the AutonomousPosition action: where the client says it is.
+/// `contact` is true when standing on the ground.
+pub fn autonomous_position(p: &WirePosition, instance_seq: u16, contact: bool) -> Vec<u8> {
+    let mut w = Writer::new();
+    write_position(&mut w, p);
+    w.u16(instance_seq).u16(0).u16(0).u16(0);
+    w.u8(contact as u8);
+    w.align4();
+    w.finish()
+}
+
+/// The raw input state the client reports in MoveToState.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct RawMotion {
+    pub running: bool,
+    /// `motion::WALK_FORWARD`, `WALK_BACKWARDS`, or 0 when idle.
+    pub forward: u32,
+    /// `motion::SIDE_STEP_LEFT/RIGHT` or 0.
+    pub sidestep: u32,
+    /// `motion::TURN_LEFT/RIGHT` or 0.
+    pub turn: u32,
+}
+
+/// Body of the MoveToState action: input state plus position.
+pub fn move_to_state(m: &RawMotion, p: &WirePosition, instance_seq: u16, contact: bool) -> Vec<u8> {
+    const CURRENT_HOLD_KEY: u32 = 0x1;
+    const CURRENT_STYLE: u32 = 0x2;
+    const FORWARD_COMMAND: u32 = 0x4;
+    const FORWARD_SPEED: u32 = 0x10;
+    const SIDESTEP_COMMAND: u32 = 0x20;
+    const SIDESTEP_SPEED: u32 = 0x80;
+    const TURN_COMMAND: u32 = 0x100;
+    const TURN_SPEED: u32 = 0x400;
+    let mut flags = CURRENT_STYLE;
+    if m.running {
+        flags |= CURRENT_HOLD_KEY;
+    }
+    if m.forward != 0 {
+        flags |= FORWARD_COMMAND | FORWARD_SPEED;
+    }
+    if m.sidestep != 0 {
+        flags |= SIDESTEP_COMMAND | SIDESTEP_SPEED;
+    }
+    if m.turn != 0 {
+        flags |= TURN_COMMAND | TURN_SPEED;
+    }
+    let mut w = Writer::new();
+    w.u32(flags); // command list length 0 in the high bits
+    if m.running {
+        w.u32(motion::HOLD_KEY_RUN);
+    }
+    w.u32(motion::STANCE_NON_COMBAT);
+    if m.forward != 0 {
+        w.u32(m.forward).f32(1.0);
+    }
+    if m.sidestep != 0 {
+        w.u32(m.sidestep).f32(1.0);
+    }
+    if m.turn != 0 {
+        w.u32(m.turn).f32(1.0);
+    }
+    write_position(&mut w, p);
+    w.u16(instance_seq).u16(0).u16(0).u16(0);
+    w.u8(contact as u8);
+    w.align4();
+    w.finish()
 }

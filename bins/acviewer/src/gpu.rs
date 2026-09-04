@@ -86,6 +86,7 @@ pub struct Gpu {
     sampler: wgpu::Sampler,
     batches: Vec<DrawBatch>,
     dynamic: Vec<DrawBatch>,
+    player: Vec<DrawBatch>,
 }
 
 impl Gpu {
@@ -254,6 +255,7 @@ impl Gpu {
             sampler,
             batches: Vec::new(),
             dynamic: Vec::new(),
+            player: Vec::new(),
         })
     }
 
@@ -389,6 +391,15 @@ impl Gpu {
         self.batches = self.upload(batches, materials);
     }
 
+    /// Replace the player's own model batches.
+    pub fn set_player(
+        &mut self,
+        batches: HashMap<MaterialKey, Batch>,
+        materials: impl FnMut(MaterialKey) -> Option<Rgba>,
+    ) {
+        self.player = self.upload(batches, materials);
+    }
+
     /// Replace the dynamic (server object) batches.
     pub fn set_dynamic(
         &mut self,
@@ -451,7 +462,7 @@ impl Gpu {
                 bind_group,
             });
         }
-        tracing::info!("uploaded {} batches", out.len());
+        tracing::debug!("uploaded {} batches", out.len());
         out
     }
 
@@ -591,7 +602,12 @@ impl Gpu {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bg, &[]);
-            for b in self.batches.iter().chain(self.dynamic.iter()) {
+            for b in self
+                .batches
+                .iter()
+                .chain(self.dynamic.iter())
+                .chain(self.player.iter())
+            {
                 pass.set_bind_group(1, &b.bind_group, &[]);
                 pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
                 pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);

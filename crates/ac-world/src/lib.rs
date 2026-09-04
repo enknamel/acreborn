@@ -47,6 +47,14 @@ impl WorldObject {
     }
 }
 
+/// Outdoor cell id for a landblock-local point: cells are 24 m, numbered
+/// `x * 8 + y + 1`.
+pub fn outdoor_cell(landblock: u32, local: Vec3) -> u32 {
+    let cx = (local.x / 24.0).floor().clamp(0.0, 7.0) as u32;
+    let cy = (local.y / 24.0).floor().clamp(0.0, 7.0) as u32;
+    (landblock & 0xFFFF_0000) | (cx * 8 + cy + 1)
+}
+
 /// World origin of a cell's landblock: block x/y from the high 16 bits.
 pub fn landblock_origin(cell: u32) -> Vec3 {
     let bx = (cell >> 24) as f32;
@@ -76,6 +84,10 @@ pub enum Applied {
 impl World {
     pub fn player(&self) -> Option<&WorldObject> {
         self.objects.get(&self.player_guid?)
+    }
+
+    pub fn player_mut(&mut self) -> Option<&mut WorldObject> {
+        self.objects.get_mut(&self.player_guid?)
     }
 
     pub fn apply(&mut self, msg: &[u8]) -> Applied {
@@ -126,7 +138,28 @@ impl World {
             }
             opcode::UPDATE_POSITION => match object::UpdatePosition::parse(body) {
                 Ok(up) => {
+                    let is_player = self.player_guid == Some(up.guid);
                     if let Some(o) = self.objects.get_mut(&up.guid) {
+                        if is_player {
+                            // Our own echoes come back; only accept a server
+                            // correction that moves us more than a few metres.
+                            let far = match o.position {
+                                Some(cur) => {
+                                    let a = landblock_origin(cur.cell) + cur.local;
+                                    let b = landblock_origin(up.position.cell) + up.position.local;
+                                    (a - b).length() > 4.0
+                                }
+                                None => true,
+                            };
+                            if !far {
+                                return Applied::Ignored;
+                            }
+                            tracing::info!(
+                                "server moved the player to {:#010x} {:?}",
+                                up.position.cell,
+                                up.position.local
+                            );
+                        }
                         o.position = Some(up.position);
                         self.generation += 1;
                         Applied::Moved

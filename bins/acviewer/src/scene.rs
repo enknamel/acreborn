@@ -14,7 +14,7 @@ pub struct Built {
     pub radius: f32,
 }
 
-fn push_mesh(batches: &mut HashMap<MaterialKey, Batch>, mesh: &model::Mesh, transform: Mat4) {
+pub fn push_mesh(batches: &mut HashMap<MaterialKey, Batch>, mesh: &model::Mesh, transform: Mat4) {
     let normal_mat = transform.inverse().transpose();
     for sub in &mesh.submeshes {
         let key = match sub.solid_color {
@@ -212,7 +212,7 @@ pub fn build_objects(
     mesh_cache: &mut HashMap<u32, model::Mesh>,
 ) -> HashMap<MaterialKey, Batch> {
     let mut batches: HashMap<MaterialKey, Batch> = HashMap::new();
-    for o in world.drawable() {
+    for o in world.drawable().filter(|o| !o.is_player) {
         let Some(t) = o.transform() else { continue };
         let parts = match model::place(assets, o.setup_id, t) {
             Ok(p) => p,

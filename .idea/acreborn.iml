@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/bins/acclient/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/acdat/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/acviewer/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-dat/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-dat/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-formats/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-formats/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-net/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-net/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-scene/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-scene/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-scene/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-world/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>
