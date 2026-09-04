@@ -96,6 +96,8 @@ pub struct Gpu {
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     batches: Vec<DrawBatch>,
+    /// Streamed landblocks, keyed by block id.
+    blocks: HashMap<u32, Vec<DrawBatch>>,
     /// Uploaded materials by key: decoded and mip-mapped once, shared by
     /// every batch that uses them.
     materials: std::cell::RefCell<HashMap<MaterialKey, std::rc::Rc<wgpu::BindGroup>>>,
@@ -339,6 +341,7 @@ impl Gpu {
             material_layout,
             sampler,
             batches: Vec::new(),
+            blocks: HashMap::new(),
             materials: Default::default(),
             models_buf,
             models_bg,
@@ -493,6 +496,21 @@ impl Gpu {
         materials: impl FnMut(MaterialKey) -> Option<Rgba>,
     ) {
         self.batches = self.upload(batches, materials);
+    }
+
+    /// Add (or replace) one streamed landblock's geometry.
+    pub fn add_block(
+        &mut self,
+        id: u32,
+        batches: HashMap<MaterialKey, Batch>,
+        materials: impl FnMut(MaterialKey) -> Option<Rgba>,
+    ) {
+        let uploaded = self.upload(batches, materials);
+        self.blocks.insert(id, uploaded);
+    }
+
+    pub fn remove_block(&mut self, id: u32) {
+        self.blocks.remove(&id);
     }
 
     /// Replace the server-object instances drawn each frame.
@@ -833,7 +851,8 @@ impl Gpu {
             // Static geometry is baked in world space: identity model (slot 0).
             pass.set_bind_group(2, &self.models_bg, &[0]);
             let hide_static = std::env::var_os("ACV_HIDE_STATIC").is_some();
-            for b in self.batches.iter().filter(|_| !hide_static) {
+            let streamed = self.blocks.values().flat_map(|v| v.iter());
+            for b in self.batches.iter().chain(streamed).filter(|_| !hide_static) {
                 pass.set_bind_group(1, &*b.bind_group, &[]);
                 pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
                 pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);

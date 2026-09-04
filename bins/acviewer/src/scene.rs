@@ -12,6 +12,8 @@ pub struct Built {
     pub batches: HashMap<MaterialKey, Batch>,
     pub center: Vec3,
     pub radius: f32,
+    /// The centre block is a dungeon (only meaningful for single blocks).
+    pub is_dungeon: bool,
 }
 
 pub fn push_mesh(batches: &mut HashMap<MaterialKey, Batch>, mesh: &model::Mesh, transform: Mat4) {
@@ -68,6 +70,98 @@ fn terrain_key(assets: &Assets, terrain_type: u16) -> Result<MaterialKey> {
     Ok(MaterialKey::Solid(color))
 }
 
+/// Build one landblock's static geometry (terrain, buildings, scenery,
+/// interiors) into per-material batches in world space.
+pub fn build_landblock(
+    assets: &Assets,
+    id: u32,
+    mesh_cache: &mut HashMap<u32, model::Mesh>,
+) -> Result<Built> {
+    let mut batches: HashMap<MaterialKey, Batch> = HashMap::new();
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    let scene = landblock::load(assets, id)?;
+    let origin = ac_scene::lbid::world_origin(id);
+    // Terrain: one batch per terrain type, UV tiles once per cell.
+    let terrain_cells = if scene.is_dungeon { 0 } else { usize::MAX };
+    for (cell, tri) in scene
+        .terrain
+        .indices
+        .chunks_exact(6)
+        .enumerate()
+        .take(terrain_cells)
+    {
+        let key = terrain_key(assets, scene.terrain.cell_types[cell])?;
+        let verts: Vec<Vertex> = tri
+            .iter()
+            .map(|&i| {
+                let v = &scene.terrain.vertices[i as usize];
+                let p = v.position + origin;
+                min = min.min(p);
+                max = max.max(p);
+                Vertex {
+                    position: p.to_array(),
+                    normal: v.normal.to_array(),
+                    uv: [p.x / CELL_SIZE, p.y / CELL_SIZE],
+                    color: [1.0; 4],
+                }
+            })
+            .collect();
+        batches
+            .entry(key)
+            .or_default()
+            .push(&verts, &[0, 1, 2, 3, 4, 5]);
+    }
+    for cell in &scene.cells {
+        for sub in &cell.submeshes {
+            for v in &sub.vertices {
+                let p = cell.transform.transform_point3(v.position);
+                min = min.min(p);
+                max = max.max(p);
+            }
+        }
+        let mesh = model::Mesh {
+            gfxobj_id: cell.cell_id,
+            submeshes: cell.submeshes.clone(),
+        };
+        push_mesh(&mut batches, &mesh, cell.transform);
+        for part in &cell.parts {
+            if !mesh_cache.contains_key(&part.gfxobj_id) {
+                match assets.gfxobj(part.gfxobj_id) {
+                    Ok(g) => {
+                        mesh_cache.insert(part.gfxobj_id, model::build_mesh(assets, &g)?);
+                    }
+                    Err(e) => {
+                        tracing::warn!("gfxobj {:#010x}: {e}", part.gfxobj_id);
+                        continue;
+                    }
+                }
+            }
+            push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
+        }
+    }
+    for part in &scene.parts {
+        if !mesh_cache.contains_key(&part.gfxobj_id) {
+            let g = match assets.gfxobj(part.gfxobj_id) {
+                Ok(g) => g,
+                Err(e) => {
+                    tracing::warn!("gfxobj {:#010x}: {e}", part.gfxobj_id);
+                    continue;
+                }
+            };
+            mesh_cache.insert(part.gfxobj_id, model::build_mesh(assets, &g)?);
+        }
+        push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
+    }
+    let center = (min + max) * 0.5;
+    Ok(Built {
+        batches,
+        center,
+        radius: (max - min).length() * 0.5,
+        is_dungeon: scene.is_dungeon,
+    })
+}
+
 pub fn build_landblocks(assets: &Assets, center_id: u32, radius: u32) -> Result<Built> {
     let cx = ac_scene::lbid::block_x(center_id);
     let cy = ac_scene::lbid::block_y(center_id);
@@ -84,84 +178,20 @@ pub fn build_landblocks(assets: &Assets, center_id: u32, radius: u32) -> Result<
     for bx in cx.saturating_sub(radius)..=(cx + radius).min(255) {
         for by in cy.saturating_sub(radius)..=(cy + radius).min(255) {
             let id = ac_scene::lbid::from_xy(bx, by);
-            let scene = match landblock::load(assets, id) {
-                Ok(s) => s,
+            let built = match build_landblock(assets, id, &mut mesh_cache) {
+                Ok(b) => b,
                 Err(e) => {
                     tracing::warn!("landblock {id:#010x}: {e}");
                     continue;
                 }
             };
-            let origin = ac_scene::lbid::world_origin(id);
-            // Terrain: one batch per terrain type, UV tiles once per cell.
-            let terrain_cells = if scene.is_dungeon { 0 } else { usize::MAX };
-            for (cell, tri) in scene
-                .terrain
-                .indices
-                .chunks_exact(6)
-                .enumerate()
-                .take(terrain_cells)
-            {
-                let key = terrain_key(assets, scene.terrain.cell_types[cell])?;
-                let verts: Vec<Vertex> = tri
-                    .iter()
-                    .map(|&i| {
-                        let v = &scene.terrain.vertices[i as usize];
-                        let p = v.position + origin;
-                        min = min.min(p);
-                        max = max.max(p);
-                        Vertex {
-                            position: p.to_array(),
-                            normal: v.normal.to_array(),
-                            uv: [p.x / CELL_SIZE, p.y / CELL_SIZE],
-                            color: [1.0; 4],
-                        }
-                    })
-                    .collect();
-                batches
-                    .entry(key)
-                    .or_default()
-                    .push(&verts, &[0, 1, 2, 3, 4, 5]);
+            for (k, b) in built.batches {
+                let dst = batches.entry(k).or_default();
+                dst.push(&b.vertices, &b.indices);
             }
-            for cell in &scene.cells {
-                for sub in &cell.submeshes {
-                    for v in &sub.vertices {
-                        let p = cell.transform.transform_point3(v.position);
-                        min = min.min(p);
-                        max = max.max(p);
-                    }
-                }
-                let mesh = model::Mesh {
-                    gfxobj_id: cell.cell_id,
-                    submeshes: cell.submeshes.clone(),
-                };
-                push_mesh(&mut batches, &mesh, cell.transform);
-                for part in &cell.parts {
-                    if !mesh_cache.contains_key(&part.gfxobj_id) {
-                        match assets.gfxobj(part.gfxobj_id) {
-                            Ok(g) => {
-                                mesh_cache.insert(part.gfxobj_id, model::build_mesh(assets, &g)?);
-                            }
-                            Err(e) => {
-                                tracing::warn!("gfxobj {:#010x}: {e}", part.gfxobj_id);
-                                continue;
-                            }
-                        }
-                    }
-                    push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
-                }
-            }
-            for part in &scene.parts {
-                if !mesh_cache.contains_key(&part.gfxobj_id) {
-                    let g = match assets.gfxobj(part.gfxobj_id) {
-                        Ok(g) => g,
-                        Err(e) => {
-                            tracing::warn!("gfxobj {:#010x}: {e}", part.gfxobj_id);
-                            continue;
-                        }
-                    };
-                    mesh_cache.insert(part.gfxobj_id, model::build_mesh(assets, &g)?);
-                }
-                push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
+            if built.radius > 0.0 {
+                min = min.min(built.center - Vec3::splat(built.radius));
+                max = max.max(built.center + Vec3::splat(built.radius));
             }
         }
     }
@@ -170,6 +200,7 @@ pub fn build_landblocks(assets: &Assets, center_id: u32, radius: u32) -> Result<
         batches,
         center,
         radius: (max - min).length() * 0.5,
+        is_dungeon: false,
     })
 }
 
@@ -194,6 +225,7 @@ pub fn build_model(assets: &Assets, model_id: u32) -> Result<Built> {
         batches,
         center,
         radius: ((max - min).length() * 0.5).max(1.0),
+        is_dungeon: false,
     })
 }
 

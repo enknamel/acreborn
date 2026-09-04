@@ -86,6 +86,11 @@ struct Net {
     enter_requested: bool,
     /// Landblock the static scene is built around, once the player is placed.
     scene_block: Option<u32>,
+    /// Landblocks currently uploaded to the GPU.
+    loaded_blocks: std::collections::HashSet<u32>,
+    /// Block id -> is a dungeon (learnt when the block is built).
+    dungeon: std::collections::HashMap<u32, bool>,
+    mesh_cache: std::collections::HashMap<u32, ac_scene::model::Mesh>,
     last_generation: u64,
     pickables: Vec<scene::Pickable>,
     /// Server-requested MoveTo for our own character, until reached.
@@ -520,6 +525,9 @@ impl App {
             ddd_done: false,
             enter_requested: false,
             scene_block: None,
+            loaded_blocks: Default::default(),
+            dungeon: Default::default(),
+            mesh_cache: Default::default(),
             last_generation: 0,
             pickables: Vec::new(),
             move_to: None,
@@ -713,16 +721,6 @@ impl App {
                     p.cell,
                     p.local
                 );
-                match scene::build_landblocks(&net.assets, block, 1) {
-                    Ok(built) => {
-                        let assets = &net.assets;
-                        let palettes = &net.palettes;
-                        gpu.set_scene(built.batches, |k| {
-                            scene::material_image(assets, k, palettes)
-                        });
-                    }
-                    Err(e) => tracing::error!("scene: {e:#}"),
-                }
                 net.player_setup = net
                     .world
                     .player()
@@ -740,6 +738,57 @@ impl App {
                 self.camera.pitch = -0.15;
                 self.camera.far = 3000.0;
                 net.scene_block = Some(block);
+            }
+        }
+        // Stream landblocks around the character: the block we stand in
+        // first, then its neighbours (outdoors only), one per frame.
+        if let Some(center) = net.player.as_ref().map(|p| p.landblock()) {
+            let mut wanted = vec![center];
+            if net.dungeon.get(&center) == Some(&false) {
+                let cx = ac_scene::lbid::block_x(center);
+                let cy = ac_scene::lbid::block_y(center);
+                for bx in cx.saturating_sub(1)..=(cx + 1).min(255) {
+                    for by in cy.saturating_sub(1)..=(cy + 1).min(255) {
+                        let id = ac_scene::lbid::from_xy(bx, by);
+                        if id != center {
+                            wanted.push(id);
+                        }
+                    }
+                }
+            }
+            if let Some(&id) = wanted.iter().find(|id| !net.loaded_blocks.contains(id)) {
+                let t0 = Instant::now();
+                match scene::build_landblock(&net.assets, id, &mut net.mesh_cache) {
+                    Ok(built) => {
+                        net.dungeon.insert(id, built.is_dungeon);
+                        let assets = &net.assets;
+                        let palettes = &net.palettes;
+                        gpu.add_block(id, built.batches, |k| {
+                            scene::material_image(assets, k, palettes)
+                        });
+                        tracing::info!(
+                            "landblock {id:#010x} loaded in {:.0} ms{}",
+                            t0.elapsed().as_secs_f32() * 1000.0,
+                            if built.is_dungeon { " (dungeon)" } else { "" }
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("landblock {id:#010x}: {e}");
+                        net.dungeon.insert(id, false);
+                    }
+                }
+                net.loaded_blocks.insert(id);
+            }
+            let stale: Vec<u32> = net
+                .loaded_blocks
+                .iter()
+                .copied()
+                .filter(|id| !wanted.contains(id))
+                .collect();
+            for id in stale {
+                gpu.remove_block(id);
+                net.loaded_blocks.remove(&id);
+                tracing::info!("landblock {id:#010x} unloaded");
             }
         }
         net.world.tick(self.frame_dt);
@@ -1141,7 +1190,9 @@ fn main() -> Result<()> {
         if app.cli.connect.is_some() {
             // Pump the connection until the player is placed and the world
             // has settled, then render from the character's viewpoint.
-            let deadline = Instant::now() + Duration::from_secs(40);
+            let deadline = Instant::now()
+                + Duration::from_secs(40)
+                + Duration::from_secs_f32(app.cli.walk + 3.0 * app.cli.click.len() as f32 + 10.0);
             let mut settled_at: Option<Instant> = None;
             let mut last_tick = Instant::now();
             let mut ticks = 0u32;
@@ -1149,6 +1200,7 @@ fn main() -> Result<()> {
             // Each --click entry is a double click: (entry index, clicks sent).
             let mut click_state = (0usize, 0u32);
             let use_requested = app.cli.use_name.is_some();
+            let mut listed = false;
             loop {
                 app.tick_net(&mut gpu);
                 let placed = app
@@ -1170,6 +1222,21 @@ fn main() -> Result<()> {
                         if let Some(name) = app.cli.use_name.take() {
                             app.use_by_name(&name);
                         }
+                    }
+                    if !listed && t > 1.5 {
+                        listed = true;
+                        let mut names: Vec<String> = app
+                            .net
+                            .as_ref()
+                            .map(|n| {
+                                n.world
+                                    .drawable()
+                                    .map(|o| format!("{} {:#x}", o.name, o.object_desc_flags))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        names.sort();
+                        tracing::debug!("objects in view: {}", names.join(" | "));
                     }
                     let (ci, sent) = click_state;
                     if ci < app.cli.click.len() && t > 1.0 + app.cli.walk + ci as f32 * 3.0 {

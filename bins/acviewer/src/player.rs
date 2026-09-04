@@ -208,7 +208,7 @@ impl Player {
     pub fn clamp_camera(&mut self, assets: &Assets, from: Vec3, to: Vec3) -> Vec3 {
         match self.first_wall(assets, from, to) {
             // Stop a little short of the wall so the near plane stays inside.
-            Some(f) => from + (to - from) * (f - 0.3 / (to - from).length()).max(0.0),
+            Some(f) => from + (to - from) * (f - 0.7 / (to - from).length()).max(0.0),
             None => to,
         }
     }

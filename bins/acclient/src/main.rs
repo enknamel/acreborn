@@ -13,8 +13,11 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version, about, disable_help_flag = true)]
 struct Cli {
+    /// Print help
+    #[arg(long, action = clap::ArgAction::Help)]
+    help: Option<bool>,
     /// Server host
     #[arg(short = 'h', long, default_value = "127.0.0.1")]
     host: String,
