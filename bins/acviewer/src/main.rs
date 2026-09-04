@@ -621,7 +621,8 @@ impl App {
             let fwd = pl.forward();
             let (sp, cp) = self.camera.pitch.sin_cos();
             let back = Vec3::new(-fwd.x * cp, -fwd.y * cp, -sp) * 4.0;
-            self.camera.position = pos + Vec3::new(0.0, 0.0, 1.6) + back;
+            let head = pos + Vec3::new(0.0, 0.0, 1.6);
+            self.camera.position = pl.clamp_camera(&net.assets, head, head + back);
             self.camera.yaw = pl.heading;
             if pl.dirty {
                 pl.dirty = false;

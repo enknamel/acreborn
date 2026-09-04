@@ -179,6 +179,34 @@ impl Player {
         b.collision.as_ref()
     }
 
+    /// Pull a third-person camera in front of any wall between the
+    /// character's head (`from`) and the wanted camera spot (`to`).
+    pub fn clamp_camera(&mut self, assets: &Assets, from: Vec3, to: Vec3) -> Vec3 {
+        let block_of = |w: Vec3| {
+            (((w.x / 192.0).floor().clamp(0.0, 255.0) as u32) << 24)
+                | (((w.y / 192.0).floor().clamp(0.0, 255.0) as u32) << 16)
+        };
+        let mut blocks = vec![block_of(from)];
+        if block_of(to) != blocks[0] {
+            blocks.push(block_of(to));
+        }
+        let mut best: Option<f32> = None;
+        for blk in blocks {
+            if let Some(c) = self.collision(assets, blk) {
+                if let Some(f) = c.segment_hit(from, to) {
+                    if best.map(|b| f < b).unwrap_or(true) {
+                        best = Some(f);
+                    }
+                }
+            }
+        }
+        match best {
+            // Stop a little short of the wall so the near plane stays inside.
+            Some(f) => from + (to - from) * (f - 0.3 / (to - from).length()).max(0.0),
+            None => to,
+        }
+    }
+
     /// Apply one frame of input. Returns true if the position changed.
     pub fn update(&mut self, assets: &Assets, input: &Input, dt: f32) -> bool {
         let speed = if input.run {

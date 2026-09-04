@@ -39,3 +39,23 @@ fn ac_world_origin(cell: u32) -> Vec3 {
         0.0,
     )
 }
+
+#[test]
+fn segment_hit_finds_a_wall() {
+    let a = Vec3::new(5.0, -1.0, 0.0);
+    let b = Vec3::new(5.0, 1.0, 0.0);
+    let c = Vec3::new(5.0, 0.0, 3.0);
+    let mut w = CollisionWorld::default();
+    w.add_tri(a, b, c, 0, false);
+    let f = w
+        .segment_hit(Vec3::new(0.0, 0.0, 1.0), Vec3::new(10.0, 0.0, 1.0))
+        .expect("hit");
+    assert!((f - 0.5).abs() < 1e-5, "{f}");
+    // From the other side too, and a miss above the triangle.
+    assert!(w
+        .segment_hit(Vec3::new(10.0, 0.0, 1.0), Vec3::new(0.0, 0.0, 1.0))
+        .is_some());
+    assert!(w
+        .segment_hit(Vec3::new(0.0, 0.0, 5.0), Vec3::new(10.0, 0.0, 5.0))
+        .is_none());
+}

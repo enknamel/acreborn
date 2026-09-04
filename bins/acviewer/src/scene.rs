@@ -75,6 +75,12 @@ pub fn build_landblocks(assets: &Assets, center_id: u32, radius: u32) -> Result<
     let mut mesh_cache: HashMap<u32, model::Mesh> = HashMap::new();
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
+    // A dungeon block is its own world: its neighbours in id space are
+    // unrelated blocks that would overlap it, so never load around one.
+    let radius = match landblock::load(assets, center_id) {
+        Ok(s) if s.is_dungeon => 0,
+        _ => radius,
+    };
     for bx in cx.saturating_sub(radius)..=(cx + radius).min(255) {
         for by in cy.saturating_sub(radius)..=(cy + radius).min(255) {
             let id = ac_scene::lbid::from_xy(bx, by);

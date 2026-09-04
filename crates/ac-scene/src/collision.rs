@@ -36,6 +36,31 @@ pub struct CollisionWorld {
     grid: HashMap<(i32, i32), Vec<u32>>,
 }
 
+/// Möller–Trumbore for either winding; returns the ray parameter (`d` is
+/// not normalised, so 1.0 is the far end of the segment).
+fn ray_triangle(o: Vec3, d: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+    let e1 = b - a;
+    let e2 = c - a;
+    let pv = d.cross(e2);
+    let det = e1.dot(pv);
+    if det.abs() < 1e-10 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let tv = o - a;
+    let u = tv.dot(pv) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let qv = tv.cross(e1);
+    let v = d.dot(qv) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let t = e2.dot(qv) * inv;
+    (t >= 0.0).then_some(t)
+}
+
 fn cell_of(p: Vec3) -> (i32, i32) {
     ((p.x / GRID).floor() as i32, (p.y / GRID).floor() as i32)
 }
@@ -45,7 +70,8 @@ impl CollisionWorld {
         self.tris.is_empty()
     }
 
-    fn add_tri(&mut self, a: Vec3, b: Vec3, c: Vec3, cell: u32, two_sided: bool) {
+    /// Add one triangle (mostly for tests; scenes use `from_scene`).
+    pub fn add_tri(&mut self, a: Vec3, b: Vec3, c: Vec3, cell: u32, two_sided: bool) {
         let n = (b - a).cross(c - a);
         if n.length_squared() < 1e-8 {
             return;
@@ -148,6 +174,27 @@ impl CollisionWorld {
         ids.sort_unstable();
         ids.dedup();
         ids.into_iter().map(move |i| &self.tris[i as usize])
+    }
+
+    /// Nearest triangle along the segment from `from` to `to`, as a
+    /// fraction of the segment (0..=1), ignoring facing. Used to keep the
+    /// camera out of walls.
+    pub fn segment_hit(&self, from: Vec3, to: Vec3) -> Option<f32> {
+        let d = to - from;
+        let len = d.length();
+        if len < 1e-4 {
+            return None;
+        }
+        let mid = (from + to) * 0.5;
+        let mut best: Option<f32> = None;
+        for t in self.nearby(mid, len * 0.5 + 0.1) {
+            if let Some(f) = ray_triangle(from, d, t.a, t.b, t.c) {
+                if f <= 1.0 && best.map(|b| f < b).unwrap_or(true) {
+                    best = Some(f);
+                }
+            }
+        }
+        best
     }
 
     /// Height of the highest floor triangle directly under `p` within
