@@ -95,6 +95,12 @@ pub struct Session {
     ack_dirty: bool,
     echo_pending: Option<f32>,
     last_nak: Option<Instant>,
+    /// ConnectResponse retry schedule until the server sends data. ACE only
+    /// accepts the response after it finishes password verification, which
+    /// can be tens of milliseconds after it sent the ConnectRequest.
+    connect_retry_at: Option<Instant>,
+    connect_tries: u32,
+    got_data: bool,
 }
 
 impl Session {
@@ -124,6 +130,9 @@ impl Session {
             ack_dirty: false,
             echo_pending: None,
             last_nak: None,
+            connect_retry_at: None,
+            connect_tries: 0,
+            got_data: false,
         }
     }
 
@@ -169,6 +178,27 @@ impl Session {
         self.outgoing
             .push((Port::Primary, packet::build(h, &body, &[], 0)));
         self.state = State::LoginSent;
+    }
+
+    /// Send a clean disconnect so the server drops the session immediately
+    /// instead of waiting for the timeout. Safe to call once, on exit.
+    pub fn disconnect(&mut self, now: Instant) {
+        if self.state != State::Connected {
+            return;
+        }
+        let xor = self.send_keys.as_mut().map(|k| k.next()).unwrap_or(0);
+        let h = Header {
+            sequence: self.seq,
+            flags: flags::ENCRYPTED_CHECKSUM | flags::DISCONNECT,
+            id: self.client_id,
+            time: self.time_field(now),
+            iteration: 0,
+            ..Default::default()
+        };
+        self.seq += 1;
+        self.outgoing
+            .push((Port::Primary, packet::build(h, &[], &[], xor)));
+        self.state = State::Terminated;
     }
 
     /// Queue a game message for sending on the next `poll`.
@@ -222,7 +252,10 @@ impl Session {
                 self.cookie = cr.cookie;
                 self.send_keys = Some(Isaac::new(cr.client_seed));
                 self.recv_keys = Some(KeyStream::new(cr.server_seed));
-                self.last_recv = p.header.sequence;
+                // ACE initialises its received-sequence counter to 1 and sends
+                // the first encrypted data packet as sequence 2 (sequence 1 is
+                // never used). Match that so the first data packet is in order.
+                self.last_recv = 1;
                 let h = Header {
                     sequence: 1,
                     flags: flags::CONNECT_RESPONSE,
@@ -237,6 +270,8 @@ impl Session {
                     packet::build(h, &cr.cookie.to_le_bytes(), &[], 0),
                 ));
                 self.state = State::Connected;
+                self.connect_retry_at = Some(now + Duration::from_millis(100));
+                self.connect_tries = 1;
                 self.last_echo = now;
                 self.last_ack = now;
                 self.events.push(Event::Connected {
@@ -337,6 +372,8 @@ impl Session {
     }
 
     fn handle_ordered(&mut self, p: Packet) {
+        self.got_data = true;
+        self.connect_retry_at = None;
         self.last_recv = p.header.sequence;
         self.ack_dirty = true;
         for f in p.fragments {
@@ -397,6 +434,31 @@ impl Session {
     pub fn poll(&mut self, now: Instant) {
         if self.state != State::Connected {
             return;
+        }
+        if let Some(t) = self.connect_retry_at {
+            if !self.got_data && now >= t {
+                if self.connect_tries >= 20 {
+                    self.state = State::Terminated;
+                    self.events.push(Event::Terminated(
+                        "server never accepted ConnectResponse".into(),
+                    ));
+                    return;
+                }
+                let h = Header {
+                    sequence: 1,
+                    flags: flags::CONNECT_RESPONSE,
+                    id: self.client_id,
+                    time: self.time_field(now),
+                    iteration: 0,
+                    ..Default::default()
+                };
+                self.outgoing.push((
+                    Port::Secondary,
+                    packet::build(h, &self.cookie.to_le_bytes(), &[], 0),
+                ));
+                self.connect_tries += 1;
+                self.connect_retry_at = Some(now + Duration::from_millis(250));
+            }
         }
         // Build fragments from pending messages.
         let msgs = std::mem::take(&mut self.pending_msgs);

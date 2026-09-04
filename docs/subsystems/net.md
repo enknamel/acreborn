@@ -87,3 +87,26 @@ Every fragment payload starts with `u32 opcode`. `GameEvent` 0xF7B0 bodies
 are `u32 guid, u32 sequence, u32 event type, ...`; `GameAction` 0xF7B1 are
 `u32 sequence, u32 action type, ...`. Strings are `string16` (u16 length,
 bytes, pad to 4).
+
+## Verified against ACE (2026-09-04)
+
+`acclient --create` logs in, creates a character, enters the world and
+receives PlayerDescription, PlayerCreate and ~30 ObjectCreate messages.
+Three ACE behaviours that are not obvious from the protocol alone:
+
+* **First data packet is sequence 2.** ACE initialises its own
+  last-received counter to 1 and skips sequence 1 when it starts encrypted
+  sending; the client must also start at 1 or it buffers seq 2 forever.
+* **ConnectResponse races password verification.** ACE sends the
+  ConnectRequest before it has finished bcrypt-verifying the password and
+  only accepts a ConnectResponse afterwards (~20-40 ms later). Replying
+  within microseconds gets the response silently dropped, so the session
+  resends it every 250 ms until the first data packet arrives.
+* **Do not list a DAT the server lacks.** ACE dereferences its own copy of
+  each archive named in `DDD_InterrogationResponse`; a server without
+  `client_local_English.dat` throws a NullReferenceException and never
+  answers. The client reports only portal and cell.
+
+Debugging: set the `Packets` logger to DEBUG in
+`reference/ace-run/Config/log4net.config` (picked up live) and read
+`/ace/Logs/ACE_Log.txt` in the container; `<<<` lines are inbound.

@@ -52,11 +52,9 @@ fn dat_iterations(dir: Option<&PathBuf>) -> Vec<DatIteration> {
             dat_file_type: 0,
             iterations: 982,
         },
-        DatIteration {
-            dat_file_id: 3,
-            dat_file_type: 0,
-            iterations: 994,
-        },
+        // The language DAT (id 3) is deliberately not reported: ACE
+        // dereferences its own copy when a client lists one, and this
+        // server has no client_local_English.dat.
     ];
     if let Some(dir) = dir {
         for (i, name) in [(0usize, "client_portal.dat"), (1, "client_cell_1.dat")] {
@@ -214,10 +212,29 @@ fn describe(msg: &[u8]) -> String {
     }
 }
 
+fn flush_disconnect(
+    session: &mut Session,
+    socket: &UdpSocket,
+    primary: SocketAddr,
+    secondary: SocketAddr,
+) -> Result<()> {
+    session.disconnect(Instant::now());
+    for (port, dg) in session.outgoing() {
+        let to = if port == Port::Primary {
+            primary
+        } else {
+            secondary
+        };
+        socket.send_to(&dg, to)?;
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env().add_directive("info".parse()?),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
     let cli = Cli::parse();
@@ -260,10 +277,31 @@ fn main() -> Result<()> {
                 Port::Primary => primary,
                 Port::Secondary => secondary,
             };
+            if let Some(h) = ac_net::packet::Header::parse(&dg) {
+                tracing::debug!(
+                    "-> {to} seq={} flags={:#x} id={} size={}",
+                    h.sequence,
+                    h.flags,
+                    h.id,
+                    h.size
+                );
+            }
             socket.send_to(&dg, to)?;
         }
         match socket.recv_from(&mut buf) {
-            Ok((n, _from)) => session.receive(&buf[..n], now),
+            Ok((n, from)) => {
+                if let Some(h) = ac_net::packet::Header::parse(&buf[..n]) {
+                    tracing::debug!(
+                        "<- {from} seq={} flags={:#x} id={} size={} frags={}",
+                        h.sequence,
+                        h.flags,
+                        h.id,
+                        h.size,
+                        h.has(ac_net::packet::flags::BLOB_FRAGMENTS)
+                    );
+                }
+                session.receive(&buf[..n], now)
+            }
             Err(e)
                 if e.kind() == std::io::ErrorKind::WouldBlock
                     || e.kind() == std::io::ErrorKind::TimedOut => {}
@@ -277,6 +315,7 @@ fn main() -> Result<()> {
                 }
                 Event::Terminated(why) => {
                     tracing::warn!("terminated: {why}");
+                    flush_disconnect(&mut session, &socket, primary, secondary)?;
                     return Ok(());
                 }
                 Event::Message(msg) => {
@@ -366,10 +405,12 @@ fn main() -> Result<()> {
         if let Some(t) = entered_at {
             if cli.duration > 0 && t.elapsed() > Duration::from_secs(cli.duration) {
                 tracing::info!("done");
+                flush_disconnect(&mut session, &socket, primary, secondary)?;
                 return Ok(());
             }
         } else if Instant::now() > deadline {
             tracing::warn!("timed out before entering the world");
+            flush_disconnect(&mut session, &socket, primary, secondary)?;
             return Ok(());
         }
     }
