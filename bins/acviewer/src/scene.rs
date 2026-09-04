@@ -244,9 +244,6 @@ pub fn material_image(assets: &Assets, key: MaterialKey, palettes: &Palettes) ->
     }
 }
 
-/// Meshes cached by (GfxObj id, appearance key).
-pub type MeshCache = HashMap<(u32, u64), model::Mesh>;
-
 /// Appearance for a world object plus a key that identifies it for caching.
 pub fn appearance_of(
     assets: &Assets,
@@ -276,39 +273,6 @@ pub fn appearance_of(
         key = key.wrapping_mul(0x100_0000_01b3) ^ ((*idx as u64) << 48 | *id as u64);
     }
     (app, key)
-}
-
-/// Place one model with an appearance into `batches`, building meshes as needed.
-pub fn push_model(
-    assets: &Assets,
-    batches: &mut HashMap<MaterialKey, Batch>,
-    mesh_cache: &mut MeshCache,
-    setup_id: u32,
-    transform: Mat4,
-    app: &model::Appearance,
-    app_key: u64,
-    pose: Option<&[Mat4]>,
-) {
-    let parts = match model::place_posed(assets, setup_id, transform, app, pose) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!("setup {:#010x}: {e}", setup_id);
-            return;
-        }
-    };
-    for part in parts {
-        let key = (part.gfxobj_id, if app.is_empty() { 0 } else { app_key });
-        if !mesh_cache.contains_key(&key) {
-            let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
-                continue;
-            };
-            let Ok(m) = model::build_mesh_with(assets, &g, part.part_index, app) else {
-                continue;
-            };
-            mesh_cache.insert(key, m);
-        }
-        push_mesh(batches, &mesh_cache[&key], part.transform);
-    }
 }
 
 /// Batches for the objects a server has placed (players, NPCs, items).
@@ -360,18 +324,72 @@ pub fn object_anim(
     }
 }
 
-/// Batches for the objects a server has placed (players, NPCs, items).
-/// `anims` keeps per-object idle animation state; `dt` advances it.
-pub fn build_objects(
+/// True if any drawable object has an animation, so batches need refreshing.
+pub fn any_animated(anims: &HashMap<u32, ObjectAnim>) -> bool {
+    anims.values().any(|a| a.player.is_some())
+}
+
+/// GPU meshes cached by (GfxObj id, appearance key).
+pub type GpuMeshCache = HashMap<(u32, u64), std::rc::Rc<crate::gpu::GpuMesh>>;
+
+/// Instances for one model placed at `transform` (with appearance and an
+/// optional animated pose); meshes are uploaded once per (GfxObj, look).
+#[allow(clippy::too_many_arguments)]
+pub fn instances_for(
     assets: &Assets,
+    gpu: &crate::gpu::Gpu,
+    meshes: &mut GpuMeshCache,
+    palettes: &Palettes,
+    setup_id: u32,
+    transform: Mat4,
+    app: &model::Appearance,
+    app_key: u64,
+    pose: Option<&[Mat4]>,
+) -> Vec<crate::gpu::Instance> {
+    let parts = match model::place_posed(assets, setup_id, transform, app, pose) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("setup {:#010x}: {e}", setup_id);
+            return Vec::new();
+        }
+    };
+    let mut out = Vec::with_capacity(parts.len());
+    for part in parts {
+        let key = (part.gfxobj_id, if app.is_empty() { 0 } else { app_key });
+        if !meshes.contains_key(&key) {
+            let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
+                continue;
+            };
+            let Ok(m) = model::build_mesh_with(assets, &g, part.part_index, app) else {
+                continue;
+            };
+            meshes.insert(
+                key,
+                gpu.upload_mesh(&m, |k| material_image(assets, k, palettes)),
+            );
+        }
+        out.push(crate::gpu::Instance {
+            mesh: meshes[&key].clone(),
+            model: part.transform,
+        });
+    }
+    out
+}
+
+/// Instances for every drawable server object (excluding the player),
+/// advancing their animations by `dt`.
+#[allow(clippy::too_many_arguments)]
+pub fn object_instances(
+    assets: &Assets,
+    gpu: &crate::gpu::Gpu,
     world: &ac_world::World,
-    mesh_cache: &mut MeshCache,
+    meshes: &mut GpuMeshCache,
     palettes: &mut Palettes,
     anims: &mut HashMap<u32, ObjectAnim>,
     tables: &mut HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
     dt: f32,
-) -> HashMap<MaterialKey, Batch> {
-    let mut batches: HashMap<MaterialKey, Batch> = HashMap::new();
+) -> Vec<crate::gpu::Instance> {
+    let mut out = Vec::new();
     for o in world.drawable().filter(|o| !o.is_player) {
         let Some(t) = o.transform() else { continue };
         let (app, key) = appearance_of(assets, o, palettes);
@@ -387,21 +405,17 @@ pub fn build_objects(
             p.advance(dt);
             p.part_transforms(anim.n_parts)
         });
-        push_model(
+        out.extend(instances_for(
             assets,
-            &mut batches,
-            mesh_cache,
+            gpu,
+            meshes,
+            palettes,
             o.setup_id,
             t,
             &app,
             key,
             pose.as_deref(),
-        );
+        ));
     }
-    batches
-}
-
-/// True if any drawable object has an animation, so batches need refreshing.
-pub fn any_animated(anims: &HashMap<u32, ObjectAnim>) -> bool {
-    anims.values().any(|a| a.player.is_some())
+    out
 }

@@ -6,6 +6,10 @@ struct Globals {
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(1) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(1) @binding(1) var s_diffuse: sampler;
+struct Model {
+    m: mat4x4<f32>,
+};
+@group(2) @binding(0) var<uniform> model: Model;
 
 struct VsIn {
     @location(0) position: vec3<f32>,
@@ -23,8 +27,9 @@ struct VsOut {
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
     var out: VsOut;
-    out.clip = globals.view_proj * vec4<f32>(in.position, 1.0);
-    out.normal = in.normal;
+    let world = model.m * vec4<f32>(in.position, 1.0);
+    out.clip = globals.view_proj * world;
+    out.normal = (model.m * vec4<f32>(in.normal, 0.0)).xyz;
     out.uv = in.uv;
     out.color = in.color;
     return out;

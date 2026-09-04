@@ -76,7 +76,7 @@ struct Net {
     /// Landblock the static scene is built around, once the player is placed.
     scene_block: Option<u32>,
     last_generation: u64,
-    mesh_cache: scene::MeshCache,
+    gpu_meshes: scene::GpuMeshCache,
     palettes: scene::Palettes,
     player: Option<player::Player>,
     player_setup: u32,
@@ -159,7 +159,7 @@ impl App {
             enter_requested: false,
             scene_block: None,
             last_generation: 0,
-            mesh_cache: Default::default(),
+            gpu_meshes: Default::default(),
             palettes: Default::default(),
             player: None,
             player_setup: 0,
@@ -332,18 +332,17 @@ impl App {
             net.last_generation = net.world.generation;
             let dt = net.last_anim_refresh.elapsed().as_secs_f32().min(0.2);
             net.last_anim_refresh = Instant::now();
-            let batches = scene::build_objects(
+            let instances = scene::object_instances(
                 &net.assets,
+                gpu,
                 &net.world,
-                &mut net.mesh_cache,
+                &mut net.gpu_meshes,
                 &mut net.palettes,
                 &mut net.anims,
                 &mut net.tables,
                 dt,
             );
-            let assets = &net.assets;
-            let palettes = &net.palettes;
-            gpu.set_dynamic(batches, |k| scene::material_image(assets, k, palettes));
+            gpu.set_dynamic_instances(instances);
         }
         // Player movement, camera, and reporting.
         if let Some(pl) = net.player.as_mut() {
@@ -379,24 +378,22 @@ impl App {
                     });
                 }
                 let t = glam::Mat4::from_rotation_translation(pl.rotation(), pos);
-                let mut batches = std::collections::HashMap::new();
                 let (app, key) = match net.world.player() {
                     Some(o) => scene::appearance_of(&net.assets, o, &mut net.palettes),
                     None => (ac_scene::model::Appearance::default(), 0),
                 };
-                scene::push_model(
+                let instances = scene::instances_for(
                     &net.assets,
-                    &mut batches,
-                    &mut net.mesh_cache,
+                    gpu,
+                    &mut net.gpu_meshes,
+                    &net.palettes,
                     net.player_setup,
                     t,
                     &app,
                     key,
                     pose.as_deref(),
                 );
-                let assets = &net.assets;
-                let palettes = &net.palettes;
-                gpu.set_player(batches, |k| scene::material_image(assets, k, palettes));
+                gpu.set_player_instances(instances);
             }
         }
     }

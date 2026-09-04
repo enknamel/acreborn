@@ -92,12 +92,38 @@ pub struct Gpu {
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     batches: Vec<DrawBatch>,
-    dynamic: Vec<DrawBatch>,
-    player: Vec<DrawBatch>,
     /// Uploaded materials by key: decoded and mip-mapped once, shared by
     /// every batch that uses them.
     materials: std::cell::RefCell<HashMap<MaterialKey, std::rc::Rc<wgpu::BindGroup>>>,
+    /// Per-draw model matrices (dynamic uniform offsets); slot 0 is identity.
+    models_buf: wgpu::Buffer,
+    models_bg: wgpu::BindGroup,
+    dynamic_instances: Vec<Instance>,
+    player_instances: Vec<Instance>,
 }
+
+/// One submesh uploaded in model space with its material.
+pub struct GpuSub {
+    vertex_buf: wgpu::Buffer,
+    index_buf: wgpu::Buffer,
+    index_count: u32,
+    bind_group: std::rc::Rc<wgpu::BindGroup>,
+}
+
+/// A model-space mesh on the GPU, shared by any number of instances.
+pub struct GpuMesh {
+    pub subs: Vec<GpuSub>,
+}
+
+/// A drawn copy of a mesh with its own model matrix.
+#[derive(Clone)]
+pub struct Instance {
+    pub mesh: std::rc::Rc<GpuMesh>,
+    pub model: Mat4,
+}
+
+const MODEL_STRIDE: u64 = 256;
+const MAX_INSTANCES: u64 = 8192;
 
 impl Gpu {
     pub fn new(window: Arc<Window>) -> Result<Self> {
@@ -190,9 +216,26 @@ impl Gpu {
                 },
             ],
         });
+        let models_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("model"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(64),
+                },
+                count: None,
+            }],
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline"),
-            bind_group_layouts: &[Some(&globals_layout), Some(&material_layout)],
+            bind_group_layouts: &[
+                Some(&globals_layout),
+                Some(&material_layout),
+                Some(&models_layout),
+            ],
             immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -244,6 +287,29 @@ impl Gpu {
                 resource: globals_buf.as_entire_binding(),
             }],
         });
+        let models_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("models"),
+            size: MODEL_STRIDE * MAX_INSTANCES,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(
+            &models_buf,
+            0,
+            bytemuck::bytes_of(&Mat4::IDENTITY.to_cols_array_2d()),
+        );
+        let models_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("models"),
+            layout: &models_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &models_buf,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(64),
+                }),
+            }],
+        });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
@@ -264,9 +330,11 @@ impl Gpu {
             material_layout,
             sampler,
             batches: Vec::new(),
-            dynamic: Vec::new(),
-            player: Vec::new(),
             materials: Default::default(),
+            models_buf,
+            models_bg,
+            dynamic_instances: Vec::new(),
+            player_instances: Vec::new(),
         })
     }
 
@@ -402,22 +470,98 @@ impl Gpu {
         self.batches = self.upload(batches, materials);
     }
 
-    /// Replace the player's own model batches.
-    pub fn set_player(
-        &mut self,
-        batches: HashMap<MaterialKey, Batch>,
-        materials: impl FnMut(MaterialKey) -> Option<Rgba>,
-    ) {
-        self.player = self.upload(batches, materials);
+    /// Replace the server-object instances drawn each frame.
+    pub fn set_dynamic_instances(&mut self, instances: Vec<Instance>) {
+        self.dynamic_instances = instances;
     }
 
-    /// Replace the dynamic (server object) batches.
-    pub fn set_dynamic(
-        &mut self,
-        batches: HashMap<MaterialKey, Batch>,
-        materials: impl FnMut(MaterialKey) -> Option<Rgba>,
-    ) {
-        self.dynamic = self.upload(batches, materials);
+    /// Replace the player's own instances.
+    pub fn set_player_instances(&mut self, instances: Vec<Instance>) {
+        self.player_instances = instances;
+    }
+
+    /// Upload a model-space mesh once; instances reference it by `Rc`.
+    pub fn upload_mesh(
+        &self,
+        mesh: &ac_scene::model::Mesh,
+        mut materials: impl FnMut(MaterialKey) -> Option<Rgba>,
+    ) -> std::rc::Rc<GpuMesh> {
+        let mut subs = Vec::with_capacity(mesh.submeshes.len());
+        for sub in &mesh.submeshes {
+            if sub.indices.is_empty() {
+                continue;
+            }
+            let key = match sub.solid_color {
+                Some(c) => MaterialKey::Solid(c),
+                None => MaterialKey::Texture {
+                    id: sub.surface_id,
+                    tex: sub.texture_override.unwrap_or(0),
+                    palette: sub.palette_hash,
+                },
+            };
+            let bind_group = self.material(key, &mut materials);
+            let alpha = 1.0 - sub.translucency.clamp(0.0, 1.0);
+            let verts: Vec<Vertex> = sub
+                .vertices
+                .iter()
+                .map(|v| Vertex {
+                    position: v.position.to_array(),
+                    normal: v.normal.to_array(),
+                    uv: v.uv.to_array(),
+                    color: [1.0, 1.0, 1.0, alpha],
+                })
+                .collect();
+            let vertex_buf = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: bytemuck::cast_slice(&verts),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+            let index_buf = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: None,
+                    contents: bytemuck::cast_slice(&sub.indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+            subs.push(GpuSub {
+                vertex_buf,
+                index_buf,
+                index_count: sub.indices.len() as u32,
+                bind_group,
+            });
+        }
+        std::rc::Rc::new(GpuMesh { subs })
+    }
+
+    /// Cached material bind group for a key, decoding on first use.
+    fn material(
+        &self,
+        key: MaterialKey,
+        materials: &mut impl FnMut(MaterialKey) -> Option<Rgba>,
+    ) -> std::rc::Rc<wgpu::BindGroup> {
+        if let Some(bg) = self.materials.borrow().get(&key).cloned() {
+            return bg;
+        }
+        let img = match key {
+            MaterialKey::Solid(argb) => Rgba {
+                width: 1,
+                height: 1,
+                pixels: vec![(argb >> 16) as u8, (argb >> 8) as u8, argb as u8, 255],
+            },
+            MaterialKey::Texture { .. } => match materials(key) {
+                Some(i) => i,
+                None => Rgba {
+                    width: 1,
+                    height: 1,
+                    pixels: vec![255, 0, 255, 255],
+                },
+            },
+        };
+        let bg = std::rc::Rc::new(self.make_material(&img));
+        self.materials.borrow_mut().insert(key, bg.clone());
+        bg
     }
 
     fn upload(
@@ -436,30 +580,7 @@ impl Gpu {
             if b.indices.is_empty() {
                 continue;
             }
-            let cached = self.materials.borrow().get(&key).cloned();
-            let bind_group = match cached {
-                Some(bg) => bg,
-                None => {
-                    let img = match key {
-                        MaterialKey::Solid(argb) => Rgba {
-                            width: 1,
-                            height: 1,
-                            pixels: vec![(argb >> 16) as u8, (argb >> 8) as u8, argb as u8, 255],
-                        },
-                        MaterialKey::Texture { .. } => match materials(key) {
-                            Some(i) => i,
-                            None => Rgba {
-                                width: 1,
-                                height: 1,
-                                pixels: vec![255, 0, 255, 255],
-                            },
-                        },
-                    };
-                    let bg = std::rc::Rc::new(self.make_material(&img));
-                    self.materials.borrow_mut().insert(key, bg.clone());
-                    bg
-                }
-            };
+            let bind_group = self.material(key, &mut materials);
             let vertex_buf = self
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -589,6 +710,23 @@ impl Gpu {
         };
         self.queue
             .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
+        // Model matrices for this frame's instances (slot 0 stays identity).
+        let count = self.dynamic_instances.len() + self.player_instances.len();
+        let mut mats = Vec::with_capacity(MODEL_STRIDE as usize * count);
+        for inst in self
+            .dynamic_instances
+            .iter()
+            .chain(self.player_instances.iter())
+            .take(MAX_INSTANCES as usize - 1)
+        {
+            let m = inst.model.to_cols_array_2d();
+            mats.extend_from_slice(bytemuck::bytes_of(&m));
+            mats.resize(mats.len() + (MODEL_STRIDE as usize - 64), 0);
+        }
+        if !mats.is_empty() {
+            self.queue
+                .write_buffer(&self.models_buf, MODEL_STRIDE, &mats);
+        }
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -621,16 +759,29 @@ impl Gpu {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bg, &[]);
-            for b in self
-                .batches
-                .iter()
-                .chain(self.dynamic.iter())
-                .chain(self.player.iter())
-            {
+            // Static geometry is baked in world space: identity model (slot 0).
+            pass.set_bind_group(2, &self.models_bg, &[0]);
+            for b in &self.batches {
                 pass.set_bind_group(1, &*b.bind_group, &[]);
                 pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
                 pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..b.index_count, 0, 0..1);
+            }
+            // Instances: one model matrix each, via dynamic offset.
+            for (i, inst) in self
+                .dynamic_instances
+                .iter()
+                .chain(self.player_instances.iter())
+                .enumerate()
+            {
+                let slot = (i as u64 + 1).min(MAX_INSTANCES - 1) as u32;
+                pass.set_bind_group(2, &self.models_bg, &[slot * MODEL_STRIDE as u32]);
+                for sub in &inst.mesh.subs {
+                    pass.set_bind_group(1, &*sub.bind_group, &[]);
+                    pass.set_vertex_buffer(0, sub.vertex_buf.slice(..));
+                    pass.set_index_buffer(sub.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..sub.index_count, 0, 0..1);
+                }
             }
         }
         self.queue.submit([encoder.finish()]);
