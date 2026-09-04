@@ -11,6 +11,33 @@ pub struct ChatLine {
     pub kind: u32,
 }
 
+/// One vital bar: label, current, maximum.
+pub struct VitalBar {
+    pub name: &'static str,
+    pub current: u32,
+    pub max: u32,
+}
+
+pub struct Sheet {
+    pub name: String,
+    pub level: i32,
+    pub vitals: Vec<VitalBar>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BlipKind {
+    Player,
+    Creature,
+    Other,
+}
+
+/// A radar blip in radar space: x right, y forward, metres.
+pub struct Blip {
+    pub x: f32,
+    pub y: f32,
+    pub kind: BlipKind,
+}
+
 pub struct Ui {
     pub ctx: egui::Context,
     state: Option<egui_winit::State>,
@@ -22,6 +49,10 @@ pub struct Ui {
     /// Set when the user submits a chat line; drained by the caller.
     pub outgoing: Vec<String>,
     pub status: String,
+    pub sheet: Option<Sheet>,
+    pub blips: Vec<Blip>,
+    /// Radar range in metres (edge of the circle).
+    pub radar_range: f32,
     frames: Vec<egui::ClippedPrimitive>,
     free: Vec<egui::TextureId>,
     screen: ScreenDescriptor,
@@ -62,6 +93,9 @@ impl Ui {
             chat_focus: false,
             outgoing: Vec::new(),
             status: String::new(),
+            sheet: None,
+            blips: Vec::new(),
+            radar_range: 100.0,
             frames: Vec::new(),
             free: Vec::new(),
             screen: ScreenDescriptor {
@@ -126,7 +160,106 @@ impl Ui {
                             .background_color(egui::Color32::from_black_alpha(140)),
                     );
                 });
+            let w = width as f32 / ppp;
             let h = height as f32 / ppp;
+            if let Some(sheet) = &self.sheet {
+                egui::Area::new(egui::Id::new("vitals"))
+                    .fade_in(false)
+                    .fixed_pos(egui::pos2(8.0, 36.0))
+                    .show(ctx, |ui| {
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_black_alpha(160))
+                            .inner_margin(6)
+                            .show(ui, |ui| {
+                                ui.set_min_width(220.0);
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "{}  (level {})",
+                                        sheet.name, sheet.level
+                                    ))
+                                    .color(egui::Color32::WHITE)
+                                    .strong(),
+                                );
+                                for (i, v) in sheet.vitals.iter().enumerate() {
+                                    let color = [
+                                        egui::Color32::from_rgb(200, 40, 40),
+                                        egui::Color32::from_rgb(220, 180, 40),
+                                        egui::Color32::from_rgb(50, 90, 220),
+                                    ][i.min(2)];
+                                    let frac = if v.max > 0 {
+                                        v.current as f32 / v.max as f32
+                                    } else {
+                                        0.0
+                                    };
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(220.0, 16.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    let p = ui.painter();
+                                    p.rect_filled(rect, 3.0, egui::Color32::from_gray(40));
+                                    let mut fill = rect;
+                                    fill.set_width(rect.width() * frac.clamp(0.0, 1.0));
+                                    p.rect_filled(fill, 3.0, color);
+                                    p.text(
+                                        rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        format!("{} {}/{}", v.name, v.current, v.max),
+                                        egui::FontId::proportional(13.0),
+                                        egui::Color32::WHITE,
+                                    );
+                                }
+                            });
+                    });
+            }
+            if self.sheet.is_some() {
+                let r = 80.0;
+                let center = egui::pos2(w - r - 16.0, r + 16.0);
+                egui::Area::new(egui::Id::new("radar"))
+                    .fade_in(false)
+                    .fixed_pos(egui::pos2(center.x - r - 4.0, center.y - r - 4.0))
+                    .show(ctx, |ui| {
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(2.0 * r + 8.0, 2.0 * r + 8.0),
+                            egui::Sense::hover(),
+                        );
+                        let c = rect.center();
+                        let p = ui.painter();
+                        p.circle_filled(c, r, egui::Color32::from_black_alpha(160));
+                        p.circle_stroke(
+                            c,
+                            r,
+                            egui::Stroke::new(1.5, egui::Color32::from_gray(180)),
+                        );
+                        p.circle_stroke(
+                            c,
+                            r * 0.5,
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
+                        );
+                        p.line_segment(
+                            [egui::pos2(c.x, c.y - r), egui::pos2(c.x, c.y + r)],
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
+                        );
+                        p.line_segment(
+                            [egui::pos2(c.x - r, c.y), egui::pos2(c.x + r, c.y)],
+                            egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
+                        );
+                        let scale = r / self.radar_range.max(1.0);
+                        for b in &self.blips {
+                            let d = (b.x * b.x + b.y * b.y).sqrt();
+                            if d > self.radar_range {
+                                continue;
+                            }
+                            let at = egui::pos2(c.x + b.x * scale, c.y - b.y * scale);
+                            let (col, rad) = match b.kind {
+                                BlipKind::Player => (egui::Color32::from_rgb(90, 220, 90), 3.5),
+                                BlipKind::Creature => (egui::Color32::from_rgb(230, 120, 40), 3.0),
+                                BlipKind::Other => (egui::Color32::from_gray(200), 2.0),
+                            };
+                            p.circle_filled(at, rad, col);
+                        }
+                        p.circle_filled(c, 3.0, egui::Color32::WHITE);
+                    });
+            }
             egui::Window::new("chat")
                 .fade_in(false)
                 .title_bar(false)

@@ -162,6 +162,56 @@ impl App {
             );
         }
         ui.status = s;
+        let Some(net) = &self.net else {
+            ui.sheet = None;
+            ui.blips.clear();
+            return;
+        };
+        let st = &net.world.stats;
+        ui.sheet = (!st.name.is_empty()).then(|| ui::Sheet {
+            name: st.name.clone(),
+            level: st.level,
+            vitals: (0..3)
+                .map(|i| ui::VitalBar {
+                    name: ac_world::stats::VITAL_NAMES[i],
+                    current: st.vitals[i].current,
+                    max: st.vital_max(i),
+                })
+                .collect(),
+        });
+        ui.blips.clear();
+        let (me, heading) = match (&net.player, net.world.player()) {
+            (Some(p), _) => (ac_world::landblock_origin(p.cell) + p.local, p.heading),
+            (None, Some(o)) => match o.display.or(o.position) {
+                Some(pos) => (ac_world::landblock_origin(pos.cell) + pos.local, 0.0),
+                None => return,
+            },
+            _ => return,
+        };
+        let fwd = glam::Vec2::new(-heading.sin(), heading.cos());
+        let right = glam::Vec2::new(heading.cos(), heading.sin());
+        for o in net.world.drawable() {
+            if o.is_player {
+                continue;
+            }
+            let Some(pos) = o.display.or(o.position) else {
+                continue;
+            };
+            let d = ac_world::landblock_origin(pos.cell) + pos.local - me;
+            let d = glam::Vec2::new(d.x, d.y);
+            let kind = if o.object_desc_flags & ac_world::object_desc_flags::PLAYER != 0 {
+                ui::BlipKind::Player
+            } else if o.motion_table_id != 0 {
+                ui::BlipKind::Creature
+            } else {
+                ui::BlipKind::Other
+            };
+            ui.blips.push(ui::Blip {
+                x: d.dot(right),
+                y: d.dot(fwd),
+                kind,
+            });
+        }
     }
 
     fn send_chat(&mut self) {
@@ -286,7 +336,8 @@ impl App {
                         }
                         ac_world::Applied::Created
                         | ac_world::Applied::Moved
-                        | ac_world::Applied::Deleted => continue,
+                        | ac_world::Applied::Deleted
+                        | ac_world::Applied::Stats => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
                         ac_world::Applied::Ignored => {}
                     }

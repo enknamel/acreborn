@@ -4,6 +4,7 @@
 //! positions.
 
 pub mod object;
+pub mod stats;
 
 use std::collections::HashMap;
 
@@ -34,6 +35,12 @@ impl Default for Motion {
 }
 
 /// One object the server has placed in the world.
+pub mod object_desc_flags {
+    pub const OPENABLE: u32 = 0x0000_0001;
+    pub const PLAYER: u32 = 0x0000_0008;
+    pub const DOOR: u32 = 0x0000_1000;
+}
+
 #[derive(Debug, Clone)]
 pub struct WorldObject {
     pub guid: u32,
@@ -49,6 +56,8 @@ pub struct WorldObject {
     pub parent: Option<u32>,
     pub no_draw: bool,
     pub is_player: bool,
+    /// ObjectDescriptionFlag bits (0x8 = another player, 0x1000 = door...).
+    pub object_desc_flags: u32,
     pub palette_id: u32,
     pub sub_palettes: Vec<(u32, u8, u8)>,
     pub texture_changes: Vec<(u8, u32, u32)>,
@@ -101,6 +110,8 @@ pub struct World {
     pub player_guid: Option<u32>,
     /// Bumped whenever the set of drawable objects or a position changes.
     pub generation: u64,
+    /// The player's character sheet.
+    pub stats: stats::PlayerStats,
 }
 
 /// What `apply` did with a message, for logging.
@@ -110,6 +121,8 @@ pub enum Applied {
     Moved,
     Deleted,
     PlayerSet,
+    /// Name, level, attributes or vitals changed.
+    Stats,
     Ignored,
     Failed,
 }
@@ -142,6 +155,7 @@ impl World {
                         parent: oc.parent,
                         no_draw: oc.no_draw,
                         is_player,
+                        object_desc_flags: oc.object_desc_flags,
                         palette_id: oc.palette_id,
                         sub_palettes: oc.sub_palettes,
                         texture_changes: oc.texture_changes,
@@ -248,6 +262,7 @@ impl World {
                 }
                 Applied::Ignored
             }
+            _ if self.stats.apply(op, body) => Applied::Stats,
             _ => Applied::Ignored,
         }
     }

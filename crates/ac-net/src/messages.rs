@@ -22,6 +22,12 @@ pub mod opcode {
     pub const UPDATE_OBJECT: u32 = 0xF7DB;
     pub const CHARACTER_ENTER_WORLD_SERVER_READY: u32 = 0xF7DF;
     pub const EMOTE_TEXT: u32 = 0x01E0;
+    pub const PRIVATE_UPDATE_PROPERTY_INT: u32 = 0x02CD;
+    pub const PRIVATE_UPDATE_PROPERTY_INT64: u32 = 0x02CF;
+    pub const PRIVATE_UPDATE_PROPERTY_STRING: u32 = 0x02D5;
+    pub const PRIVATE_UPDATE_ATTRIBUTE: u32 = 0x02E3;
+    pub const PRIVATE_UPDATE_VITAL: u32 = 0x02E7;
+    pub const PRIVATE_UPDATE_ATTRIBUTE_2ND_LEVEL: u32 = 0x02E9;
     pub const HEAR_SPEECH: u32 = 0x02BB;
     pub const HEAR_RANGED_SPEECH: u32 = 0x02BC;
     pub const SERVER_MESSAGE: u32 = 0xF7E0;
