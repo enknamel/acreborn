@@ -166,6 +166,28 @@ impl<'a> Reader<'a> {
         Ok(latin1(&b))
     }
 
+    /// .NET `BinaryReader.ReadString`: 7-bit varint byte length, then UTF-8.
+    /// Used by the character-generation tables.
+    pub fn dotnet_string(&mut self) -> Result<String> {
+        let mut len = 0usize;
+        let mut shift = 0;
+        loop {
+            let b = self.u8()?;
+            len |= ((b & 0x7F) as usize) << shift;
+            if b & 0x80 == 0 {
+                break;
+            }
+            shift += 7;
+            if shift > 28 {
+                return Err(Error::Invalid {
+                    what: "string length",
+                    detail: "varint too long".into(),
+                });
+            }
+        }
+        Ok(String::from_utf8_lossy(self.bytes(len)?).into_owned())
+    }
+
     /// Packed length prefix, then UTF-16LE code units.
     pub fn unicode_string(&mut self) -> Result<String> {
         let n = self.packed_u32()? as usize;

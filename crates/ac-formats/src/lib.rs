@@ -9,6 +9,7 @@ pub mod dxt;
 pub mod reader;
 
 pub mod animation;
+pub mod chargen;
 pub mod environment;
 pub mod gfxobj;
 pub mod landblock;

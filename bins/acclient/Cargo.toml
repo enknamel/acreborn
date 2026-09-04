@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 ac-net = { path = "../../crates/ac-net" }
 ac-dat = { path = "../../crates/ac-dat" }
+ac-formats = { path = "../../crates/ac-formats" }
 anyhow.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 tracing.workspace = true

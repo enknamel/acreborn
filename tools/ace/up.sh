@@ -13,9 +13,10 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ACE="$ROOT/reference/ext/ACE"
 RUN="$ROOT/reference/ace-run"
 mkdir -p "$RUN"/{Config,Content,Logs,Mods,db-data}
-# Dats: symlink the real directory (ACE only reads them).
-ln -sfn "$AC_DATA_DIR" "$RUN/Dats"
+rm -f "$RUN/Dats"
 cp "$ACE/docker-compose.yml" "$RUN/docker-compose.yml"
+# Dats: bind the real directory (a symlink source hangs Docker Desktop).
+sed -i '' "s|\./Dats:/ace/Dats|$AC_DATA_DIR:/ace/Dats:ro|" "$RUN/docker-compose.yml"
 cp "$ACE/docker.env" "$RUN/docker.env"
 # Build context is the ACE checkout.
 sed -i '' "s|build: \.|build: $ACE|" "$RUN/docker-compose.yml"

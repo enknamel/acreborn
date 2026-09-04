@@ -191,3 +191,40 @@ fn textures_to_rgba() {
             .join("\n")
     );
 }
+
+#[test]
+fn chargen() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    let cg = chargen::CharGen::parse(
+        chargen::CharGen::ID,
+        &dat.read(chargen::CharGen::ID).unwrap(),
+    )
+    .unwrap();
+    assert!(
+        cg.starter_areas.iter().any(|a| a.name == "Holtburg"),
+        "{:?}",
+        cg.starter_areas.iter().map(|a| &a.name).collect::<Vec<_>>()
+    );
+    let (id, aluvian) = cg
+        .heritage_groups
+        .iter()
+        .find(|(_, h)| h.name == "Aluvian")
+        .unwrap();
+    assert_eq!(*id, 1);
+    assert_eq!(aluvian.attribute_credits, 330);
+    assert!(
+        aluvian
+            .templates
+            .iter()
+            .any(|t| t.name == "Swashbuckler" || t.name == "Warrior"),
+        "{:?}",
+        aluvian
+            .templates
+            .iter()
+            .map(|t| &t.name)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(aluvian.genders.len(), 2);
+}

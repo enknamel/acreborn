@@ -28,6 +28,10 @@ struct Cli {
     /// Character name to enter the world with (default: first in the list)
     #[arg(long)]
     character: Option<String>,
+    /// Create a character with this name if the account has none (Aluvian,
+    /// first template, Holtburg). Needs --data-dir for the CharGen table.
+    #[arg(long)]
+    create: Option<String>,
     /// Seconds to stay connected after entering the world (0 = forever)
     #[arg(long, default_value_t = 20)]
     duration: u64,
@@ -66,6 +70,88 @@ fn dat_iterations(dir: Option<&PathBuf>) -> Vec<DatIteration> {
         }
     }
     v
+}
+
+/// Build a valid CharacterCreate from the CharGen table: given heritage,
+/// male, the named (or first) template, default appearance, Holtburg.
+fn build_character(
+    data_dir: &PathBuf,
+    account: &str,
+    name: &str,
+    heritage: u32,
+) -> Result<messages::CharacterCreate> {
+    use ac_formats::chargen::CharGen;
+    let dat = ac_dat::DatArchive::open(data_dir.join("client_portal.dat"))?;
+    let cg = CharGen::parse(CharGen::ID, &dat.read(CharGen::ID)?)?;
+    let (_, hg) = cg
+        .heritage_groups
+        .iter()
+        .find(|(id, _)| *id == heritage)
+        .context("heritage not in CharGen")?;
+    let tmpl = hg.templates.first().context("heritage has no templates")?;
+    // Skill advancement per skill id: templates list trained ("normal") and
+    // specialized ("primary") skills; other heritage skills are untrained.
+    let mut skills = vec![0u32; 55];
+    for s in &hg.skills {
+        if (s.skill as usize) < skills.len() {
+            skills[s.skill as usize] = 1;
+        }
+    }
+    for &s in &tmpl.normal_skills {
+        skills[s as usize] = 2;
+    }
+    for &s in &tmpl.primary_skills {
+        skills[s as usize] = 3;
+    }
+    let start_area = cg
+        .starter_areas
+        .iter()
+        .position(|a| a.name == "Holtburg")
+        .unwrap_or(0) as u32;
+    let (_, sex) = hg
+        .genders
+        .iter()
+        .find(|(g, _)| *g == 1)
+        .context("no male option")?;
+    tracing::info!(
+        "creating {name}: {} {} template {:?} (str {} end {} coo {} qui {} foc {} self {}), start area {}",
+        hg.name,
+        sex.name,
+        tmpl.name,
+        tmpl.strength,
+        tmpl.endurance,
+        tmpl.coordination,
+        tmpl.quickness,
+        tmpl.focus,
+        tmpl.self_,
+        start_area
+    );
+    Ok(messages::CharacterCreate {
+        account: account.to_string(),
+        name: name.to_string(),
+        heritage,
+        gender: 1,
+        appearance: messages::Appearance {
+            headgear_style: u32::MAX,
+            skin_hue: 0.5,
+            hair_hue: 0.5,
+            headgear_hue: 0.5,
+            shirt_hue: 0.5,
+            pants_hue: 0.5,
+            footwear_hue: 0.5,
+            ..Default::default()
+        },
+        template: 0,
+        strength: tmpl.strength,
+        endurance: tmpl.endurance,
+        coordination: tmpl.coordination,
+        quickness: tmpl.quickness,
+        focus: tmpl.focus,
+        self_: tmpl.self_,
+        slot: 0,
+        skills,
+        start_area,
+    })
 }
 
 fn describe(msg: &[u8]) -> String {
@@ -204,7 +290,38 @@ fn main() -> Result<()> {
                                 characters = cl.characters;
                             }
                         }
+                        opcode::CHARACTER_CREATE_RESPONSE => {
+                            if let Ok(r) = messages::CharacterCreateResponse::parse(body) {
+                                if r.response == 1 {
+                                    characters.push(messages::CharacterEntry {
+                                        id: r.guid,
+                                        name: r.name,
+                                        seconds_until_deleted: 0,
+                                    });
+                                    tracing::info!(
+                                        "-> CharacterEnterWorldRequest for new character"
+                                    );
+                                    session
+                                        .send_message(queue::UI, messages::enter_world_request());
+                                    enter_requested = true;
+                                } else {
+                                    tracing::error!(
+                                        "character creation failed with code {}",
+                                        r.response
+                                    );
+                                    return Ok(());
+                                }
+                            }
+                        }
                         opcode::DDD_END_DDD => {
+                            if characters.is_empty() {
+                                if let (Some(name), Some(dir)) = (&cli.create, &cli.data_dir) {
+                                    let cc = build_character(dir, &cli.account, name, 1)?;
+                                    tracing::info!("-> CharacterCreate {name:?}");
+                                    session.send_message(queue::UI, cc.encode());
+                                    continue;
+                                }
+                            }
                             if !enter_requested {
                                 let pick = match &cli.character {
                                     Some(name) => characters

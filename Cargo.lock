@@ -63,6 +63,7 @@ name = "acclient"
 version = "0.1.0"
 dependencies = [
  "ac-dat",
+ "ac-formats",
  "ac-net",
  "anyhow",
  "clap",

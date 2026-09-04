@@ -4,6 +4,8 @@
 use crate::wire::{Reader, Truncated, Writer};
 
 pub mod opcode {
+    pub const CHARACTER_CREATE_RESPONSE: u32 = 0xF643;
+    pub const CHARACTER_CREATE: u32 = 0xF656;
     pub const CHARACTER_ENTER_WORLD: u32 = 0xF657;
     pub const CHARACTER_LIST: u32 = 0xF658;
     pub const CHARACTER_ERROR: u32 = 0xF659;
@@ -120,6 +122,135 @@ pub fn ddd_interrogation_response(dats: &[DatIteration]) -> Vec<u8> {
     w.i32(0); // iterations without keys: none
     w.u32(0); // flags
     w.finish()
+}
+
+/// Appearance choices for character creation (indices into the CharGen
+/// option lists, hues in 0..1).
+#[derive(Debug, Clone, Default)]
+pub struct Appearance {
+    pub eyes: u32,
+    pub nose: u32,
+    pub mouth: u32,
+    pub hair_color: u32,
+    pub eye_color: u32,
+    pub hair_style: u32,
+    /// `u32::MAX` = no headgear.
+    pub headgear_style: u32,
+    pub headgear_color: u32,
+    pub shirt_style: u32,
+    pub shirt_color: u32,
+    pub pants_style: u32,
+    pub pants_color: u32,
+    pub footwear_style: u32,
+    pub footwear_color: u32,
+    pub skin_hue: f64,
+    pub hair_hue: f64,
+    pub headgear_hue: f64,
+    pub shirt_hue: f64,
+    pub pants_hue: f64,
+    pub footwear_hue: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CharacterCreate {
+    pub account: String,
+    pub name: String,
+    /// 1 = Aluvian, 2 = Gharu'ndim, 3 = Sho, ...
+    pub heritage: u32,
+    /// 1 = male, 2 = female.
+    pub gender: u32,
+    pub appearance: Appearance,
+    /// Index into the heritage's template list.
+    pub template: i32,
+    pub strength: u32,
+    pub endurance: u32,
+    pub coordination: u32,
+    pub quickness: u32,
+    pub focus: u32,
+    pub self_: u32,
+    pub slot: u32,
+    /// Advancement class per skill id, 55 entries: 0 inactive, 1 untrained,
+    /// 2 trained, 3 specialized.
+    pub skills: Vec<u32>,
+    /// Index into CharGen starter areas.
+    pub start_area: u32,
+}
+
+impl CharacterCreate {
+    /// Message body for CharacterCreate (0xF656).
+    pub fn encode(&self) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.u32(opcode::CHARACTER_CREATE).string16(&self.account);
+        w.u32(1).u32(self.heritage).u32(self.gender);
+        let a = &self.appearance;
+        w.u32(a.eyes)
+            .u32(a.nose)
+            .u32(a.mouth)
+            .u32(a.hair_color)
+            .u32(a.eye_color)
+            .u32(a.hair_style)
+            .u32(a.headgear_style)
+            .u32(a.headgear_color)
+            .u32(a.shirt_style)
+            .u32(a.shirt_color)
+            .u32(a.pants_style)
+            .u32(a.pants_color)
+            .u32(a.footwear_style)
+            .u32(a.footwear_color)
+            .f64(a.skin_hue)
+            .f64(a.hair_hue)
+            .f64(a.headgear_hue)
+            .f64(a.shirt_hue)
+            .f64(a.pants_hue)
+            .f64(a.footwear_hue);
+        w.i32(self.template)
+            .u32(self.strength)
+            .u32(self.endurance)
+            .u32(self.coordination)
+            .u32(self.quickness)
+            .u32(self.focus)
+            .u32(self.self_)
+            .u32(self.slot)
+            .u32(0); // class id
+        w.u32(self.skills.len() as u32);
+        for &s in &self.skills {
+            w.u32(s);
+        }
+        w.string16(&self.name).u32(self.start_area).u32(0).u32(0);
+        w.finish()
+    }
+}
+
+/// CharacterCreateResponse (0xF643) body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CharacterCreateResponse {
+    /// 1 = ok, 2 = pending, 3 = name in use, 4 = name banned, 5 = corrupt,
+    /// 6 = database down, 7 = admin privilege denied.
+    pub response: u32,
+    pub guid: u32,
+    pub name: String,
+}
+
+impl CharacterCreateResponse {
+    pub fn parse(b: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(b);
+        let response = r.u32()?;
+        if response == 1 {
+            let guid = r.u32()?;
+            let name = r.string16()?;
+            Ok(CharacterCreateResponse {
+                response,
+                guid,
+                name,
+            })
+        } else {
+            Ok(CharacterCreateResponse {
+                response,
+                guid: 0,
+                name: String::new(),
+            })
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
