@@ -1,0 +1,11 @@
+/target
+# derived / copyrighted reference material — regenerable, never committed
+/reference/decomp/
+/reference/dumps/
+/reference/ext/
+/reference/index.sqlite
+/reference/tools/*/bin/
+/reference/tools/*/obj/
+*.dat
+*.exe
+.DS_Store

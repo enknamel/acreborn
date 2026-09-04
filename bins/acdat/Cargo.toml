@@ -1,0 +1,13 @@
+[package]
+name = "acdat"
+description = "CLI for inspecting and extracting Turbine DAT archives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-dat = { path = "../../crates/ac-dat" }
+anyhow.workspace = true
+clap.workspace = true
+sha2.workspace = true
+hex.workspace = true
