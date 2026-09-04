@@ -60,9 +60,13 @@ struct Cli {
     /// Connected headless mode: say this line once the player is placed.
     #[arg(long)]
     say: Option<String>,
-    /// Connected headless mode: double-click this pixel (x,y) once placed.
+    /// Connected headless mode: double-click this pixel (x,y) once placed;
+    /// repeat the flag for several clicks 1.5 s apart.
     #[arg(long)]
-    click: Option<String>,
+    click: Vec<String>,
+    /// Connected headless mode: use the nearest object with this name once placed.
+    #[arg(long = "use")]
+    use_name: Option<String>,
     /// Camera override for --screenshot: x,y,z,yaw_deg,pitch_deg
     #[arg(long)]
     camera: Option<String>,
@@ -84,6 +88,8 @@ struct Net {
     scene_block: Option<u32>,
     last_generation: u64,
     pickables: Vec<scene::Pickable>,
+    /// Server-requested MoveTo for our own character, until reached.
+    move_to: Option<ac_world::object::MoveTarget>,
     selected: Option<u32>,
     last_click: Option<(Instant, u32)>,
     gpu_meshes: scene::GpuMeshCache,
@@ -204,6 +210,36 @@ impl App {
             tracing::info!("select {name} ({guid:#010x})");
             net.session
                 .send_action(action::IDENTIFY_OBJECT, &guid.to_le_bytes());
+        }
+    }
+
+    /// Send Use for the nearest drawable object called `name` (test hook).
+    fn use_by_name(&mut self, name: &str) {
+        let Some(net) = self.net.as_mut() else { return };
+        let me = net.player.as_ref().map(|p| p.world_position());
+        let mut best: Option<(f32, u32)> = None;
+        for o in net.world.drawable() {
+            if o.name != name {
+                continue;
+            }
+            let Some(p) = o.display.or(o.position) else {
+                continue;
+            };
+            let d = me
+                .map(|m| (ac_world::landblock_origin(p.cell) + p.local).distance(m))
+                .unwrap_or(0.0);
+            if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                best = Some((d, o.guid));
+            }
+        }
+        match best {
+            Some((_, guid)) => {
+                tracing::info!("use {name} ({guid:#010x})");
+                net.selected = Some(guid);
+                net.session
+                    .send_action(ac_net::messages::action::USE, &guid.to_le_bytes());
+            }
+            None => tracing::warn!("no object named {name:?} in view"),
         }
     }
 
@@ -401,6 +437,7 @@ impl App {
             scene_block: None,
             last_generation: 0,
             pickables: Vec::new(),
+            move_to: None,
             selected: None,
             last_click: None,
             gpu_meshes: Default::default(),
@@ -451,8 +488,18 @@ impl App {
                                 .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
                             continue;
                         }
+                        ac_world::Applied::Moved => {
+                            // A MoveTo aimed at us is ours to carry out; the
+                            // object table only sees our echoed motion states.
+                            if let Some(o) = net.world.player_mut() {
+                                if let Some(t) = o.target.take() {
+                                    tracing::debug!("server move-to {t:?}");
+                                    net.move_to = Some(t);
+                                }
+                            }
+                            continue;
+                        }
                         ac_world::Applied::Created
-                        | ac_world::Applied::Moved
                         | ac_world::Applied::Deleted
                         | ac_world::Applied::Stats => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
@@ -530,7 +577,18 @@ impl App {
                         opcode::CHARACTER_ERROR | opcode::ACCOUNT_BOOT => {
                             tracing::error!("server refused: {}", op)
                         }
-                        _ => {}
+                        opcode::GAME_EVENT => {
+                            if let Some((_, _, ev, rest)) = messages::split_game_event(body) {
+                                if ev == ac_net::messages::event::USE_DONE && rest.len() >= 4 {
+                                    let err =
+                                        u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
+                                    tracing::debug!("use done, error {err:#x}");
+                                } else {
+                                    tracing::debug!("game event {ev:#06x} ({} bytes)", rest.len());
+                                }
+                            }
+                        }
+                        _ => tracing::debug!("message {op:#06x} ({} bytes)", body.len()),
                     }
                 }
             }
@@ -601,13 +659,48 @@ impl App {
         }
         // Player movement, camera, and reporting.
         if let Some(pl) = net.player.as_mut() {
-            let input = player::Input {
+            let mut input = player::Input {
                 forward: (self.keys.contains(&KeyCode::KeyW) as i8
                     - self.keys.contains(&KeyCode::KeyS) as i8) as f32,
                 strafe: (self.keys.contains(&KeyCode::KeyD) as i8
                     - self.keys.contains(&KeyCode::KeyA) as i8) as f32,
                 run: !self.keys.contains(&KeyCode::ShiftLeft),
             };
+            // Server-driven MoveTo (using something out of reach): run toward
+            // the target until close enough, unless the user takes over.
+            let manual = input.forward != 0.0 || input.strafe != 0.0;
+            if let Some(t) = net.move_to {
+                let goal = match t {
+                    ac_world::object::MoveTarget::Object(g) => net
+                        .world
+                        .objects
+                        .get(&g)
+                        .and_then(|o| o.display.or(o.position))
+                        .map(|p| (ac_world::landblock_origin(p.cell) + p.local, 1.0)),
+                    ac_world::object::MoveTarget::Position { cell, local } => {
+                        Some((ac_world::landblock_origin(cell) + local, 0.3))
+                    }
+                };
+                let arrived = match goal {
+                    Some((g, stop)) if !manual => {
+                        let d = g - pl.world_position();
+                        let flat = glam::Vec2::new(d.x, d.y);
+                        if flat.length() > stop {
+                            pl.heading = (-flat.x).atan2(flat.y);
+                            input.forward = 1.0;
+                            input.run = true;
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                    _ => true,
+                };
+                if arrived {
+                    tracing::debug!("move-to done ({t:?})");
+                    net.move_to = None;
+                }
+            }
             let now = Instant::now();
             let dt = self.frame_dt;
             pl.update(&net.assets, &input, dt);
@@ -941,7 +1034,9 @@ fn main() -> Result<()> {
             let mut last_tick = Instant::now();
             let mut ticks = 0u32;
             let mut ticks_since = Instant::now();
-            let mut clicks_left = if app.cli.click.is_some() { 2 } else { 0 };
+            // Each --click entry is a double click: (entry index, clicks sent).
+            let mut click_state = (0usize, 0u32);
+            let use_requested = app.cli.use_name.is_some();
             loop {
                 app.tick_net(&mut gpu);
                 let placed = app
@@ -959,15 +1054,24 @@ fn main() -> Result<()> {
                             ui.outgoing.push(line);
                         }
                     }
-                    if t > 1.0 + app.cli.walk && clicks_left > 0 {
-                        if let Some(c) = app.cli.click.clone() {
-                            let v: Vec<f64> =
-                                c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-                            if v.len() == 2 {
-                                app.click(v[0], v[1], gpu.size());
-                            }
+                    if t > 1.0 + app.cli.walk {
+                        if let Some(name) = app.cli.use_name.take() {
+                            app.use_by_name(&name);
                         }
-                        clicks_left -= 1;
+                    }
+                    let (ci, sent) = click_state;
+                    if ci < app.cli.click.len() && t > 1.0 + app.cli.walk + ci as f32 * 3.0 {
+                        let c = app.cli.click[ci].clone();
+                        let v: Vec<f64> =
+                            c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                        if v.len() == 2 {
+                            app.click(v[0], v[1], gpu.size());
+                        }
+                        click_state = if sent + 1 >= 2 {
+                            (ci + 1, 0)
+                        } else {
+                            (ci, sent + 1)
+                        };
                     }
                     if walking {
                         app.keys.insert(KeyCode::KeyW);
@@ -986,8 +1090,8 @@ fn main() -> Result<()> {
                     // or after a short settle when not walking.
                     let done = if app.cli.walk > 0.0 {
                         t > 0.9 + app.cli.walk
-                    } else if app.cli.click.is_some() {
-                        t > 4.0
+                    } else if !app.cli.click.is_empty() || use_requested {
+                        t > 8.0 + app.cli.click.len() as f32 * 3.0
                     } else {
                         t > 3.0
                     };

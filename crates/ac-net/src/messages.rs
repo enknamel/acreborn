@@ -351,6 +351,8 @@ pub mod event {
     pub const PLAYER_DESCRIPTION: u32 = 0x0013;
     pub const CHANNEL_BROADCAST: u32 = 0x0147;
     pub const IDENTIFY_OBJECT_RESPONSE: u32 = 0x00C9;
+    pub const USE_DONE: u32 = 0x01C7;
+    pub const EMOTE: u32 = 0x01E2;
     pub const WEENIE_ERROR: u32 = 0x028A;
     pub const TELL: u32 = 0x02BD;
 }
