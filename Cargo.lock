@@ -59,12 +59,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-world"
+version = "0.1.0"
+dependencies = [
+ "ac-net",
+ "glam",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "acclient"
 version = "0.1.0"
 dependencies = [
  "ac-dat",
  "ac-formats",
  "ac-net",
+ "ac-world",
  "anyhow",
  "clap",
  "tracing",
@@ -90,7 +101,9 @@ version = "0.1.0"
 dependencies = [
  "ac-dat",
  "ac-formats",
+ "ac-net",
  "ac-scene",
+ "ac-world",
  "anyhow",
  "bytemuck",
  "clap",

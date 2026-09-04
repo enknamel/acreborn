@@ -13,7 +13,7 @@ mod scene;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -39,6 +39,16 @@ struct Cli {
     /// Model (GfxObj 01xxxxxx or Setup 02xxxxxx) to show, hex
     #[arg(long)]
     model: Option<String>,
+    /// Connect to an ACE server, log in, and view the world around the character
+    #[arg(long)]
+    connect: Option<String>,
+    #[arg(short = 'a', long)]
+    account: Option<String>,
+    #[arg(short = 'v', long)]
+    password: Option<String>,
+    /// Character name to enter with (default: first)
+    #[arg(long)]
+    character: Option<String>,
     /// Render one frame to this PNG and exit (no window)
     #[arg(long)]
     screenshot: Option<PathBuf>,
@@ -47,10 +57,27 @@ struct Cli {
     camera: Option<String>,
 }
 
+/// Live server connection state for `--connect`.
+struct Net {
+    socket: std::net::UdpSocket,
+    primary: std::net::SocketAddr,
+    secondary: std::net::SocketAddr,
+    session: ac_net::session::Session,
+    world: ac_world::World,
+    assets: ac_scene::Assets,
+    characters: Vec<ac_net::messages::CharacterEntry>,
+    enter_requested: bool,
+    /// Landblock the static scene is built around, once the player is placed.
+    scene_block: Option<u32>,
+    last_generation: u64,
+    mesh_cache: std::collections::HashMap<u32, ac_scene::model::Mesh>,
+}
+
 struct App {
     cli: Cli,
     window: Option<Arc<Window>>,
     gpu: Option<gpu::Gpu>,
+    net: Option<Net>,
     camera: camera::Camera,
     keys: HashSet<KeyCode>,
     looking: bool,
@@ -59,7 +86,198 @@ struct App {
 }
 
 impl App {
+    fn start_connect(&mut self) -> Result<()> {
+        use ac_net::messages::DatIteration;
+        use ac_net::session::{Config, Session};
+        let host = self.cli.connect.clone().unwrap();
+        let account = self
+            .cli
+            .account
+            .clone()
+            .context("--connect needs --account")?;
+        let password = self
+            .cli
+            .password
+            .clone()
+            .context("--connect needs --password")?;
+        let primary: std::net::SocketAddr = if host.contains(':') {
+            host.parse()?
+        } else {
+            format!("{host}:9000").parse()?
+        };
+        let secondary = std::net::SocketAddr::new(primary.ip(), primary.port() + 1);
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+        socket.set_nonblocking(true)?;
+        let assets = ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?;
+        let now = Instant::now();
+        let mut session = Session::new(
+            Config {
+                account,
+                password,
+                dats: vec![
+                    DatIteration {
+                        dat_file_id: 1,
+                        dat_file_type: 0,
+                        iterations: 2072,
+                    },
+                    DatIteration {
+                        dat_file_id: 2,
+                        dat_file_type: 0,
+                        iterations: 982,
+                    },
+                ],
+                echo_interval: std::time::Duration::from_secs(5),
+                ack_interval: std::time::Duration::from_secs(2),
+            },
+            now,
+        );
+        session.login(now);
+        tracing::info!("connecting to {primary}");
+        self.net = Some(Net {
+            socket,
+            primary,
+            secondary,
+            session,
+            world: ac_world::World::default(),
+            assets,
+            characters: Vec::new(),
+            enter_requested: false,
+            scene_block: None,
+            last_generation: 0,
+            mesh_cache: Default::default(),
+        });
+        Ok(())
+    }
+
+    /// Pump the connection: send, receive, apply messages, rebuild scenes.
+    fn tick_net(&mut self, gpu: &mut gpu::Gpu) {
+        use ac_net::messages::{self, opcode, queue};
+        use ac_net::session::{Event, Port};
+        let Some(net) = self.net.as_mut() else { return };
+        let now = Instant::now();
+        for (port, dg) in net.session.outgoing() {
+            let to = if port == Port::Primary {
+                net.primary
+            } else {
+                net.secondary
+            };
+            let _ = net.socket.send_to(&dg, to);
+        }
+        let mut buf = [0u8; 2048];
+        loop {
+            match net.socket.recv_from(&mut buf) {
+                Ok((n, _)) => net.session.receive(&buf[..n], now),
+                Err(_) => break,
+            }
+        }
+        net.session.poll(now);
+        for ev in net.session.events() {
+            match ev {
+                Event::Connected { client_id } => {
+                    tracing::info!("connected, client id {client_id}")
+                }
+                Event::Terminated(why) => tracing::warn!("terminated: {why}"),
+                Event::Message(msg) => {
+                    match net.world.apply(&msg) {
+                        ac_world::Applied::Created
+                        | ac_world::Applied::Moved
+                        | ac_world::Applied::Deleted
+                        | ac_world::Applied::PlayerSet => continue,
+                        ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
+                        ac_world::Applied::Ignored => {}
+                    }
+                    let Some((op, body)) = messages::split(&msg) else {
+                        continue;
+                    };
+                    match op {
+                        opcode::CHARACTER_LIST => {
+                            if let Ok(cl) = messages::CharacterList::parse(body) {
+                                tracing::info!(
+                                    "characters: {:?}",
+                                    cl.characters.iter().map(|c| &c.name).collect::<Vec<_>>()
+                                );
+                                net.characters = cl.characters;
+                            }
+                        }
+                        opcode::DDD_END_DDD if !net.enter_requested => {
+                            let pick = match &self.cli.character {
+                                Some(name) => net
+                                    .characters
+                                    .iter()
+                                    .find(|c| c.name.eq_ignore_ascii_case(name)),
+                                None => net.characters.first(),
+                            };
+                            match pick {
+                                Some(c) => {
+                                    tracing::info!("entering world as {}", c.name);
+                                    net.session.send_message(queue::UI, messages::enter_world_request());
+                                    net.enter_requested = true;
+                                }
+                                None => tracing::error!("no character on this account; create one with acclient --create first"),
+                            }
+                        }
+                        opcode::CHARACTER_ENTER_WORLD_SERVER_READY => {
+                            let pick = match &self.cli.character {
+                                Some(name) => net
+                                    .characters
+                                    .iter()
+                                    .find(|c| c.name.eq_ignore_ascii_case(name)),
+                                None => net.characters.first(),
+                            };
+                            if let Some(c) = pick {
+                                let account = self.cli.account.clone().unwrap_or_default();
+                                net.session
+                                    .send_message(queue::UI, messages::enter_world(c.id, &account));
+                            }
+                        }
+                        opcode::CHARACTER_ERROR | opcode::ACCOUNT_BOOT => {
+                            tracing::error!("server refused: {}", op)
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        // Build the static scene once the player is placed.
+        if net.scene_block.is_none() {
+            if let Some(p) = net.world.player().and_then(|o| o.position) {
+                let block = p.landblock();
+                tracing::info!(
+                    "player at cell {:#010x} local {:?}; loading landblocks",
+                    p.cell,
+                    p.local
+                );
+                match scene::build_landblocks(&net.assets, block, 1) {
+                    Ok(built) => {
+                        let assets = &net.assets;
+                        gpu.set_scene(built.batches, |k| scene::material_image(assets, k));
+                    }
+                    Err(e) => tracing::error!("scene: {e:#}"),
+                }
+                let origin = ac_world::landblock_origin(p.cell);
+                let eye = origin + p.local + Vec3::new(0.0, 0.0, 1.7);
+                // Face the way the character faces (heading from the quaternion).
+                let fwd = p.rotation * Vec3::Y;
+                self.camera.position = eye - fwd * 3.0;
+                self.camera.yaw = (-fwd.x).atan2(fwd.y);
+                self.camera.pitch = -0.1;
+                self.camera.speed = 6.0;
+                self.camera.far = 3000.0;
+                net.scene_block = Some(block);
+            }
+        }
+        if net.scene_block.is_some() && net.world.generation != net.last_generation {
+            net.last_generation = net.world.generation;
+            let batches = scene::build_objects(&net.assets, &net.world, &mut net.mesh_cache);
+            let assets = &net.assets;
+            gpu.set_dynamic(batches, |k| scene::material_image(assets, k));
+        }
+    }
+
     fn load_scene(&mut self, gpu: &mut gpu::Gpu) -> Result<()> {
+        if self.cli.connect.is_some() {
+            return self.start_connect();
+        }
         let assets = ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?;
         let built = if let Some(m) = &self.cli.model {
             let id = u32::from_str_radix(m.trim_start_matches("0x"), 16)?;
@@ -139,7 +357,20 @@ impl ApplicationHandler for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                if let Some(net) = self.net.as_mut() {
+                    net.session.disconnect(Instant::now());
+                    for (port, dg) in net.session.outgoing() {
+                        let to = if port == ac_net::session::Port::Primary {
+                            net.primary
+                        } else {
+                            net.secondary
+                        };
+                        let _ = net.socket.send_to(&dg, to);
+                    }
+                }
+                event_loop.exit()
+            }
             WindowEvent::Resized(size) => {
                 if let Some(g) = &mut self.gpu {
                     g.resize(size.width, size.height);
@@ -148,6 +379,17 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     if code == KeyCode::Escape {
+                        if let Some(net) = self.net.as_mut() {
+                            net.session.disconnect(Instant::now());
+                            for (port, dg) in net.session.outgoing() {
+                                let to = if port == ac_net::session::Port::Primary {
+                                    net.primary
+                                } else {
+                                    net.secondary
+                                };
+                                let _ = net.socket.send_to(&dg, to);
+                            }
+                        }
                         event_loop.exit();
                     }
                     match event.state {
@@ -182,6 +424,10 @@ impl ApplicationHandler for App {
                 let dt = (now - self.last_frame).as_secs_f32().min(0.1);
                 self.last_frame = now;
                 self.update(dt);
+                if let Some(mut g) = self.gpu.take() {
+                    self.tick_net(&mut g);
+                    self.gpu = Some(g);
+                }
                 if let Some(g) = &mut self.gpu {
                     let vp = self.camera.view_proj(g.aspect());
                     if let Err(e) = g.render(vp, Vec3::new(0.4, 0.3, 1.0)) {
@@ -211,6 +457,7 @@ fn main() -> Result<()> {
             cli,
             window: None,
             gpu: None,
+            net: None,
             camera: camera::Camera {
                 position: Vec3::ZERO,
                 yaw: 0.0,
@@ -226,6 +473,30 @@ fn main() -> Result<()> {
             last_frame: Instant::now(),
         };
         app.load_scene(&mut gpu)?;
+        if app.cli.connect.is_some() {
+            // Pump the connection until the player is placed and the world
+            // has settled, then render from the character's viewpoint.
+            let deadline = Instant::now() + Duration::from_secs(40);
+            let mut settled_at: Option<Instant> = None;
+            loop {
+                app.tick_net(&mut gpu);
+                let placed = app
+                    .net
+                    .as_ref()
+                    .map(|n| n.scene_block.is_some())
+                    .unwrap_or(false);
+                if placed {
+                    settled_at.get_or_insert_with(Instant::now);
+                    if settled_at.unwrap().elapsed() > Duration::from_secs(3) {
+                        break;
+                    }
+                }
+                if Instant::now() > deadline {
+                    anyhow::bail!("timed out waiting for the player to be placed");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
         if let Some(c) = &app.cli.camera {
             let v: Vec<f32> = c
                 .split(',')
@@ -239,6 +510,17 @@ fn main() -> Result<()> {
         let vp = app.camera.view_proj(gpu.aspect());
         gpu.render_to_png(vp, Vec3::new(0.4, 0.3, 1.0), &path)?;
         tracing::info!("wrote {}", path.display());
+        if let Some(net) = app.net.as_mut() {
+            net.session.disconnect(Instant::now());
+            for (port, dg) in net.session.outgoing() {
+                let to = if port == ac_net::session::Port::Primary {
+                    net.primary
+                } else {
+                    net.secondary
+                };
+                let _ = net.socket.send_to(&dg, to);
+            }
+        }
         return Ok(());
     }
     let event_loop = EventLoop::new()?;
@@ -247,6 +529,7 @@ fn main() -> Result<()> {
         cli,
         window: None,
         gpu: None,
+        net: None,
         camera: camera::Camera {
             position: Vec3::ZERO,
             yaw: 0.0,

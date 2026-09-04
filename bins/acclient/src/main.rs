@@ -265,6 +265,7 @@ fn main() -> Result<()> {
     );
     session.login(now);
 
+    let mut world = ac_world::World::default();
     let mut buf = [0u8; 2048];
     let mut characters: Vec<messages::CharacterEntry> = Vec::new();
     let mut entered_at: Option<Instant> = None;
@@ -319,6 +320,39 @@ fn main() -> Result<()> {
                     return Ok(());
                 }
                 Event::Message(msg) => {
+                    match world.apply(&msg) {
+                        ac_world::Applied::Created => {
+                            let (op, body) = messages::split(&msg).unwrap();
+                            let _ = op;
+                            let guid = u32::from_le_bytes(body[..4].try_into().unwrap());
+                            let o = &world.objects[&guid];
+                            tracing::info!(
+                                "<- ObjectCreate {:#010x} {:?} setup={:#010x} wcid={} pos={}",
+                                o.guid,
+                                o.name,
+                                o.setup_id,
+                                o.weenie_class_id,
+                                o.position
+                                    .map(|p| format!(
+                                        "{:#010x} ({:.1},{:.1},{:.1})",
+                                        p.cell, p.local.x, p.local.y, p.local.z
+                                    ))
+                                    .unwrap_or_else(|| "carried".into())
+                            );
+                            continue;
+                        }
+                        ac_world::Applied::Moved => {
+                            tracing::info!(
+                                "<- UpdatePosition applied ({} objects)",
+                                world.objects.len()
+                            );
+                            continue;
+                        }
+                        ac_world::Applied::Failed => {
+                            tracing::warn!("world: failed to apply {}", describe(&msg))
+                        }
+                        _ => {}
+                    }
                     tracing::info!("<- {}", describe(&msg));
                     let Some((op, body)) = messages::split(&msg) else {
                         continue;

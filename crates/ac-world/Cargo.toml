@@ -1,0 +1,12 @@
+[package]
+name = "ac-world"
+description = "Client world state: objects the server has told us about, their positions and models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-net = { path = "../ac-net" }
+glam = "0.30"
+thiserror.workspace = true
+tracing.workspace = true

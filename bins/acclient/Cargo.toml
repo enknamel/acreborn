@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 ac-net = { path = "../../crates/ac-net" }
+ac-world = { path = "../../crates/ac-world" }
 ac-dat = { path = "../../crates/ac-dat" }
 ac-formats = { path = "../../crates/ac-formats" }
 anyhow.workspace = true

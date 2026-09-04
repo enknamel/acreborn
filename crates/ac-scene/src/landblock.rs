@@ -15,6 +15,11 @@ pub struct LandblockScene {
     pub parts: Vec<PlacedPart>,
     pub has_info: bool,
     pub scenery_count: usize,
+    /// A dungeon block: all terrain heights are zero and it only has
+    /// interior cells. Its terrain is a placeholder and should not be drawn.
+    pub is_dungeon: bool,
+    /// Interior cells (buildings' insides, dungeons).
+    pub cells: Vec<crate::interior::CellScene>,
 }
 
 pub fn load(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
@@ -65,11 +70,20 @@ pub fn load(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
             Err(e) => tracing::warn!("scenery {:#010x}: {e}", inst.obj_id),
         }
     }
+    let cells = match &info {
+        Some(info) if info.num_cells > 0 => {
+            crate::interior::load_cells(assets, block_id, info.num_cells, origin)?
+        }
+        _ => Vec::new(),
+    };
+    let is_dungeon = !cells.is_empty() && lb.height.iter().all(|&h| h == 0);
     Ok(LandblockScene {
         id: block_id,
         terrain,
         parts,
         has_info,
         scenery_count,
+        cells,
+        is_dungeon,
     })
 }

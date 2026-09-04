@@ -79,7 +79,14 @@ pub fn build_landblocks(assets: &Assets, center_id: u32, radius: u32) -> Result<
             };
             let origin = ac_scene::lbid::world_origin(id);
             // Terrain: one batch per terrain type, UV tiles once per cell.
-            for (cell, tri) in scene.terrain.indices.chunks_exact(6).enumerate() {
+            let terrain_cells = if scene.is_dungeon { 0 } else { usize::MAX };
+            for (cell, tri) in scene
+                .terrain
+                .indices
+                .chunks_exact(6)
+                .enumerate()
+                .take(terrain_cells)
+            {
                 let key = terrain_key(assets, scene.terrain.cell_types[cell])?;
                 let verts: Vec<Vertex> = tri
                     .iter()
@@ -100,6 +107,34 @@ pub fn build_landblocks(assets: &Assets, center_id: u32, radius: u32) -> Result<
                     .entry(key)
                     .or_default()
                     .push(&verts, &[0, 1, 2, 3, 4, 5]);
+            }
+            for cell in &scene.cells {
+                for sub in &cell.submeshes {
+                    for v in &sub.vertices {
+                        let p = cell.transform.transform_point3(v.position);
+                        min = min.min(p);
+                        max = max.max(p);
+                    }
+                }
+                let mesh = model::Mesh {
+                    gfxobj_id: cell.cell_id,
+                    submeshes: cell.submeshes.clone(),
+                };
+                push_mesh(&mut batches, &mesh, cell.transform);
+                for part in &cell.parts {
+                    if !mesh_cache.contains_key(&part.gfxobj_id) {
+                        match assets.gfxobj(part.gfxobj_id) {
+                            Ok(g) => {
+                                mesh_cache.insert(part.gfxobj_id, model::build_mesh(assets, &g)?);
+                            }
+                            Err(e) => {
+                                tracing::warn!("gfxobj {:#010x}: {e}", part.gfxobj_id);
+                                continue;
+                            }
+                        }
+                    }
+                    push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
+                }
             }
             for part in &scene.parts {
                 if !mesh_cache.contains_key(&part.gfxobj_id) {
@@ -168,4 +203,36 @@ pub fn material_image(assets: &Assets, key: MaterialKey) -> Option<Rgba> {
             None
         }
     }
+}
+
+/// Batches for the objects a server has placed (players, NPCs, items).
+pub fn build_objects(
+    assets: &Assets,
+    world: &ac_world::World,
+    mesh_cache: &mut HashMap<u32, model::Mesh>,
+) -> HashMap<MaterialKey, Batch> {
+    let mut batches: HashMap<MaterialKey, Batch> = HashMap::new();
+    for o in world.drawable() {
+        let Some(t) = o.transform() else { continue };
+        let parts = match model::place(assets, o.setup_id, t) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!("object {:?} setup {:#010x}: {e}", o.name, o.setup_id);
+                continue;
+            }
+        };
+        for part in parts {
+            if !mesh_cache.contains_key(&part.gfxobj_id) {
+                let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
+                    continue;
+                };
+                let Ok(m) = model::build_mesh(assets, &g) else {
+                    continue;
+                };
+                mesh_cache.insert(part.gfxobj_id, m);
+            }
+            push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
+        }
+    }
+    batches
 }

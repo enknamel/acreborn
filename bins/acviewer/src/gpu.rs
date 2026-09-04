@@ -85,6 +85,7 @@ pub struct Gpu {
     material_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     batches: Vec<DrawBatch>,
+    dynamic: Vec<DrawBatch>,
 }
 
 impl Gpu {
@@ -252,6 +253,7 @@ impl Gpu {
             material_layout,
             sampler,
             batches: Vec::new(),
+            dynamic: Vec::new(),
         })
     }
 
@@ -382,9 +384,26 @@ impl Gpu {
     pub fn set_scene(
         &mut self,
         batches: HashMap<MaterialKey, Batch>,
-        mut materials: impl FnMut(MaterialKey) -> Option<Rgba>,
+        materials: impl FnMut(MaterialKey) -> Option<Rgba>,
     ) {
-        self.batches.clear();
+        self.batches = self.upload(batches, materials);
+    }
+
+    /// Replace the dynamic (server object) batches.
+    pub fn set_dynamic(
+        &mut self,
+        batches: HashMap<MaterialKey, Batch>,
+        materials: impl FnMut(MaterialKey) -> Option<Rgba>,
+    ) {
+        self.dynamic = self.upload(batches, materials);
+    }
+
+    fn upload(
+        &self,
+        batches: HashMap<MaterialKey, Batch>,
+        mut materials: impl FnMut(MaterialKey) -> Option<Rgba>,
+    ) -> Vec<DrawBatch> {
+        let mut out = Vec::new();
         let mut keys: Vec<_> = batches.keys().copied().collect();
         keys.sort_by_key(|k| match k {
             MaterialKey::Texture(t) => (0, *t),
@@ -425,14 +444,15 @@ impl Gpu {
                     contents: bytemuck::cast_slice(&b.indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
-            self.batches.push(DrawBatch {
+            out.push(DrawBatch {
                 vertex_buf,
                 index_buf,
                 index_count: b.indices.len() as u32,
                 bind_group,
             });
         }
-        tracing::info!("scene: {} batches", self.batches.len());
+        tracing::info!("uploaded {} batches", out.len());
+        out
     }
 
     pub fn render(&mut self, view_proj: Mat4, light_dir: Vec3) -> Result<()> {
@@ -571,7 +591,7 @@ impl Gpu {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bg, &[]);
-            for b in &self.batches {
+            for b in self.batches.iter().chain(self.dynamic.iter()) {
                 pass.set_bind_group(1, &b.bind_group, &[]);
                 pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
                 pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);
