@@ -76,7 +76,8 @@ struct Net {
     /// Landblock the static scene is built around, once the player is placed.
     scene_block: Option<u32>,
     last_generation: u64,
-    mesh_cache: std::collections::HashMap<u32, ac_scene::model::Mesh>,
+    mesh_cache: scene::MeshCache,
+    palettes: scene::Palettes,
     player: Option<player::Player>,
     player_setup: u32,
 }
@@ -156,6 +157,7 @@ impl App {
             scene_block: None,
             last_generation: 0,
             mesh_cache: Default::default(),
+            palettes: Default::default(),
             player: None,
             player_setup: 0,
         });
@@ -290,7 +292,10 @@ impl App {
                 match scene::build_landblocks(&net.assets, block, 1) {
                     Ok(built) => {
                         let assets = &net.assets;
-                        gpu.set_scene(built.batches, |k| scene::material_image(assets, k));
+                        let palettes = &net.palettes;
+                        gpu.set_scene(built.batches, |k| {
+                            scene::material_image(assets, k, palettes)
+                        });
                     }
                     Err(e) => tracing::error!("scene: {e:#}"),
                 }
@@ -312,9 +317,15 @@ impl App {
         }
         if net.scene_block.is_some() && net.world.generation != net.last_generation {
             net.last_generation = net.world.generation;
-            let batches = scene::build_objects(&net.assets, &net.world, &mut net.mesh_cache);
+            let batches = scene::build_objects(
+                &net.assets,
+                &net.world,
+                &mut net.mesh_cache,
+                &mut net.palettes,
+            );
             let assets = &net.assets;
-            gpu.set_dynamic(batches, |k| scene::material_image(assets, k));
+            let palettes = &net.palettes;
+            gpu.set_dynamic(batches, |k| scene::material_image(assets, k, palettes));
         }
         // Player movement, camera, and reporting.
         if let Some(pl) = net.player.as_mut() {
@@ -347,22 +358,22 @@ impl App {
                 }
                 let t = glam::Mat4::from_rotation_translation(pl.rotation(), pos);
                 let mut batches = std::collections::HashMap::new();
-                if let Ok(parts) = ac_scene::model::place(&net.assets, net.player_setup, t) {
-                    for part in parts {
-                        if !net.mesh_cache.contains_key(&part.gfxobj_id) {
-                            if let Ok(g) = net.assets.gfxobj(part.gfxobj_id) {
-                                if let Ok(m) = ac_scene::model::build_mesh(&net.assets, &g) {
-                                    net.mesh_cache.insert(part.gfxobj_id, m);
-                                }
-                            }
-                        }
-                        if let Some(m) = net.mesh_cache.get(&part.gfxobj_id) {
-                            scene::push_mesh(&mut batches, m, part.transform);
-                        }
-                    }
-                }
+                let (app, key) = match net.world.player() {
+                    Some(o) => scene::appearance_of(&net.assets, o, &mut net.palettes),
+                    None => (ac_scene::model::Appearance::default(), 0),
+                };
+                scene::push_model(
+                    &net.assets,
+                    &mut batches,
+                    &mut net.mesh_cache,
+                    net.player_setup,
+                    t,
+                    &app,
+                    key,
+                );
                 let assets = &net.assets;
-                gpu.set_player(batches, |k| scene::material_image(assets, k));
+                let palettes = &net.palettes;
+                gpu.set_player(batches, |k| scene::material_image(assets, k, palettes));
             }
         }
     }
@@ -387,7 +398,10 @@ impl App {
             built.center,
             built.radius
         );
-        gpu.set_scene(built.batches, |k| scene::material_image(&assets, k));
+        let palettes = scene::Palettes::default();
+        gpu.set_scene(built.batches, |k| {
+            scene::material_image(&assets, k, &palettes)
+        });
         let d = built.radius.max(5.0);
         self.camera.position = built.center + Vec3::new(0.0, -d * 0.8, d * 0.5);
         self.camera.yaw = 0.0;

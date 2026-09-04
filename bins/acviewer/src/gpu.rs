@@ -56,7 +56,14 @@ impl Batch {
 /// Key for a material: a texture image or a solid color.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum MaterialKey {
-    Texture(u32),
+    /// `id`: Surface (0x08), SurfaceTexture (0x05) or Texture (0x06) id.
+    /// `tex`: replacement SurfaceTexture from an appearance swap, or 0.
+    /// `palette`: hash of a composed palette registered by the scene, or 0.
+    Texture {
+        id: u32,
+        tex: u32,
+        palette: u64,
+    },
     Solid(u32),
 }
 
@@ -417,8 +424,8 @@ impl Gpu {
         let mut out = Vec::new();
         let mut keys: Vec<_> = batches.keys().copied().collect();
         keys.sort_by_key(|k| match k {
-            MaterialKey::Texture(t) => (0, *t),
-            MaterialKey::Solid(c) => (1, *c),
+            MaterialKey::Texture { id, tex, palette } => (0u8, *id, *tex, *palette),
+            MaterialKey::Solid(c) => (1, *c, 0, 0),
         });
         for key in keys {
             let b = &batches[&key];
@@ -431,7 +438,7 @@ impl Gpu {
                     height: 1,
                     pixels: vec![(argb >> 16) as u8, (argb >> 8) as u8, argb as u8, 255],
                 },
-                MaterialKey::Texture(_) => match materials(key) {
+                MaterialKey::Texture { .. } => match materials(key) {
                     Some(i) => i,
                     None => Rgba {
                         width: 1,

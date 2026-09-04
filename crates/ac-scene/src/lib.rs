@@ -126,6 +126,36 @@ impl Assets {
             .map(Some)
     }
 
+    /// Decode a texture with explicit palette colors for indexed formats.
+    pub fn texture_rgba_with_palette(
+        &self,
+        id: u32,
+        colors: &[u32],
+    ) -> Result<ac_formats::texture::Rgba> {
+        let tex_id = self.resolve_texture_id(id)?;
+        let t = self.texture(tex_id)?;
+        t.to_rgba8(Some(colors))
+            .map_err(|source| Error::Format { id: tex_id, source })
+    }
+
+    /// SurfaceTexture (0x05) -> first Texture (0x06) present; Texture ids pass through.
+    pub fn resolve_texture_id(&self, id: u32) -> Result<u32> {
+        if id >> 24 == 0x05 {
+            let st = self.surface_texture(id)?;
+            st.textures
+                .iter()
+                .copied()
+                .find(|t| self.portal.entry(*t).is_some())
+                .ok_or_else(|| {
+                    Error::Other(format!(
+                        "{id:#010x}: no texture variant present in portal.dat"
+                    ))
+                })
+        } else {
+            Ok(id)
+        }
+    }
+
     /// Decode a Texture (0x06) or SurfaceTexture (0x05) id to RGBA.
     pub fn texture_rgba(
         &self,

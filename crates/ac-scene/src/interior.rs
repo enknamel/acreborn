@@ -49,6 +49,9 @@ fn build_cell_mesh(assets: &Assets, cs: &CellStruct, surfaces: &[u32]) -> Result
                 };
                 e.insert(SubMesh {
                     surface_id,
+                    texture_override: None,
+                    palette: None,
+                    palette_hash: 0,
                     solid_color,
                     translucency,
                     two_sided: false,

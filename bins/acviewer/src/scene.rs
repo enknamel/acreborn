@@ -19,7 +19,11 @@ pub fn push_mesh(batches: &mut HashMap<MaterialKey, Batch>, mesh: &model::Mesh, 
     for sub in &mesh.submeshes {
         let key = match sub.solid_color {
             Some(c) => MaterialKey::Solid(c),
-            None => MaterialKey::Texture(sub.surface_id),
+            None => MaterialKey::Texture {
+                id: sub.surface_id,
+                tex: sub.texture_override.unwrap_or(0),
+                palette: sub.palette_hash,
+            },
         };
         let alpha = 1.0 - sub.translucency.clamp(0.0, 1.0);
         let verts: Vec<Vertex> = sub
@@ -49,7 +53,11 @@ fn terrain_key(assets: &Assets, terrain_type: u16) -> Result<MaterialKey> {
             .iter()
             .find(|(t, _)| *t == terrain_type as u32)
         {
-            return Ok(MaterialKey::Texture(tex.tex_gid));
+            return Ok(MaterialKey::Texture {
+                id: tex.tex_gid,
+                tex: 0,
+                palette: 0,
+            });
         }
     }
     let color = region
@@ -183,14 +191,45 @@ pub fn build_model(assets: &Assets, model_id: u32) -> Result<Built> {
     })
 }
 
-pub fn material_image(assets: &Assets, key: MaterialKey) -> Option<Rgba> {
-    let MaterialKey::Texture(id) = key else {
+/// Composed palettes referenced by material keys, by hash.
+pub type Palettes = HashMap<u64, std::rc::Rc<Vec<u32>>>;
+
+pub fn material_image(assets: &Assets, key: MaterialKey, palettes: &Palettes) -> Option<Rgba> {
+    let MaterialKey::Texture { id, tex, palette } = key else {
         return None;
     };
-    let res = if id >> 24 == 0x08 {
-        assets.surface_rgba(id).ok().flatten()
+    // Which texture: an appearance override, the surface's texture, or the id itself.
+    let source = if tex != 0 {
+        Some(tex)
+    } else if id >> 24 == 0x08 {
+        match assets.surface(id).ok().map(|s| s.base) {
+            Some(ac_formats::surface::SurfaceBase::Image { texture, .. }) => Some(texture),
+            _ => None,
+        }
     } else {
-        assets.texture_rgba(id, None).ok()
+        Some(id)
+    };
+    let res = match (source, palettes.get(&palette)) {
+        (Some(t), Some(colors)) if palette != 0 => assets.texture_rgba_with_palette(t, colors).ok(),
+        (Some(t), _) if tex != 0 => {
+            // Keep the surface's palette for indexed textures if it has one.
+            let pal = if id >> 24 == 0x08 {
+                match assets.surface(id).ok().map(|s| s.base) {
+                    Some(ac_formats::surface::SurfaceBase::Image { palette, .. })
+                        if palette != 0 =>
+                    {
+                        Some(palette)
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            assets.texture_rgba(t, pal).ok()
+        }
+        _ if id >> 24 == 0x08 => assets.surface_rgba(id).ok().flatten(),
+        (Some(t), _) => assets.texture_rgba(t, None).ok(),
+        _ => None,
     };
     match res {
         Some(img) => Some(Rgba {
@@ -205,34 +244,84 @@ pub fn material_image(assets: &Assets, key: MaterialKey) -> Option<Rgba> {
     }
 }
 
+/// Meshes cached by (GfxObj id, appearance key).
+pub type MeshCache = HashMap<(u32, u64), model::Mesh>;
+
+/// Appearance for a world object plus a key that identifies it for caching.
+pub fn appearance_of(
+    assets: &Assets,
+    o: &ac_world::WorldObject,
+    palettes: &mut Palettes,
+) -> (model::Appearance, u64) {
+    let app = model::Appearance::from_obj_desc(
+        assets,
+        o.palette_id,
+        &o.sub_palettes,
+        &o.texture_changes,
+        &o.anim_part_changes,
+    );
+    if let Some(p) = &app.palette {
+        palettes
+            .entry(app.palette_hash)
+            .or_insert_with(|| p.clone());
+    }
+    let mut key = app.palette_hash;
+    for (idx, swaps) in &app.texture_swaps {
+        for (old, new) in swaps {
+            key = key.wrapping_mul(0x100_0000_01b3)
+                ^ ((*idx as u64) << 56 | (*old as u64) << 24 ^ *new as u64);
+        }
+    }
+    for (idx, id) in &app.part_swaps {
+        key = key.wrapping_mul(0x100_0000_01b3) ^ ((*idx as u64) << 48 | *id as u64);
+    }
+    (app, key)
+}
+
+/// Place one model with an appearance into `batches`, building meshes as needed.
+pub fn push_model(
+    assets: &Assets,
+    batches: &mut HashMap<MaterialKey, Batch>,
+    mesh_cache: &mut MeshCache,
+    setup_id: u32,
+    transform: Mat4,
+    app: &model::Appearance,
+    app_key: u64,
+) {
+    let parts = match model::place_with(assets, setup_id, transform, app) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("setup {:#010x}: {e}", setup_id);
+            return;
+        }
+    };
+    for part in parts {
+        let key = (part.gfxobj_id, if app.is_empty() { 0 } else { app_key });
+        if !mesh_cache.contains_key(&key) {
+            let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
+                continue;
+            };
+            let Ok(m) = model::build_mesh_with(assets, &g, part.part_index, app) else {
+                continue;
+            };
+            mesh_cache.insert(key, m);
+        }
+        push_mesh(batches, &mesh_cache[&key], part.transform);
+    }
+}
+
 /// Batches for the objects a server has placed (players, NPCs, items).
 pub fn build_objects(
     assets: &Assets,
     world: &ac_world::World,
-    mesh_cache: &mut HashMap<u32, model::Mesh>,
+    mesh_cache: &mut MeshCache,
+    palettes: &mut Palettes,
 ) -> HashMap<MaterialKey, Batch> {
     let mut batches: HashMap<MaterialKey, Batch> = HashMap::new();
     for o in world.drawable().filter(|o| !o.is_player) {
         let Some(t) = o.transform() else { continue };
-        let parts = match model::place(assets, o.setup_id, t) {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("object {:?} setup {:#010x}: {e}", o.name, o.setup_id);
-                continue;
-            }
-        };
-        for part in parts {
-            if !mesh_cache.contains_key(&part.gfxobj_id) {
-                let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
-                    continue;
-                };
-                let Ok(m) = model::build_mesh(assets, &g) else {
-                    continue;
-                };
-                mesh_cache.insert(part.gfxobj_id, m);
-            }
-            push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
-        }
+        let (app, key) = appearance_of(assets, o, palettes);
+        push_model(assets, &mut batches, mesh_cache, o.setup_id, t, &app, key);
     }
     batches
 }
