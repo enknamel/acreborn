@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use ac_formats::landblock::{CellLandblock, EnvCell};
 use ac_net::messages::{self, action, motion, RawMotion, WirePosition};
 use ac_net::session::Session;
+use ac_scene::anim::AnimPlayer;
 use ac_scene::scenery::TerrainSampler;
 use ac_scene::Assets;
 use glam::{Quat, Vec3};
@@ -38,6 +39,10 @@ pub struct Player {
     last_auto: Instant,
     moving: bool,
     pub dirty: bool,
+    table: Option<ac_formats::motion_table::MotionTable>,
+    pub anim: Option<AnimPlayer>,
+    current_motion: u32,
+    pub n_parts: usize,
 }
 
 impl Player {
@@ -60,7 +65,65 @@ impl Player {
             last_auto: Instant::now(),
             moving: false,
             dirty: true,
+            table: None,
+            anim: None,
+            current_motion: 0,
+            n_parts: 0,
         }
+    }
+
+    /// Attach the character's motion table and start idling. Walk and run
+    /// speeds come from the table's cycle velocities.
+    pub fn set_motion_table(&mut self, assets: &Assets, setup_id: u32, table_id: u32) {
+        self.n_parts = assets.setup(setup_id).map(|s| s.parts.len()).unwrap_or(0);
+        if let Ok(t) = ac_scene::anim::motion_table(assets, table_id) {
+            if let Some(w) = t.cycle(motion::STANCE_NON_COMBAT, motion::WALK_FORWARD) {
+                if w.velocity.length() > 0.1 {
+                    self.walk_speed = w.velocity.length();
+                }
+            }
+            if let Some(r) = t.cycle(motion::STANCE_NON_COMBAT, motion::RUN_FORWARD) {
+                if r.velocity.length() > 0.1 {
+                    self.run_speed = r.velocity.length();
+                }
+            }
+            self.table = Some(t);
+        }
+        self.set_motion(assets, motion::READY);
+    }
+
+    fn set_motion(&mut self, assets: &Assets, m: u32) {
+        if m == self.current_motion && self.anim.is_some() {
+            return;
+        }
+        self.current_motion = m;
+        self.anim = self
+            .table
+            .as_ref()
+            .and_then(|t| AnimPlayer::cycle(assets, t, motion::STANCE_NON_COMBAT, m));
+    }
+
+    /// Advance the animation and pick idle/walk/run from the input.
+    pub fn animate(&mut self, assets: &Assets, input: &Input, dt: f32) -> Option<Vec<glam::Mat4>> {
+        let m = if input.forward > 0.0 {
+            if input.run {
+                motion::RUN_FORWARD
+            } else {
+                motion::WALK_FORWARD
+            }
+        } else if input.forward < 0.0 {
+            motion::WALK_BACKWARDS
+        } else if input.strafe > 0.0 {
+            motion::SIDE_STEP_RIGHT
+        } else if input.strafe < 0.0 {
+            motion::SIDE_STEP_LEFT
+        } else {
+            motion::READY
+        };
+        self.set_motion(assets, m);
+        let a = self.anim.as_mut()?;
+        a.advance(dt);
+        Some(a.part_transforms(self.n_parts))
     }
 
     pub fn landblock(&self) -> u32 {

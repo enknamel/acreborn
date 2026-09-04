@@ -65,6 +65,7 @@ fn decode_json(kind: FileKind, id: u32, b: &[u8]) -> Result<serde_json::Value> {
         FileKind::Environment => serde_json::to_value(environment::Environment::parse(id, b)?)?,
         FileKind::Region => serde_json::to_value(region::Region::parse(id, b)?)?,
         FileKind::Scene => serde_json::to_value(scene::Scene::parse(id, b)?)?,
+        FileKind::MotionTable => serde_json::to_value(motion_table::MotionTable::parse(id, b)?)?,
         FileKind::CharacterGenerator => serde_json::to_value(chargen::CharGen::parse(id, b)?)?,
         FileKind::LandBlock => serde_json::to_value(landblock::CellLandblock::parse(id, b)?)?,
         FileKind::LandBlockInfo => serde_json::to_value(landblock::LandblockInfo::parse(id, b)?)?,

@@ -228,3 +228,10 @@ fn chargen() {
     );
     assert_eq!(aluvian.genders.len(), 2);
 }
+
+#[test]
+fn motion_tables() {
+    check(FileKind::MotionTable, |id, b| {
+        motion_table::MotionTable::parse(id, b).map(|_| ())
+    });
+}

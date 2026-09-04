@@ -244,6 +244,18 @@ pub fn place_with(
     world: Mat4,
     app: &Appearance,
 ) -> Result<Vec<PlacedPart>> {
+    place_posed(assets, model_id, world, app, None)
+}
+
+/// `place_with` using animated per-part transforms instead of the
+/// placement frame when `pose` is given (one transform per Setup part).
+pub fn place_posed(
+    assets: &Assets,
+    model_id: u32,
+    world: Mat4,
+    app: &Appearance,
+    pose: Option<&[Mat4]>,
+) -> Result<Vec<PlacedPart>> {
     match model_id >> 24 {
         0x01 => Ok(vec![PlacedPart {
             gfxobj_id: model_id,
@@ -263,10 +275,13 @@ pub fn place_with(
                 if part == 0 {
                     continue;
                 }
-                let local = placement
-                    .and_then(|(_, af)| af.frames.get(i))
-                    .map(frame_to_mat)
-                    .unwrap_or(Mat4::IDENTITY);
+                let local = match pose.and_then(|p| p.get(i)) {
+                    Some(m) => *m,
+                    None => placement
+                        .and_then(|(_, af)| af.frames.get(i))
+                        .map(frame_to_mat)
+                        .unwrap_or(Mat4::IDENTITY),
+                };
                 let scale = s
                     .default_scale
                     .get(i)

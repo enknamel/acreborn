@@ -80,6 +80,9 @@ struct Net {
     palettes: scene::Palettes,
     player: Option<player::Player>,
     player_setup: u32,
+    anims: std::collections::HashMap<u32, scene::ObjectAnim>,
+    tables: std::collections::HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
+    last_anim_refresh: Instant,
 }
 
 struct App {
@@ -160,6 +163,9 @@ impl App {
             palettes: Default::default(),
             player: None,
             player_setup: 0,
+            anims: Default::default(),
+            tables: Default::default(),
+            last_anim_refresh: Instant::now(),
         });
         Ok(())
     }
@@ -304,24 +310,35 @@ impl App {
                     .player()
                     .map(|o| o.setup_id)
                     .unwrap_or(0x0200_0001);
-                net.player = Some(player::Player::new(
-                    &net.assets,
-                    p.cell,
-                    p.local,
-                    p.rotation,
-                ));
+                let mut pl = player::Player::new(&net.assets, p.cell, p.local, p.rotation);
+                let table_id = net
+                    .world
+                    .player()
+                    .map(|o| o.motion_table_id)
+                    .filter(|&t| t != 0)
+                    .unwrap_or(0x0900_0001);
+                pl.set_motion_table(&net.assets, net.player_setup, table_id);
+                net.player = Some(pl);
                 self.camera.pitch = -0.15;
                 self.camera.far = 3000.0;
                 net.scene_block = Some(block);
             }
         }
-        if net.scene_block.is_some() && net.world.generation != net.last_generation {
+        let changed = net.world.generation != net.last_generation;
+        let animate = scene::any_animated(&net.anims)
+            && net.last_anim_refresh.elapsed() > Duration::from_millis(66);
+        if net.scene_block.is_some() && (changed || animate) {
             net.last_generation = net.world.generation;
+            let dt = net.last_anim_refresh.elapsed().as_secs_f32().min(0.2);
+            net.last_anim_refresh = Instant::now();
             let batches = scene::build_objects(
                 &net.assets,
                 &net.world,
                 &mut net.mesh_cache,
                 &mut net.palettes,
+                &mut net.anims,
+                &mut net.tables,
+                dt,
             );
             let assets = &net.assets;
             let palettes = &net.palettes;
@@ -339,6 +356,10 @@ impl App {
             let now = Instant::now();
             let dt = self.frame_dt;
             pl.update(&net.assets, &input, dt);
+            let pose = pl.animate(&net.assets, &input, dt);
+            if pose.is_some() {
+                pl.dirty = true;
+            }
             pl.report(&mut net.session, &input, now);
             // Third-person camera behind the character.
             let pos = pl.world_position();
@@ -370,6 +391,7 @@ impl App {
                     t,
                     &app,
                     key,
+                    pose.as_deref(),
                 );
                 let assets = &net.assets;
                 let palettes = &net.palettes;
@@ -617,7 +639,14 @@ fn main() -> Result<()> {
                     }
                     app.frame_dt = last_tick.elapsed().as_secs_f32().min(0.1);
                     last_tick = Instant::now();
-                    if t > 3.0 + app.cli.walk {
+                    // Capture while still walking so the walk pose is visible,
+                    // or after a short settle when not walking.
+                    let done = if app.cli.walk > 0.0 {
+                        t > 0.9 + app.cli.walk
+                    } else {
+                        t > 3.0
+                    };
+                    if done {
                         break;
                     }
                 }

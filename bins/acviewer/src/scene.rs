@@ -287,8 +287,9 @@ pub fn push_model(
     transform: Mat4,
     app: &model::Appearance,
     app_key: u64,
+    pose: Option<&[Mat4]>,
 ) {
-    let parts = match model::place_with(assets, setup_id, transform, app) {
+    let parts = match model::place_posed(assets, setup_id, transform, app, pose) {
         Ok(p) => p,
         Err(e) => {
             tracing::warn!("setup {:#010x}: {e}", setup_id);
@@ -311,17 +312,74 @@ pub fn push_model(
 }
 
 /// Batches for the objects a server has placed (players, NPCs, items).
+/// Idle animation state for a server object.
+pub struct ObjectAnim {
+    pub player: Option<ac_scene::anim::AnimPlayer>,
+    pub n_parts: usize,
+}
+
+/// Look up (and cache) the idle cycle for an object's motion table.
+pub fn object_anim(
+    assets: &Assets,
+    o: &ac_world::WorldObject,
+    tables: &mut HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
+) -> ObjectAnim {
+    use ac_scene::anim::{motion, AnimPlayer};
+    let n_parts = assets.setup(o.setup_id).map(|s| s.parts.len()).unwrap_or(0);
+    if o.motion_table_id == 0 {
+        return ObjectAnim {
+            player: None,
+            n_parts,
+        };
+    }
+    let table = tables
+        .entry(o.motion_table_id)
+        .or_insert_with(|| ac_scene::anim::motion_table(assets, o.motion_table_id).ok());
+    let player = table.as_ref().and_then(|t| {
+        let style = t.default_style;
+        let idle = t.default_motion(style).unwrap_or(motion::READY);
+        AnimPlayer::cycle(assets, t, style, idle)
+    });
+    ObjectAnim { player, n_parts }
+}
+
+/// Batches for the objects a server has placed (players, NPCs, items).
+/// `anims` keeps per-object idle animation state; `dt` advances it.
 pub fn build_objects(
     assets: &Assets,
     world: &ac_world::World,
     mesh_cache: &mut MeshCache,
     palettes: &mut Palettes,
+    anims: &mut HashMap<u32, ObjectAnim>,
+    tables: &mut HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
+    dt: f32,
 ) -> HashMap<MaterialKey, Batch> {
     let mut batches: HashMap<MaterialKey, Batch> = HashMap::new();
     for o in world.drawable().filter(|o| !o.is_player) {
         let Some(t) = o.transform() else { continue };
         let (app, key) = appearance_of(assets, o, palettes);
-        push_model(assets, &mut batches, mesh_cache, o.setup_id, t, &app, key);
+        let anim = anims
+            .entry(o.guid)
+            .or_insert_with(|| object_anim(assets, o, tables));
+        let pose = anim.player.as_mut().map(|p| {
+            p.advance(dt);
+            p.part_transforms(anim.n_parts)
+        });
+        push_model(
+            assets,
+            &mut batches,
+            mesh_cache,
+            o.setup_id,
+            t,
+            &app,
+            key,
+            pose.as_deref(),
+        );
     }
     batches
+}
+
+/// True if any drawable object has an animation, so batches need refreshing.
+pub fn any_animated(anims: &HashMap<u32, ObjectAnim>) -> bool {
+    anims.values().any(|a| a.player.is_some())
 }

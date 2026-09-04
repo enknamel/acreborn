@@ -13,6 +13,7 @@ pub mod chargen;
 pub mod environment;
 pub mod gfxobj;
 pub mod landblock;
+pub mod motion_table;
 pub mod palette;
 pub mod region;
 pub mod scene;
