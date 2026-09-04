@@ -7,6 +7,8 @@ license.workspace = true
 
 [dependencies]
 ac-dat = { path = "../../crates/ac-dat" }
+ac-formats = { path = "../../crates/ac-formats" }
+serde_json.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 sha2.workspace = true

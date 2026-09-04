@@ -3,7 +3,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use ac_dat::{DatArchive, Iteration, ITERATION_FILE_ID};
+use ac_dat::{DatArchive, FileKind, Iteration, ITERATION_FILE_ID};
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use sha2::{Digest, Sha256};
@@ -37,6 +37,8 @@ enum Cmd {
         all: bool,
         id: Option<String>,
     },
+    /// Decode one file with ac-formats and print it as JSON
+    Decode { id: String },
     /// Emit a manifest: id, offset, size, iteration, sha256 (for golden diffs)
     Manifest,
     /// Compare the archive against a manifest produced by `manifest` or AceDump
@@ -46,6 +48,28 @@ enum Cmd {
 fn parse_id(s: &str) -> Result<u32> {
     let s = s.trim_start_matches("0x").trim_start_matches("0X");
     u32::from_str_radix(s, 16).with_context(|| format!("bad file id {s:?}"))
+}
+
+fn decode_json(kind: FileKind, id: u32, b: &[u8]) -> Result<serde_json::Value> {
+    use ac_formats::*;
+    let v = match kind {
+        FileKind::GfxObj => serde_json::to_value(gfxobj::GfxObj::parse(id, b)?)?,
+        FileKind::Setup => serde_json::to_value(setup::Setup::parse(id, b)?)?,
+        FileKind::Animation => serde_json::to_value(animation::Animation::parse(id, b)?)?,
+        FileKind::Palette => serde_json::to_value(palette::Palette::parse(id, b)?)?,
+        FileKind::SurfaceTexture => {
+            serde_json::to_value(surface_texture::SurfaceTexture::parse(id, b)?)?
+        }
+        FileKind::Texture => serde_json::to_value(texture::Texture::parse(id, b)?)?,
+        FileKind::Surface => serde_json::to_value(surface::Surface::parse(id, b)?)?,
+        FileKind::Environment => serde_json::to_value(environment::Environment::parse(id, b)?)?,
+        FileKind::Region => serde_json::to_value(region::Region::parse(id, b)?)?,
+        FileKind::LandBlock => serde_json::to_value(landblock::CellLandblock::parse(id, b)?)?,
+        FileKind::LandBlockInfo => serde_json::to_value(landblock::LandblockInfo::parse(id, b)?)?,
+        FileKind::EnvCell => serde_json::to_value(landblock::EnvCell::parse(id, b)?)?,
+        other => bail!("no decoder for {other:?} yet"),
+    };
+    Ok(v)
 }
 
 fn main() -> Result<()> {
@@ -130,6 +154,13 @@ fn main() -> Result<()> {
                 std::fs::create_dir_all(&sub)?;
                 std::fs::write(sub.join(format!("{id:08X}.bin")), bytes)?;
             }
+        }
+        Cmd::Decode { id } => {
+            let id = parse_id(&id)?;
+            let bytes = dat.read(id)?;
+            let json = decode_json(dat.kind(id), id, &bytes)?;
+            serde_json::to_writer_pretty(&mut out, &json)?;
+            writeln!(out)?;
         }
         Cmd::Manifest => {
             writeln!(out, "id\toffset\tsize\titeration\tsha256")?;

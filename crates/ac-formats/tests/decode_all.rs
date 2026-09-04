@@ -6,13 +6,17 @@ use std::path::PathBuf;
 use ac_dat::{DatArchive, FileKind};
 use ac_formats::*;
 
-fn portal() -> Option<DatArchive> {
+fn archive(name: &str) -> Option<DatArchive> {
     let dir = PathBuf::from(std::env::var_os("AC_DATA_DIR")?);
-    Some(DatArchive::open(dir.join("client_portal.dat")).unwrap())
+    Some(DatArchive::open(dir.join(name)).unwrap())
 }
 
 fn check(kind: FileKind, parse: impl Fn(u32, &[u8]) -> Result<()>) {
-    let Some(dat) = portal() else {
+    check_in("client_portal.dat", kind, parse)
+}
+
+fn check_in(name: &str, kind: FileKind, parse: impl Fn(u32, &[u8]) -> Result<()>) {
+    let Some(dat) = archive(name) else {
         eprintln!("AC_DATA_DIR unset; skipping");
         return;
     };
@@ -86,5 +90,40 @@ fn setups() {
 fn animations() {
     check(FileKind::Animation, |id, b| {
         animation::Animation::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
+fn environments() {
+    check(FileKind::Environment, |id, b| {
+        environment::Environment::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
+fn region() {
+    check(FileKind::Region, |id, b| {
+        region::Region::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
+fn cell_landblocks() {
+    check_in("client_cell_1.dat", FileKind::LandBlock, |id, b| {
+        landblock::CellLandblock::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
+fn landblock_infos() {
+    check_in("client_cell_1.dat", FileKind::LandBlockInfo, |id, b| {
+        landblock::LandblockInfo::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
+fn env_cells() {
+    check_in("client_cell_1.dat", FileKind::EnvCell, |id, b| {
+        landblock::EnvCell::parse(id, b).map(|_| ())
     });
 }

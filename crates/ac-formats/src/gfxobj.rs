@@ -28,7 +28,7 @@ pub struct Vertex {
 }
 
 impl Vertex {
-    fn parse(r: &mut Reader) -> Result<Self> {
+    pub fn parse(r: &mut Reader) -> Result<Self> {
         let n_uv = r.u16()? as usize;
         let origin = r.vec3()?;
         let normal = r.vec3()?;
@@ -93,7 +93,7 @@ pub struct Polygon {
 }
 
 impl Polygon {
-    fn parse(r: &mut Reader) -> Result<Self> {
+    pub fn parse(r: &mut Reader) -> Result<Self> {
         let n = r.u8()? as usize;
         let stippling = r.u8()?;
         let cull = CullMode::from(r.i32()?);

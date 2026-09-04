@@ -26,8 +26,10 @@ ACE's `ACE.DatLoader` via `acdat diff`.
 | 0x3C | version_major (16-byte GUID) | same in both | |
 | 0x4C | version_minor | 6657 | 6657 |
 
-The first 0x140 bytes of the archive are a separate header the loader does
-not need (client code: `DiskDev` / `DATDisk`; TODO decomp addresses).
+The first 0x140 bytes of the archive are a text banner, not data. The
+client's create path fills them with
+`"\nFile Header Structure Default Constructor v1.3\n"` followed by a 0x1A
+(DOS EOF) byte and zero padding, so `type` on a DAT prints that line.
 
 ## Blocks
 
@@ -73,8 +75,16 @@ Entry entry[61]     only the first entry_count are valid
 | client_portal.dat | 79,694 |
 | client_cell_1.dat | 805,348 |
 
-## Decompilation anchors
+## Decompilation anchors (`reference/decomp/by_func`)
 
-TODO after the Ghidra export: functions referencing `"client_portal.dat"`,
-`"client_cell_1.dat"`, the 0x140 seek, and the RTTI classes `DiskDev`,
-`DATDisk`, `BTree`, `BTNode`, `DBOCache`.
+| addr | role | evidence |
+|---|---|---|
+| `FUN_006712d0`, `FUN_006713e0` | header struct constructor: zeroes fields, stores magic `0x5442` at +0, version fields at +0x30.. (`DAT_008f86b4`), `-1` sentinels at +0x34/+0x38 | `*param_1 = 0x5442` |
+| `FUN_00677d80` | `DiskDev::Create`: builds the 0x140 banner, opens the file via `CreateFile` (`PTR_FUN_00837374`), writes banner+header (`FUN_00677cc0`, 400 = 0x190 bytes), packs header with `FUN_00677bf0` | banner string literal |
+| `FUN_00675920` | reads/validates a header (checks `0x5442`) | magic compare |
+| `FUN_00675040`, `FUN_00675150` | seek to `0x140` and read/write the 80-byte header | `0x140` constants |
+
+The strings `client_portal.dat` (0x795de8) and `client_cell` (0x7c68ec)
+have no code references in the Ghidra listing; they are reached through a
+data table of dat descriptors, so locate callers via `FUN_00677d80` and
+the `CreateFileA` import instead (`q.py import CreateFileA`).
