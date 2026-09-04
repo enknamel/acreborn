@@ -350,6 +350,7 @@ pub fn split_game_event(body: &[u8]) -> Option<(u32, u32, u32, &[u8])> {
 pub mod event {
     pub const PLAYER_DESCRIPTION: u32 = 0x0013;
     pub const CHANNEL_BROADCAST: u32 = 0x0147;
+    pub const IDENTIFY_OBJECT_RESPONSE: u32 = 0x00C9;
     pub const WEENIE_ERROR: u32 = 0x028A;
     pub const TELL: u32 = 0x02BD;
 }
@@ -436,6 +437,86 @@ impl ChatLine {
     }
 }
 
+/// IdentifyObjectResponse (game event 0x00C9): the property tables of an
+/// appraised object. Only the plain property tables are read; the profile
+/// blocks that may follow are left unparsed.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Appraisal {
+    pub guid: u32,
+    pub success: bool,
+    pub ints: Vec<(u32, i32)>,
+    pub int64s: Vec<(u32, i64)>,
+    pub bools: Vec<(u32, bool)>,
+    pub floats: Vec<(u32, f64)>,
+    pub strings: Vec<(u32, String)>,
+    pub dids: Vec<(u32, u32)>,
+}
+
+impl Appraisal {
+    pub const FLAG_INT: u32 = 0x0001;
+    pub const FLAG_BOOL: u32 = 0x0002;
+    pub const FLAG_FLOAT: u32 = 0x0004;
+    pub const FLAG_STRING: u32 = 0x0008;
+    pub const FLAG_DID: u32 = 0x1000;
+    pub const FLAG_INT64: u32 = 0x2000;
+    pub const STRING_USE: u32 = 14;
+    pub const STRING_SHORT_DESC: u32 = 15;
+    pub const STRING_LONG_DESC: u32 = 16;
+
+    pub fn parse(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let mut a = Appraisal {
+            guid: r.u32()?,
+            ..Default::default()
+        };
+        let flags = r.u32()?;
+        a.success = r.u32()? != 0;
+        fn header(r: &mut Reader) -> Result<u16, Truncated> {
+            let n = r.u16()?;
+            r.u16()?;
+            Ok(n)
+        }
+        if flags & Self::FLAG_INT != 0 {
+            for _ in 0..header(&mut r)? {
+                a.ints.push((r.u32()?, r.i32()?));
+            }
+        }
+        if flags & Self::FLAG_INT64 != 0 {
+            for _ in 0..header(&mut r)? {
+                a.int64s.push((r.u32()?, r.u64()? as i64));
+            }
+        }
+        if flags & Self::FLAG_BOOL != 0 {
+            for _ in 0..header(&mut r)? {
+                a.bools.push((r.u32()?, r.u32()? != 0));
+            }
+        }
+        if flags & Self::FLAG_FLOAT != 0 {
+            for _ in 0..header(&mut r)? {
+                a.floats.push((r.u32()?, r.f64()?));
+            }
+        }
+        if flags & Self::FLAG_STRING != 0 {
+            for _ in 0..header(&mut r)? {
+                a.strings.push((r.u32()?, r.string16()?));
+            }
+        }
+        if flags & Self::FLAG_DID != 0 {
+            for _ in 0..header(&mut r)? {
+                a.dids.push((r.u32()?, r.u32()?));
+            }
+        }
+        Ok(a)
+    }
+
+    pub fn string(&self, key: u32) -> Option<&str> {
+        self.strings
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str())
+    }
+}
+
 /// Build a GameAction (0xF7B1) message: opcode, sequence, action type, body.
 pub fn game_action(sequence: u32, action: u32, body: &[u8]) -> Vec<u8> {
     let mut w = Writer::new();
@@ -449,6 +530,27 @@ pub fn game_action(sequence: u32, action: u32, body: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appraisal_layout() {
+        let mut w = Writer::new();
+        w.u32(0x8000_0001).u32(0x0001 | 0x0008 | 0x2000).u32(1);
+        w.u16(1).u16(64).u32(25).i32(3);
+        w.u16(1).u16(64).u32(1).u64(99);
+        w.u16(2)
+            .u16(16)
+            .u32(15)
+            .string16("A door.")
+            .u32(16)
+            .string16("It is shut.");
+        let a = Appraisal::parse(&w.finish()).unwrap();
+        assert!(a.success);
+        assert_eq!(a.ints, vec![(25, 3)]);
+        assert_eq!(a.int64s, vec![(1, 99)]);
+        assert_eq!(a.string(Appraisal::STRING_SHORT_DESC), Some("A door."));
+        assert_eq!(a.string(Appraisal::STRING_LONG_DESC), Some("It is shut."));
+        assert_eq!(a.string(Appraisal::STRING_USE), None);
+    }
 
     #[test]
     fn chat_layouts() {
@@ -525,6 +627,8 @@ mod tests {
 /// GameAction type ids (inside a 0xF7B1 message).
 pub mod action {
     pub const TALK: u32 = 0x0015;
+    pub const USE: u32 = 0x0036;
+    pub const IDENTIFY_OBJECT: u32 = 0x00C8;
     /// Sent after entering the world and after each teleport; the server
     /// ignores position reports until it arrives.
     pub const LOGIN_COMPLETE: u32 = 0x00A1;

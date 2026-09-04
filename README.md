@@ -33,8 +33,9 @@ Against a local ACE (`tools/ace/up.sh` starts one in Docker):
 # headless: log in, create a character, enter the world, print messages
 cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --create Reborn
 # admin accounts can teleport: --say "@telepoi holtburg"
-# play: third-person view, WASD walks the character, mouse turns, Shift walks slowly,
-# Enter opens the chat box (server commands start with @)
+# play: third-person view, WASD walks the character, right-drag turns, Shift walks
+# slowly, Enter opens the chat box (server commands start with @), left click
+# selects and appraises an object, double-click uses it (doors, NPCs, items)
 cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
 ```
 
@@ -43,6 +44,10 @@ decoders), `crates/ac-scene` (GPU-free mesh assembly, collision),
 `crates/ac-net` (protocol, sans-IO session), `crates/ac-world` (object
 table and movement), `bins/acdat` (CLI), `bins/acviewer` (wgpu viewer and
 client), `bins/acclient` (headless client).
+
+Debugging aids: `RUST_LOG=acviewer=debug`, `ACV_HIDE_STATIC=1` (draw only
+server objects), and in connected `--screenshot` mode `--walk`, `--say`,
+`--click x,y` and `--camera` to script a session headlessly.
 
 Game data and the original executable are not distributed with this
 repository and are gitignored.

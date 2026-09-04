@@ -277,6 +277,87 @@ pub fn appearance_of(
 
 /// Batches for the objects a server has placed (players, NPCs, items).
 /// Animation state for a server object: the cycle for its current motion.
+/// A world-space bounding sphere of one drawn part, for mouse picking.
+pub struct Pickable {
+    pub guid: u32,
+    pub center: Vec3,
+    pub radius: f32,
+    mesh: std::rc::Rc<crate::gpu::GpuMesh>,
+    inv_model: Mat4,
+}
+
+impl Pickable {
+    pub fn of(guid: u32, inst: &crate::gpu::Instance) -> Self {
+        let (c, r) = inst.mesh.bounds;
+        let m = inst.model;
+        let scale = m
+            .x_axis
+            .truncate()
+            .length()
+            .max(m.y_axis.truncate().length())
+            .max(m.z_axis.truncate().length());
+        Pickable {
+            guid,
+            center: m.transform_point3(c),
+            radius: r * scale,
+            mesh: inst.mesh.clone(),
+            inv_model: m.inverse(),
+        }
+    }
+
+    /// Ray parameter of the nearest triangle hit, if any. The bounding
+    /// sphere is the broad phase; the triangles are tested in mesh space
+    /// with the ray transformed by the inverse model matrix, which keeps
+    /// the parameter comparable across objects.
+    pub fn hit(&self, origin: Vec3, dir: Vec3) -> Option<f32> {
+        let oc = self.center - origin;
+        let t = oc.dot(dir);
+        let d2 = oc.length_squared() - t * t;
+        if d2 > self.radius * self.radius || t + self.radius < 0.0 {
+            return None;
+        }
+        let o = self.inv_model.transform_point3(origin);
+        let d = self.inv_model.transform_vector3(dir);
+        let p = &self.mesh.pick_positions;
+        let mut best: Option<f32> = None;
+        for tri in self.mesh.pick_indices.as_chunks::<3>().0 {
+            let (a, b, c) = (p[tri[0] as usize], p[tri[1] as usize], p[tri[2] as usize]);
+            if let Some(t) = ray_triangle(o, d, a, b, c) {
+                if best.map(|bt| t < bt).unwrap_or(true) {
+                    best = Some(t);
+                }
+            }
+        }
+        best
+    }
+}
+
+/// Möller–Trumbore, both windings, returns the ray parameter.
+fn ray_triangle(o: Vec3, d: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+    let e1 = b - a;
+    let e2 = c - a;
+    let pv = d.cross(e2);
+    let det = e1.dot(pv);
+    if det.abs() < 1e-8 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let tv = o - a;
+    let u = tv.dot(pv) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let qv = tv.cross(e1);
+    let v = d.dot(qv) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let t = e2.dot(qv) * inv;
+    (t >= 0.0).then_some(t)
+}
+
+impl Pickable {}
+
 pub struct ObjectAnim {
     pub player: Option<ac_scene::anim::AnimPlayer>,
     pub n_parts: usize,
@@ -388,8 +469,9 @@ pub fn object_instances(
     anims: &mut HashMap<u32, ObjectAnim>,
     tables: &mut HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
     dt: f32,
-) -> Vec<crate::gpu::Instance> {
+) -> (Vec<crate::gpu::Instance>, Vec<Pickable>) {
     let mut out = Vec::new();
+    let mut picks = Vec::new();
     for o in world.drawable().filter(|o| !o.is_player) {
         let Some(t) = o.transform() else { continue };
         let (app, key) = appearance_of(assets, o, palettes);
@@ -405,7 +487,7 @@ pub fn object_instances(
             p.advance(dt);
             p.part_transforms(anim.n_parts)
         });
-        out.extend(instances_for(
+        let inst = instances_for(
             assets,
             gpu,
             meshes,
@@ -415,7 +497,9 @@ pub fn object_instances(
             &app,
             key,
             pose.as_deref(),
-        ));
+        );
+        picks.extend(inst.iter().map(|i| Pickable::of(o.guid, i)));
+        out.extend(inst);
     }
-    out
+    (out, picks)
 }

@@ -60,6 +60,9 @@ struct Cli {
     /// Connected headless mode: say this line once the player is placed.
     #[arg(long)]
     say: Option<String>,
+    /// Connected headless mode: double-click this pixel (x,y) once placed.
+    #[arg(long)]
+    click: Option<String>,
     /// Camera override for --screenshot: x,y,z,yaw_deg,pitch_deg
     #[arg(long)]
     camera: Option<String>,
@@ -80,6 +83,9 @@ struct Net {
     /// Landblock the static scene is built around, once the player is placed.
     scene_block: Option<u32>,
     last_generation: u64,
+    pickables: Vec<scene::Pickable>,
+    selected: Option<u32>,
+    last_click: Option<(Instant, u32)>,
     gpu_meshes: scene::GpuMeshCache,
     palettes: scene::Palettes,
     player: Option<player::Player>,
@@ -98,6 +104,7 @@ struct App {
     camera: camera::Camera,
     keys: HashSet<KeyCode>,
     looking: bool,
+    cursor: Option<(f64, f64)>,
     last_cursor: Option<(f64, f64)>,
     last_frame: Instant,
     ui: Option<ui::Ui>,
@@ -114,6 +121,10 @@ impl App {
             opcode::EMOTE_TEXT => ChatLine::parse_emote_text(body),
             opcode::GAME_EVENT => match ac_net::messages::split_game_event(body) {
                 Some((_, _, event::TELL, rest)) => ChatLine::parse_tell(rest),
+                Some((_, _, event::IDENTIFY_OBJECT_RESPONSE, rest)) => {
+                    self.appraisal(rest);
+                    return;
+                }
                 _ => return,
             },
             _ => return,
@@ -137,6 +148,65 @@ impl App {
         }
     }
 
+    /// Left click in the world: select the object under the cursor and ask
+    /// the server to appraise it; a second click on the same object within
+    /// half a second uses it (opens doors, talks to NPCs, picks up items).
+    fn click(&mut self, px: f64, py: f64, (w, h): (u32, u32)) {
+        use ac_net::messages::action;
+        let ndc = glam::Vec3::new(
+            (2.0 * px as f32 / w.max(1) as f32) - 1.0,
+            1.0 - (2.0 * py as f32 / h.max(1) as f32),
+            0.0,
+        );
+        let aspect = w as f32 / h.max(1) as f32;
+        let inv = self.camera.view_proj(aspect).inverse();
+        let near = inv.project_point3(ndc);
+        let far = inv.project_point3(ndc.with_z(1.0));
+        let dir = (far - near).normalize_or_zero();
+        let Some(net) = self.net.as_mut() else { return };
+        let mut best: Option<(f32, u32)> = None;
+        for p in &net.pickables {
+            if let Some(t) = p.hit(near, dir) {
+                tracing::trace!(
+                    "hit {} at t={t:.2} (center {:?} r {:.2})",
+                    net.world
+                        .objects
+                        .get(&p.guid)
+                        .map(|o| o.name.as_str())
+                        .unwrap_or("?"),
+                    p.center,
+                    p.radius
+                );
+                if best.map(|(bt, _)| t < bt).unwrap_or(true) {
+                    best = Some((t, p.guid));
+                }
+            }
+        }
+        let Some((_, guid)) = best else {
+            net.selected = None;
+            return;
+        };
+        let now = Instant::now();
+        let again = matches!(net.last_click, Some((t, g)) if g == guid && now - t < Duration::from_millis(500));
+        net.last_click = Some((now, guid));
+        net.selected = Some(guid);
+        let name = net
+            .world
+            .objects
+            .get(&guid)
+            .map(|o| o.name.clone())
+            .unwrap_or_default();
+        if again {
+            tracing::info!("use {name} ({guid:#010x})");
+            net.session.send_action(action::USE, &guid.to_le_bytes());
+            net.last_click = None;
+        } else {
+            tracing::info!("select {name} ({guid:#010x})");
+            net.session
+                .send_action(action::IDENTIFY_OBJECT, &guid.to_le_bytes());
+        }
+    }
+
     fn refresh_status(&mut self) {
         let Some(ui) = &mut self.ui else { return };
         let mut s = format!("{:.0} fps", self.fps);
@@ -151,6 +221,9 @@ impl App {
                         p.local.z,
                         net.world.drawable().count()
                     );
+                    if let Some(o) = net.selected.and_then(|g| net.world.objects.get(&g)) {
+                        s += &format!("  selected: {}", o.name);
+                    }
                 }
                 None => s += "  connecting...",
             }
@@ -211,6 +284,47 @@ impl App {
                 y: d.dot(fwd),
                 kind,
             });
+        }
+    }
+
+    fn appraisal(&mut self, body: &[u8]) {
+        use ac_net::messages::Appraisal;
+        let a = match Appraisal::parse(body) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!("appraisal: {e}");
+                return;
+            }
+        };
+        let name = self
+            .net
+            .as_ref()
+            .and_then(|n| n.world.objects.get(&a.guid))
+            .map(|o| o.name.clone())
+            .unwrap_or_else(|| format!("{:#010x}", a.guid));
+        let mut lines = vec![name.clone()];
+        for key in [
+            Appraisal::STRING_SHORT_DESC,
+            Appraisal::STRING_LONG_DESC,
+            Appraisal::STRING_USE,
+        ] {
+            if let Some(t) = a.string(key) {
+                if !t.is_empty() {
+                    lines.push(t.to_string());
+                }
+            }
+        }
+        if !a.success {
+            lines.push("(appraisal failed)".into());
+        }
+        tracing::info!(
+            "appraise {name}: {} properties",
+            a.ints.len() + a.strings.len()
+        );
+        if let Some(ui) = &mut self.ui {
+            for l in lines {
+                ui.push_chat(l, 1);
+            }
         }
     }
 
@@ -286,6 +400,9 @@ impl App {
             enter_requested: false,
             scene_block: None,
             last_generation: 0,
+            pickables: Vec::new(),
+            selected: None,
+            last_click: None,
             gpu_meshes: Default::default(),
             palettes: Default::default(),
             player: None,
@@ -469,7 +586,7 @@ impl App {
             net.last_generation = net.world.generation;
             let dt = net.last_anim_refresh.elapsed().as_secs_f32().min(0.2);
             net.last_anim_refresh = Instant::now();
-            let instances = scene::object_instances(
+            let (instances, picks) = scene::object_instances(
                 &net.assets,
                 gpu,
                 &net.world,
@@ -479,6 +596,7 @@ impl App {
                 &mut net.tables,
                 dt,
             );
+            net.pickables = picks;
             gpu.set_dynamic_instances(instances);
         }
         // Player movement, camera, and reporting.
@@ -703,7 +821,19 @@ impl ApplicationHandler for App {
                 self.looking = state == ElementState::Pressed;
                 self.last_cursor = None;
             }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => {
+                if let (Some((x, y)), Some(size)) =
+                    (self.cursor, self.gpu.as_ref().map(|g| g.size()))
+                {
+                    self.click(x, y, size);
+                }
+            }
             WindowEvent::CursorMoved { position, .. } => {
+                self.cursor = Some((position.x, position.y));
                 if self.looking {
                     if let Some((lx, ly)) = self.last_cursor {
                         let dx = (position.x - lx) as f32;
@@ -793,6 +923,7 @@ fn main() -> Result<()> {
             },
             keys: HashSet::new(),
             looking: false,
+            cursor: None,
             last_cursor: None,
             last_frame: Instant::now(),
             ui: None,
@@ -809,6 +940,7 @@ fn main() -> Result<()> {
             let mut last_tick = Instant::now();
             let mut ticks = 0u32;
             let mut ticks_since = Instant::now();
+            let mut clicks_left = if app.cli.click.is_some() { 2 } else { 0 };
             loop {
                 app.tick_net(&mut gpu);
                 let placed = app
@@ -825,6 +957,16 @@ fn main() -> Result<()> {
                         if let (Some(line), Some(ui)) = (app.cli.say.take(), app.ui.as_mut()) {
                             ui.outgoing.push(line);
                         }
+                    }
+                    if t > 1.0 + app.cli.walk && clicks_left > 0 {
+                        if let Some(c) = app.cli.click.clone() {
+                            let v: Vec<f64> =
+                                c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+                            if v.len() == 2 {
+                                app.click(v[0], v[1], gpu.size());
+                            }
+                        }
+                        clicks_left -= 1;
                     }
                     if walking {
                         app.keys.insert(KeyCode::KeyW);
@@ -843,6 +985,8 @@ fn main() -> Result<()> {
                     // or after a short settle when not walking.
                     let done = if app.cli.walk > 0.0 {
                         t > 0.9 + app.cli.walk
+                    } else if app.cli.click.is_some() {
+                        t > 4.0
                     } else {
                         t > 3.0
                     };
@@ -910,6 +1054,7 @@ fn main() -> Result<()> {
         },
         keys: HashSet::new(),
         looking: false,
+        cursor: None,
         last_cursor: None,
         last_frame: Instant::now(),
         ui: None,

@@ -117,6 +117,11 @@ pub struct GpuSub {
 /// A model-space mesh on the GPU, shared by any number of instances.
 pub struct GpuMesh {
     pub subs: Vec<GpuSub>,
+    /// Bounding sphere in mesh space: center, radius.
+    pub bounds: (Vec3, f32),
+    /// Triangles in mesh space for picking (all submeshes concatenated).
+    pub pick_positions: Vec<Vec3>,
+    pub pick_indices: Vec<u32>,
 }
 
 /// A drawn copy of a mesh with its own model matrix.
@@ -507,6 +512,31 @@ impl Gpu {
         mut materials: impl FnMut(MaterialKey) -> Option<Rgba>,
     ) -> std::rc::Rc<GpuMesh> {
         let mut subs = Vec::with_capacity(mesh.submeshes.len());
+        let mut lo = Vec3::splat(f32::INFINITY);
+        let mut hi = Vec3::splat(f32::NEG_INFINITY);
+        for v in mesh.submeshes.iter().flat_map(|s| s.vertices.iter()) {
+            lo = lo.min(v.position);
+            hi = hi.max(v.position);
+        }
+        let bounds = if lo.x.is_finite() {
+            let c = (lo + hi) * 0.5;
+            let r = mesh
+                .submeshes
+                .iter()
+                .flat_map(|s| s.vertices.iter())
+                .map(|v| v.position.distance(c))
+                .fold(0.0f32, f32::max);
+            (c, r)
+        } else {
+            (Vec3::ZERO, 0.0)
+        };
+        let mut pick_positions = Vec::new();
+        let mut pick_indices = Vec::new();
+        for sub in &mesh.submeshes {
+            let base = pick_positions.len() as u32;
+            pick_positions.extend(sub.vertices.iter().map(|v| v.position));
+            pick_indices.extend(sub.indices.iter().map(|i| i + base));
+        }
         for sub in &mesh.submeshes {
             if sub.indices.is_empty() {
                 continue;
@@ -552,7 +582,12 @@ impl Gpu {
                 bind_group,
             });
         }
-        std::rc::Rc::new(GpuMesh { subs })
+        std::rc::Rc::new(GpuMesh {
+            subs,
+            bounds,
+            pick_positions,
+            pick_indices,
+        })
     }
 
     /// Cached material bind group for a key, decoding on first use.
@@ -797,7 +832,8 @@ impl Gpu {
             pass.set_bind_group(0, &self.globals_bg, &[]);
             // Static geometry is baked in world space: identity model (slot 0).
             pass.set_bind_group(2, &self.models_bg, &[0]);
-            for b in &self.batches {
+            let hide_static = std::env::var_os("ACV_HIDE_STATIC").is_some();
+            for b in self.batches.iter().filter(|_| !hide_static) {
                 pass.set_bind_group(1, &*b.bind_group, &[]);
                 pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
                 pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);
