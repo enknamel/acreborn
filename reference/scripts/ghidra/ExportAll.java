@@ -111,7 +111,8 @@ public class ExportAll extends GhidraScript {
     private void exportStrings() throws IOException {
         try (BufferedWriter w = Files.newBufferedWriter(out.resolve("dumps/strings.tsv"))) {
             w.write(tsv("addr", "string", "referencing_functions"));
-            for (Data d : DefinedDataIterator.definedStrings(currentProgram)) {
+            for (Data d : currentProgram.getListing().getDefinedData(true)) {
+                if (!d.hasStringValue()) continue;
                 Object v = d.getValue();
                 if (v == null) continue;
                 w.write(tsv(d.getAddress(), v.toString(), referrers(d.getAddress())));
