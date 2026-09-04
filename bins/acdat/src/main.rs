@@ -64,6 +64,7 @@ fn decode_json(kind: FileKind, id: u32, b: &[u8]) -> Result<serde_json::Value> {
         FileKind::Surface => serde_json::to_value(surface::Surface::parse(id, b)?)?,
         FileKind::Environment => serde_json::to_value(environment::Environment::parse(id, b)?)?,
         FileKind::Region => serde_json::to_value(region::Region::parse(id, b)?)?,
+        FileKind::Scene => serde_json::to_value(scene::Scene::parse(id, b)?)?,
         FileKind::LandBlock => serde_json::to_value(landblock::CellLandblock::parse(id, b)?)?,
         FileKind::LandBlockInfo => serde_json::to_value(landblock::LandblockInfo::parse(id, b)?)?,
         FileKind::EnvCell => serde_json::to_value(landblock::EnvCell::parse(id, b)?)?,

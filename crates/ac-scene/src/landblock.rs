@@ -5,7 +5,7 @@ use glam::Mat4;
 
 use crate::model::{frame_to_mat, place, PlacedPart};
 use crate::terrain::{self, TerrainMesh};
-use crate::{lbid, Assets, Result};
+use crate::{lbid, scenery, Assets, Result};
 
 #[derive(Debug)]
 pub struct LandblockScene {
@@ -14,6 +14,7 @@ pub struct LandblockScene {
     /// Static objects and buildings, in world space.
     pub parts: Vec<PlacedPart>,
     pub has_info: bool,
+    pub scenery_count: usize,
 }
 
 pub fn load(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
@@ -28,14 +29,19 @@ pub fn load(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
     let mut parts = Vec::new();
     let info_id = block_id | 0xFFFE;
     let has_info = assets.cell.entry(info_id).is_some();
-    if has_info {
-        let info =
+    let info = if has_info {
+        Some(
             LandblockInfo::parse(info_id, &assets.cell.read(info_id)?).map_err(|source| {
                 crate::Error::Format {
                     id: info_id,
                     source,
                 }
-            })?;
+            })?,
+        )
+    } else {
+        None
+    };
+    if let Some(info) = &info {
         for stab in &info.objects {
             match place(assets, stab.id, origin * frame_to_mat(&stab.frame)) {
                 Ok(p) => parts.extend(p),
@@ -49,10 +55,21 @@ pub fn load(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
             }
         }
     }
+    let mut scenery_count = 0;
+    for inst in scenery::generate(assets, &lb, info.as_ref())? {
+        match place(assets, inst.obj_id, origin * inst.local) {
+            Ok(p) => {
+                scenery_count += 1;
+                parts.extend(p)
+            }
+            Err(e) => tracing::warn!("scenery {:#010x}: {e}", inst.obj_id),
+        }
+    }
     Ok(LandblockScene {
         id: block_id,
         terrain,
         parts,
         has_info,
+        scenery_count,
     })
 }

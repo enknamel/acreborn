@@ -14,6 +14,7 @@ pub mod gfxobj;
 pub mod landblock;
 pub mod palette;
 pub mod region;
+pub mod scene;
 pub mod setup;
 pub mod surface;
 pub mod surface_texture;

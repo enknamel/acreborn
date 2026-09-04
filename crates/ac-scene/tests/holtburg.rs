@@ -13,6 +13,11 @@ fn holtburg_assembles() {
     assert_eq!(scene.terrain.indices.len(), 64 * 6);
     assert!(scene.has_info, "Holtburg has buildings");
     assert!(!scene.parts.is_empty());
+    // Town cells use weenie-placeholder scenes, so the town block itself has
+    // no client scenery; the block south of it is forest.
+    assert_eq!(scene.scenery_count, 0);
+    let south = landblock::load(&assets, 0xA9B3_0000).unwrap();
+    assert!(south.scenery_count > 100, "scenery {}", south.scenery_count);
     let mut tris = 0;
     let mut textured = 0;
     for p in &scene.parts {

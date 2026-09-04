@@ -101,6 +101,13 @@ fn environments() {
 }
 
 #[test]
+fn scenes() {
+    check(FileKind::Scene, |id, b| {
+        scene::Scene::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
 fn region() {
     check(FileKind::Region, |id, b| {
         region::Region::parse(id, b).map(|_| ())

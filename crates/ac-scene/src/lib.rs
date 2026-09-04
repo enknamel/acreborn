@@ -10,6 +10,7 @@
 
 pub mod landblock;
 pub mod model;
+pub mod scenery;
 pub mod terrain;
 
 use std::cell::RefCell;
@@ -19,7 +20,7 @@ use std::rc::Rc;
 
 use ac_dat::DatArchive;
 use ac_formats::{
-    gfxobj::GfxObj, palette::Palette, region::Region, setup::Setup, surface::Surface,
+    gfxobj::GfxObj, palette::Palette, region::Region, scene::Scene, setup::Setup, surface::Surface,
     surface_texture::SurfaceTexture, texture::Texture,
 };
 
@@ -53,6 +54,7 @@ pub struct Assets {
     surface_textures: RefCell<HashMap<u32, Rc<SurfaceTexture>>>,
     textures: RefCell<HashMap<u32, Rc<Texture>>>,
     palettes: RefCell<HashMap<u32, Rc<Palette>>>,
+    scenes: RefCell<HashMap<u32, Rc<Scene>>>,
 }
 
 macro_rules! cached {
@@ -83,6 +85,7 @@ impl Assets {
             surface_textures: Default::default(),
             textures: Default::default(),
             palettes: Default::default(),
+            scenes: Default::default(),
         })
     }
 
@@ -92,6 +95,7 @@ impl Assets {
     cached!(surface_texture, surface_textures, SurfaceTexture, portal);
     cached!(texture, textures, Texture, portal);
     cached!(palette, palettes, Palette, portal);
+    cached!(scene, scenes, Scene, portal);
 
     pub fn region(&self) -> Result<Rc<Region>> {
         if let Some(r) = self.region.borrow().as_ref() {
