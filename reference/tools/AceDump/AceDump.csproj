@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../ext/ACE/Source/ACE.DatLoader/ACE.DatLoader.csproj" />
+    <ProjectReference Include="../../ext/ACE/Source/ACE.Common/ACE.Common.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,14 @@
+[package]
+name = "acclient"
+description = "The client. For now: headless login that prints what the server sends."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-net = { path = "../../crates/ac-net" }
+ac-dat = { path = "../../crates/ac-dat" }
+anyhow.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -40,6 +40,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-net"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "ac-scene"
 version = "0.1.0"
 dependencies = [
@@ -48,6 +56,18 @@ dependencies = [
  "glam",
  "thiserror 2.0.20",
  "tracing",
+]
+
+[[package]]
+name = "acclient"
+version = "0.1.0"
+dependencies = [
+ "ac-dat",
+ "ac-net",
+ "anyhow",
+ "clap",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

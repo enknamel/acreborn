@@ -1,0 +1,10 @@
+[package]
+name = "ac-net"
+description = "Asheron's Call wire protocol: packets, fragments, CRC, ISAAC, session state machine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true

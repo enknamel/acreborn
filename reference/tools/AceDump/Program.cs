@@ -23,6 +23,19 @@ switch (args[0]) {
         }
         return 0;
     }
+    case "isaac": {
+        // Print the first N keys of ACE's ISAAC for a seed: golden vectors for ac-net.
+        var seed = Convert.ToUInt32(args[1], 16);
+        var n = args.Length > 2 ? int.Parse(args[2]) : 8;
+        var isaac = new ACE.Common.Cryptography.ISAAC(BitConverter.GetBytes(seed));
+        for (var i = 0; i < n; i++) Console.WriteLine($"{isaac.Next():x8}");
+        return 0;
+    }
+    case "hash32": {
+        var bytes = Convert.FromHexString(args[1]);
+        Console.WriteLine($"{ACE.Common.Cryptography.Hash32.Calculate(bytes, bytes.Length):x8}");
+        return 0;
+    }
     default:
         Console.Error.WriteLine($"unknown command {args[0]}");
         return 2;
