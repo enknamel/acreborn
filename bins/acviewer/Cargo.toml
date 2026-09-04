@@ -1,0 +1,21 @@
+[package]
+name = "acviewer"
+description = "Landblock and model viewer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-dat = { path = "../../crates/ac-dat" }
+ac-formats = { path = "../../crates/ac-formats" }
+ac-scene = { path = "../../crates/ac-scene" }
+anyhow.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+glam = { version = "0.30", features = ["bytemuck"] }
+wgpu = "30"
+winit = "0.30"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["png"] }

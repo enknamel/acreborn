@@ -5,6 +5,7 @@
 //! Layouts follow the client (see `docs/subsystems/`), cross-checked against
 //! ACE's `ACE.DatLoader`.
 
+pub mod dxt;
 pub mod reader;
 
 pub mod animation;

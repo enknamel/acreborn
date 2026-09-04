@@ -127,3 +127,60 @@ fn env_cells() {
         landblock::EnvCell::parse(id, b).map(|_| ())
     });
 }
+
+/// Every texture must expand to RGBA of the declared size.
+#[test]
+fn textures_to_rgba() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    let mut palettes = std::collections::HashMap::new();
+    let mut formats = std::collections::BTreeMap::new();
+    let mut failures = Vec::new();
+    for e in dat
+        .entries()
+        .filter(|e| dat.kind(e.id) == FileKind::Texture)
+    {
+        let t = texture::Texture::parse(e.id, &dat.read(e.id).unwrap()).unwrap();
+        let pal = t.default_palette.map(|pid| {
+            palettes
+                .entry(pid)
+                .or_insert_with(|| {
+                    palette::Palette::parse(pid, &dat.read(pid).unwrap())
+                        .unwrap()
+                        .colors
+                        .clone()
+                })
+                .clone()
+        });
+        *formats.entry(format!("{:?}", t.format)).or_insert(0usize) += 1;
+        if t.data_len == 0 {
+            continue;
+        }
+        match t.to_rgba8(pal.as_deref()) {
+            Ok(img) => {
+                if t.format != texture::PixelFormat::CustomRawJpeg {
+                    assert_eq!(
+                        img.pixels.len(),
+                        (t.width * t.height * 4) as usize,
+                        "{:08X}",
+                        e.id
+                    );
+                }
+            }
+            Err(err) => failures.push(format!("{:08X} {:?}: {err}", e.id, t.format)),
+        }
+    }
+    eprintln!("formats: {formats:?}");
+    assert!(
+        failures.is_empty(),
+        "{} failures:\n{}",
+        failures.len(),
+        failures
+            .iter()
+            .take(20)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+}

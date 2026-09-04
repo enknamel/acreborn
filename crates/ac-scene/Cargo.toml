@@ -1,0 +1,13 @@
+[package]
+name = "ac-scene"
+description = "GPU-independent scene assembly: asset cache, terrain and model meshes, landblock composition"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-dat = { path = "../ac-dat" }
+ac-formats = { path = "../ac-formats" }
+glam = "0.30"
+thiserror.workspace = true
+tracing.workspace = true
