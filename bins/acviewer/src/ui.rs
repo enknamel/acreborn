@@ -16,6 +16,8 @@ pub struct ChatLine {
 
 pub struct Ui {
     pub ctx: egui::Context,
+    /// Hide the status line and chat (the lobby screens before the world).
+    pub hud_hidden: bool,
     state: Option<egui_winit::State>,
     renderer: egui_wgpu::Renderer,
     pub chat: Vec<ChatLine>,
@@ -62,6 +64,7 @@ impl Ui {
             egui_wgpu::Renderer::new(device, format, egui_wgpu::RendererOptions::default());
         Ui {
             ctx,
+            hud_hidden: false,
             state,
             renderer,
             chat: Vec::new(),
@@ -134,6 +137,9 @@ impl Ui {
         let mut want_focus = false;
         let mut full = self.ctx.run_ui(raw, |ctx| {
             extra(ctx);
+            if self.hud_hidden {
+                return;
+            }
             egui::Area::new(egui::Id::new("status"))
                 .fade_in(false)
                 .fixed_pos(egui::pos2(8.0, 8.0))

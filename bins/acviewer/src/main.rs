@@ -421,6 +421,7 @@ impl App {
         let mut clients: Vec<&mut ac_client::Client> =
             self.nets.iter_mut().map(|n| &mut n.client).collect();
         let mut requests: Option<plugins::Requests> = None;
+        ui.hud_hidden = lobby.visible();
         ui.begin(
             self.window.as_deref(),
             &mut |egui| {
