@@ -796,6 +796,11 @@ pub mod action {
     pub const SELL: u32 = 0x0060;
     pub const NO_LONGER_VIEWING_CONTENTS: u32 = 0x0195;
     pub const IDENTIFY_OBJECT: u32 = 0x00C8;
+    pub const REMOVE_SPELL: u32 = 0x01A8;
+    pub const ADD_SPELL_FAVORITE: u32 = 0x01E3;
+    pub const REMOVE_SPELL_FAVORITE: u32 = 0x01E4;
+    pub const SET_DESIRED_COMPONENT_LEVEL: u32 = 0x0224;
+    pub const SPELLBOOK_FILTER: u32 = 0x0286;
     /// Sent after entering the world and after each teleport; the server
     /// ignores position reports until it arrives.
     pub const LOGIN_COMPLETE: u32 = 0x00A1;
