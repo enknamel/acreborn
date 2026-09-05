@@ -365,6 +365,8 @@ pub mod event {
     pub const VIEW_CONTENTS: u32 = 0x0196;
     pub const CLOSE_GROUND_CONTAINER: u32 = 0x0052;
     pub const APPROACH_VENDOR: u32 = 0x0062;
+    pub const MAGIC_REMOVE_SPELL: u32 = 0x01A8;
+    pub const MAGIC_UPDATE_SPELL: u32 = 0x02C1;
     pub const ATTACK_DONE: u32 = 0x01A7;
     pub const VICTIM_NOTIFICATION: u32 = 0x01AC;
     pub const KILLER_NOTIFICATION: u32 = 0x01AD;
@@ -595,6 +597,13 @@ impl AttackNotice {
     }
 }
 
+/// CastTargetedSpell body: target guid then spell id.
+pub fn cast_targeted(target: u32, spell: u32) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u32(target).u32(spell);
+    w.finish()
+}
+
 /// Buy/Sell body: vendor, count, then `(amount, guid)` per item, and the
 /// alternate currency id (0 for pyreals).
 pub fn trade(vendor: u32, items: &[(u32, i32)]) -> Vec<u8> {
@@ -780,6 +789,8 @@ pub mod action {
     pub const GET_AND_WIELD_ITEM: u32 = 0x001A;
     pub const DROP_ITEM: u32 = 0x001B;
     pub const USE: u32 = 0x0036;
+    pub const CAST_UNTARGETED_SPELL: u32 = 0x0048;
+    pub const CAST_TARGETED_SPELL: u32 = 0x004A;
     pub const CHANGE_COMBAT_MODE: u32 = 0x0053;
     pub const BUY: u32 = 0x005F;
     pub const SELL: u32 = 0x0060;

@@ -59,9 +59,12 @@ client), `bins/acclient` (headless client).
 
 Debugging aids: `RUST_LOG=acviewer=debug`, `ACV_HIDE_STATIC=1` (draw only
 server objects), and in connected `--screenshot` mode `--walk`, `--say`,
-`--click x,y`, `--use NAME`, `--attack NAME`, `--loot [NAME]` and `--camera`
-to script a session headlessly (`--say` may repeat; admin commands such as
-`@create 7` or `@smite all` are handy for setting up a scene).
+`--click x,y`, `--use NAME`, `--attack NAME`, `--loot [NAME]`, `--buy NAME`,
+`--sell NAME`, `--cast NAME`, `--jump`, `--snap-at SECS` and `--camera` to
+script a session headlessly (`--say` may repeat; admin commands such as
+`@create 7`, `@ci 314` or `@smite all` are handy for setting up a scene).
+Double-clicking a vendor opens its shop (buy from the stock, sell from the
+pack); using a scroll learns its spell.
 
 Game data and the original executable are not distributed with this
 repository and are gitignored.

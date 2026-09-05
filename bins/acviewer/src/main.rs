@@ -94,6 +94,10 @@ struct Cli {
     /// pack item whose name starts with this.
     #[arg(long)]
     sell: Option<String>,
+    /// Connected headless mode: cast this spell on ourselves (learnt this
+    /// session from a scroll, or named by a "Scroll of NAME" in the pack).
+    #[arg(long)]
+    cast: Option<String>,
     /// Connected headless mode: jump once after placement.
     #[arg(long)]
     jump: bool,
@@ -216,6 +220,10 @@ struct Net {
     move_to_since: Instant,
     /// Melee combat mode is on.
     combat: bool,
+    /// Magic combat mode is on.
+    magic: bool,
+    /// Spells we know by name (learnt from scrolls this session).
+    known_spells: std::collections::HashMap<u32, String>,
     /// Creature we keep swinging at until it dies or we stop.
     attack_target: Option<u32>,
     /// An attack was sent and AttackDone has not come back yet.
@@ -580,6 +588,11 @@ impl App {
             self.attack(guid);
             return;
         }
+        if carried && o.spell_id != 0 {
+            if let Some(spell) = name.strip_prefix("Scroll of ") {
+                net.known_spells.insert(o.spell_id, spell.to_string());
+            }
+        }
         if carried && o.wielder != me && o.item_type & item_type::WIELDABLE != 0 {
             tracing::info!("wield {name} ({guid:#010x}) at {:#x}", o.valid_locations);
             w.u32(guid).u32(o.valid_locations);
@@ -601,11 +614,32 @@ impl App {
         }
     }
 
+    /// Cast a spell on ourselves (untargeted), entering magic mode first.
+    fn cast(&mut self, spell: u32) {
+        use ac_net::messages::{action, combat_mode};
+        let Some(net) = self.net.as_mut() else { return };
+        if !net.magic {
+            net.session.send_action(
+                action::CHANGE_COMBAT_MODE,
+                &combat_mode::MAGIC.to_le_bytes(),
+            );
+            net.magic = true;
+            net.combat = false;
+        }
+        tracing::info!(
+            "cast {} ({spell})",
+            net.known_spells.get(&spell).cloned().unwrap_or_default()
+        );
+        net.session
+            .send_action(action::CAST_UNTARGETED_SPELL, &spell.to_le_bytes());
+    }
+
     /// Enter or leave melee combat mode.
     fn toggle_combat(&mut self) {
         use ac_net::messages::{action, combat_mode};
         let Some(net) = self.net.as_mut() else { return };
         net.combat = !net.combat;
+        net.magic = false;
         let mode = if net.combat {
             combat_mode::MELEE
         } else {
@@ -1137,6 +1171,8 @@ impl App {
             move_to: None,
             move_to_since: Instant::now(),
             combat: false,
+            magic: false,
+            known_spells: Default::default(),
             attack_target: None,
             attack_pending: false,
             last_attack: Instant::now(),
@@ -2050,6 +2086,32 @@ fn main() -> Result<()> {
                             app.ui = ui;
                         }
                     }
+                    if let Some(want) = app.cli.cast.clone() {
+                        if t > 4.0 + app.cli.walk + say_delay {
+                            let id = app.net.as_ref().and_then(|n| {
+                                n.known_spells
+                                    .iter()
+                                    .find(|(_, name)| name.starts_with(&want))
+                                    .map(|(id, _)| *id)
+                                    .or_else(|| {
+                                        n.world
+                                            .inventory()
+                                            .find(|o| {
+                                                o.spell_id != 0
+                                                    && o.name
+                                                        .starts_with(&format!("Scroll of {want}"))
+                                            })
+                                            .map(|o| o.spell_id)
+                                    })
+                            });
+                            match id {
+                                Some(id) => app.cast(id),
+                                None => tracing::warn!("no known spell named {want:?}"),
+                            }
+                            app.cli.cast = None;
+                            bought_at = Some(Instant::now());
+                        }
+                    }
                     if let Some(want) = app.cli.sell.clone() {
                         if let (Some(net), Some(ui)) = (app.net.as_ref(), app.ui.as_mut()) {
                             if net.world.open_vendor.is_some() {
@@ -2249,7 +2311,10 @@ fn main() -> Result<()> {
                         .is_some_and(|n| !n.loot_queue.is_empty() || n.loot_inflight.is_some());
                     let done = if pending
                         || looting
-                        || (app.cli.buy.is_some() || app.cli.sell.is_some()) && t < 40.0 + say_delay
+                        || (app.cli.buy.is_some()
+                            || app.cli.sell.is_some()
+                            || app.cli.cast.is_some())
+                            && t < 40.0 + say_delay
                     {
                         false
                     } else if let Some(b) = bought_at {

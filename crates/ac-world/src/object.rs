@@ -158,6 +158,7 @@ pub struct ObjectCreate {
     pub stack_size: u32,
     /// Base value in pyreals (vendor prices scale it).
     pub value: u32,
+    pub spell_id: u32,
     /// EquipMask bits the item can be wielded in.
     pub valid_locations: u32,
     pub wielded_location: u32,
@@ -251,6 +252,8 @@ pub struct WeenieDesc {
     pub wielded_location: u32,
     pub icon_overlay: u32,
     pub icon_underlay: u32,
+    /// Spell a scroll teaches / an item casts, or 0.
+    pub spell_id: u32,
 }
 
 impl WeenieDesc {
@@ -352,9 +355,11 @@ impl WeenieDesc {
         if weenie_flags & BURDEN != 0 {
             r.u16()?;
         }
-        if weenie_flags & SPELL != 0 {
-            r.u16()?;
-        }
+        let spell_id = if weenie_flags & SPELL != 0 {
+            r.u16()? as u32
+        } else {
+            0
+        };
         if weenie_flags & HOUSE_OWNER != 0 {
             r.u32()?;
         }
@@ -408,6 +413,7 @@ impl WeenieDesc {
             wielded_location,
             icon_overlay,
             icon_underlay,
+            spell_id,
         })
     }
 }
@@ -594,6 +600,7 @@ impl ObjectCreate {
             wielded_location,
             icon_overlay,
             icon_underlay,
+            spell_id,
         } = WeenieDesc::parse(&mut r)?;
         Ok(ObjectCreate {
             guid,
@@ -627,6 +634,7 @@ impl ObjectCreate {
             wielder,
             stack_size,
             value,
+            spell_id,
             valid_locations,
             wielded_location,
             no_draw: physics_state & (PHYSICS_STATE_NO_DRAW | PHYSICS_STATE_HIDDEN) != 0,

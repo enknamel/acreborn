@@ -91,6 +91,7 @@ pub struct WorldObject {
     pub icon_underlay: u32,
     pub stack_size: u32,
     pub value: u32,
+    pub spell_id: u32,
     /// Container holding this item (a pack, or a creature's inventory).
     pub container: Option<u32>,
     /// Creature wielding this item.
@@ -240,6 +241,7 @@ impl World {
                         icon_underlay: oc.icon_underlay,
                         stack_size: oc.stack_size,
                         value: oc.value,
+                        spell_id: oc.spell_id,
                         container: oc.container,
                         wielder: oc.wielder,
                         valid_locations: oc.valid_locations,

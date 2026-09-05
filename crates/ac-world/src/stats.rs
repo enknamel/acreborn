@@ -686,6 +686,15 @@ impl PlayerStats {
     pub fn apply(&mut self, op: u32, body: &[u8]) -> bool {
         let r = match op {
             opcode::GAME_EVENT => match split_game_event(body) {
+                Some((_, _, event::MAGIC_UPDATE_SPELL, rest)) => match Reader::new(rest).u32() {
+                    Ok(id) => {
+                        if !self.spells.contains(&id) {
+                            self.spells.push(id);
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                },
                 Some((_, _, event::PLAYER_DESCRIPTION, rest)) => {
                     match Self::parse_description(rest) {
                         Ok(st) => {
