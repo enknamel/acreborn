@@ -193,6 +193,38 @@ fn textures_to_rgba() {
 }
 
 #[test]
+fn skill_table() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    use skill_table::{attribute, SkillTable};
+    let t = SkillTable::parse(SkillTable::ID, &dat.read(SkillTable::ID).unwrap()).unwrap();
+    // 38 live skills; the retired weapon skills are not in the table.
+    assert_eq!(t.skills.len(), 38, "{} skills", t.skills.len());
+    // Melee Defense = (Quickness + Coordination) / 3
+    let md = t.get(6).unwrap();
+    assert_eq!(md.name, "Melee Defense");
+    assert_eq!(md.formula.attr1, attribute::QUICKNESS);
+    assert_eq!(md.formula.attr2, attribute::COORDINATION);
+    assert_eq!(md.formula.divisor, 3);
+    // Run = Quickness
+    let run = t.get(24).unwrap();
+    assert_eq!(run.name, "Run");
+    assert_eq!(run.formula.attr1, attribute::QUICKNESS);
+    assert_eq!(run.formula.attr2, attribute::NONE);
+    assert_eq!(run.formula.divisor, 1);
+    assert_eq!(run.min_level, 1, "Run is usable untrained");
+    // Life Magic = (Focus + Self) / 4, needs training
+    let lm = t.get(33).unwrap();
+    assert_eq!(lm.name, "Life Magic");
+    assert_eq!(lm.formula.attr1, attribute::FOCUS);
+    assert_eq!(lm.formula.attr2, attribute::SELF);
+    assert_eq!(lm.formula.divisor, 4);
+    assert_eq!(lm.min_level, 2);
+    assert!(t.get(999).is_none());
+}
+
+#[test]
 fn chargen() {
     let Some(dat) = archive("client_portal.dat") else {
         return;

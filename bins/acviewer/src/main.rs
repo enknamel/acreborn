@@ -595,16 +595,35 @@ impl App {
             return;
         };
         let st = &net.world.stats;
-        ui.sheet = (!st.name.is_empty()).then(|| ui::Sheet {
-            name: st.name.clone(),
-            level: st.level,
-            vitals: (0..3)
-                .map(|i| ui::VitalBar {
-                    name: ac_world::stats::VITAL_NAMES[i],
-                    current: st.vitals[i].current,
-                    max: st.vital_max(i),
+        let skill_table = net.assets.skill_table().ok();
+        ui.sheet = (!st.name.is_empty()).then(|| {
+            let mut skills: Vec<ui::SkillRow> = st
+                .skills
+                .iter()
+                .map(|sk| ui::SkillRow {
+                    name: ac_world::stats::skill_name(sk.id),
+                    value: st.skill_value(sk, skill_table.as_ref().and_then(|t| t.get(sk.id))),
+                    ranks: sk.ranks,
+                    advancement: sk.advancement,
+                    training: ac_world::stats::sac_name(sk.advancement),
                 })
-                .collect(),
+                .collect();
+            skills.sort_by(|a, b| b.advancement.cmp(&a.advancement).then(a.name.cmp(b.name)));
+            ui::Sheet {
+                name: st.name.clone(),
+                level: st.level,
+                vitals: (0..3)
+                    .map(|i| ui::VitalBar {
+                        name: ac_world::stats::VITAL_NAMES[i],
+                        current: st.vitals[i].current,
+                        max: st.vital_max(i),
+                    })
+                    .collect(),
+                total_xp: st.total_xp,
+                available_xp: st.available_xp,
+                skill_credits: st.skill_credits,
+                skills,
+            }
         });
         ui.target = net
             .attack_target
@@ -1391,6 +1410,12 @@ impl ApplicationHandler for App {
                     if code == KeyCode::KeyI && event.state == ElementState::Pressed {
                         if let Some(ui) = &mut self.ui {
                             ui.show_inventory = !ui.show_inventory;
+                        }
+                        return;
+                    }
+                    if code == KeyCode::KeyK && event.state == ElementState::Pressed {
+                        if let Some(ui) = &mut self.ui {
+                            ui.show_skills = !ui.show_skills;
                         }
                         return;
                     }

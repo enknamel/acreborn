@@ -62,6 +62,7 @@ dependencies = [
 name = "ac-world"
 version = "0.1.0"
 dependencies = [
+ "ac-formats",
  "ac-net",
  "glam",
  "thiserror 2.0.20",

@@ -27,8 +27,8 @@ use std::rc::Rc;
 use ac_dat::DatArchive;
 use ac_formats::{
     chargen::CharGen, environment::Environment, gfxobj::GfxObj, palette::Palette,
-    palette_set::PaletteSet, region::Region, scene::Scene, setup::Setup, surface::Surface,
-    surface_texture::SurfaceTexture, texture::Texture,
+    palette_set::PaletteSet, region::Region, scene::Scene, setup::Setup, skill_table::SkillTable,
+    surface::Surface, surface_texture::SurfaceTexture, texture::Texture,
 };
 
 use crate::landblock::LandblockScene;
@@ -58,6 +58,7 @@ pub struct Assets {
     pub cell: DatArchive,
     region: RefCell<Option<Rc<Region>>>,
     chargen: RefCell<Option<Rc<CharGen>>>,
+    skill_table: RefCell<Option<Rc<SkillTable>>>,
     gfxobjs: RefCell<HashMap<u32, Rc<GfxObj>>>,
     setups: RefCell<HashMap<u32, Rc<Setup>>>,
     surfaces: RefCell<HashMap<u32, Rc<Surface>>>,
@@ -99,6 +100,7 @@ impl Assets {
             cell: DatArchive::open(d.join("client_cell_1.dat"))?,
             region: RefCell::new(None),
             chargen: RefCell::new(None),
+            skill_table: RefCell::new(None),
             gfxobjs: Default::default(),
             setups: Default::default(),
             surfaces: Default::default(),
@@ -172,6 +174,23 @@ impl Assets {
         );
         *self.chargen.borrow_mut() = Some(c.clone());
         Ok(c)
+    }
+
+    /// The skill table (0x0E000004): names, costs and attribute formulas.
+    pub fn skill_table(&self) -> Result<Rc<SkillTable>> {
+        if let Some(t) = self.skill_table.borrow().as_ref() {
+            return Ok(t.clone());
+        }
+        let bytes = self.portal.read(SkillTable::ID)?;
+        let t =
+            Rc::new(
+                SkillTable::parse(SkillTable::ID, &bytes).map_err(|source| Error::Format {
+                    id: SkillTable::ID,
+                    source,
+                })?,
+            );
+        *self.skill_table.borrow_mut() = Some(t.clone());
+        Ok(t)
     }
 
     /// Resolve a Surface's texture to RGBA. Follows Surface -> SurfaceTexture

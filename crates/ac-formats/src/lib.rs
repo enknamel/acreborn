@@ -19,6 +19,7 @@ pub mod palette_set;
 pub mod region;
 pub mod scene;
 pub mod setup;
+pub mod skill_table;
 pub mod surface;
 pub mod surface_texture;
 pub mod texture;
