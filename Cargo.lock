@@ -116,6 +116,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "aclauncher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "egui",
+ "egui-wgpu",
+ "egui-winit",
+ "pollster",
+ "serde",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "acviewer"
 version = "0.1.0"
 dependencies = [

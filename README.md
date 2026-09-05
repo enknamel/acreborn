@@ -53,11 +53,56 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
 ```
 
+## Launcher
+
+`aclauncher` is a small desktop launch manager: a list of servers on the
+left, the accounts on the selected server in the middle (each with an
+optional character name and Launch / Launch headless / Remove buttons, plus
+Launch all), and a process log at the bottom (pid, account, exit status,
+Kill all).
+
+```
+cargo run --release -p aclauncher                  # open the window
+cargo run -p aclauncher -- --dump-config           # print the config with defaults applied
+cargo run -p aclauncher -- --dry-run myaccount     # print the command a launch would run
+```
+
+Each launch spawns a separate client process:
+
+```
+<client_binary> --data-dir <data_dir> --connect <host:port> -a <account> -v <password> [--character <name>] [--mute]
+```
+
+with its output appended to `~/.acreborn/logs/<account>.log`. Nothing is
+killed when an account is removed or the launcher exits. "Launch headless"
+adds `--mute` (and will add `--headless` once acviewer has it). "Add /
+create" is just adding an account: ACE creates it on the first login.
+
+The config lives in `~/.acreborn/launcher.json`:
+
+```json
+{
+  "servers": [{ "name": "Local ACE", "host": "127.0.0.1", "port": 9000 }],
+  "accounts": [{ "server": "Local ACE", "account": "myaccount", "password": "mypassword",
+                 "characters": ["Reborn"], "last_character": "Reborn",
+                 "last_used": "2026-09-04T12:00:00Z" }],
+  "data_dir": "/Users/me/Downloads/ac_data",
+  "client_binary": [],
+  "password_notice_dismissed": false
+}
+```
+
+`client_binary` is the program plus leading arguments; empty means the
+`acviewer` next to the launcher binary if there is one, else
+`cargo run -p acviewer --` from the workspace root. **Passwords are stored
+in plain text** in this file; it is only as private as your home directory.
+
 Workspace: `crates/ac-dat` (container), `crates/ac-formats` (asset
 decoders), `crates/ac-scene` (GPU-free mesh assembly, collision),
 `crates/ac-net` (protocol, sans-IO session), `crates/ac-world` (object
 table and movement), `bins/acdat` (CLI), `bins/acviewer` (wgpu viewer and
-client), `bins/acclient` (headless client).
+client), `bins/acclient` (headless client), `bins/aclauncher` (launch
+manager).
 
 Debugging aids: `RUST_LOG=acviewer=debug`, `ACV_HIDE_STATIC=1` (draw only
 server objects), and in connected `--screenshot` mode `--walk`, `--say`,
