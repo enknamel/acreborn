@@ -589,9 +589,6 @@ impl Player {
     /// the server itself is walking us somewhere: ACE cancels its move-to
     /// chain on any MoveToState it receives.
     pub fn report(&mut self, session: &mut Session, input: &Input, now: Instant, quiet: bool) {
-        if quiet {
-            return;
-        }
         let m = RawMotion {
             running: input.run,
             forward: if input.forward > 0.0 {
@@ -610,7 +607,7 @@ impl Player {
             },
             turn: 0,
         };
-        if m != self.last_motion {
+        if m != self.last_motion && !quiet {
             tracing::debug!(
                 "-> MoveToState {:?} at {:#010x} {:?}",
                 m,

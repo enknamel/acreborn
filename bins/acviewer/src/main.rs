@@ -80,10 +80,10 @@ struct Cli {
     /// with this name until it dies (or 90 s pass).
     #[arg(long)]
     attack: Option<String>,
-    /// Connected headless mode: afterwards open the nearest corpse and take
-    /// everything.
-    #[arg(long)]
-    loot: bool,
+    /// Connected headless mode: open the corpse of the attacked creature (or
+    /// the container named here) and take everything.
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    loot: Option<String>,
     /// Camera override for --screenshot: x,y,z,yaw_deg,pitch_deg
     #[arg(long)]
     camera: Option<String>,
@@ -124,6 +124,10 @@ struct Net {
     attack_backoff: Duration,
     /// Name of the last creature we attacked (its corpse is what we loot).
     last_target_name: String,
+    /// Items still to take from the open container, one at a time (the
+    /// server refuses a second pickup while one is in progress).
+    loot_queue: std::collections::VecDeque<u32>,
+    loot_inflight: Option<(u32, Instant)>,
     selected: Option<u32>,
     last_click: Option<(Instant, u32)>,
     gpu_meshes: scene::GpuMeshCache,
@@ -172,12 +176,10 @@ impl App {
                         .unwrap_or(0);
                     if let Some(net) = self.net.as_mut() {
                         net.attack_pending = false;
-                        net.attack_backoff = if err == 0 {
-                            Duration::from_millis(300)
-                        } else {
-                            tracing::debug!("attack done with error {err:#x}");
-                            Duration::from_millis(1500)
-                        };
+                        // ACE always reports ActionCancelled (0x36) here: it
+                        // just means the swing sequence ended.
+                        tracing::debug!("attack done ({err:#x})");
+                        net.attack_backoff = Duration::from_millis(300);
                     }
                     return;
                 }
@@ -254,6 +256,25 @@ impl App {
                         }),
                         Err(e) => Err(e),
                     }
+                }
+                Some((_, _, event::TRANSIENT_STRING, rest)) => {
+                    match ac_net::wire::Reader::new(rest).string16() {
+                        Ok(t) => Ok(ChatLine {
+                            text: t,
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 7,
+                        }),
+                        Err(e) => Err(e),
+                    }
+                }
+                Some((_, _, event::WEENIE_ERROR, rest)) => {
+                    let code = rest
+                        .get(..4)
+                        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                        .unwrap_or(0);
+                    tracing::info!("weenie error {code:#x}");
+                    return;
                 }
                 Some((_, _, event::POPUP_STRING, rest)) => {
                     match ac_net::wire::Reader::new(rest).string16() {
@@ -495,17 +516,36 @@ impl App {
         let Some(net) = self.net.as_mut() else { return };
         let me = net.world.player_guid.unwrap_or(0);
         for guid in take {
-            let name = net
+            if !net.loot_queue.contains(&guid) && net.loot_inflight.map(|(g, _)| g) != Some(guid) {
+                net.loot_queue.push_back(guid);
+            }
+        }
+        // The in-flight pickup is done once the item is ours, gone, or stale.
+        if let Some((guid, since)) = net.loot_inflight {
+            let landed = net
                 .world
                 .objects
                 .get(&guid)
-                .map(|o| o.name.clone())
-                .unwrap_or_default();
-            tracing::info!("take {name} ({guid:#010x})");
-            let mut w = ac_net::wire::Writer::new();
-            w.u32(guid).u32(me).u32(0);
-            net.session
-                .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
+                .is_none_or(|o| o.container == Some(me) || o.wielder == Some(me));
+            if landed || since.elapsed() > Duration::from_secs(4) {
+                net.loot_inflight = None;
+            }
+        }
+        if net.loot_inflight.is_none() {
+            if let Some(guid) = net.loot_queue.pop_front() {
+                let name = net
+                    .world
+                    .objects
+                    .get(&guid)
+                    .map(|o| o.name.clone())
+                    .unwrap_or_default();
+                tracing::info!("take {name} ({guid:#010x})");
+                let mut w = ac_net::wire::Writer::new();
+                w.u32(guid).u32(me).u32(0);
+                net.session
+                    .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
+                net.loot_inflight = Some((guid, Instant::now()));
+            }
         }
         if close {
             if let Some((c, _)) = net.world.open_container.take() {
@@ -804,6 +844,8 @@ impl App {
             last_attack: Instant::now(),
             attack_backoff: Duration::from_millis(300),
             last_target_name: String::new(),
+            loot_queue: Default::default(),
+            loot_inflight: None,
             selected: None,
             last_click: None,
             gpu_meshes: Default::default(),
@@ -982,9 +1024,16 @@ impl App {
                         opcode::GAME_EVENT => {
                             if let Some((_, _, ev, rest)) = messages::split_game_event(body) {
                                 if ev == 0x00A0 && rest.len() >= 8 {
+                                    let item =
+                                        u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
                                     let err =
                                         u32::from_le_bytes([rest[4], rest[5], rest[6], rest[7]]);
-                                    tracing::warn!("inventory action failed, error {err:#x}");
+                                    tracing::warn!(
+                                        "inventory action failed for {item:#010x}, error {err:#x}"
+                                    );
+                                    if net.loot_inflight.map(|(g, _)| g) == Some(item) {
+                                        net.loot_inflight = None;
+                                    }
                                 } else if ev == ac_net::messages::event::USE_DONE && rest.len() >= 4
                                 {
                                     let err =
@@ -1611,7 +1660,7 @@ fn main() -> Result<()> {
             let use_requested = app.cli.use_name.is_some() || app.cli.attack.is_some();
             let mut said = 0usize;
             let mut retry_at = Instant::now() - Duration::from_secs(5);
-            let say_delay = app.cli.say.len() as f32 + 1.0;
+            let say_delay = 3.0 * app.cli.say.len() as f32 + 1.0;
             let mut attack_started: Option<Instant> = None;
             let mut loot_state = 0u8;
             let mut loot_at = Instant::now();
@@ -1631,7 +1680,7 @@ fn main() -> Result<()> {
                     let t = started.elapsed().as_secs_f32();
                     // Hold W for `walk` seconds after a short settle, then settle again.
                     let walking = t > 1.0 && t < 1.0 + app.cli.walk;
-                    if t > 1.0 + said as f32 && said < app.cli.say.len() {
+                    if t > 1.0 + 3.0 * said as f32 && said < app.cli.say.len() {
                         if let Some(ui) = app.ui.as_mut() {
                             ui.outgoing.push(app.cli.say[said].clone());
                         }
@@ -1661,28 +1710,44 @@ fn main() -> Result<()> {
                         app.net.as_ref().is_some_and(|n| n.attack_target.is_some())
                             && s.elapsed() < Duration::from_secs(90)
                     });
-                    if attack_started.is_some() && !fighting && loot_state == 0 {
+                    let loot_only = app.cli.attack.is_none()
+                        && attack_started.is_none()
+                        && app.cli.loot.as_deref().is_some_and(|n| !n.is_empty());
+                    if (attack_started.is_some() && !fighting || loot_only && t > 3.0 + say_delay)
+                        && loot_state == 0
+                    {
                         loot_state = 1;
                         loot_at = Instant::now();
                     }
                     if loot_state == 1 && loot_at.elapsed() > Duration::from_secs(2) {
-                        if app.cli.loot {
+                        if let Some(name) = app.cli.loot.clone() {
                             if app.net.as_ref().is_some_and(|n| n.combat) {
                                 app.toggle_combat();
                             }
-                            let corpse = format!(
-                                "Corpse of {}",
-                                app.net
-                                    .as_ref()
-                                    .map(|n| n.last_target_name.clone())
-                                    .unwrap_or_default()
-                            );
-                            app.use_by_name(&corpse);
+                            let corpse = if name.is_empty() {
+                                format!(
+                                    "Corpse of {}",
+                                    app.net
+                                        .as_ref()
+                                        .map(|n| n.last_target_name.clone())
+                                        .unwrap_or_default()
+                                )
+                            } else {
+                                name
+                            };
+                            if app.use_by_name(&corpse) {
+                                loot_state = 2;
+                                loot_at = Instant::now();
+                            } else if loot_at.elapsed() > Duration::from_secs(20) {
+                                loot_state = 3;
+                                loot_at = Instant::now();
+                            }
+                        } else {
+                            loot_state = 2;
+                            loot_at = Instant::now();
                         }
-                        loot_state = 2;
-                        loot_at = Instant::now();
                     }
-                    if loot_state == 2 && app.cli.loot {
+                    if loot_state == 2 && app.cli.loot.is_some() {
                         if let (Some(ui), Some(net)) = (app.ui.as_mut(), app.net.as_ref()) {
                             if let Some((_, items)) = &net.world.open_container {
                                 if !items.is_empty()
@@ -1750,12 +1815,16 @@ fn main() -> Result<()> {
                     // Capture while still walking so the walk pose is visible,
                     // or after a short settle when not walking.
                     let pending = app.cli.attack.is_some() || app.cli.use_name.is_some();
-                    let done = if pending {
+                    let looting = app
+                        .net
+                        .as_ref()
+                        .is_some_and(|n| !n.loot_queue.is_empty() || n.loot_inflight.is_some());
+                    let done = if pending || looting {
                         false
-                    } else if attack_started.is_some() {
+                    } else if attack_started.is_some() || loot_only {
                         loot_state == 3 && loot_at.elapsed() > Duration::from_secs(3)
                             || (loot_state == 1
-                                && !app.cli.loot
+                                && app.cli.loot.is_none()
                                 && loot_at.elapsed() > Duration::from_secs(3))
                     } else if app.cli.walk > 0.0 {
                         t > 0.9 + app.cli.walk

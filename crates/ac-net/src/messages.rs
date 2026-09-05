@@ -373,6 +373,8 @@ pub mod event {
     pub const USE_DONE: u32 = 0x01C7;
     pub const EMOTE: u32 = 0x01E2;
     pub const WEENIE_ERROR: u32 = 0x028A;
+    pub const WEENIE_ERROR_WITH_STRING: u32 = 0x028B;
+    pub const TRANSIENT_STRING: u32 = 0x02EB;
     pub const TELL: u32 = 0x02BD;
 }
 
