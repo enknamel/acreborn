@@ -20,16 +20,18 @@ pub mod terrain;
 pub mod texmerge;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::rc::Rc;
 
 use ac_dat::DatArchive;
 use ac_formats::{
-    chargen::CharGen, gfxobj::GfxObj, palette::Palette, palette_set::PaletteSet, region::Region,
-    scene::Scene, setup::Setup, surface::Surface, surface_texture::SurfaceTexture,
-    texture::Texture,
+    chargen::CharGen, environment::Environment, gfxobj::GfxObj, palette::Palette,
+    palette_set::PaletteSet, region::Region, scene::Scene, setup::Setup, surface::Surface,
+    surface_texture::SurfaceTexture, texture::Texture,
 };
+
+use crate::landblock::LandblockScene;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -64,7 +66,15 @@ pub struct Assets {
     palettes: RefCell<HashMap<u32, Rc<Palette>>>,
     palette_sets: RefCell<HashMap<u32, Rc<PaletteSet>>>,
     scenes: RefCell<HashMap<u32, Rc<Scene>>>,
+    environments: RefCell<HashMap<u32, Rc<Environment>>>,
+    /// Assembled landblocks, most recent [`LANDBLOCK_CACHE`] of them, so
+    /// that rendering and collision share one load.
+    landblocks: RefCell<HashMap<u32, Rc<LandblockScene>>>,
+    landblock_order: RefCell<VecDeque<u32>>,
 }
+
+/// How many assembled landblocks [`Assets::landblock`] keeps.
+const LANDBLOCK_CACHE: usize = 32;
 
 macro_rules! cached {
     ($name:ident, $field:ident, $ty:ty, $archive:ident) => {
@@ -97,6 +107,9 @@ impl Assets {
             palettes: Default::default(),
             palette_sets: Default::default(),
             scenes: Default::default(),
+            environments: Default::default(),
+            landblocks: Default::default(),
+            landblock_order: Default::default(),
         })
     }
 
@@ -108,6 +121,27 @@ impl Assets {
     cached!(palette, palettes, Palette, portal);
     cached!(palette_set, palette_sets, PaletteSet, portal);
     cached!(scene, scenes, Scene, portal);
+    cached!(environment, environments, Environment, portal);
+
+    /// The assembled landblock `block_id` (low 16 bits ignored), shared
+    /// with every other caller that asks for it while it stays cached.
+    pub fn landblock(&self, block_id: u32) -> Result<Rc<LandblockScene>> {
+        let block_id = block_id & 0xFFFF_0000;
+        if let Some(s) = self.landblocks.borrow().get(&block_id) {
+            return Ok(s.clone());
+        }
+        let s = Rc::new(landblock::build(self, block_id)?);
+        let mut cache = self.landblocks.borrow_mut();
+        let mut order = self.landblock_order.borrow_mut();
+        while order.len() >= LANDBLOCK_CACHE {
+            if let Some(old) = order.pop_front() {
+                cache.remove(&old);
+            }
+        }
+        cache.insert(block_id, s.clone());
+        order.push_back(block_id);
+        Ok(s)
+    }
 
     pub fn region(&self) -> Result<Rc<Region>> {
         if let Some(r) = self.region.borrow().as_ref() {

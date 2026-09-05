@@ -17,8 +17,20 @@ pub struct Built {
 }
 
 pub fn push_mesh(batches: &mut HashMap<MaterialKey, Batch>, mesh: &model::Mesh, transform: Mat4) {
+    push_submeshes(batches, &mesh.submeshes, transform);
+}
+
+/// Append submeshes transformed into world space to their material
+/// batches; returns the bounds of the vertices pushed.
+fn push_submeshes(
+    batches: &mut HashMap<MaterialKey, Batch>,
+    submeshes: &[model::SubMesh],
+    transform: Mat4,
+) -> (Vec3, Vec3) {
     let normal_mat = transform.inverse().transpose();
-    for sub in &mesh.submeshes {
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    for sub in submeshes {
         let key = match sub.solid_color {
             Some(c) => MaterialKey::Solid(c),
             None => MaterialKey::Texture {
@@ -28,21 +40,27 @@ pub fn push_mesh(batches: &mut HashMap<MaterialKey, Batch>, mesh: &model::Mesh, 
             },
         };
         let alpha = 1.0 - sub.translucency.clamp(0.0, 1.0);
-        let verts: Vec<Vertex> = sub
-            .vertices
-            .iter()
-            .map(|v| Vertex {
-                position: transform.transform_point3(v.position).to_array(),
+        let batch = batches.entry(key).or_default();
+        let base = batch.vertices.len() as u32;
+        batch.vertices.reserve(sub.vertices.len());
+        batch.indices.reserve(sub.indices.len());
+        for v in &sub.vertices {
+            let p = transform.transform_point3(v.position);
+            min = min.min(p);
+            max = max.max(p);
+            batch.vertices.push(Vertex {
+                position: p.to_array(),
                 normal: normal_mat
                     .transform_vector3(v.normal)
                     .normalize_or(Vec3::Z)
                     .to_array(),
                 uv: v.uv.to_array(),
                 color: [1.0, 1.0, 1.0, alpha],
-            })
-            .collect();
-        batches.entry(key).or_default().push(&verts, &sub.indices);
+            });
+        }
+        batch.indices.extend(sub.indices.iter().map(|i| i + base));
     }
+    (min, max)
 }
 
 /// Terrain material key for a region without texture merging: the terrain
@@ -85,7 +103,9 @@ pub fn build_landblock(
     let mut batches: HashMap<MaterialKey, Batch> = HashMap::new();
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
+    let t0 = std::time::Instant::now();
     let scene = landblock::load(assets, id)?;
+    let t_load = t0.elapsed();
     let origin = ac_scene::lbid::world_origin(id);
     // Terrain: each cell's six vertices carry the cell's texture recipe
     // (base texture, overlays and roads with their alpha maps); the whole
@@ -149,19 +169,11 @@ pub fn build_landblock(
         let region = assets.region()?;
         crate::water::push_water(&mut batches, &region, &scene.terrain, origin);
     }
+    let t_terrain = t0.elapsed() - t_load;
     for cell in &scene.cells {
-        for sub in &cell.submeshes {
-            for v in &sub.vertices {
-                let p = cell.transform.transform_point3(v.position);
-                min = min.min(p);
-                max = max.max(p);
-            }
-        }
-        let mesh = model::Mesh {
-            gfxobj_id: cell.cell_id,
-            submeshes: cell.submeshes.clone(),
-        };
-        push_mesh(&mut batches, &mesh, cell.transform);
+        let (lo, hi) = push_submeshes(&mut batches, &cell.submeshes, cell.transform);
+        min = min.min(lo);
+        max = max.max(hi);
         for part in &cell.parts {
             if !mesh_cache.contains_key(&part.gfxobj_id) {
                 match assets.gfxobj(part.gfxobj_id) {
@@ -177,6 +189,7 @@ pub fn build_landblock(
             push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
         }
     }
+    let t_cells = t0.elapsed() - t_load - t_terrain;
     for part in &scene.parts {
         if !mesh_cache.contains_key(&part.gfxobj_id) {
             let g = match assets.gfxobj(part.gfxobj_id) {
@@ -190,6 +203,16 @@ pub fn build_landblock(
         }
         push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
     }
+    let t_parts = t0.elapsed() - t_load - t_terrain - t_cells;
+    tracing::debug!(
+        "block {id:#010x}: load {:.1} ms, terrain {:.1} ms, {} cells {:.1} ms, {} parts {:.1} ms",
+        t_load.as_secs_f64() * 1e3,
+        t_terrain.as_secs_f64() * 1e3,
+        scene.cells.len(),
+        t_cells.as_secs_f64() * 1e3,
+        scene.parts.len(),
+        t_parts.as_secs_f64() * 1e3,
+    );
     let center = (min + max) * 0.5;
     Ok(Built {
         batches,

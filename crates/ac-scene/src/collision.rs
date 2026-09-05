@@ -12,7 +12,7 @@ use ac_formats::gfxobj::{GfxObj, Polygon, Vertex};
 use glam::{Mat4, Vec3};
 
 use crate::landblock::LandblockScene;
-use crate::model::place;
+use crate::model::{place, VertexTable};
 use crate::{Assets, Result};
 
 const GRID: f32 = 4.0;
@@ -97,16 +97,16 @@ impl CollisionWorld {
     /// Add a polygon set (physics polygons if present, else drawing
     /// polygons) transformed by `t`.
     fn add_polys(&mut self, verts: &[(u16, Vertex)], polys: &[(u16, Polygon)], t: Mat4, cell: u32) {
-        let lookup: HashMap<u16, Vec3> = verts
-            .iter()
-            .map(|(k, v)| (*k, t.transform_point3(v.origin)))
-            .collect();
+        let table = VertexTable::new(verts);
+        let mut pts: Vec<Vec3> = Vec::new();
         for (_, p) in polys {
-            let pts: Vec<Vec3> = p
-                .vertex_ids
-                .iter()
-                .filter_map(|id| lookup.get(&(*id as u16)).copied())
-                .collect();
+            pts.clear();
+            pts.extend(
+                p.vertex_ids
+                    .iter()
+                    .filter_map(|&id| table.get(id))
+                    .map(|v| t.transform_point3(v.origin)),
+            );
             let two_sided = p.cull == ac_formats::gfxobj::CullMode::None;
             for i in 1..pts.len().saturating_sub(1) {
                 self.add_tri(pts[0], pts[i], pts[i + 1], cell, two_sided);
@@ -133,22 +133,18 @@ impl CollisionWorld {
         }
         for cell in &scene.cells {
             // Cell structures: physics polygons in cell space.
-            let cell_id = cell.cell_id;
-            let env_id = cell.environment_id;
-            if let Ok(bytes) = assets.portal.read(env_id) {
-                if let Ok(env) = ac_formats::environment::Environment::parse(env_id, &bytes) {
-                    if let Some((_, cs)) = env
-                        .cells
-                        .iter()
-                        .find(|(k, _)| *k == cell.cell_structure as u32)
-                    {
-                        let polys = if cs.physics_polygons.is_empty() {
-                            &cs.polygons
-                        } else {
-                            &cs.physics_polygons
-                        };
-                        w.add_polys(&cs.vertices, polys, cell.transform, cell_id);
-                    }
+            if let Ok(env) = assets.environment(cell.environment_id) {
+                if let Some((_, cs)) = env
+                    .cells
+                    .iter()
+                    .find(|(k, _)| *k == cell.cell_structure as u32)
+                {
+                    let polys = if cs.physics_polygons.is_empty() {
+                        &cs.polygons
+                    } else {
+                        &cs.physics_polygons
+                    };
+                    w.add_polys(&cs.vertices, polys, cell.transform, cell.cell_id);
                 }
             }
             for part in &cell.parts {

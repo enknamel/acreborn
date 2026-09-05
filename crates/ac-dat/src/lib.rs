@@ -15,7 +15,6 @@
 //!
 //! This crate knows nothing about the contents of files.
 
-use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::Path;
 
@@ -312,7 +311,9 @@ impl FileKind {
 pub struct DatArchive {
     map: Mmap,
     header: Header,
-    entries: BTreeMap<u32, Entry>,
+    /// Directory entries sorted by id (the cell archive has close to a
+    /// million, so a flat table beats a map for both opening and lookup).
+    entries: Vec<Entry>,
 }
 
 impl DatArchive {
@@ -329,10 +330,15 @@ impl DatArchive {
         let mut archive = DatArchive {
             map,
             header,
-            entries: BTreeMap::new(),
+            entries: Vec::new(),
         };
-        let mut entries = BTreeMap::new();
+        let mut entries = Vec::new();
         archive.walk_directory(archive.header.btree, &mut entries, 0)?;
+        // An in-order walk of a well-formed B-tree is already sorted.
+        if !entries.is_sorted_by_key(|e: &Entry| e.id) {
+            entries.sort_unstable_by_key(|e| e.id);
+        }
+        entries.dedup_by_key(|e| e.id);
         archive.entries = entries;
         Ok(archive)
     }
@@ -355,11 +361,14 @@ impl DatArchive {
 
     /// All directory entries, ordered by id.
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
-        self.entries.values()
+        self.entries.iter()
     }
 
     pub fn entry(&self, id: u32) -> Option<&Entry> {
-        self.entries.get(&id)
+        self.entries
+            .binary_search_by_key(&id, |e| e.id)
+            .ok()
+            .map(|i| &self.entries[i])
     }
 
     pub fn kind(&self, id: u32) -> FileKind {
@@ -368,7 +377,7 @@ impl DatArchive {
 
     /// Read a whole file by id.
     pub fn read(&self, id: u32) -> Result<Vec<u8>> {
-        let e = self.entries.get(&id).ok_or(Error::NotFound(id))?;
+        let e = self.entry(id).ok_or(Error::NotFound(id))?;
         self.read_chain(e.offset, e.size as usize)
     }
 
@@ -412,12 +421,9 @@ impl DatArchive {
         Ok(&self.map[offset as usize..end as usize])
     }
 
-    fn walk_directory(
-        &self,
-        offset: u32,
-        out: &mut BTreeMap<u32, Entry>,
-        depth: u32,
-    ) -> Result<()> {
+    /// In-order walk: the subtree below branch `i` holds ids smaller than
+    /// entry `i`, so entries come out sorted.
+    fn walk_directory(&self, offset: u32, out: &mut Vec<Entry>, depth: u32) -> Result<()> {
         if depth > 64 {
             return Err(Error::BadDirectory(offset));
         }
@@ -428,14 +434,17 @@ impl DatArchive {
             return Err(Error::BadDirectory(offset));
         }
         let entries_base = BRANCHES * 4 + 4;
-        if u(0) != 0 {
-            for i in 0..=count {
+        let is_leaf = u(0) == 0;
+        for i in 0..count {
+            if !is_leaf {
                 self.walk_directory(u(i), out, depth + 1)?;
             }
+            out.push(Entry::parse(
+                &node[entries_base + i * ENTRY_SIZE..][..ENTRY_SIZE],
+            ));
         }
-        for i in 0..count {
-            let e = Entry::parse(&node[entries_base + i * ENTRY_SIZE..][..ENTRY_SIZE]);
-            out.insert(e.id, e);
+        if !is_leaf {
+            self.walk_directory(u(count), out, depth + 1)?;
         }
         Ok(())
     }
