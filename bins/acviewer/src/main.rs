@@ -62,6 +62,10 @@ struct Cli {
     /// Connect to an ACE server, log in, and view the world around the character
     #[arg(long)]
     connect: Option<String>,
+    /// Extra sessions in the same process: ACCOUNT:PASSWORD[:CHARACTER], repeatable.
+    /// Tab (or /switch N) picks which one the window shows and steers.
+    #[arg(long = "client")]
+    clients: Vec<String>,
     #[arg(short = 'a', long)]
     account: Option<String>,
     #[arg(short = 'v', long)]
@@ -279,7 +283,9 @@ struct App {
     cli: Cli,
     window: Option<Arc<Window>>,
     gpu: Option<gpu::Gpu>,
-    net: Option<Net>,
+    nets: Vec<Net>,
+    /// Which session the window draws and the keys steer.
+    active: usize,
     frame_dt: f32,
     camera: camera::Camera,
     keys: HashSet<KeyCode>,
@@ -295,54 +301,20 @@ struct App {
 }
 
 impl App {
-    /// Hand the session's events to the UI and the speakers, then to the
-    /// plugins.
-    fn drain_client_events(&mut self) -> Vec<ac_client::Event> {
-        let Some(net) = self.net.as_mut() else {
-            return Vec::new();
-        };
-        let events = net.client.drain_events();
-        for ev in &events {
-            match ev {
-                ac_client::Event::Chat { text, kind } => {
-                    tracing::info!("chat: {text}");
-                    if let Some(ui) = &mut self.ui {
-                        ui.push_chat(text.clone(), *kind);
-                    }
-                }
-                ac_client::Event::Sound { wave, volume } => {
-                    if let Some(audio) = &net.audio {
-                        if let Err(e) = audio.play(wave, *volume) {
-                            tracing::debug!("play: {e}");
-                        }
-                    }
-                }
-                ac_client::Event::Placed { .. } => {
-                    self.camera.pitch = -0.15;
-                    self.camera.far = 3000.0;
-                }
-                ac_client::Event::Connected
-                | ac_client::Event::Terminated(_)
-                | ac_client::Event::Refused(_) => {}
-            }
-        }
-        events
-    }
-
     fn interact(&mut self, guid: u32) {
-        if let Some(net) = self.net.as_mut() {
+        if let Some(net) = self.nets.get_mut(self.active) {
             net.client.interact(guid);
         }
     }
 
     fn cast(&mut self, spell: u32) {
-        if let Some(net) = self.net.as_mut() {
+        if let Some(net) = self.nets.get_mut(self.active) {
             net.client.cast(spell);
         }
     }
 
     fn toggle_combat(&mut self) {
-        if let Some(net) = self.net.as_mut() {
+        if let Some(net) = self.nets.get_mut(self.active) {
             net.client.toggle_combat();
             if let Some(ui) = &mut self.ui {
                 ui.combat = net.client.combat;
@@ -351,8 +323,8 @@ impl App {
     }
 
     fn use_by_name(&mut self, name: &str) -> bool {
-        self.net
-            .as_mut()
+        self.nets
+            .get_mut(self.active)
             .is_some_and(|net| net.client.use_by_name(name))
     }
 
@@ -367,11 +339,17 @@ impl App {
         let close_loot = std::mem::take(&mut ui.loot_close);
         let activated = std::mem::take(&mut ui.activated);
         let casts = std::mem::take(&mut ui.cast_requests);
-        let Some(net) = self.net.as_mut() else { return };
+        let (active, count) = (self.active, self.nets.len());
+        let Some(net) = self.nets.get_mut(self.active) else {
+            return;
+        };
         let mut chat = Vec::new();
+        let mut activate = None;
         for t in outgoing {
             if t.starts_with('/') {
-                let (_, lines, _) = self.plugins.command(&mut net.client, 0, 1, &t);
+                tracing::info!("command {t} (session {})", active + 1);
+                let (_, lines, act) = self.plugins.command(&mut net.client, active, count, &t);
+                activate = activate.or(act);
                 for (l, _) in &lines {
                     tracing::info!("{t} -> {l}");
                 }
@@ -407,6 +385,9 @@ impl App {
                 ui.push_chat(text, kind);
             }
         }
+        if let Some(a) = activate {
+            self.switch_to(a);
+        }
     }
     /// Play a server Sound message through the object's sound table.
 
@@ -425,7 +406,9 @@ impl App {
         let near = inv.project_point3(ndc);
         let far = inv.project_point3(ndc.with_z(1.0));
         let dir = (far - near).normalize_or_zero();
-        let Some(net) = self.net.as_mut() else { return };
+        let Some(net) = self.nets.get_mut(self.active) else {
+            return;
+        };
         let mut best: Option<(f32, u32)> = None;
         for p in &net.pickables {
             if let Some(t) = p.hit(near, dir) {
@@ -501,7 +484,7 @@ impl App {
     fn refresh_status(&mut self) {
         let Some(ui) = &mut self.ui else { return };
         let mut s = format!("{:.0} fps", self.fps);
-        if let Some(net) = &self.net {
+        if let Some(net) = self.nets.get(self.active) {
             match net.client.world.player().and_then(|o| o.position) {
                 Some(p) => {
                     s += &format!(
@@ -539,7 +522,7 @@ impl App {
             );
         }
         ui.status = s;
-        let Some(net) = &self.net else {
+        let Some(net) = self.nets.get(self.active) else {
             ui.sheet = None;
             ui.blips.clear();
             return;
@@ -739,60 +722,156 @@ impl App {
                 }
             }
         };
-        let client = ac_client::Client::connect(
-            ac_client::Config {
-                host,
-                account,
-                password,
-                character: self.cli.character.clone(),
-            },
-            assets,
-        )?;
-        self.net = Some(Net {
-            client,
-            loaded_blocks: Default::default(),
-            dungeon: Default::default(),
-            mesh_cache: Default::default(),
-            last_generation: 0,
-            pickables: Vec::new(),
-            fx: Default::default(),
-            audio,
-            gpu_meshes: Default::default(),
-            palettes: Default::default(),
-            anims: Default::default(),
-            tables: Default::default(),
-            last_anim_refresh: Instant::now(),
-        });
+        let mut configs = vec![ac_client::Config {
+            host: host.clone(),
+            account,
+            password,
+            character: self.cli.character.clone(),
+        }];
+        for spec in &self.cli.clients {
+            let mut parts = spec.splitn(3, ':');
+            let (Some(a), Some(p)) = (parts.next(), parts.next()) else {
+                anyhow::bail!("--client wants ACCOUNT:PASSWORD[:CHARACTER], got {spec:?}");
+            };
+            configs.push(ac_client::Config {
+                host: host.clone(),
+                account: a.to_string(),
+                password: p.to_string(),
+                character: parts.next().map(str::to_string),
+            });
+        }
+        for cfg in configs {
+            let client = ac_client::Client::connect(cfg, assets.clone())?;
+            self.nets.push(Net {
+                client,
+                loaded_blocks: Default::default(),
+                dungeon: Default::default(),
+                mesh_cache: Default::default(),
+                last_generation: 0,
+                pickables: Vec::new(),
+                fx: Default::default(),
+                audio: audio.clone(),
+                gpu_meshes: Default::default(),
+                palettes: Default::default(),
+                anims: Default::default(),
+                tables: Default::default(),
+                last_anim_refresh: Instant::now(),
+            });
+        }
         Ok(())
     }
 
     /// Pump the connection: send, receive, apply messages, rebuild scenes.
-    fn tick_net(&mut self, gpu: &mut gpu::Gpu) {
-        let Some(net) = self.net.as_mut() else { return };
-        let now = Instant::now();
-        let input = net.client.player.as_ref().map(|_| player::Input {
-            forward: (self.keys.contains(&KeyCode::KeyW) as i8
-                - self.keys.contains(&KeyCode::KeyS) as i8) as f32,
-            strafe: (self.keys.contains(&KeyCode::KeyD) as i8
-                - self.keys.contains(&KeyCode::KeyA) as i8) as f32,
-            run: !self.keys.contains(&KeyCode::ShiftLeft),
-            jump: std::mem::take(&mut self.jump_requested),
+    /// Tick one session: keys steer only the active one; the others keep
+    /// their connection, physics and plugins running.
+    fn tick_client(&mut self, i: usize, now: Instant) -> Option<ac_client::PlayerFrame> {
+        let is_active = i == self.active;
+        let jump = if is_active {
+            std::mem::take(&mut self.jump_requested)
+        } else {
+            false
+        };
+        let keys = &self.keys;
+        let input = self.nets.get(i)?.client.player.as_ref().map(|_| {
+            if is_active {
+                player::Input {
+                    forward: (keys.contains(&KeyCode::KeyW) as i8
+                        - keys.contains(&KeyCode::KeyS) as i8) as f32,
+                    strafe: (keys.contains(&KeyCode::KeyD) as i8
+                        - keys.contains(&KeyCode::KeyA) as i8) as f32,
+                    run: !keys.contains(&KeyCode::ShiftLeft),
+                    jump,
+                }
+            } else {
+                player::Input::default()
+            }
         });
-        self.apply_ui_commands();
-        let Some(net) = self.net.as_mut() else { return };
+        let count = self.nets.len();
+        let net = self.nets.get_mut(i)?;
         let frame = net.client.tick(input, self.frame_dt, now);
-        let events = self.drain_client_events();
-        if let Some(net) = self.net.as_mut() {
-            let (chat, _activate) =
-                self.plugins
-                    .frame(&mut net.client, &events, 0, 1, self.frame_dt, now);
+        let events = net.client.drain_events();
+        for ev in &events {
+            match ev {
+                ac_client::Event::Chat { text, kind } => {
+                    tracing::info!("[{}] chat: {text}", net.client.config.account);
+                    if is_active {
+                        if let Some(ui) = &mut self.ui {
+                            ui.push_chat(text.clone(), *kind);
+                        }
+                    }
+                }
+                ac_client::Event::Sound { wave, volume } => {
+                    if is_active {
+                        if let Some(audio) = &net.audio {
+                            if let Err(e) = audio.play(wave, *volume) {
+                                tracing::debug!("play: {e}");
+                            }
+                        }
+                    }
+                }
+                ac_client::Event::Placed { .. } => {
+                    if is_active {
+                        self.camera.pitch = -0.15;
+                        self.camera.far = 3000.0;
+                    }
+                }
+                ac_client::Event::Connected
+                | ac_client::Event::Terminated(_)
+                | ac_client::Event::Refused(_) => {}
+            }
+        }
+        let (chat, activate) =
+            self.plugins
+                .frame(&mut net.client, &events, i, count, self.frame_dt, now);
+        if is_active {
             if let Some(ui) = &mut self.ui {
                 for (text, kind) in chat {
                     ui.push_chat(text, kind);
                 }
             }
         }
-        let Some(net) = self.net.as_mut() else { return };
+        if let Some(a) = activate {
+            self.switch_to(a);
+        }
+        Some(frame)
+    }
+
+    /// Make session `i` the one the window shows; the scene follows it.
+    fn switch_to(&mut self, i: usize) {
+        if i < self.nets.len() && i != self.active {
+            tracing::info!("switching to session {}", i + 1);
+            self.active = i;
+            self.camera.pitch = -0.15;
+            if let Some(ui) = &mut self.ui {
+                ui.push_chat(
+                    format!(
+                        "Now showing session {} ({})",
+                        i + 1,
+                        self.nets[i].client.config.account
+                    ),
+                    0,
+                );
+            }
+        }
+    }
+
+    fn tick_net(&mut self, gpu: &mut gpu::Gpu) {
+        if self.nets.is_empty() {
+            return;
+        }
+        let now = Instant::now();
+        self.apply_ui_commands();
+        let mut frame = ac_client::PlayerFrame::default();
+        for i in 0..self.nets.len() {
+            if let Some(f) = self.tick_client(i, now) {
+                if i == self.active {
+                    frame = f;
+                }
+            }
+        }
+        let Some(net) = self.nets.get_mut(self.active) else {
+            return;
+        };
         // Stream landblocks around the character: the block we stand in
         // first, then its neighbours (outdoors only), one per frame.
         if let Some(center) = net.client.player.as_ref().map(|p| p.landblock()) {
@@ -1084,7 +1163,7 @@ impl ApplicationHandler for App {
             .unwrap_or(false);
         match event {
             WindowEvent::CloseRequested => {
-                if let Some(net) = self.net.as_mut() {
+                if let Some(net) = self.nets.get_mut(self.active) {
                     net.client.disconnect(Instant::now());
                 }
                 event_loop.exit()
@@ -1099,11 +1178,13 @@ impl ApplicationHandler for App {
                     if typing {
                         return;
                     }
-                    if let (Some(key), Some(net)) = (egui_key(code), self.net.as_mut()) {
+                    let (active, count) = (self.active, self.nets.len());
+                    if let (Some(key), Some(net)) = (egui_key(code), self.nets.get_mut(self.active))
+                    {
                         let (used, chat, _) = self.plugins.key(
                             &mut net.client,
-                            0,
-                            1,
+                            active,
+                            count,
                             key,
                             event.state == ElementState::Pressed,
                         );
@@ -1118,9 +1199,17 @@ impl ApplicationHandler for App {
                     }
                     if code == KeyCode::Space
                         && event.state == ElementState::Pressed
-                        && self.net.is_some()
+                        && !self.nets.is_empty()
                     {
                         self.jump_requested = true;
+                    }
+                    if code == KeyCode::Tab
+                        && event.state == ElementState::Pressed
+                        && !self.nets.is_empty()
+                    {
+                        let next = (self.active + 1) % self.nets.len();
+                        self.switch_to(next);
+                        return;
                     }
                     if code == KeyCode::KeyC && event.state == ElementState::Pressed {
                         self.toggle_combat();
@@ -1146,7 +1235,7 @@ impl ApplicationHandler for App {
                     }
                     if code == KeyCode::Enter
                         && event.state == ElementState::Pressed
-                        && self.net.is_some()
+                        && !self.nets.is_empty()
                     {
                         if let Some(ui) = &mut self.ui {
                             ui.chat_focus = true;
@@ -1155,7 +1244,7 @@ impl ApplicationHandler for App {
                         return;
                     }
                     if code == KeyCode::Escape {
-                        if let Some(net) = self.net.as_mut() {
+                        if let Some(net) = self.nets.get_mut(self.active) {
                             net.client.disconnect(Instant::now());
                         }
                         event_loop.exit();
@@ -1195,7 +1284,11 @@ impl ApplicationHandler for App {
                     if let Some((lx, ly)) = self.last_cursor {
                         let dx = (position.x - lx) as f32;
                         let dy = (position.y - ly) as f32;
-                        match self.net.as_mut().and_then(|n| n.client.player.as_mut()) {
+                        match self
+                            .nets
+                            .get_mut(self.active)
+                            .and_then(|n| n.client.player.as_mut())
+                        {
                             Some(pl) => {
                                 pl.turn(-dx * 0.003);
                                 self.camera.pitch =
@@ -1212,7 +1305,7 @@ impl ApplicationHandler for App {
                 let dt = (now - self.last_frame).as_secs_f32().min(0.1);
                 self.last_frame = now;
                 self.frame_dt = dt;
-                if self.net.is_none() {
+                if self.nets.is_empty() {
                     self.update(dt);
                 }
                 if let Some(mut g) = self.gpu.take() {
@@ -1231,14 +1324,16 @@ impl ApplicationHandler for App {
                     let mut ui = self.ui.as_mut();
                     if let Some(ui) = ui.as_deref_mut() {
                         let plugins = &mut self.plugins;
-                        let mut net = self.net.as_mut();
+                        let (active, count) = (self.active, self.nets.len());
+                        let mut net = self.nets.get_mut(active);
                         let mut chat = Vec::new();
                         let mut activate = None;
                         ui.begin(
                             self.window.as_deref(),
                             &mut |egui| {
                                 if let Some(net) = net.as_deref_mut() {
-                                    let (lines, act) = plugins.ui(&mut net.client, 0, 1, egui);
+                                    let (lines, act) =
+                                        plugins.ui(&mut net.client, active, count, egui);
                                     chat.extend(lines);
                                     activate = activate.or(act);
                                 }
@@ -1331,7 +1426,8 @@ fn main() -> Result<()> {
             cli,
             window: None,
             gpu: None,
-            net: None,
+            nets: Vec::new(),
+            active: 0,
             frame_dt: 0.0,
             camera: camera::Camera {
                 position: Vec3::ZERO,
@@ -1389,8 +1485,8 @@ fn main() -> Result<()> {
                 // staging buffers here or they pile up for the final poll.
                 let _ = gpu.device().poll(wgpu::PollType::Poll);
                 let placed = app
-                    .net
-                    .as_ref()
+                    .nets
+                    .get(app.active)
                     .map(|n| n.client.scene_block.is_some())
                     .unwrap_or(false);
                 if placed {
@@ -1440,7 +1536,7 @@ fn main() -> Result<()> {
                     }
                     if let Some(want) = app.cli.cast.clone() {
                         if t > 4.0 + app.cli.walk + say_delay {
-                            let id = app.net.as_ref().and_then(|n| {
+                            let id = app.nets.get(app.active).and_then(|n| {
                                 // Spellbook first (ids from PlayerDescription), then
                                 // scrolls learnt this session or still in the pack.
                                 let table = n.client.assets.spell_table().ok();
@@ -1484,7 +1580,7 @@ fn main() -> Result<()> {
                         }
                     }
                     if let Some(want) = app.cli.sell.clone() {
-                        if let (Some(net), Some(ui)) = (app.net.as_ref(), app.ui.as_mut()) {
+                        if let (Some(net), Some(ui)) = (app.nets.get(app.active), app.ui.as_mut()) {
                             if net.client.world.open_vendor.is_some() {
                                 if let Some(o) = net
                                     .client
@@ -1501,7 +1597,7 @@ fn main() -> Result<()> {
                         }
                     }
                     if let Some(want) = app.cli.buy.clone() {
-                        if let (Some(net), Some(ui)) = (app.net.as_ref(), app.ui.as_mut()) {
+                        if let (Some(net), Some(ui)) = (app.nets.get(app.active), app.ui.as_mut()) {
                             if let Some(v) = &net.client.world.open_vendor {
                                 tracing::info!(
                                     "vendor stock: {}",
@@ -1540,7 +1636,7 @@ fn main() -> Result<()> {
                             }
                         }
                         if let Some(name) = app.cli.attack.clone() {
-                            if !app.net.as_ref().is_some_and(|n| n.client.combat) {
+                            if !app.nets.get(app.active).is_some_and(|n| n.client.combat) {
                                 app.toggle_combat();
                             }
                             if app.use_by_name(&name) || t > 60.0 + say_delay {
@@ -1551,8 +1647,8 @@ fn main() -> Result<()> {
                     }
                     // Attack phase: wait for the target to die, then loot.
                     let fighting = attack_started.is_some_and(|s| {
-                        app.net
-                            .as_ref()
+                        app.nets
+                            .get(app.active)
                             .is_some_and(|n| n.client.attack_target.is_some())
                             && s.elapsed() < Duration::from_secs(90)
                     });
@@ -1567,14 +1663,14 @@ fn main() -> Result<()> {
                     }
                     if loot_state == 1 && loot_at.elapsed() > Duration::from_secs(2) {
                         if let Some(name) = app.cli.loot.clone() {
-                            if app.net.as_ref().is_some_and(|n| n.client.combat) {
+                            if app.nets.get(app.active).is_some_and(|n| n.client.combat) {
                                 app.toggle_combat();
                             }
                             let corpse = if name.is_empty() {
                                 format!(
                                     "Corpse of {}",
-                                    app.net
-                                        .as_ref()
+                                    app.nets
+                                        .get(app.active)
                                         .map(|n| n.client.last_target_name.clone())
                                         .unwrap_or_default()
                                 )
@@ -1595,7 +1691,7 @@ fn main() -> Result<()> {
                         }
                     }
                     if loot_state == 2 && app.cli.loot.is_some() {
-                        if let (Some(ui), Some(net)) = (app.ui.as_mut(), app.net.as_ref()) {
+                        if let (Some(ui), Some(net)) = (app.ui.as_mut(), app.nets.get(app.active)) {
                             if let Some((_, items)) = &net.client.world.open_container {
                                 if !items.is_empty()
                                     && ui.loot_take.is_empty()
@@ -1615,8 +1711,8 @@ fn main() -> Result<()> {
                     if !listed && t > 1.5 + say_delay {
                         listed = true;
                         let mut names: Vec<String> = app
-                            .net
-                            .as_ref()
+                            .nets
+                            .get(app.active)
                             .map(|n| {
                                 n.client
                                     .world
@@ -1627,7 +1723,7 @@ fn main() -> Result<()> {
                             .unwrap_or_default();
                         names.sort();
                         tracing::debug!("objects in view: {}", names.join(" | "));
-                        if let Some(n) = app.net.as_ref() {
+                        if let Some(n) = app.nets.get(app.active) {
                             let st = &n.client.world.stats;
                             tracing::info!(
                                 "sheet: level {} xp {} avail {} credits {}; {} skills, {} spells, {} inventory guids, {} wielded guids",
@@ -1673,7 +1769,10 @@ fn main() -> Result<()> {
                     if ticks_since.elapsed() >= Duration::from_secs(1) {
                         tracing::info!(
                             "{ticks} ticks/s; {} gpu meshes, {} materials, {} instances",
-                            app.net.as_ref().map(|n| n.gpu_meshes.len()).unwrap_or(0),
+                            app.nets
+                                .get(app.active)
+                                .map(|n| n.gpu_meshes.len())
+                                .unwrap_or(0),
                             gpu.material_count(),
                             gpu.instance_count()
                         );
@@ -1686,7 +1785,7 @@ fn main() -> Result<()> {
                         || app.cli.use_name.is_some()
                         || said < app.cli.say.len()
                         || (!app.cli.say.is_empty() && t < say_delay + 2.0);
-                    let looting = app.net.as_ref().is_some_and(|n| {
+                    let looting = app.nets.get(app.active).is_some_and(|n| {
                         !n.client.loot_queue.is_empty() || n.client.loot_inflight.is_some()
                     });
                     let done = if pending
@@ -1746,7 +1845,7 @@ fn main() -> Result<()> {
                          v: &wgpu::TextureView| ui.paint(d, q, e, v);
         gpu.render_to_png(vp, Vec3::new(0.4, 0.3, 1.0), &path, Some(&mut paint))?;
         tracing::info!("wrote {}", path.display());
-        if let Some(net) = app.net.as_mut() {
+        if let Some(net) = app.nets.get_mut(app.active) {
             net.client.disconnect(Instant::now());
         }
         return Ok(());
@@ -1757,7 +1856,8 @@ fn main() -> Result<()> {
         cli,
         window: None,
         gpu: None,
-        net: None,
+        nets: Vec::new(),
+        active: 0,
         frame_dt: 0.0,
         camera: camera::Camera {
             position: Vec3::ZERO,
