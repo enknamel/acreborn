@@ -50,6 +50,21 @@ impl Environment {
     /// noon) in the Region's default day group. Values between two
     /// `sky_time` entries are interpolated the way the client's light tick
     /// does; `None` if the Region has no sky description.
+    /// Underground: black sky, no fog, dimmer ambient.
+    pub fn dungeon() -> Self {
+        let day = Self::default();
+        Environment {
+            sky_zenith: Vec3::ZERO,
+            sky_horizon: Vec3::ZERO,
+            fog_color: Vec3::ZERO,
+            fog_start: 1.0e6,
+            fog_end: 2.0e6,
+            sun_color: day.sun_color * 0.6,
+            ambient: day.ambient,
+            water_color: day.water_color,
+        }
+    }
+
     pub fn from_region(region: &Region, day_fraction: f32) -> Option<Self> {
         let sky = region.sky.as_ref()?;
         let group = sky.day_groups.first()?;

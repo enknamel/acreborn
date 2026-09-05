@@ -45,7 +45,8 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # slowly, Enter opens the chat box (server commands start with @), left click
 # selects and appraises an object, double-click uses it (doors, NPCs), picks
 # it up (ground items) or puts it on / takes it off (in the inventory panel,
-# toggled with I)
+# toggled with I). C toggles melee combat: double-click a creature to attack
+# it until it dies; double-click its corpse to loot (Take all / Close)
 cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
 ```
 
@@ -57,7 +58,8 @@ client), `bins/acclient` (headless client).
 
 Debugging aids: `RUST_LOG=acviewer=debug`, `ACV_HIDE_STATIC=1` (draw only
 server objects), and in connected `--screenshot` mode `--walk`, `--say`,
-`--click x,y`, `--use NAME` and `--camera` to script a session headlessly.
+`--click x,y`, `--use NAME`, `--attack NAME`, `--loot` and `--camera` to
+script a session headlessly.
 
 Game data and the original executable are not distributed with this
 repository and are gitignored.

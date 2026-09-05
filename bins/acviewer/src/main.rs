@@ -1037,6 +1037,20 @@ impl App {
                         gpu.add_block(id, built.batches, |k| {
                             scene::material_image(assets, k, palettes)
                         });
+                        if id == center {
+                            // Daylight sky and fog outdoors; dungeons get a
+                            // black sky and no fog.
+                            let env = if built.is_dungeon {
+                                sky::Environment::dungeon()
+                            } else {
+                                assets
+                                    .region()
+                                    .ok()
+                                    .and_then(|r| sky::Environment::from_region(&r, 0.5))
+                                    .unwrap_or_default()
+                            };
+                            gpu.set_environment(env);
+                        }
                         tracing::info!(
                             "landblock {id:#010x} loaded in {:.0} ms{}",
                             t0.elapsed().as_secs_f32() * 1000.0,
