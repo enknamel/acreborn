@@ -2,12 +2,15 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
+
+use crate::sky::Environment;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
@@ -66,8 +69,18 @@ impl TerrainBlend {
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Globals {
     view_proj: [[f32; 4]; 4],
+    inv_view_proj: [[f32; 4]; 4],
+    /// xyz: camera position, w: seconds since start (for water animation).
+    camera: [f32; 4],
     light_dir: [f32; 4],
     ambient: [f32; 4],
+    sun_color: [f32; 4],
+    fog_color: [f32; 4],
+    /// x: fog start, y: fog end.
+    fog_params: [f32; 4],
+    sky_zenith: [f32; 4],
+    sky_horizon: [f32; 4],
+    water_color: [f32; 4],
 }
 
 /// CPU-side batch: all triangles sharing one material.
@@ -124,6 +137,20 @@ pub enum MaterialKey {
     TerrainLayer(u32),
     /// Likewise for the `n`th alpha map layer.
     TerrainAlpha(u32),
+    /// A water surface: the Region's water SurfaceTexture (0x05) id, or 0
+    /// for a plain tint. Drawn translucently after everything opaque.
+    Water(u32),
+}
+
+/// How a batch is drawn: opaque geometry writes depth; terrain uses its
+/// own layered pipeline; translucent geometry is blended over it
+/// afterwards without writing depth.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DrawKind {
+    Opaque,
+    Terrain,
+    Translucent,
+    Water,
 }
 
 pub struct Rgba {
@@ -139,6 +166,7 @@ struct DrawBatch {
     bind_group: std::rc::Rc<wgpu::BindGroup>,
     /// Second vertex buffer of [`TerrainBlend`]; drawn with the terrain pipeline.
     blend_buf: Option<wgpu::Buffer>,
+    kind: DrawKind,
 }
 
 /// Callback that draws an overlay onto the frame after the 3D pass.
@@ -153,6 +181,11 @@ pub struct Gpu {
     depth: wgpu::TextureView,
     pipeline: wgpu::RenderPipeline,
     terrain_pipeline: wgpu::RenderPipeline,
+    translucent_pipeline: wgpu::RenderPipeline,
+    water_pipeline: wgpu::RenderPipeline,
+    sky_pipeline: wgpu::RenderPipeline,
+    environment: Environment,
+    start: Instant,
     globals_buf: wgpu::Buffer,
     globals_bg: wgpu::BindGroup,
     material_layout: wgpu::BindGroupLayout,
@@ -179,6 +212,7 @@ pub struct GpuSub {
     index_buf: wgpu::Buffer,
     index_count: u32,
     bind_group: std::rc::Rc<wgpu::BindGroup>,
+    translucent: bool,
 }
 
 /// A model-space mesh on the GPU, shared by any number of instances.
@@ -349,7 +383,18 @@ impl Gpu {
                 ],
                 immediate_size: 0,
             });
-        let make_pipeline = |label, layout, entries: (&str, &str), buffers: &[_]| {
+        let depth_state = |write: bool, compare: wgpu::CompareFunction| wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: Some(write),
+            depth_compare: Some(compare),
+            stencil: Default::default(),
+            bias: Default::default(),
+        };
+        let make_pipeline = |label,
+                             layout,
+                             entries: (&str, &str),
+                             buffers: &[_],
+                             depth: wgpu::DepthStencilState| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(layout),
@@ -364,13 +409,7 @@ impl Gpu {
                     cull_mode: None,
                     ..Default::default()
                 },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(wgpu::CompareFunction::Less),
-                    stencil: Default::default(),
-                    bias: Default::default(),
-                }),
+                depth_stencil: Some(depth),
                 multisample: Default::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
@@ -391,13 +430,66 @@ impl Gpu {
             &pipeline_layout,
             ("vs_main", "fs_main"),
             &[Some(Vertex::layout())],
+            depth_state(true, wgpu::CompareFunction::Less),
         );
         let terrain_pipeline = make_pipeline(
             "terrain",
             &terrain_pipeline_layout,
             ("vs_terrain", "fs_terrain"),
             &[Some(Vertex::layout()), Some(TerrainBlend::layout())],
+            depth_state(true, wgpu::CompareFunction::Less),
         );
+        let translucent_pipeline = make_pipeline(
+            "translucent",
+            &pipeline_layout,
+            ("vs_main", "fs_main"),
+            &[Some(Vertex::layout())],
+            depth_state(false, wgpu::CompareFunction::Less),
+        );
+        let water_pipeline = make_pipeline(
+            "water",
+            &pipeline_layout,
+            ("vs_main", "fs_water"),
+            &[Some(Vertex::layout())],
+            depth_state(false, wgpu::CompareFunction::Less),
+        );
+        // The sky covers the whole frame before anything else is drawn. It
+        // only needs the globals, so its layout is a prefix of the main
+        // one and the bind group stays set across the pipeline switch.
+        let sky_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("sky"),
+            bind_group_layouts: &[Some(&globals_layout)],
+            immediate_size: 0,
+        });
+        let sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sky"),
+            layout: Some(&sky_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_sky"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(depth_state(false, wgpu::CompareFunction::Always)),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_sky"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -459,6 +551,11 @@ impl Gpu {
             depth,
             pipeline,
             terrain_pipeline,
+            translucent_pipeline,
+            water_pipeline,
+            sky_pipeline,
+            environment: Environment::default(),
+            start: Instant::now(),
             globals_buf,
             globals_bg,
             material_layout,
@@ -524,6 +621,12 @@ impl Gpu {
 
     pub fn aspect(&self) -> f32 {
         self.config.width as f32 / self.config.height.max(1) as f32
+    }
+
+    /// Sky, fog and light colours for the frames that follow. The default
+    /// is the Region's sunny midday.
+    pub fn set_environment(&mut self, env: Environment) {
+        self.environment = env;
     }
 
     /// Upload a material's texture (with a full mip chain) and return its bind group.
@@ -791,6 +894,7 @@ impl Gpu {
                 index_buf,
                 index_count: sub.indices.len() as u32,
                 bind_group,
+                translucent: alpha < 1.0,
             });
         }
         std::rc::Rc::new(GpuMesh {
@@ -837,6 +941,24 @@ impl Gpu {
                 );
                 self.make_terrain_material(&layers, &alphas)
             }
+            // Water ripples come from the Region's water texture; without
+            // one the surface is a flat tint.
+            MaterialKey::Water(tex) => self.make_material(
+                &(tex != 0)
+                    .then(|| {
+                        materials(MaterialKey::Texture {
+                            id: tex,
+                            tex: 0,
+                            palette: 0,
+                        })
+                    })
+                    .flatten()
+                    .unwrap_or(Rgba {
+                        width: 1,
+                        height: 1,
+                        pixels: vec![255, 255, 255, 255],
+                    }),
+            ),
         };
         let bg = std::rc::Rc::new(bg);
         self.materials.borrow_mut().insert(key, bg.clone());
@@ -855,6 +977,7 @@ impl Gpu {
             MaterialKey::Texture { id, tex, palette } => (1, *id, *tex, *palette),
             MaterialKey::Solid(c) => (2, *c, 0, 0),
             MaterialKey::TerrainLayer(i) | MaterialKey::TerrainAlpha(i) => (3, *i, 0, 0),
+            MaterialKey::Water(t) => (4, *t, 0, 0),
         });
         for key in keys {
             let b = &batches[&key];
@@ -884,12 +1007,19 @@ impl Gpu {
                         usage: wgpu::BufferUsages::VERTEX,
                     })
             });
+            let kind = match key {
+                MaterialKey::Water(_) => DrawKind::Water,
+                MaterialKey::Terrain => DrawKind::Terrain,
+                _ if b.vertices.iter().any(|v| v.color[3] < 1.0) => DrawKind::Translucent,
+                _ => DrawKind::Opaque,
+            };
             out.push(DrawBatch {
                 vertex_buf,
                 index_buf,
                 index_count: b.indices.len() as u32,
                 bind_group,
                 blend_buf,
+                kind,
             });
         }
         tracing::debug!("uploaded {} batches", out.len());
@@ -1009,10 +1139,36 @@ impl Gpu {
     }
 
     fn draw(&mut self, view: &wgpu::TextureView, view_proj: Mat4, light_dir: Vec3) {
+        // Camera position and far plane from the view-projection alone:
+        // the centre of the near plane is as good as the eye for fog and
+        // fresnel, and fog must be opaque by the far plane so nothing pops.
+        let inv = view_proj.inverse();
+        let near = inv.project_point3(Vec3::ZERO);
+        let far = inv.project_point3(Vec3::Z);
+        let env = &self.environment;
+        let fog_end = env.fog_end.min(near.distance(far) * 0.97).max(1.0);
+        // The client's fog is not linear; a linear ramp from the Region's
+        // start distance reads far too thick, so hold it off a while.
+        let fog_start = env.fog_start.max(fog_end * 0.3).min(fog_end * 0.6);
+        let v4 = |v: Vec3, w: f32| Vec4::from((v, w)).to_array();
         let globals = Globals {
             view_proj: view_proj.to_cols_array_2d(),
-            light_dir: Vec4::from((light_dir.normalize(), 0.0)).to_array(),
-            ambient: [0.35, 0.35, 0.4, 1.0],
+            inv_view_proj: inv.to_cols_array_2d(),
+            camera: v4(near, self.start.elapsed().as_secs_f32()),
+            light_dir: v4(light_dir.normalize(), 0.0),
+            ambient: v4(env.ambient, 1.0),
+            sun_color: v4(env.sun_color, 1.0),
+            fog_color: v4(env.fog_color, 1.0),
+            fog_params: [fog_start, fog_end, 0.0, 0.0],
+            sky_zenith: v4(env.sky_zenith, 1.0),
+            sky_horizon: v4(env.sky_horizon, 1.0),
+            water_color: env.water_color.to_array(),
+        };
+        let clear = wgpu::Color {
+            r: env.fog_color.x as f64,
+            g: env.fog_color.y as f64,
+            b: env.fog_color.z as f64,
+            a: 1.0,
         };
         self.queue
             .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
@@ -1042,12 +1198,7 @@ impl Gpu {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.45,
-                            g: 0.6,
-                            b: 0.85,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(clear),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1063,47 +1214,65 @@ impl Gpu {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.globals_bg, &[]);
-            // Static geometry is baked in world space: identity model (slot 0).
-            pass.set_bind_group(2, &self.models_bg, &[0]);
+            // Sky first: a full-screen triangle, no vertex buffer, no depth.
+            pass.set_pipeline(&self.sky_pipeline);
+            pass.draw(0..3, 0..1);
             let hide_static = std::env::var_os("ACV_HIDE_STATIC").is_some();
-            let streamed = self.blocks.values().flat_map(|v| v.iter());
-            let mut terrain = false;
-            for b in self.batches.iter().chain(streamed).filter(|_| !hide_static) {
-                if b.blend_buf.is_some() != terrain {
-                    terrain = b.blend_buf.is_some();
-                    pass.set_pipeline(if terrain {
-                        &self.terrain_pipeline
-                    } else {
-                        &self.pipeline
-                    });
+            let instances = || {
+                self.dynamic_instances
+                    .iter()
+                    .chain(self.player_instances.iter())
+                    .enumerate()
+            };
+            // Opaque geometry and the layered terrain write depth, then
+            // translucent surfaces (glass, water) blend over them.
+            for (pipeline, kind) in [
+                (&self.pipeline, DrawKind::Opaque),
+                (&self.terrain_pipeline, DrawKind::Terrain),
+                (&self.translucent_pipeline, DrawKind::Translucent),
+                (&self.water_pipeline, DrawKind::Water),
+            ] {
+                pass.set_pipeline(pipeline);
+                // Static geometry is baked in world space: identity model (slot 0).
+                pass.set_bind_group(2, &self.models_bg, &[0]);
+                let streamed = self.blocks.values().flat_map(|v| v.iter());
+                for b in self
+                    .batches
+                    .iter()
+                    .chain(streamed)
+                    .filter(|b| !hide_static && b.kind == kind)
+                {
+                    pass.set_bind_group(1, &*b.bind_group, &[]);
+                    pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
+                    if let Some(blend) = &b.blend_buf {
+                        pass.set_vertex_buffer(1, blend.slice(..));
+                    }
+                    pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..b.index_count, 0, 0..1);
                 }
-                pass.set_bind_group(1, &*b.bind_group, &[]);
-                pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
-                if let Some(blend) = &b.blend_buf {
-                    pass.set_vertex_buffer(1, blend.slice(..));
+                if matches!(kind, DrawKind::Water | DrawKind::Terrain) {
+                    continue;
                 }
-                pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..b.index_count, 0, 0..1);
-            }
-            if terrain {
-                pass.set_pipeline(&self.pipeline);
-            }
-            // Instances: one model matrix each, via dynamic offset.
-            for (i, inst) in self
-                .dynamic_instances
-                .iter()
-                .chain(self.player_instances.iter())
-                .enumerate()
-            {
-                let slot = (i as u64 + 1).min(MAX_INSTANCES - 1) as u32;
-                pass.set_bind_group(2, &self.models_bg, &[slot * MODEL_STRIDE as u32]);
-                for sub in &inst.mesh.subs {
-                    pass.set_bind_group(1, &*sub.bind_group, &[]);
-                    pass.set_vertex_buffer(0, sub.vertex_buf.slice(..));
-                    pass.set_index_buffer(sub.index_buf.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..sub.index_count, 0, 0..1);
+                // Instances: one model matrix each, via dynamic offset.
+                for (i, inst) in instances() {
+                    let slot = (i as u64 + 1).min(MAX_INSTANCES - 1) as u32;
+                    let subs = inst
+                        .mesh
+                        .subs
+                        .iter()
+                        .filter(|s| s.translucent == (kind == DrawKind::Translucent));
+                    let mut bound = false;
+                    for sub in subs {
+                        if !bound {
+                            pass.set_bind_group(2, &self.models_bg, &[slot * MODEL_STRIDE as u32]);
+                            bound = true;
+                        }
+                        pass.set_bind_group(1, &*sub.bind_group, &[]);
+                        pass.set_vertex_buffer(0, sub.vertex_buf.slice(..));
+                        pass.set_index_buffer(sub.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..sub.index_count, 0, 0..1);
+                    }
                 }
             }
         }

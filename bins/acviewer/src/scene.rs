@@ -145,6 +145,10 @@ pub fn build_landblock(
                 .push(&verts, &[0, 1, 2, 3, 4, 5]),
         }
     }
+    if !scene.is_dungeon {
+        let region = assets.region()?;
+        crate::water::push_water(&mut batches, &region, &scene.terrain, origin);
+    }
     for cell in &scene.cells {
         for sub in &cell.submeshes {
             for v in &sub.vertices {
@@ -270,7 +274,7 @@ pub fn material_image(assets: &Assets, key: MaterialKey, palettes: &Palettes) ->
         MaterialKey::TerrainLayer(n) | MaterialKey::TerrainAlpha(n) => {
             return terrain_layer_image(assets, key, n)
         }
-        MaterialKey::Solid(_) | MaterialKey::Terrain => return None,
+        MaterialKey::Solid(_) | MaterialKey::Terrain | MaterialKey::Water(_) => return None,
     };
     // Which texture: an appearance override, the surface's texture, or the id itself.
     let source = if tex != 0 {
