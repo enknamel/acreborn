@@ -163,7 +163,7 @@ impl<'a> Reader<'a> {
     pub fn obfuscated_string(&mut self) -> Result<String> {
         let n = self.u16()? as usize;
         let b: Vec<u8> = self.bytes(n)?.iter().map(|&c| c.rotate_left(4)).collect();
-        Ok(latin1(&b))
+        Ok(decode_windows_1252(&b))
     }
 
     /// .NET `BinaryReader.ReadString`: 7-bit varint byte length, then UTF-8.

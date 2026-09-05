@@ -491,8 +491,16 @@ impl World {
                                     o.parent = Some(c);
                                 }
                             }
-                            self.open_container =
-                                Some((c, items.into_iter().map(|(g, _)| g).collect()));
+                            // Our own side packs are listed the same way at
+                            // login; only a container in the world opens the
+                            // loot window.
+                            let me = self.player_guid;
+                            let carried = me.is_some()
+                                && self.objects.get(&c).is_some_and(|o| o.container == me);
+                            if !carried {
+                                self.open_container =
+                                    Some((c, items.into_iter().map(|(g, _)| g).collect()));
+                            }
                             Applied::Inventory
                         }
                         Err(_) => Applied::Failed,

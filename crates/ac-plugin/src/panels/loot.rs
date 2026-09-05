@@ -25,6 +25,12 @@ pub struct Actions {
 /// are skipped.
 pub fn view(c: &Client) -> Option<LootView> {
     let (guid, items) = c.world.open_container.as_ref()?;
+    // Our own side packs list their contents the same way at login; they
+    // belong in the inventory panel, not here.
+    let me = c.world.player_guid;
+    if me.is_some() && c.world.objects.get(guid).is_some_and(|o| o.container == me) {
+        return None;
+    }
     Some(LootView {
         name: c
             .world
