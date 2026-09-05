@@ -142,12 +142,21 @@ ACREBORN_BUS=127.0.0.1:9600 cargo run -p acbot -- ... --bus          # another b
   processes the mappings are separate but back onto the same page cache,
   so N launcher processes cost one copy of the archive pages plus N sets
   of decoded assets.
-* **GPU caches are per session for now.** Each `Net` keeps its own
-  `mesh_cache`, `gpu_meshes`, `palettes`, `anims`, motion `tables`,
-  particle `fx` and `loaded_blocks`, so two sessions standing in Holtburg
-  hold two copies of its meshes. Only the active session uploads and draws;
-  the others' caches are simply retained. Sharing them across sessions is a
-  planned change.
+* **Scene caches are per process.** The viewer keeps one `mesh_cache`,
+  `gpu_meshes`, `palettes`, motion `tables`, particle `fx` and
+  `loaded_blocks` on the `App`, shared by every session; only the active
+  session's surroundings are streamed and drawn, and only per-session
+  state (`anims`, `pickables`) lives on each `Net`. Two sessions standing
+  in Holtburg therefore hold one copy of its meshes.
+* **Memory, measured** (release build, Apple Silicon, one session in the
+  Academy dungeon, `vmmap`): graphics allocations 11-15 MB (about 400
+  materials, 44 MB of texture data before compression by the driver),
+  heap 50-80 MB, process footprint 230-440 MB of which the bulk is the
+  DAT archive pages, file-backed and shared by every process on the
+  machine. A headless `acbot` session is about 30 MB private. Before
+  `Gpu::flush` a headless `acviewer --screenshot` run leaked every
+  per-tick particle upload until the final submit (2.7 GB after 30 s);
+  windowed sessions were never affected.
 * **Audio.** One `ac_audio::Audio` device per process, cloned into every
   session; only the active session's sounds play. `--mute` skips opening
   the device (and `--screenshot` implies it).
