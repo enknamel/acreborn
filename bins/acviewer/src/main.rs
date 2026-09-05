@@ -10,7 +10,9 @@ mod camera;
 mod gpu;
 mod player;
 mod scene;
+mod sky;
 mod ui;
+mod water;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -926,6 +928,10 @@ impl App {
         gpu.set_scene(built.batches, |k| {
             scene::material_image(&assets, k, &palettes)
         });
+        let region = assets.region()?;
+        if let Some(env) = sky::Environment::from_region(&region, 0.5) {
+            gpu.set_environment(env);
+        }
         let d = built.radius.max(5.0);
         self.camera.position = built.center + Vec3::new(0.0, -d * 0.8, d * 0.5);
         self.camera.yaw = 0.0;

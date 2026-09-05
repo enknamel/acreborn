@@ -112,6 +112,10 @@ pub fn build_landblock(
             .or_default()
             .push(&verts, &[0, 1, 2, 3, 4, 5]);
     }
+    if !scene.is_dungeon {
+        let region = assets.region()?;
+        crate::water::push_water(&mut batches, &region, &scene.terrain, origin);
+    }
     for cell in &scene.cells {
         for sub in &cell.submeshes {
             for v in &sub.vertices {
