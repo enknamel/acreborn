@@ -34,6 +34,8 @@ pub struct Ui {
     screen: ScreenDescriptor,
     /// For the status icon; plugins draw through the host's own cache.
     icons: IconCache,
+    /// Events queued by `inject` for the next frame (tests, automation).
+    injected: Vec<egui::Event>,
 }
 
 impl Ui {
@@ -66,6 +68,7 @@ impl Ui {
             ctx,
             hud_hidden: false,
             state,
+            injected: Vec::new(),
             renderer,
             chat: Vec::new(),
             input: String::new(),
@@ -98,6 +101,12 @@ impl Ui {
         }
     }
 
+    /// Queue synthetic input for the next frame (headless tests and
+    /// automation): key presses and typed text as egui events.
+    pub fn inject(&mut self, events: impl IntoIterator<Item = egui::Event>) {
+        self.injected.extend(events);
+    }
+
     pub fn push_chat(&mut self, text: String, kind: u32) {
         self.chat.push(ChatLine { text, kind });
         if self.chat.len() > 200 {
@@ -115,7 +124,7 @@ impl Ui {
         width: u32,
         height: u32,
     ) {
-        let raw = match (&mut self.state, window) {
+        let mut raw = match (&mut self.state, window) {
             (Some(s), Some(w)) => s.take_egui_input(w),
             _ => egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
@@ -125,6 +134,7 @@ impl Ui {
                 ..Default::default()
             },
         };
+        raw.events.append(&mut self.injected);
         let ppp = match (&self.state, window) {
             (Some(_), Some(w)) => w.scale_factor() as f32,
             _ => 1.0,
@@ -193,13 +203,29 @@ impl Ui {
                         r.request_focus();
                         want_focus = true;
                     }
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    // Enter while the box is focused submits; egui 0.36's
+                    // singleline edit keeps focus on Enter, so do not wait
+                    // for `lost_focus`.
+                    let enter = ui.input(|i| {
+                        i.events.iter().any(|e| {
+                            matches!(
+                                e,
+                                egui::Event::Key {
+                                    key: egui::Key::Enter,
+                                    pressed: true,
+                                    ..
+                                }
+                            )
+                        })
+                    });
+                    if enter && (r.has_focus() || r.lost_focus()) {
                         let t = self.input.trim().to_string();
                         if !t.is_empty() {
                             submit = Some(t);
                         }
                         self.input.clear();
                         self.chat_focus = false;
+                        r.surrender_focus();
                     }
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) && r.has_focus() {
                         self.chat_focus = false;
@@ -263,5 +289,45 @@ impl Ui {
 
     pub fn wants_keyboard(&self) -> bool {
         self.chat_focus || self.ctx.egui_wants_keyboard_input()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(k: egui::Key, pressed: bool) -> egui::Event {
+        egui::Event::Key {
+            key: k,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// Enter focuses the box, typed text lands in it, Enter submits it.
+    #[test]
+    fn chat_box_submits_on_enter() {
+        let Ok(gpu) = crate::gpu::Gpu::headless(320, 240) else {
+            eprintln!("no GPU; skipping");
+            return;
+        };
+        let (device, queue) = (gpu.device(), gpu.queue());
+        let mut ui = Ui::new(device, gpu.format(), None, 320, 240);
+        let mut frame = |ui: &mut Ui| ui.begin(None, &mut |_| {}, device, queue, 320, 240);
+        frame(&mut ui); // fonts
+        ui.chat_focus = true;
+        frame(&mut ui); // focus requested
+        frame(&mut ui); // focus taken
+        ui.inject([egui::Event::Text("hello there".into())]);
+        frame(&mut ui);
+        assert_eq!(ui.input, "hello there");
+        ui.inject([key(egui::Key::Enter, true), key(egui::Key::Enter, false)]);
+        frame(&mut ui);
+        frame(&mut ui);
+        assert_eq!(ui.outgoing, vec!["hello there".to_string()]);
+        assert!(ui.input.is_empty());
+        assert!(!ui.chat_focus);
     }
 }
