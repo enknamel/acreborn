@@ -31,6 +31,8 @@ pub struct Player {
     pub local: Vec3,
     /// Radians, 0 = north (+Y), increasing counter-clockwise (left).
     pub heading: f32,
+    /// MotionStance id used for our animations (non-combat, hand combat...).
+    pub stance: u32,
     walk_speed: f32,
     run_speed: f32,
     blocks: HashMap<u32, Block>,
@@ -57,6 +59,7 @@ impl Player {
             cell,
             local,
             heading,
+            stance: motion::STANCE_NON_COMBAT,
             walk_speed: 2.5,
             run_speed: 6.0,
             blocks: HashMap::new(),
@@ -77,12 +80,12 @@ impl Player {
     pub fn set_motion_table(&mut self, assets: &Assets, setup_id: u32, table_id: u32) {
         self.n_parts = assets.setup(setup_id).map(|s| s.parts.len()).unwrap_or(0);
         if let Ok(t) = ac_scene::anim::motion_table(assets, table_id) {
-            if let Some(w) = t.cycle(motion::STANCE_NON_COMBAT, motion::WALK_FORWARD) {
+            if let Some(w) = t.cycle(self.stance, motion::WALK_FORWARD) {
                 if w.velocity.length() > 0.1 {
                     self.walk_speed = w.velocity.length();
                 }
             }
-            if let Some(r) = t.cycle(motion::STANCE_NON_COMBAT, motion::RUN_FORWARD) {
+            if let Some(r) = t.cycle(self.stance, motion::RUN_FORWARD) {
                 if r.velocity.length() > 0.1 {
                     self.run_speed = r.velocity.length();
                 }
@@ -97,10 +100,22 @@ impl Player {
             return;
         }
         self.current_motion = m;
+        let stance = self.stance;
         self.anim = self
             .table
             .as_ref()
-            .and_then(|t| AnimPlayer::cycle(assets, t, motion::STANCE_NON_COMBAT, m));
+            .and_then(|t| AnimPlayer::cycle(assets, t, stance, m));
+    }
+
+    /// Switch stance (combat mode); the current cycle is re-picked.
+    pub fn set_stance(&mut self, assets: &Assets, stance: u32) {
+        if self.stance != stance {
+            self.stance = stance;
+            self.anim = None;
+            let m = self.current_motion;
+            self.current_motion = 0;
+            self.set_motion(assets, m);
+        }
     }
 
     /// Advance the animation and pick idle/walk/run from the input.

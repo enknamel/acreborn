@@ -62,6 +62,14 @@ pub struct Ui {
     /// Items double-clicked in the panel; drained by the caller.
     pub activated: Vec<u32>,
     pub show_inventory: bool,
+    /// Selected/attacked creature: name and health fraction.
+    pub target: Option<(String, f32)>,
+    /// Open ground container: name and items (guid, name).
+    pub loot: Option<(String, Vec<(u32, String)>)>,
+    /// Loot items double-clicked or "take all"; drained by the caller.
+    pub loot_take: Vec<u32>,
+    pub loot_close: bool,
+    pub combat: bool,
     pub blips: Vec<Blip>,
     /// Radar range in metres (edge of the circle).
     pub radar_range: f32,
@@ -109,6 +117,11 @@ impl Ui {
             items: Vec::new(),
             activated: Vec::new(),
             show_inventory: true,
+            target: None,
+            loot: None,
+            loot_take: Vec::new(),
+            loot_close: false,
+            combat: false,
             blips: Vec::new(),
             radar_range: 100.0,
             frames: Vec::new(),
@@ -273,6 +286,85 @@ impl Ui {
                             p.circle_filled(at, rad, col);
                         }
                         p.circle_filled(c, 3.0, egui::Color32::WHITE);
+                    });
+            }
+            if let Some((name, health)) = &self.target {
+                egui::Area::new(egui::Id::new("target"))
+                    .fade_in(false)
+                    .fixed_pos(egui::pos2(w * 0.5 - 130.0, 8.0))
+                    .show(ctx, |ui| {
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_black_alpha(160))
+                            .inner_margin(6)
+                            .show(ui, |ui| {
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(248.0, 18.0),
+                                    egui::Sense::hover(),
+                                );
+                                let p = ui.painter();
+                                p.rect_filled(rect, 3.0, egui::Color32::from_gray(40));
+                                let mut fill = rect;
+                                fill.set_width(rect.width() * health.clamp(0.0, 1.0));
+                                p.rect_filled(fill, 3.0, egui::Color32::from_rgb(200, 40, 40));
+                                p.text(
+                                    rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    format!("{name}  {:.0}%", health * 100.0),
+                                    egui::FontId::proportional(14.0),
+                                    egui::Color32::WHITE,
+                                );
+                            });
+                    });
+            }
+            if let Some((name, items)) = &self.loot {
+                egui::Window::new("loot")
+                    .fade_in(false)
+                    .title_bar(false)
+                    .resizable(false)
+                    .frame(
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_black_alpha(190))
+                            .inner_margin(8),
+                    )
+                    .fixed_pos(egui::pos2(w * 0.5 - 140.0, h * 0.5 - 120.0))
+                    .fixed_size(egui::vec2(280.0, 240.0))
+                    .show(ctx, |ui| {
+                        ui.set_min_size(egui::vec2(264.0, 224.0));
+                        ui.label(
+                            egui::RichText::new(name)
+                                .color(egui::Color32::WHITE)
+                                .strong(),
+                        );
+                        egui::ScrollArea::vertical()
+                            .max_height(170.0)
+                            .show(ui, |ui| {
+                                ui.set_min_width(250.0);
+                                if items.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new("(empty)")
+                                            .color(egui::Color32::from_gray(170)),
+                                    );
+                                }
+                                for (guid, item) in items {
+                                    let resp = ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(item).color(egui::Color32::WHITE),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    );
+                                    if resp.double_clicked() {
+                                        self.loot_take.push(*guid);
+                                    }
+                                }
+                            });
+                        ui.horizontal(|ui| {
+                            if ui.button("Take all").clicked() {
+                                self.loot_take.extend(items.iter().map(|(g, _)| *g));
+                            }
+                            if ui.button("Close").clicked() {
+                                self.loot_close = true;
+                            }
+                        });
                     });
             }
             if self.sheet.is_some() && self.show_inventory {

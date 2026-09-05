@@ -67,6 +67,14 @@ struct Cli {
     /// Connected headless mode: use the nearest object with this name once placed.
     #[arg(long = "use")]
     use_name: Option<String>,
+    /// Connected headless mode: enter melee and attack the nearest creature
+    /// with this name until it dies (or 90 s pass).
+    #[arg(long)]
+    attack: Option<String>,
+    /// Connected headless mode: afterwards open the nearest corpse and take
+    /// everything.
+    #[arg(long)]
+    loot: bool,
     /// Camera override for --screenshot: x,y,z,yaw_deg,pitch_deg
     #[arg(long)]
     camera: Option<String>,
@@ -95,6 +103,13 @@ struct Net {
     pickables: Vec<scene::Pickable>,
     /// Server-requested MoveTo for our own character, until reached.
     move_to: Option<ac_world::object::MoveTarget>,
+    /// Melee combat mode is on.
+    combat: bool,
+    /// Creature we keep swinging at until it dies or we stop.
+    attack_target: Option<u32>,
+    /// An attack was sent and AttackDone has not come back yet.
+    attack_pending: bool,
+    last_attack: Instant,
     selected: Option<u32>,
     last_click: Option<(Instant, u32)>,
     gpu_meshes: scene::GpuMeshCache,
@@ -135,6 +150,86 @@ impl App {
                 Some((_, _, event::IDENTIFY_OBJECT_RESPONSE, rest)) => {
                     self.appraisal(rest);
                     return;
+                }
+                Some((_, _, event::ATTACK_DONE, _)) => {
+                    if let Some(net) = self.net.as_mut() {
+                        net.attack_pending = false;
+                    }
+                    return;
+                }
+                Some((_, _, event::ATTACKER_NOTIFICATION, rest)) => {
+                    match ac_net::messages::AttackNotice::parse_attacker(rest) {
+                        Ok(n) => Ok(ChatLine {
+                            text: format!(
+                                "You {} {} for {} points{}.",
+                                if n.critical { "critically hit" } else { "hit" },
+                                n.name,
+                                n.damage,
+                                if n.percent >= 0.999 {
+                                    ", killing it"
+                                } else {
+                                    ""
+                                }
+                            ),
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 5,
+                        }),
+                        Err(e) => Err(e),
+                    }
+                }
+                Some((_, _, event::DEFENDER_NOTIFICATION, rest)) => {
+                    match ac_net::messages::AttackNotice::parse_defender(rest) {
+                        Ok(n) => Ok(ChatLine {
+                            text: format!(
+                                "{} {} you for {} points.",
+                                n.name,
+                                if n.critical {
+                                    "critically hits"
+                                } else {
+                                    "hits"
+                                },
+                                n.damage
+                            ),
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 6,
+                        }),
+                        Err(e) => Err(e),
+                    }
+                }
+                Some((_, _, event::EVASION_ATTACKER_NOTIFICATION, rest)) => {
+                    match ac_net::wire::Reader::new(rest).string16() {
+                        Ok(n) => Ok(ChatLine {
+                            text: format!("{n} evades your attack."),
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 5,
+                        }),
+                        Err(e) => Err(e),
+                    }
+                }
+                Some((_, _, event::EVASION_DEFENDER_NOTIFICATION, rest)) => {
+                    match ac_net::wire::Reader::new(rest).string16() {
+                        Ok(n) => Ok(ChatLine {
+                            text: format!("You evade {n}'s attack."),
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 6,
+                        }),
+                        Err(e) => Err(e),
+                    }
+                }
+                Some((_, _, event::VICTIM_NOTIFICATION | event::KILLER_NOTIFICATION, rest)) => {
+                    match ac_net::wire::Reader::new(rest).string16() {
+                        Ok(t) => Ok(ChatLine {
+                            text: t,
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 0,
+                        }),
+                        Err(e) => Err(e),
+                    }
                 }
                 Some((_, _, event::POPUP_STRING, rest)) => {
                     match ac_net::wire::Reader::new(rest).string16() {
@@ -258,7 +353,14 @@ impl App {
             || o.item_type & item_type::CREATURE != 0;
         let carried = me.is_some() && (o.container == me || o.wielder == me);
         let name = o.name.clone();
+        let attackable = o.object_desc_flags & object_desc_flags::ATTACKABLE != 0
+            && o.object_desc_flags & object_desc_flags::PLAYER == 0
+            && o.item_type & item_type::CREATURE != 0;
         let mut w = ac_net::wire::Writer::new();
+        if net.combat && attackable {
+            self.attack(guid);
+            return;
+        }
         if carried && o.wielder != me && o.item_type & item_type::WIELDABLE != 0 {
             tracing::info!("wield {name} ({guid:#010x}) at {:#x}", o.valid_locations);
             w.u32(guid).u32(o.valid_locations);
@@ -277,6 +379,130 @@ impl App {
         } else {
             tracing::info!("use {name} ({guid:#010x})");
             net.session.send_action(action::USE, &guid.to_le_bytes());
+        }
+    }
+
+    /// Enter or leave melee combat mode.
+    fn toggle_combat(&mut self) {
+        use ac_net::messages::{action, combat_mode};
+        let Some(net) = self.net.as_mut() else { return };
+        net.combat = !net.combat;
+        let mode = if net.combat {
+            combat_mode::MELEE
+        } else {
+            combat_mode::NON_COMBAT
+        };
+        tracing::info!("combat mode {}", if net.combat { "melee" } else { "peace" });
+        net.session
+            .send_action(action::CHANGE_COMBAT_MODE, &mode.to_le_bytes());
+        if !net.combat {
+            net.attack_target = None;
+            net.attack_pending = false;
+        }
+        if let Some(ui) = &mut self.ui {
+            ui.combat = net.combat;
+        }
+    }
+
+    /// Swing at a creature (medium height, half power) and keep swinging
+    /// after each AttackDone until it dies or combat mode ends.
+    fn attack(&mut self, guid: u32) {
+        use ac_net::messages::action;
+        let Some(net) = self.net.as_mut() else { return };
+        if !net.combat {
+            return;
+        }
+        let name = net
+            .world
+            .objects
+            .get(&guid)
+            .map(|o| o.name.clone())
+            .unwrap_or_default();
+        tracing::info!("attack {name} ({guid:#010x})");
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(guid).u32(2).f32(0.5);
+        net.session
+            .send_action(action::TARGETED_MELEE_ATTACK, &w.finish());
+        net.attack_target = Some(guid);
+        net.attack_pending = true;
+        net.last_attack = Instant::now();
+        net.selected = Some(guid);
+    }
+
+    /// Combat bookkeeping each tick: repeat attacks, drop dead targets.
+    fn tick_combat(&mut self) {
+        let Some(net) = self.net.as_mut() else { return };
+        let Some(target) = net.attack_target else {
+            return;
+        };
+        let alive = net
+            .world
+            .objects
+            .get(&target)
+            .map(|o| o.health.is_none_or(|h| h > 0.0))
+            .unwrap_or(false);
+        if !alive || !net.combat {
+            tracing::info!("attack target gone");
+            net.attack_target = None;
+            net.attack_pending = false;
+            return;
+        }
+        if !net.attack_pending && net.last_attack.elapsed() > Duration::from_millis(300) {
+            self.attack(target);
+        }
+    }
+
+    /// Take items out of the open container / close it, as the UI asked.
+    fn tick_loot(&mut self) {
+        use ac_net::messages::action;
+        let (take, close) = match self.ui.as_mut() {
+            Some(ui) => (
+                std::mem::take(&mut ui.loot_take),
+                std::mem::take(&mut ui.loot_close),
+            ),
+            None => return,
+        };
+        let Some(net) = self.net.as_mut() else { return };
+        let me = net.world.player_guid.unwrap_or(0);
+        for guid in take {
+            let name = net
+                .world
+                .objects
+                .get(&guid)
+                .map(|o| o.name.clone())
+                .unwrap_or_default();
+            tracing::info!("take {name} ({guid:#010x})");
+            let mut w = ac_net::wire::Writer::new();
+            w.u32(guid).u32(me).u32(0);
+            net.session
+                .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
+        }
+        if close {
+            if let Some((c, _)) = net.world.open_container.take() {
+                net.session
+                    .send_action(action::NO_LONGER_VIEWING_CONTENTS, &c.to_le_bytes());
+            }
+        }
+    }
+
+    /// Like `use_by_name` but matches a name prefix (test hook).
+    fn use_by_name_prefix(&mut self, prefix: &str) {
+        let full = self.net.as_ref().and_then(|net| {
+            let me = net.player.as_ref().map(|p| p.world_position());
+            net.world
+                .drawable()
+                .filter(|o| o.name.starts_with(prefix))
+                .filter_map(|o| {
+                    let p = o.display.or(o.position)?;
+                    let d =
+                        me.map(|m| (ac_world::landblock_origin(p.cell) + p.local).distance(m))?;
+                    Some((d, o.name.clone()))
+                })
+                .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
+                .map(|(_, n)| n)
+        });
+        if let Some(n) = full {
+            self.use_by_name(&n);
         }
     }
 
@@ -331,6 +557,9 @@ impl App {
                     if let Some(o) = net.selected.and_then(|g| net.world.objects.get(&g)) {
                         s += &format!("  selected: {}", o.name);
                     }
+                    if net.combat {
+                        s += "  [melee]";
+                    }
                 }
                 None => s += "  connecting...",
             }
@@ -358,6 +587,25 @@ impl App {
                     max: st.vital_max(i),
                 })
                 .collect(),
+        });
+        ui.target = net
+            .attack_target
+            .or(net.selected)
+            .and_then(|g| net.world.objects.get(&g))
+            .filter(|o| o.item_type & ac_world::item_type::CREATURE != 0)
+            .map(|o| (o.name.clone(), o.health.unwrap_or(1.0)));
+        ui.loot = net.world.open_container.as_ref().map(|(c, items)| {
+            let name = net
+                .world
+                .objects
+                .get(c)
+                .map(|o| o.name.clone())
+                .unwrap_or_else(|| "Container".into());
+            let list = items
+                .iter()
+                .filter_map(|g| net.world.objects.get(g).map(|o| (*g, o.name.clone())))
+                .collect();
+            (name, list)
         });
         ui.items.clear();
         for o in net.world.wielded() {
@@ -531,6 +779,10 @@ impl App {
             last_generation: 0,
             pickables: Vec::new(),
             move_to: None,
+            combat: false,
+            attack_target: None,
+            attack_pending: false,
+            last_attack: Instant::now(),
             selected: None,
             last_click: None,
             gpu_meshes: Default::default(),
@@ -584,10 +836,17 @@ impl App {
                         ac_world::Applied::Moved => {
                             // A MoveTo aimed at us is ours to carry out; the
                             // object table only sees our echoed motion states.
+                            let stance = net.world.player().map(|o| o.motion.style);
                             if let Some(o) = net.world.player_mut() {
                                 if let Some(t) = o.target.take() {
                                     tracing::debug!("server move-to {t:?}");
                                     net.move_to = Some(t);
+                                }
+                            }
+                            // Our stance follows the server (combat mode changes).
+                            if let (Some(st), Some(pl)) = (stance, net.player.as_mut()) {
+                                if st != 0 {
+                                    pl.set_stance(&net.assets, 0x8000_0000 | st as u32);
                                 }
                             }
                             continue;
@@ -602,6 +861,7 @@ impl App {
                         ac_world::Applied::Created
                         | ac_world::Applied::Deleted
                         | ac_world::Applied::Stats
+                        | ac_world::Applied::Health
                         | ac_world::Applied::Inventory => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
                         ac_world::Applied::Ignored => {}
@@ -703,6 +963,8 @@ impl App {
             self.chat_message(op, &body);
         }
         self.send_chat();
+        self.tick_combat();
+        self.tick_loot();
         let activated: Vec<u32> = self
             .ui
             .as_mut()
@@ -1028,6 +1290,10 @@ impl ApplicationHandler for App {
                     if typing {
                         return;
                     }
+                    if code == KeyCode::KeyC && event.state == ElementState::Pressed {
+                        self.toggle_combat();
+                        return;
+                    }
                     if code == KeyCode::KeyI && event.state == ElementState::Pressed {
                         if let Some(ui) = &mut self.ui {
                             ui.show_inventory = !ui.show_inventory;
@@ -1192,14 +1458,22 @@ fn main() -> Result<()> {
             // has settled, then render from the character's viewpoint.
             let deadline = Instant::now()
                 + Duration::from_secs(40)
-                + Duration::from_secs_f32(app.cli.walk + 3.0 * app.cli.click.len() as f32 + 10.0);
+                + Duration::from_secs_f32(app.cli.walk + 3.0 * app.cli.click.len() as f32 + 10.0)
+                + if app.cli.attack.is_some() {
+                    Duration::from_secs(120)
+                } else {
+                    Duration::ZERO
+                };
             let mut settled_at: Option<Instant> = None;
             let mut last_tick = Instant::now();
             let mut ticks = 0u32;
             let mut ticks_since = Instant::now();
             // Each --click entry is a double click: (entry index, clicks sent).
             let mut click_state = (0usize, 0u32);
-            let use_requested = app.cli.use_name.is_some();
+            let use_requested = app.cli.use_name.is_some() || app.cli.attack.is_some();
+            let mut attack_started: Option<Instant> = None;
+            let mut loot_state = 0u8;
+            let mut loot_at = Instant::now();
             let mut listed = false;
             loop {
                 app.tick_net(&mut gpu);
@@ -1224,6 +1498,49 @@ fn main() -> Result<()> {
                     if t > 1.0 + app.cli.walk {
                         if let Some(name) = app.cli.use_name.take() {
                             app.use_by_name(&name);
+                        }
+                        if let Some(name) = app.cli.attack.take() {
+                            app.toggle_combat();
+                            attack_started = Some(Instant::now());
+                            app.use_by_name(&name);
+                        }
+                    }
+                    // Attack phase: wait for the target to die, then loot.
+                    let fighting = attack_started.is_some_and(|s| {
+                        app.net.as_ref().is_some_and(|n| n.attack_target.is_some())
+                            && s.elapsed() < Duration::from_secs(90)
+                    });
+                    if attack_started.is_some() && !fighting && loot_state == 0 {
+                        loot_state = 1;
+                        loot_at = Instant::now();
+                    }
+                    if loot_state == 1 && loot_at.elapsed() > Duration::from_secs(2) {
+                        if app.cli.loot {
+                            if app.net.as_ref().is_some_and(|n| n.combat) {
+                                app.toggle_combat();
+                            }
+                            app.use_by_name("Corpse of Sparring Golem");
+                            app.use_by_name_prefix("Corpse");
+                        }
+                        loot_state = 2;
+                        loot_at = Instant::now();
+                    }
+                    if loot_state == 2 && app.cli.loot {
+                        if let (Some(ui), Some(net)) = (app.ui.as_mut(), app.net.as_ref()) {
+                            if let Some((_, items)) = &net.world.open_container {
+                                if !items.is_empty()
+                                    && ui.loot_take.is_empty()
+                                    && loot_at.elapsed() > Duration::from_secs(1)
+                                {
+                                    ui.loot_take.extend(items.iter().copied());
+                                    loot_state = 3;
+                                    loot_at = Instant::now();
+                                }
+                            }
+                        }
+                        if loot_at.elapsed() > Duration::from_secs(8) {
+                            loot_state = 3;
+                            loot_at = Instant::now();
                         }
                     }
                     if !listed && t > 1.5 {
@@ -1270,7 +1587,12 @@ fn main() -> Result<()> {
                     }
                     // Capture while still walking so the walk pose is visible,
                     // or after a short settle when not walking.
-                    let done = if app.cli.walk > 0.0 {
+                    let done = if attack_started.is_some() {
+                        loot_state == 3 && loot_at.elapsed() > Duration::from_secs(3)
+                            || (loot_state == 1
+                                && !app.cli.loot
+                                && loot_at.elapsed() > Duration::from_secs(3))
+                    } else if app.cli.walk > 0.0 {
                         t > 0.9 + app.cli.walk
                     } else if !app.cli.click.is_empty() || use_requested {
                         t > 8.0 + app.cli.click.len() as f32 * 3.0

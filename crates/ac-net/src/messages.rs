@@ -359,6 +359,15 @@ pub mod event {
     pub const WIELD_OBJECT: u32 = 0x0023;
     pub const INVENTORY_PUT_OBJECT_IN_3D: u32 = 0x019A;
     pub const VIEW_CONTENTS: u32 = 0x0196;
+    pub const CLOSE_GROUND_CONTAINER: u32 = 0x0052;
+    pub const ATTACK_DONE: u32 = 0x01A7;
+    pub const VICTIM_NOTIFICATION: u32 = 0x01AC;
+    pub const KILLER_NOTIFICATION: u32 = 0x01AD;
+    pub const ATTACKER_NOTIFICATION: u32 = 0x01B1;
+    pub const DEFENDER_NOTIFICATION: u32 = 0x01B2;
+    pub const EVASION_ATTACKER_NOTIFICATION: u32 = 0x01B3;
+    pub const EVASION_DEFENDER_NOTIFICATION: u32 = 0x01B4;
+    pub const UPDATE_HEALTH: u32 = 0x01C0;
     pub const CHANNEL_BROADCAST: u32 = 0x0147;
     pub const IDENTIFY_OBJECT_RESPONSE: u32 = 0x00C9;
     pub const USE_DONE: u32 = 0x01C7;
@@ -529,6 +538,74 @@ impl Appraisal {
     }
 }
 
+/// CombatMode values for ChangeCombatMode.
+pub mod combat_mode {
+    pub const NON_COMBAT: u32 = 1;
+    pub const MELEE: u32 = 2;
+    pub const MISSILE: u32 = 4;
+    pub const MAGIC: u32 = 8;
+}
+
+/// AttackerNotification (0x01B1) / DefenderNotification (0x01B2): one
+/// landed melee blow, from either side.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttackNotice {
+    /// The other party's name.
+    pub name: String,
+    pub damage_type: u32,
+    /// Fraction of the victim's health removed.
+    pub percent: f64,
+    pub damage: u32,
+    pub critical: bool,
+}
+
+impl AttackNotice {
+    pub fn parse_attacker(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        Ok(AttackNotice {
+            name: r.string16()?,
+            damage_type: r.u32()?,
+            percent: r.f64()?,
+            damage: r.u32()?,
+            critical: r.u32()? != 0,
+        })
+    }
+    pub fn parse_defender(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let name = r.string16()?;
+        let damage_type = r.u32()?;
+        let percent = r.f64()?;
+        let damage = r.u32()?;
+        let _location = r.u32()?;
+        let critical = r.u32()? != 0;
+        Ok(AttackNotice {
+            name,
+            damage_type,
+            percent,
+            damage,
+            critical,
+        })
+    }
+}
+
+/// UpdateHealth (0x01C0): a creature's health as a fraction.
+pub fn parse_update_health(body: &[u8]) -> Result<(u32, f32), Truncated> {
+    let mut r = Reader::new(body);
+    Ok((r.u32()?, r.f32()?))
+}
+
+/// ViewContents (0x0196): a container's item list `(guid, container type)`.
+pub fn parse_view_contents(body: &[u8]) -> Result<(u32, Vec<(u32, u32)>), Truncated> {
+    let mut r = Reader::new(body);
+    let container = r.u32()?;
+    let n = r.u32()? as usize;
+    let mut items = Vec::with_capacity(n.min(256));
+    for _ in 0..n {
+        items.push((r.u32()?, r.u32()?));
+    }
+    Ok((container, items))
+}
+
 /// Build a GameAction (0xF7B1) message: opcode, sequence, action type, body.
 pub fn game_action(sequence: u32, action: u32, body: &[u8]) -> Vec<u8> {
     let mut w = Writer::new();
@@ -562,6 +639,40 @@ mod tests {
         assert_eq!(a.string(Appraisal::STRING_SHORT_DESC), Some("A door."));
         assert_eq!(a.string(Appraisal::STRING_LONG_DESC), Some("It is shut."));
         assert_eq!(a.string(Appraisal::STRING_USE), None);
+    }
+
+    #[test]
+    fn combat_layouts() {
+        let mut w = Writer::new();
+        w.string16("Golem").u32(4).f64(0.25).u32(7).u32(1).u64(0);
+        let a = AttackNotice::parse_attacker(&w.finish()).unwrap();
+        assert_eq!((a.name.as_str(), a.damage, a.critical), ("Golem", 7, true));
+        let mut w = Writer::new();
+        w.string16("Golem")
+            .u32(4)
+            .f64(0.1)
+            .u32(2)
+            .u32(3)
+            .u32(0)
+            .u64(0);
+        let d = AttackNotice::parse_defender(&w.finish()).unwrap();
+        assert_eq!((d.damage, d.critical), (2, false));
+        let mut w = Writer::new();
+        w.u32(0x8000_0001).f32(0.5);
+        assert_eq!(
+            parse_update_health(&w.finish()).unwrap(),
+            (0x8000_0001, 0.5)
+        );
+        let mut w = Writer::new();
+        w.u32(0x9000_0001)
+            .u32(2)
+            .u32(0x8000_0002)
+            .u32(0)
+            .u32(0x8000_0003)
+            .u32(1);
+        let (c, items) = parse_view_contents(&w.finish()).unwrap();
+        assert_eq!(c, 0x9000_0001);
+        assert_eq!(items, vec![(0x8000_0002, 0), (0x8000_0003, 1)]);
     }
 
     #[test]
@@ -639,10 +750,13 @@ mod tests {
 /// GameAction type ids (inside a 0xF7B1 message).
 pub mod action {
     pub const TALK: u32 = 0x0015;
+    pub const TARGETED_MELEE_ATTACK: u32 = 0x0008;
     pub const PUT_ITEM_IN_CONTAINER: u32 = 0x0019;
     pub const GET_AND_WIELD_ITEM: u32 = 0x001A;
     pub const DROP_ITEM: u32 = 0x001B;
     pub const USE: u32 = 0x0036;
+    pub const CHANGE_COMBAT_MODE: u32 = 0x0053;
+    pub const NO_LONGER_VIEWING_CONTENTS: u32 = 0x0195;
     pub const IDENTIFY_OBJECT: u32 = 0x00C8;
     /// Sent after entering the world and after each teleport; the server
     /// ignores position reports until it arrives.
@@ -663,7 +777,9 @@ pub mod motion {
     pub const TURN_LEFT: u32 = 0x6500_000E;
     pub const SIDE_STEP_RIGHT: u32 = 0x6500_000F;
     pub const SIDE_STEP_LEFT: u32 = 0x6500_0010;
+    pub const STANCE_HAND_COMBAT: u32 = 0x8000_003C;
     pub const STANCE_NON_COMBAT: u32 = 0x8000_003D;
+    pub const STANCE_SWORD_COMBAT: u32 = 0x8000_003E;
     pub const HOLD_KEY_NONE: u32 = 1;
     pub const HOLD_KEY_RUN: u32 = 2;
 }

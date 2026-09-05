@@ -88,6 +88,8 @@ pub struct WorldObject {
     pub wielder: Option<u32>,
     pub valid_locations: u32,
     pub wielded_location: u32,
+    /// Health fraction, once the server has told us (UpdateHealth).
+    pub health: Option<f32>,
     pub palette_id: u32,
     pub sub_palettes: Vec<(u32, u8, u8)>,
     pub texture_changes: Vec<(u8, u32, u32)>,
@@ -142,6 +144,8 @@ pub struct World {
     pub generation: u64,
     /// The player's character sheet.
     pub stats: stats::PlayerStats,
+    /// A ground container we are looking into: its guid and item guids.
+    pub open_container: Option<(u32, Vec<u32>)>,
 }
 
 /// What `apply` did with a message, for logging.
@@ -157,6 +161,8 @@ pub enum Applied {
     Inventory,
     /// An object's look changed (equipment).
     Appearance,
+    /// A creature's health fraction changed.
+    Health,
     Ignored,
     Failed,
 }
@@ -213,6 +219,7 @@ impl World {
                         wielder: oc.wielder,
                         valid_locations: oc.valid_locations,
                         wielded_location: oc.wielded_location,
+                        health: None,
                         palette_id: oc.palette_id,
                         sub_palettes: oc.sub_palettes,
                         texture_changes: oc.texture_changes,
@@ -333,6 +340,11 @@ impl World {
                                 o.parent = Some(container);
                                 self.generation += 1;
                             }
+                            if let Some((c, items)) = &mut self.open_container {
+                                if *c != container {
+                                    items.retain(|g| *g != item);
+                                }
+                            }
                             Applied::Inventory
                         }
                         _ => Applied::Failed,
@@ -355,6 +367,37 @@ impl World {
                         }
                         _ => Applied::Failed,
                     }
+                }
+                Some((_, _, event::UPDATE_HEALTH, rest)) => {
+                    match messages::parse_update_health(rest) {
+                        Ok((guid, h)) => {
+                            if let Some(o) = self.objects.get_mut(&guid) {
+                                o.health = Some(h);
+                            }
+                            Applied::Health
+                        }
+                        Err(_) => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::VIEW_CONTENTS, rest)) => {
+                    match messages::parse_view_contents(rest) {
+                        Ok((c, items)) => {
+                            for (g, _) in &items {
+                                if let Some(o) = self.objects.get_mut(g) {
+                                    o.container = Some(c);
+                                    o.parent = Some(c);
+                                }
+                            }
+                            self.open_container =
+                                Some((c, items.into_iter().map(|(g, _)| g).collect()));
+                            Applied::Inventory
+                        }
+                        Err(_) => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::CLOSE_GROUND_CONTAINER, _)) => {
+                    self.open_container = None;
+                    Applied::Inventory
                 }
                 Some((_, _, event::INVENTORY_PUT_OBJECT_IN_3D, rest)) => {
                     if let Ok(item) = Reader::new(rest).u32() {
