@@ -155,12 +155,12 @@ pub fn draw(egui: &egui::Context, v: &SkillsView) -> Actions {
     window(
         "skills",
         egui::pos2(8.0, 132.0),
-        egui::vec2(360.0, 380.0),
+        egui::vec2(500.0, 410.0),
         170,
         6,
     )
     .show(egui, |ui| {
-        ui.set_min_size(egui::vec2(348.0, 368.0));
+        ui.set_min_size(egui::vec2(488.0, 398.0));
         ui.label(
             egui::RichText::new(format!("{}  level {}", v.name, v.level))
                 .color(egui::Color32::WHITE)
@@ -179,9 +179,9 @@ pub fn draw(egui: &egui::Context, v: &SkillsView) -> Actions {
         ui.add_space(4.0);
         let can_pay = |xp: Option<u32>| xp.is_some_and(|x| x as i64 <= v.available_xp);
         egui::ScrollArea::vertical()
-            .max_height(320.0)
+            .max_height(350.0)
             .show(ui, |ui| {
-                ui.set_min_width(340.0);
+                ui.set_min_width(480.0);
                 egui::Grid::new("stats_grid")
                     .num_columns(4)
                     .spacing([14.0, 2.0])
