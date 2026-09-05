@@ -38,6 +38,17 @@ works with any `--screenshot`; the model stands at the origin facing -Y.
 Viewer controls: right-drag to look, WASD to move, Q/E down/up, Shift to
 boost, Escape to quit.
 
+With several sessions in one process, the `party` plugin coordinates them
+from the chat box: `/leader` makes the current session the leader (`/leader
+N` picks another), `/follow` makes every other session run after it whenever
+it is more than 3 m away, `/assist` makes them attack whatever the leader
+attacks (entering melee mode first), and `/lootall` makes each session open
+the corpse of its last kill and take everything in it; each switch takes
+`on`/`off` or toggles. `/party` prints the state, and the Party window lists
+every session (name, level, health, distance to the leader, target) with
+Switch and Lead buttons. The leader's target is broadcast on the bus as
+`party.target`; the leader's index is the blackboard value `party.leader`.
+
 Against a local ACE (`tools/ace/up.sh` starts one in Docker):
 
 ```
