@@ -16,6 +16,7 @@ pub mod interior;
 pub mod landblock;
 pub mod lighting;
 pub mod model;
+pub mod nav;
 pub mod particles;
 pub mod scenery;
 pub mod terrain;

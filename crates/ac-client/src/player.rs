@@ -11,6 +11,7 @@ use ac_net::messages::{self, action, motion, RawMotion, WirePosition};
 use ac_net::session::Session;
 use ac_scene::anim::AnimPlayer;
 use ac_scene::collision::{Capsule, CollisionWorld, Vertical, GRAVITY};
+use ac_scene::nav::{self, Ground, NavGraph};
 use ac_scene::scenery::TerrainSampler;
 use ac_scene::Assets;
 use glam::{Quat, Vec3};
@@ -41,6 +42,11 @@ struct Block {
     lb: CellLandblock,
     /// Static collision geometry, built on first use.
     collision: Option<CollisionWorld>,
+    /// Navigation graph over the collision, built chunk by chunk as
+    /// paths are planned.
+    nav: Option<NavGraph>,
+    /// A dungeon block: no terrain to walk on.
+    dungeon: bool,
 }
 
 /// Landblock id (`xxyy0000`) containing a world position.
@@ -312,6 +318,8 @@ impl Player {
                 Block {
                     lb,
                     collision: None,
+                    nav: None,
+                    dungeon: false,
                 },
             );
         }
@@ -327,8 +335,83 @@ impl Player {
         if b.collision.is_none() {
             let scene = ac_scene::landblock::load(assets, block_id).ok()?;
             b.collision = CollisionWorld::from_scene(assets, &scene).ok();
+            b.dungeon = scene.is_dungeon;
         }
         b.collision.as_ref()
+    }
+
+    /// Whether static geometry of landblock `block` (or of the blocks
+    /// under either end) crosses the chest-height line from `from` to
+    /// `to`: the test that decides between walking straight and planning
+    /// a route.
+    pub fn line_blocked(&mut self, assets: &Assets, block: u32, from: Vec3, to: Vec3) -> bool {
+        let mut blocks = vec![block & 0xFFFF_0000];
+        for b in [block_of(from), block_of(to)] {
+            if !blocks.contains(&b) {
+                blocks.push(b);
+            }
+        }
+        blocks.into_iter().any(|blk| {
+            self.collision(assets, blk)
+                .is_some_and(|c| !nav::line_clear(c, from, to))
+        })
+    }
+
+    /// A walkable route from `from` to `to` (world positions, both in
+    /// landblock `block`) around the block's static geometry: waypoints
+    /// ending with `to`, or `None` when the graph does not connect them.
+    /// The graph is built around the search on first use and kept with
+    /// the block's collision.
+    pub fn find_path(
+        &mut self,
+        assets: &Assets,
+        block: u32,
+        from: Vec3,
+        to: Vec3,
+    ) -> Option<Vec<Vec3>> {
+        let block = block & 0xFFFF_0000;
+        self.collision(assets, block)?;
+        let cap = self.capsule;
+        let height_table = self.height_table.clone();
+        let b = self.blocks.get_mut(&block)?;
+        let same_capsule = |n: &NavGraph| {
+            let c = n.capsule;
+            c.radius == cap.radius
+                && c.height == cap.height
+                && c.step_up == cap.step_up
+                && c.step_down == cap.step_down
+        };
+        if b.nav.as_ref().is_some_and(|n| !same_capsule(n)) {
+            b.nav = None;
+        }
+        if b.nav.is_none() {
+            let scene = ac_scene::landblock::load(assets, block).ok()?;
+            b.nav = Some(NavGraph::for_scene(&scene, b.collision.as_ref()?, &cap));
+        }
+        let collision = b.collision.as_ref()?;
+        let sampler = TerrainSampler::new(&b.lb, &height_table);
+        let origin = ac_world::landblock_origin(block);
+        let terrain =
+            |x: f32, y: f32| sampler.height_at(Vec3::new(x - origin.x, y - origin.y, 0.0));
+        let ground = Ground {
+            collision,
+            terrain: (!b.dungeon).then_some(&terrain),
+        };
+        let nav = b.nav.as_mut()?;
+        let (nodes, chunks) = (nav.len(), nav.chunk_count());
+        let started = Instant::now();
+        let path = nav.find_path(&ground, from, to);
+        if nav.chunk_count() != chunks {
+            tracing::debug!(
+                "nav {block:#010x}: {} nodes in {} chunks (+{} nodes, {} chunks, {:.0} ms this search)",
+                nav.len(),
+                nav.chunk_count(),
+                nav.len() - nodes,
+                nav.chunk_count() - chunks,
+                started.elapsed().as_secs_f64() * 1e3
+            );
+        }
+        path
     }
 
     /// Fraction along `from`..`to` where static geometry first blocks the
