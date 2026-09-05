@@ -15,6 +15,7 @@ use ac_scene::scenery::TerrainSampler;
 use ac_scene::Assets;
 use glam::{Quat, Vec3};
 
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Input {
     pub forward: f32,
     pub strafe: f32,

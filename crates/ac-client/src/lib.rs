@@ -10,15 +10,47 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone)]
 pub enum Event {
     /// A line for the chat log; `kind` is the server's ChatMessageType.
-    Chat { text: String, kind: u32 },
+    Chat {
+        text: String,
+        kind: u32,
+    },
     /// A sound to play at a volume (0..=1).
     Sound {
         wave: std::rc::Rc<ac_formats::wave::Wave>,
         volume: f32,
     },
+    Connected,
+    Terminated(String),
+    /// CharacterError / AccountBoot opcode.
+    Refused(u32),
+    /// The character stands in the world; a scene can be built around it.
+    Placed {
+        cell: u32,
+    },
+}
+
+/// How to reach the server and who to be.
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// `host` or `host:port` of the login (primary) port.
+    pub host: String,
+    pub account: String,
+    pub password: String,
+    /// Character to enter with; the first on the account when None.
+    pub character: Option<String>,
+}
+
+/// What the character did this frame, for whoever draws it.
+#[derive(Debug, Default)]
+pub struct PlayerFrame {
+    /// Position, look or pose changed: the model needs re-placing.
+    pub dirty: bool,
+    /// Part transforms from the current animation frame.
+    pub pose: Option<Vec<glam::Mat4>>,
 }
 
 pub struct Client {
+    pub config: Config,
     pub socket: std::net::UdpSocket,
     pub primary: std::net::SocketAddr,
     pub secondary: std::net::SocketAddr,
@@ -65,6 +97,419 @@ pub struct Client {
 }
 
 impl Client {
+    /// Open the sockets, start the login handshake, and return the session.
+    pub fn connect(config: Config, assets: std::rc::Rc<ac_scene::Assets>) -> std::io::Result<Self> {
+        use ac_net::messages::DatIteration;
+        use ac_net::session::{Config as NetConfig, Session};
+        let host = config.host.clone();
+        let primary: std::net::SocketAddr = if host.contains(':') {
+            host.parse().map_err(std::io::Error::other)?
+        } else {
+            format!("{host}:9000")
+                .parse()
+                .map_err(std::io::Error::other)?
+        };
+        let secondary = std::net::SocketAddr::new(primary.ip(), primary.port() + 1);
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+        socket.set_nonblocking(true)?;
+        let now = Instant::now();
+        let mut session = Session::new(
+            NetConfig {
+                account: config.account.clone(),
+                password: config.password.clone(),
+                dats: vec![
+                    DatIteration {
+                        dat_file_id: 1,
+                        dat_file_type: 0,
+                        iterations: 2072,
+                    },
+                    DatIteration {
+                        dat_file_id: 2,
+                        dat_file_type: 0,
+                        iterations: 982,
+                    },
+                ],
+                echo_interval: Duration::from_secs(5),
+                ack_interval: Duration::from_secs(2),
+            },
+            now,
+        );
+        session.login(now);
+        tracing::info!("connecting to {primary} as {}", config.account);
+        Ok(Client {
+            config,
+            socket,
+            primary,
+            secondary,
+            session,
+            world: ac_world::World::default(),
+            assets,
+            characters: Vec::new(),
+            characters_known: false,
+            ddd_done: false,
+            enter_requested: false,
+            scene_block: None,
+            move_to: None,
+            move_to_since: Instant::now(),
+            combat: false,
+            magic: false,
+            known_spells: Default::default(),
+            attack_target: None,
+            attack_pending: false,
+            last_attack: Instant::now(),
+            attack_backoff: Duration::from_millis(300),
+            last_target_name: String::new(),
+            sound_tables: Default::default(),
+            waves: Default::default(),
+            loot_queue: Default::default(),
+            loot_inflight: None,
+            selected: None,
+            last_click: None,
+            player: None,
+            player_setup: 0,
+            events: Vec::new(),
+        })
+    }
+
+    /// Send a clean disconnect (flushing it immediately).
+    pub fn disconnect(&mut self, now: Instant) {
+        self.session.disconnect(now);
+        self.flush_outgoing();
+    }
+
+    fn flush_outgoing(&mut self) {
+        use ac_net::session::Port;
+        for (port, dg) in self.session.outgoing() {
+            let to = if port == Port::Primary {
+                self.primary
+            } else {
+                self.secondary
+            };
+            let _ = self.socket.send_to(&dg, to);
+        }
+    }
+
+    /// The character is in the world and our physics body exists.
+    pub fn placed(&self) -> bool {
+        self.scene_block.is_some()
+    }
+
+    /// Pump the network, apply the server's messages, run the gameplay
+    /// timers, and once the character is placed run its physics with
+    /// `input` (None for a session nobody is steering). Returns what the
+    /// renderer needs to know about the character this frame.
+    pub fn tick(&mut self, input: Option<player::Input>, dt: f32, now: Instant) -> PlayerFrame {
+        use ac_net::messages::{self, opcode, queue};
+        use ac_net::session::{Event, Port};
+        let mut chat_pending: Vec<(u32, Vec<u8>)> = Vec::new();
+        for (port, dg) in self.session.outgoing() {
+            let to = if port == Port::Primary {
+                self.primary
+            } else {
+                self.secondary
+            };
+            let _ = self.socket.send_to(&dg, to);
+        }
+        let mut buf = [0u8; 2048];
+        loop {
+            match self.socket.recv_from(&mut buf) {
+                Ok((n, _)) => self.session.receive(&buf[..n], now),
+                Err(_) => break,
+            }
+        }
+        self.session.poll(now);
+        for ev in self.session.events() {
+            match ev {
+                Event::Connected { client_id } => {
+                    tracing::info!("connected, client id {client_id}");
+                    self.events.push(self::Event::Connected);
+                }
+                Event::Terminated(why) => {
+                    tracing::warn!("terminated: {why}");
+                    self.events.push(self::Event::Terminated(why));
+                }
+                Event::Message(msg) => {
+                    match self.world.apply(&msg) {
+                        ac_world::Applied::PlayerSet => {
+                            // The server ignores our positions until we say we landed.
+                            self.session
+                                .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
+                            continue;
+                        }
+                        ac_world::Applied::Moved => continue,
+                        ac_world::Applied::PlayerMoveTo | ac_world::Applied::PlayerMotion => {
+                            // A MoveTo aimed at us is ours to carry out; a plain
+                            // motion state for us means the server is done
+                            // walking us (or echoed our own state).
+                            let stance = self.world.player().map(|o| o.motion.style);
+                            let target = self.world.player_mut().and_then(|o| o.target.take());
+                            match target {
+                                Some(t) => {
+                                    if self.move_to.is_none() {
+                                        tracing::debug!("server move-to {t:?}");
+                                        self.move_to_since = Instant::now();
+                                    }
+                                    self.move_to = Some(t);
+                                }
+                                None => {
+                                    if self.move_to.take().is_some() {
+                                        tracing::debug!("server move-to finished");
+                                        // Take the server's idea of where we ended up.
+                                        if let (Some(pl), Some(p)) = (
+                                            self.player.as_mut(),
+                                            self.world.player().and_then(|o| o.position),
+                                        ) {
+                                            pl.cell = p.cell;
+                                            pl.local = p.local;
+                                            pl.dirty = true;
+                                        }
+                                    }
+                                }
+                            }
+                            // Our stance follows the server (combat mode changes).
+                            if let (Some(st), Some(pl)) = (stance, self.player.as_mut()) {
+                                if st != 0 {
+                                    pl.set_stance(&self.assets, 0x8000_0000 | st as u32);
+                                }
+                            }
+                            continue;
+                        }
+                        ac_world::Applied::Appearance => {
+                            // Our own look changed: redraw the character.
+                            if let Some(pl) = self.player.as_mut() {
+                                pl.dirty = true;
+                            }
+                            continue;
+                        }
+                        ac_world::Applied::Created
+                        | ac_world::Applied::Deleted
+                        | ac_world::Applied::Stats
+                        | ac_world::Applied::Health
+                        | ac_world::Applied::Vendor
+                        | ac_world::Applied::Inventory => continue,
+                        ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
+                        ac_world::Applied::Ignored => {}
+                    }
+                    if let Some((op, body)) = messages::split(&msg) {
+                        chat_pending.push((op, body.to_vec()));
+                    }
+                    let Some((op, body)) = messages::split(&msg) else {
+                        continue;
+                    };
+                    match op {
+                        opcode::CHARACTER_LIST => {
+                            if let Ok(cl) = messages::CharacterList::parse(body) {
+                                tracing::info!(
+                                    "characters: {:?}",
+                                    cl.characters.iter().map(|c| &c.name).collect::<Vec<_>>()
+                                );
+                                self.characters = cl.characters;
+                                self.characters_known = true;
+                            }
+                        }
+                        opcode::DDD_END_DDD => self.ddd_done = true,
+                        _ => {}
+                    }
+                    let Some((op, _)) = messages::split(&msg) else {
+                        continue;
+                    };
+                    match op {
+                        _ if self.ddd_done && self.characters_known && !self.enter_requested => {
+                            let pick = match &self.config.character {
+                                Some(name) => self
+                                    .characters
+                                    .iter()
+                                    .find(|c| c.name.eq_ignore_ascii_case(name)),
+                                None => self.characters.first(),
+                            };
+                            match pick {
+                                Some(c) => {
+                                    tracing::info!("entering world as {}", c.name);
+                                    self.session.send_message(queue::UI, messages::enter_world_request());
+                                    self.enter_requested = true;
+                                }
+                                None => tracing::error!("no character on this account; create one with acclient --create first"),
+                            }
+                        }
+                        opcode::CHARACTER_ENTER_WORLD_SERVER_READY => {
+                            let pick = match &self.config.character {
+                                Some(name) => self
+                                    .characters
+                                    .iter()
+                                    .find(|c| c.name.eq_ignore_ascii_case(name)),
+                                None => self.characters.first(),
+                            };
+                            if let Some(c) = pick {
+                                let account = self.config.account.clone();
+                                self.session
+                                    .send_message(queue::UI, messages::enter_world(c.id, &account));
+                            }
+                        }
+                        opcode::PLAYER_TELEPORT => {
+                            // After a server teleport, take the new position and
+                            // tell the server we landed.
+                            if let (Some(pl), Some(p)) = (
+                                self.player.as_mut(),
+                                self.world.player().and_then(|o| o.position),
+                            ) {
+                                pl.cell = p.cell;
+                                pl.local = p.local;
+                                pl.dirty = true;
+                            }
+                            self.session
+                                .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
+                        }
+                        opcode::CHARACTER_ERROR | opcode::ACCOUNT_BOOT => {
+                            tracing::error!("server refused: {}", op);
+                            self.events.push(self::Event::Refused(op));
+                        }
+                        opcode::GAME_EVENT => {
+                            if let Some((_, _, ev, rest)) = messages::split_game_event(body) {
+                                if ev == 0x00A0 && rest.len() >= 8 {
+                                    let item =
+                                        u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
+                                    let err =
+                                        u32::from_le_bytes([rest[4], rest[5], rest[6], rest[7]]);
+                                    tracing::warn!(
+                                        "inventory action failed for {item:#010x}, error {err:#x}"
+                                    );
+                                    if self.loot_inflight.map(|(g, _)| g) == Some(item) {
+                                        self.loot_inflight = None;
+                                    }
+                                } else if ev == ac_net::messages::event::USE_DONE && rest.len() >= 4
+                                {
+                                    let err =
+                                        u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
+                                    tracing::debug!("use done, error {err:#x}");
+                                    // The walk the server asked for is over either way.
+                                    self.move_to = None;
+                                } else {
+                                    tracing::debug!("game event {ev:#06x} ({} bytes)", rest.len());
+                                }
+                            }
+                        }
+                        _ => tracing::debug!("message {op:#06x} ({} bytes)", body.len()),
+                    }
+                }
+            }
+        }
+        for (op, body) in chat_pending {
+            self.chat_message(op, &body);
+        }
+        self.tick_combat();
+        self.tick_loot();
+        // Build the static scene once the player is placed.
+        if self.scene_block.is_none() {
+            if let Some(p) = self.world.player().and_then(|o| o.position) {
+                let block = p.landblock();
+                tracing::info!(
+                    "player at cell {:#010x} local {:?}; loading landblocks",
+                    p.cell,
+                    p.local
+                );
+                self.player_setup = self
+                    .world
+                    .player()
+                    .map(|o| o.setup_id)
+                    .unwrap_or(0x0200_0001);
+                let mut pl = player::Player::new(&self.assets, p.cell, p.local, p.rotation);
+                let table_id = self
+                    .world
+                    .player()
+                    .map(|o| o.motion_table_id)
+                    .filter(|&t| t != 0)
+                    .unwrap_or(0x0900_0001);
+                pl.set_motion_table(&self.assets, self.player_setup, table_id);
+                self.player = Some(pl);
+                self.events.push(self::Event::Placed { cell: p.cell });
+                self.scene_block = Some(block);
+            }
+        }
+        self.world.tick(dt);
+        self.tick_player(input.unwrap_or_default(), dt, now)
+    }
+
+    fn tick_player(&mut self, input: player::Input, dt: f32, now: Instant) -> PlayerFrame {
+        // Player movement, camera, and reporting.
+        if let Some(pl) = self.player.as_mut() {
+            let mut input = input;
+            // Server-driven MoveTo (using something out of reach): run toward
+            // the target until close enough, unless the user takes over.
+            let manual = input.forward != 0.0 || input.strafe != 0.0;
+            if let Some(t) = self.move_to {
+                let goal = match t {
+                    ac_world::object::MoveTarget::Object(g) => self
+                        .world
+                        .objects
+                        .get(&g)
+                        .and_then(|o| o.display.or(o.position))
+                        .map(|p| (ac_world::landblock_origin(p.cell) + p.local, 1.0)),
+                    ac_world::object::MoveTarget::Position { cell, local } => {
+                        Some((ac_world::landblock_origin(cell) + local, 0.3))
+                    }
+                };
+                let arrived = match goal {
+                    Some((g, stop)) if !manual => {
+                        let d = g - pl.world_position();
+                        let flat = glam::Vec2::new(d.x, d.y);
+                        if flat.length() > stop {
+                            pl.heading = (-flat.x).atan2(flat.y);
+                            input.forward = 1.0;
+                            input.run = true;
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                    _ => true,
+                };
+                let _ = arrived;
+            }
+            pl.update(&self.assets, &input, dt);
+            if let Some(j) = pl.last_jump.take() {
+                tracing::info!("jump power {:.2} velocity {:?}", j.power, j.velocity);
+                self.session.send_action(
+                    ac_net::messages::action::JUMP,
+                    &ac_net::messages::jump(j.power, j.velocity.to_array(), 1),
+                );
+            }
+            // One-shot motions the server broadcast for us (attacks, emotes).
+            let mut cmds = Vec::new();
+            if let Some(o) = self.world.player_mut() {
+                while let Some(c) = o.commands.pop() {
+                    cmds.push(c);
+                }
+            }
+            for c in cmds {
+                pl.play_command(&self.assets, c.command as u32, c.speed);
+            }
+            let pose = pl.animate(&self.assets, &input, dt);
+            if pose.is_some() {
+                pl.dirty = true;
+            }
+            let quiet =
+                self.move_to.is_some() && self.move_to_since.elapsed() < Duration::from_secs(12);
+            if !quiet && self.move_to.is_some() {
+                tracing::debug!("server move-to timed out");
+                self.move_to = None;
+            }
+            pl.report(&mut self.session, &input, now, quiet);
+            let dirty = pl.dirty;
+            if pl.dirty {
+                pl.dirty = false;
+                if let Some(o) = self.world.player_mut() {
+                    o.position = Some(ac_world::Position {
+                        cell: pl.cell,
+                        local: pl.local,
+                        rotation: pl.rotation(),
+                    });
+                }
+            }
+            return PlayerFrame { dirty, pose };
+        }
+        PlayerFrame::default()
+    }
+
     pub fn play_sound(&mut self, body: &[u8]) {
         use ac_net::messages::parse_sound;
         let Ok((guid, kind, volume)) = parse_sound(body) else {
