@@ -42,6 +42,10 @@ pub struct Options {
     pub character: Option<String>,
     /// Headless: adds `--mute` (and `--headless` once acviewer has it).
     pub headless: bool,
+    /// Join the local cross-process bus (`--bus`).
+    pub bus: bool,
+    /// Frame-rate cap (`--fps N`); 0 leaves the client's default.
+    pub fps: u32,
 }
 
 /// The client program and leading args: the configured one, or the
@@ -115,6 +119,13 @@ pub fn build_launch(
     }
     if opts.headless {
         args.push("--mute".into());
+    }
+    if opts.bus {
+        args.push("--bus".into());
+    }
+    if opts.fps > 0 {
+        args.push("--fps".into());
+        args.push(opts.fps.to_string());
     }
     let cwd = (program == "cargo").then(workspace_root);
     Launch { program, args, cwd }
@@ -286,6 +297,8 @@ mod tests {
         let opts = Options {
             character: Some(" Alice One ".into()),
             headless: true,
+            bus: false,
+            fps: 0,
         };
         let l = build_launch(&bin, Path::new("/data"), &server, &account, &opts);
         let tail = &l.args[l.args.len() - 3..];
@@ -294,10 +307,14 @@ mod tests {
         let opts = Options {
             character: Some("   ".into()),
             headless: false,
+            bus: true,
+            fps: 30,
         };
         let l = build_launch(&bin, Path::new("/data"), &server, &account, &opts);
         assert!(!l.args.iter().any(|a| a == "--character"));
         assert!(!l.args.iter().any(|a| a == "--mute"));
+        let tail = &l.args[l.args.len() - 3..];
+        assert_eq!(tail, ["--bus", "--fps", "30"]);
     }
 
     #[test]

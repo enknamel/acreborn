@@ -62,6 +62,13 @@ pub struct Config {
     /// The plain-text password notice has been shown and dismissed.
     #[serde(default)]
     pub password_notice_dismissed: bool,
+    /// Launch every client with `--bus` so plugins in all of them share
+    /// posts and blackboard values (see docs/multi-session.md).
+    #[serde(default)]
+    pub share_bus: bool,
+    /// Frame-rate cap passed as `--fps` (0 = the client's default).
+    #[serde(default)]
+    pub fps: u32,
 }
 
 impl Default for Config {
@@ -76,6 +83,8 @@ impl Default for Config {
             data_dir: default_data_dir(),
             client_binary: Vec::new(),
             password_notice_dismissed: false,
+            share_bus: false,
+            fps: 0,
         }
     }
 }

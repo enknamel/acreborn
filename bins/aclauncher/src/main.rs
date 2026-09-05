@@ -71,6 +71,8 @@ fn main() -> Result<()> {
                 .clone()
                 .or_else(|| account.last_character.clone()),
             headless: cli.headless,
+            bus: cfg.share_bus,
+            fps: cfg.fps,
         };
         let l = launch::build_launch(
             &launch::client_binary(&cfg),

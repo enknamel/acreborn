@@ -282,6 +282,8 @@ impl App {
         let opts = Options {
             character: account.last_character.clone(),
             headless,
+            bus: self.config.share_bus,
+            fps: self.config.fps,
         };
         let launch = launch::build_launch(
             &launch::client_binary(&self.config),
@@ -468,6 +470,25 @@ impl App {
                         client.split_whitespace().map(String::from).collect();
                     self.dirty = true;
                 }
+                if ui
+                    .checkbox(&mut self.config.share_bus, "Share state between clients")
+                    .on_hover_text(
+                        "adds --bus: plugins in every launched client see each other's posts and values",
+                    )
+                    .changed()
+                {
+                    self.dirty = true;
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Frame cap");
+                    if ui
+                        .add(egui::DragValue::new(&mut self.config.fps).range(0..=240).suffix(" fps"))
+                        .on_hover_text("adds --fps; 0 keeps the client's default (60). Lower it to run more clients")
+                        .changed()
+                    {
+                        self.dirty = true;
+                    }
+                });
                 if self.config.client_binary.is_empty() {
                     ui.small(launch::client_binary(&self.config).join(" "));
                 }

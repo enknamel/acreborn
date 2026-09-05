@@ -55,8 +55,13 @@ cargo run -p aclauncher -- --dry-run alice [--server NAME] [--character NAME] [-
 Each launch spawns one process (`launch::build_launch`):
 
 ```
-<client_binary> --data-dir <data_dir> --connect <host:port> -a <account> -v <password> [--character <name>] [--mute]
+<client_binary> --data-dir <data_dir> --connect <host:port> -a <account> -v <password> [--character <name>] [--mute] [--bus] [--fps N]
 ```
+
+Two settings under the server list apply to every launch: **Share state
+between clients** adds `--bus` (the first client hosts the loopback hub,
+the rest join it, see below) and **Frame cap** adds `--fps N`. Both are
+saved in `launcher.json` (`share_bus`, `fps`).
 
 with stdout/stderr appended to `~/.acreborn/logs/<account>.log`.
 "Launch headless" adds `--mute` (and will add `--headless` once acviewer
