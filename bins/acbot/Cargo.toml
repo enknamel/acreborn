@@ -1,0 +1,16 @@
+[package]
+name = "acbot"
+description = "Headless runner for many game sessions in one process: no window, no GPU"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-client = { path = "../../crates/ac-client" }
+ac-plugin = { path = "../../crates/ac-plugin" }
+ac-scene = { path = "../../crates/ac-scene" }
+anyhow.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+ctrlc = "3"
+tracing.workspace = true
+tracing-subscriber.workspace = true

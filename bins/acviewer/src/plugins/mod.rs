@@ -1,6 +1,6 @@
 //! The viewer's built-in plugins and how they are registered.
 
-pub mod console;
+pub use ac_plugin::console;
 
 pub use ac_plugin::{Host, Requests};
 

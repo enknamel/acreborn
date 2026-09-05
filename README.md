@@ -99,12 +99,42 @@ The config lives in `~/.acreborn/launcher.json`:
 `cargo run -p acviewer --` from the workspace root. **Passwords are stored
 in plain text** in this file; it is only as private as your home directory.
 
+## Headless sessions (acbot)
+
+`acbot` runs many sessions in one process with no window and no GPU: the
+"as many clients as possible on one computer" case. Each `--client` logs in,
+enters the world and is ticked `--tick-hz` times a second (default 20; the
+loop sleeps in between, and 4 Hz is enough for the server) with no keyboard
+input, so plugins and the server's own move-to drive movement. The console
+plugin (`ac_plugin::console::Console`, the same one the viewer registers)
+answers `/commands`.
+
+```
+cargo run --release -p acbot -- --data-dir $AC_DATA_DIR --connect 127.0.0.1 \
+    --client bot1:pw --client bot2:pw:Reborn --client bot3:pw \
+    --tick-hz 10 --duration 300 --log-chat \
+    --say "@telepoi holtburg" --say /combat --script walk.txt
+```
+
+`--say LINE` (repeatable) is typed by every session once its character is
+placed, one line per second; `--script PATH` appends the lines of a text
+file (blank lines and `#` comments skipped). Lines starting with `/` go to
+the plugin host as commands, anything else is said to the server (`@`
+commands included). `--duration 0` (the default) runs until Ctrl-C, which
+disconnects every session cleanly; the run also ends when every session has
+been terminated or refused. At start it prints the session count and tick
+rate, and every 10 s one status line per session (placed?, cell, health,
+target). `--log-chat` prints chat lines prefixed with the account;
+`RUST_LOG=info` shows the connection log as well.
+
 Workspace: `crates/ac-dat` (container), `crates/ac-formats` (asset
 decoders), `crates/ac-scene` (GPU-free mesh assembly, collision),
 `crates/ac-net` (protocol, sans-IO session), `crates/ac-world` (object
-table and movement), `bins/acdat` (CLI), `bins/acviewer` (wgpu viewer and
-client), `bins/acclient` (headless client), `bins/aclauncher` (launch
-manager).
+table and movement), `crates/ac-client` (headless game session),
+`crates/ac-plugin` (plugin interface, host and console plugin), `bins/acdat`
+(CLI), `bins/acviewer` (wgpu viewer and client), `bins/acclient` (headless
+login client), `bins/acbot` (headless multi-session runner),
+`bins/aclauncher` (launch manager).
 
 Debugging aids: `RUST_LOG=acviewer=debug`, `ACV_HIDE_STATIC=1` (draw only
 server objects), and in connected `--screenshot` mode `--walk`, `--say`,

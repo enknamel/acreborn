@@ -3,7 +3,7 @@
 //! Every command here is one call into `ac_client::Client`; scripts and
 //! agent plugins call those methods directly instead. `/help` lists them.
 
-use ac_plugin::{Ctx, Plugin};
+use crate::{Ctx, Plugin};
 
 #[derive(Default)]
 pub struct Console;
