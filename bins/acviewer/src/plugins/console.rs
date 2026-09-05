@@ -20,33 +20,33 @@ impl Plugin for Console {
                 cx.log("/combat  /peace  /stop  /who  /clients  /switch N");
             }
             "use" => {
-                if !cx.client.use_by_name(args) {
+                if !cx.client().use_by_name(args) {
                     cx.log(format!("Nothing named {args:?} in view"));
                 }
             }
             "attack" => {
-                if !cx.client.combat {
-                    cx.client.toggle_combat();
+                if !cx.client().combat {
+                    cx.client().toggle_combat();
                 }
-                if !cx.client.use_by_name(args) {
+                if !cx.client().use_by_name(args) {
                     cx.log(format!("Nothing named {args:?} in view"));
                 }
             }
             "combat" => {
-                if !cx.client.combat {
-                    cx.client.toggle_combat();
+                if !cx.client().combat {
+                    cx.client().toggle_combat();
                 }
             }
             "peace" | "stop" => {
-                if cx.client.combat {
-                    cx.client.toggle_combat();
+                if cx.client().combat {
+                    cx.client().toggle_combat();
                 }
-                cx.client.attack_target = None;
+                cx.client().attack_target = None;
             }
             "cast" => {
-                let table = cx.client.assets.spell_table().ok();
+                let table = cx.client().assets.spell_table().ok();
                 let id = cx
-                    .client
+                    .client()
                     .world
                     .stats
                     .spells
@@ -59,58 +59,58 @@ impl Plugin for Console {
                             .is_some_and(|sp| sp.name.starts_with(args))
                     })
                     .or_else(|| {
-                        cx.client
+                        cx.client()
                             .known_spells
                             .iter()
                             .find(|(_, n)| n.starts_with(args))
                             .map(|(id, _)| *id)
                     });
                 match id {
-                    Some(id) => cx.client.cast(id),
+                    Some(id) => cx.client().cast(id),
                     None => cx.log(format!("No known spell named {args:?}")),
                 }
             }
             "loot" => {
                 let corpse = if args.is_empty() {
-                    format!("Corpse of {}", cx.client.last_target_name)
+                    format!("Corpse of {}", cx.client().last_target_name)
                 } else {
                     args.to_string()
                 };
-                if cx.client.combat {
-                    cx.client.toggle_combat();
+                if cx.client().combat {
+                    cx.client().toggle_combat();
                 }
-                if !cx.client.use_by_name(&corpse) {
+                if !cx.client().use_by_name(&corpse) {
                     cx.log(format!("No {corpse:?} in view"));
                 }
             }
             "buy" => {
                 let guid = cx
-                    .client
+                    .client()
                     .world
                     .open_vendor
                     .as_ref()
                     .and_then(|v| v.items.iter().find(|i| i.desc.name.starts_with(args)))
                     .map(|i| i.guid);
                 match guid {
-                    Some(g) => cx.client.buy(g),
+                    Some(g) => cx.client().buy(g),
                     None => cx.log("Open a vendor first, and name something it sells"),
                 }
             }
             "sell" => {
                 let guid = cx
-                    .client
+                    .client()
                     .world
                     .inventory()
                     .find(|o| o.name.starts_with(args))
                     .map(|o| o.guid);
                 match guid {
-                    Some(g) if cx.client.world.open_vendor.is_some() => cx.client.sell(g),
+                    Some(g) if cx.client().world.open_vendor.is_some() => cx.client().sell(g),
                     _ => cx.log("Open a vendor first, and name something in your pack"),
                 }
             }
             "who" => {
                 let mut names: Vec<String> = cx
-                    .client
+                    .client()
                     .world
                     .drawable()
                     .filter(|o| !o.is_player)
@@ -123,13 +123,13 @@ impl Plugin for Console {
             "clients" => {
                 cx.log(format!(
                     "{} session(s); this is #{}",
-                    cx.client_count,
-                    cx.client_index + 1
+                    cx.client_count(),
+                    cx.index + 1
                 ));
             }
             "switch" => match args.parse::<usize>() {
-                Ok(n) if n >= 1 && n <= cx.client_count => cx.activate = Some(n - 1),
-                _ => cx.log(format!("/switch N with N in 1..={}", cx.client_count)),
+                Ok(n) if n >= 1 && n <= cx.client_count() => cx.activate = Some(n - 1),
+                _ => cx.log(format!("/switch N with N in 1..={}", cx.client_count())),
             },
             _ => return false,
         }

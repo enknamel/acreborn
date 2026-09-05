@@ -145,6 +145,11 @@ fn egui_key(code: KeyCode) -> Option<egui::Key> {
     egui::Key::from_name(name)
 }
 
+/// Every session's client, for plugin callbacks.
+fn clients_of(nets: &mut [Net]) -> Vec<&mut ac_client::Client> {
+    nets.iter_mut().map(|n| &mut n.client).collect()
+}
+
 fn icon_loader(data_dir: PathBuf) -> ui::IconLoader {
     let assets: std::cell::OnceCell<Option<ac_scene::Assets>> = std::cell::OnceCell::new();
     Box::new(move |id| {
@@ -298,9 +303,24 @@ struct App {
     ui: Option<ui::Ui>,
     fps: f32,
     plugins: plugins::Host,
+    /// A session switch a plugin asked for during the UI pass.
+    pending_switch: Option<usize>,
 }
 
 impl App {
+    /// Apply what plugins asked for (chat lines to the active log, a
+    /// session switch).
+    fn apply_requests(&mut self, r: plugins::Requests) {
+        if let Some(ui) = &mut self.ui {
+            for (text, kind) in r.chat {
+                ui.push_chat(text, kind);
+            }
+        }
+        if let Some(a) = r.activate {
+            self.switch_to(a);
+        }
+    }
+
     fn interact(&mut self, guid: u32) {
         if let Some(net) = self.nets.get_mut(self.active) {
             net.client.interact(guid);
@@ -339,25 +359,27 @@ impl App {
         let close_loot = std::mem::take(&mut ui.loot_close);
         let activated = std::mem::take(&mut ui.activated);
         let casts = std::mem::take(&mut ui.cast_requests);
-        let (active, count) = (self.active, self.nets.len());
-        let Some(net) = self.nets.get_mut(self.active) else {
+        let active = self.active;
+        if self.nets.is_empty() {
             return;
-        };
-        let mut chat = Vec::new();
-        let mut activate = None;
+        }
+        let mut requests: Vec<plugins::Requests> = Vec::new();
         for t in outgoing {
             if t.starts_with('/') {
                 tracing::info!("command {t} (session {})", active + 1);
-                let (_, lines, act) = self.plugins.command(&mut net.client, active, count, &t);
-                activate = activate.or(act);
-                for (l, _) in &lines {
+                let clients = clients_of(&mut self.nets);
+                let r = self.plugins.command(clients, active, &t);
+                for (l, _) in &r.chat {
                     tracing::info!("{t} -> {l}");
                 }
-                chat.extend(lines);
-            } else {
+                requests.push(r);
+            } else if let Some(net) = self.nets.get_mut(active) {
                 net.client.say(&t);
             }
         }
+        let Some(net) = self.nets.get_mut(active) else {
+            return;
+        };
         let c = &mut net.client;
         for g in buy {
             c.buy(g);
@@ -380,13 +402,8 @@ impl App {
         for sp in casts {
             c.cast(sp);
         }
-        if let Some(ui) = &mut self.ui {
-            for (text, kind) in chat {
-                ui.push_chat(text, kind);
-            }
-        }
-        if let Some(a) = activate {
-            self.switch_to(a);
+        for r in requests {
+            self.apply_requests(r);
         }
     }
     /// Play a server Sound message through the object's sound table.
@@ -764,7 +781,11 @@ impl App {
     /// Pump the connection: send, receive, apply messages, rebuild scenes.
     /// Tick one session: keys steer only the active one; the others keep
     /// their connection, physics and plugins running.
-    fn tick_client(&mut self, i: usize, now: Instant) -> Option<ac_client::PlayerFrame> {
+    fn tick_client(
+        &mut self,
+        i: usize,
+        now: Instant,
+    ) -> Option<(ac_client::PlayerFrame, Vec<ac_client::Event>)> {
         let is_active = i == self.active;
         let jump = if is_active {
             std::mem::take(&mut self.jump_requested)
@@ -820,20 +841,8 @@ impl App {
                 | ac_client::Event::Refused(_) => {}
             }
         }
-        let (chat, activate) =
-            self.plugins
-                .frame(&mut net.client, &events, i, count, self.frame_dt, now);
-        if is_active {
-            if let Some(ui) = &mut self.ui {
-                for (text, kind) in chat {
-                    ui.push_chat(text, kind);
-                }
-            }
-        }
-        if let Some(a) = activate {
-            self.switch_to(a);
-        }
-        Some(frame)
+        let _ = count;
+        Some((frame, events))
     }
 
     /// Make session `i` the one the window shows; the scene follows it.
@@ -860,15 +869,35 @@ impl App {
             return;
         }
         let now = Instant::now();
+        if let Some(a) = self.pending_switch.take() {
+            self.switch_to(a);
+        }
         self.apply_ui_commands();
         let mut frame = ac_client::PlayerFrame::default();
+        let mut per_session: Vec<Vec<ac_client::Event>> = Vec::new();
         for i in 0..self.nets.len() {
-            if let Some(f) = self.tick_client(i, now) {
-                if i == self.active {
-                    frame = f;
+            match self.tick_client(i, now) {
+                Some((f, events)) => {
+                    if i == self.active {
+                        frame = f;
+                    }
+                    per_session.push(events);
                 }
+                None => per_session.push(Vec::new()),
             }
         }
+        // Plugins see every session, one callback batch per session.
+        let dt = self.frame_dt;
+        for (i, events) in per_session.iter().enumerate() {
+            let clients = clients_of(&mut self.nets);
+            let r = self.plugins.frame(clients, i, events, dt, now);
+            if i == self.active {
+                self.apply_requests(r);
+            } else if let Some(a) = r.activate {
+                self.switch_to(a);
+            }
+        }
+        self.plugins.end_frame();
         let Some(net) = self.nets.get_mut(self.active) else {
             return;
         };
@@ -1178,21 +1207,17 @@ impl ApplicationHandler for App {
                     if typing {
                         return;
                     }
-                    let (active, count) = (self.active, self.nets.len());
-                    if let (Some(key), Some(net)) = (egui_key(code), self.nets.get_mut(self.active))
-                    {
-                        let (used, chat, _) = self.plugins.key(
-                            &mut net.client,
+                    if let (Some(key), false) = (egui_key(code), self.nets.is_empty()) {
+                        let active = self.active;
+                        let clients = clients_of(&mut self.nets);
+                        let r = self.plugins.key(
+                            clients,
                             active,
-                            count,
                             key,
                             event.state == ElementState::Pressed,
                         );
-                        if let Some(ui) = &mut self.ui {
-                            for (text, kind) in chat {
-                                ui.push_chat(text, kind);
-                            }
-                        }
+                        let used = r.consumed;
+                        self.apply_requests(r);
                         if used {
                             return;
                         }
@@ -1324,18 +1349,17 @@ impl ApplicationHandler for App {
                     let mut ui = self.ui.as_mut();
                     if let Some(ui) = ui.as_deref_mut() {
                         let plugins = &mut self.plugins;
-                        let (active, count) = (self.active, self.nets.len());
-                        let mut net = self.nets.get_mut(active);
-                        let mut chat = Vec::new();
-                        let mut activate = None;
+                        let active = self.active;
+                        let mut clients: Vec<&mut ac_client::Client> =
+                            self.nets.iter_mut().map(|n| &mut n.client).collect();
+                        let mut requests: Option<plugins::Requests> = None;
                         ui.begin(
                             self.window.as_deref(),
                             &mut |egui| {
-                                if let Some(net) = net.as_deref_mut() {
-                                    let (lines, act) =
-                                        plugins.ui(&mut net.client, active, count, egui);
-                                    chat.extend(lines);
-                                    activate = activate.or(act);
+                                if !clients.is_empty() {
+                                    let borrowed: Vec<&mut ac_client::Client> =
+                                        clients.iter_mut().map(|c| &mut **c).collect();
+                                    requests = Some(plugins.ui(borrowed, active, egui));
                                 }
                             },
                             g.device(),
@@ -1343,8 +1367,11 @@ impl ApplicationHandler for App {
                             w,
                             h,
                         );
-                        for (text, kind) in chat {
-                            ui.push_chat(text, kind);
+                        if let Some(r) = requests {
+                            for (text, kind) in r.chat {
+                                ui.push_chat(text, kind);
+                            }
+                            self.pending_switch = r.activate;
                         }
                     }
                     let mut paint = |d: &wgpu::Device,
@@ -1447,6 +1474,7 @@ fn main() -> Result<()> {
             ui: None,
             fps: 0.0,
             plugins: plugins::Host::builtin(),
+            pending_switch: None,
         };
         app.load_scene(&mut gpu)?;
         let (w, h) = gpu.size();
@@ -1877,6 +1905,7 @@ fn main() -> Result<()> {
         ui: None,
         fps: 0.0,
         plugins: plugins::Host::builtin(),
+        pending_switch: None,
     };
     event_loop.run_app(&mut app)?;
     Ok(())

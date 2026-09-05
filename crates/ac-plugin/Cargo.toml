@@ -10,3 +10,4 @@ ac-client = { path = "../ac-client" }
 ac-world = { path = "../ac-world" }
 ac-scene = { path = "../ac-scene" }
 egui = "0.36"
+serde_json = "1"
