@@ -25,6 +25,29 @@ fn opt_guid(g: Option<u32>) -> Dynamic {
     g.map_or(Dynamic::UNIT, int)
 }
 
+/// A spellbook spell by name prefix, or one learnt from a scroll this
+/// session.
+fn spell_by_name(c: &Client, name: &str) -> Option<u32> {
+    let table = c.assets.spell_table().ok();
+    c.world
+        .stats
+        .spells
+        .iter()
+        .copied()
+        .find(|id| {
+            table
+                .as_ref()
+                .and_then(|t| t.get(*id))
+                .is_some_and(|sp| sp.name.starts_with(name))
+        })
+        .or_else(|| {
+            c.known_spells
+                .iter()
+                .find(|(_, n)| n.starts_with(name))
+                .map(|(id, _)| *id)
+        })
+}
+
 fn player_position(c: &Client) -> Option<[f32; 3]> {
     let p = match c.player.as_ref() {
         Some(p) => p.world_position(),
@@ -231,25 +254,7 @@ impl Api for CtxApi<'_, '_> {
 
     fn cast(&mut self, name: &str) -> bool {
         let c = self.client();
-        let table = c.assets.spell_table().ok();
-        let id = c
-            .world
-            .stats
-            .spells
-            .iter()
-            .copied()
-            .find(|id| {
-                table
-                    .as_ref()
-                    .and_then(|t| t.get(*id))
-                    .is_some_and(|sp| sp.name.starts_with(name))
-            })
-            .or_else(|| {
-                c.known_spells
-                    .iter()
-                    .find(|(_, n)| n.starts_with(name))
-                    .map(|(id, _)| *id)
-            });
+        let id = spell_by_name(c, name);
         match id {
             Some(id) => {
                 c.cast(id);
@@ -305,6 +310,42 @@ impl Api for CtxApi<'_, '_> {
 
     fn close_container(&mut self) {
         self.client().close_container();
+    }
+
+    fn can_cast(&mut self, name: &str) -> String {
+        let c = self.client();
+        let Some(id) = spell_by_name(c, name) else {
+            return "not_known".into();
+        };
+        use ac_plugin::ac_client::magic::CastCheck;
+        match c.can_cast(id) {
+            CastCheck::Ok => "ok",
+            CastCheck::NotKnown => "not_known",
+            CastCheck::NoCaster => "no_caster",
+            CastCheck::MissingComponents(_) => "missing_components",
+            CastCheck::NotEnoughMana { .. } => "not_enough_mana",
+        }
+        .into()
+    }
+
+    fn components(&mut self) -> Array {
+        self.client()
+            .components()
+            .into_iter()
+            .map(|c| {
+                let mut m = Map::new();
+                m.insert("id".into(), int(c.component_id));
+                m.insert("name".into(), c.name.into());
+                m.insert("wcid".into(), int(c.wcid));
+                m.insert("count".into(), int(c.count));
+                m.insert("desired".into(), int(c.desired));
+                Dynamic::from_map(m)
+            })
+            .collect()
+    }
+
+    fn fill_components(&mut self) -> i64 {
+        self.client().fill_components() as i64
     }
 
     fn buy(&mut self, name: &str) -> bool {

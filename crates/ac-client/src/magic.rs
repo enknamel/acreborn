@@ -175,45 +175,119 @@ impl Client {
     }
 
     /// The components one cast of `spell` needs right now: the full
-    /// formula, or scarabs (and chorizite) plus prismatic tapers when the
-    /// school's focus is carried. Empty for unknown spells.
+    /// formula with this account's personal tapers
+    /// (`Spell::player_formula`), or scarabs (and chorizite) plus
+    /// prismatic tapers when the school's focus is carried. Empty for
+    /// spells the archive does not know.
     pub fn current_formula(&self, spell: u32) -> Vec<u32> {
         let Some(sp) = self.spell(spell) else {
             return Vec::new();
         };
-        let full: Vec<u32> = sp.formula().collect();
-        if !self.has_focus(sp.school) {
-            return full;
+        if self.has_focus(sp.school) {
+            let full: Vec<u32> = sp.formula().collect();
+            foci_formula(&full)
+        } else {
+            sp.player_formula(&self.config.account)
         }
-        let mut out: Vec<u32> = full
-            .iter()
-            .copied()
-            .filter(|&c| is_scarab(c) || c == CHORIZITE)
-            .collect();
-        let tapers = match scarab_power(full.first().copied().unwrap_or(0)) {
-            1 => 1,
-            2 => 2,
-            3 | 4 | 7 => 3,
-            5 | 6 | 8 | 9 | 10 => 4,
-            _ => 0,
-        };
-        out.extend(std::iter::repeat(PRISMATIC_TAPER).take(tapers));
-        out
     }
 
     /// Every spell component carried, with counts and desired levels.
+    /// Components with a desired quantity that are not carried appear
+    /// with a count of 0 so the panel and `fill_components` can act on
+    /// them. Sorted by the component table's category, then id.
     pub fn components(&self) -> Vec<ComponentCount> {
-        // Filled in by the component mapping (DualDidMapper 0x27000002).
-        Vec::new()
+        let Ok(mapper) = self.assets.spell_component_ids() else {
+            return Vec::new();
+        };
+        let table = self.assets.spell_components().ok();
+        let describe = |id: u32, wcid: u32| {
+            let name = table
+                .as_ref()
+                .and_then(|t| t.get(id).map(|c| c.name.clone()))
+                .or_else(|| mapper.name_of(id).map(str::to_string))
+                .unwrap_or_else(|| format!("Component {id}"));
+            ComponentCount {
+                component_id: id,
+                name,
+                wcid,
+                count: 0,
+                desired: 0,
+            }
+        };
+        let mut out: Vec<ComponentCount> = Vec::new();
+        for o in self.world.inventory() {
+            let Some(id) = mapper.component_of_wcid(o.weenie_class_id) else {
+                continue;
+            };
+            if id == 0 {
+                continue;
+            }
+            let n = o.stack_size.max(1);
+            match out.iter_mut().find(|c| c.component_id == id) {
+                Some(c) => c.count += n,
+                None => {
+                    let mut c = describe(id, o.weenie_class_id);
+                    c.count = n;
+                    out.push(c);
+                }
+            }
+        }
+        for &(id, desired) in &self.world.stats.options.desired_comps {
+            match out.iter_mut().find(|c| c.component_id == id) {
+                Some(c) => c.desired = desired,
+                None if desired > 0 => {
+                    let Some(wcid) = mapper.component_wcid(id) else {
+                        continue;
+                    };
+                    let mut c = describe(id, wcid);
+                    c.desired = desired;
+                    out.push(c);
+                }
+                None => {}
+            }
+        }
+        let category = |id: u32| {
+            table
+                .as_ref()
+                .and_then(|t| t.get(id).map(|c| c.category))
+                .unwrap_or(u32::MAX)
+        };
+        out.sort_by_key(|c| (category(c.component_id), c.component_id));
+        out
     }
 
-    /// Whether `spell` could be cast now, and if not why.
+    /// Whether `spell` could be cast now, and if not why. Checked in
+    /// order: known, caster wielded, components of the current formula,
+    /// mana against the spell's base cost (no Mana Conversion estimate,
+    /// so the real cost may be lower).
     pub fn can_cast(&self, spell: u32) -> CastCheck {
         if !self.world.stats.spells.contains(&spell) {
             return CastCheck::NotKnown;
         }
         if self.wielded_caster().is_none() {
             return CastCheck::NoCaster;
+        }
+        let need = self.current_formula(spell);
+        if !need.is_empty() {
+            let have = self.components();
+            let count = |id: u32| {
+                have.iter()
+                    .find(|c| c.component_id == id)
+                    .map_or(0, |c| c.count)
+            };
+            let missing = missing_components(&need, count);
+            if !missing.is_empty() {
+                return CastCheck::MissingComponents(missing);
+            }
+        }
+        if let Some(sp) = self.spell(spell) {
+            let have = self.world.stats.vitals[2].current;
+            if have < sp.base_mana {
+                return CastCheck::NotEnoughMana {
+                    need: sp.base_mana,
+                    have,
+                };
+            }
         }
         CastCheck::Ok
     }
@@ -236,21 +310,309 @@ impl Client {
     }
 
     /// With a vendor open, buy components up to their desired quantities
-    /// (the `@fillcomps` command). Returns how many stacks were requested.
+    /// (the `@fillcomps` command): one Buy naming every stocked component
+    /// that is short, for its shortfall. Returns how many kinds were
+    /// ordered (0 with no vendor open or nothing to buy).
     pub fn fill_components(&mut self) -> usize {
-        0
+        let Some(vendor) = self.world.open_vendor.as_ref() else {
+            return 0;
+        };
+        let Ok(mapper) = self.assets.spell_component_ids() else {
+            return 0;
+        };
+        let orders: Vec<(u32, i32)> = self
+            .components()
+            .iter()
+            .filter(|c| c.desired > c.count)
+            .filter_map(|c| {
+                let wcid = mapper.component_wcid(c.component_id)?;
+                let item = vendor
+                    .items
+                    .iter()
+                    .find(|i| i.desc.weenie_class_id == wcid)?;
+                let short = c.desired - c.count;
+                // A stock count below the "unlimited" marker caps the order.
+                let amount = if item.stack < 0x00FF_FFFF {
+                    short.min(item.stack)
+                } else {
+                    short
+                };
+                (amount > 0).then_some((item.guid, amount as i32))
+            })
+            .collect();
+        if orders.is_empty() {
+            return 0;
+        }
+        let vendor = vendor.vendor;
+        tracing::info!(
+            "fill components: {} kinds from {vendor:#010x}",
+            orders.len()
+        );
+        self.session.send_action(
+            ac_net::messages::action::BUY,
+            &ac_net::messages::trade(vendor, &orders),
+        );
+        orders.len()
     }
 }
 
-/// Scarab component ids (SpellComponentsTable): Lead 1 ... Mana 10.
+/// Scarab component ids (SpellComponentsTable): Lead 1, Iron 2, Copper 3,
+/// Silver 4, Gold 5, Pyreal 6, Diamond 110, Platinum 112, Dark 192,
+/// Mana 193 (ACE `SpellFormula.Scarab`).
 pub fn is_scarab(component: u32) -> bool {
-    (1..=10).contains(&component)
+    scarab_power(component) != 0
 }
 
-/// A scarab's power, which sets the taper count of the foci formula.
+/// A scarab's power, which sets the taper count of the foci formula
+/// (ACE `SpellFormula.ScarabPower`); 0 for anything else.
 pub fn scarab_power(component: u32) -> u32 {
     match component {
-        1..=10 => component, // Lead 1, Iron 2, Copper 3, Silver 4, Gold 5, Pyreal 6, Diamond 7, Platinum 8, Dark 9, Mana 10
+        1..=6 => component, // Lead 1, Iron 2, Copper 3, Silver 4, Gold 5, Pyreal 6
+        110 => 7,           // Diamond
+        112 => 8,           // Platinum
+        192 => 9,           // Dark
+        193 => 10,          // Mana
         _ => 0,
+    }
+}
+
+/// Prismatic tapers the foci formula needs for a scarab power (the
+/// client's `CSpellBase::InqScarabOnlyFormula`).
+pub fn taper_count(power: u32) -> u32 {
+    match power {
+        1 => 1,
+        2 => 2,
+        3 | 4 | 7 => 3,
+        5 | 6 | 8 | 9 | 10 => 4,
+        _ => 0,
+    }
+}
+
+/// The formula a focus reduces `full` to: its scarabs (and chorizite) in
+/// order, then prismatic tapers by the first component's scarab power.
+pub fn foci_formula(full: &[u32]) -> Vec<u32> {
+    let mut out: Vec<u32> = full
+        .iter()
+        .copied()
+        .filter(|&c| is_scarab(c) || c == CHORIZITE)
+        .collect();
+    let tapers = taper_count(scarab_power(full.first().copied().unwrap_or(0)));
+    out.extend(std::iter::repeat_n(PRISMATIC_TAPER, tapers as usize));
+    out
+}
+
+/// What `need` (a formula, repeats counted) lacks given `have(id)`
+/// carried: (component id, how many short), in the formula's order.
+pub fn missing_components(need: &[u32], have: impl Fn(u32) -> u32) -> Vec<(u32, u32)> {
+    let mut wanted: Vec<(u32, u32)> = Vec::new();
+    for &c in need {
+        match wanted.iter_mut().find(|(id, _)| *id == c) {
+            Some(e) => e.1 += 1,
+            None => wanted.push((c, 1)),
+        }
+    }
+    wanted
+        .into_iter()
+        .filter_map(|(id, n)| {
+            let short = n.saturating_sub(have(id));
+            (short > 0).then_some((id, short))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scarabs_and_powers() {
+        assert!(is_scarab(1) && is_scarab(6) && is_scarab(110) && is_scarab(193));
+        assert!(!is_scarab(7) && !is_scarab(10) && !is_scarab(63) && !is_scarab(188));
+        assert_eq!(scarab_power(6), 6);
+        assert_eq!(scarab_power(110), 7);
+        assert_eq!(scarab_power(112), 8);
+        assert_eq!(scarab_power(192), 9);
+        assert_eq!(scarab_power(193), 10);
+        assert_eq!(scarab_power(111), 0);
+    }
+
+    #[test]
+    fn focus_reduces_a_formula_to_scarabs_and_tapers() {
+        // Heal Self I (lead scarab): scarab plus one prismatic taper.
+        assert_eq!(foci_formula(&[1, 7, 26, 41, 61]), [1, PRISMATIC_TAPER]);
+        // A pyreal-scarab spell needs four tapers.
+        assert_eq!(
+            foci_formula(&[6, 63, 15, 64, 34, 46, 65, 55]),
+            [6, 188, 188, 188, 188]
+        );
+        // Ring spells carry several scarabs; chorizite stays too.
+        assert_eq!(
+            foci_formula(&[4, 4, 15, 111, 34, 46, 55]),
+            [4, 4, 111, 188, 188, 188]
+        );
+        // Diamond (power 7): three tapers; Mana (power 10): four.
+        assert_eq!(foci_formula(&[110, 7, 26, 41, 61]), [110, 188, 188, 188]);
+        assert_eq!(foci_formula(&[193, 7, 26, 41, 61]).len(), 5);
+        // Not scarab-led: nothing but the tapers of power 0 (none).
+        assert_eq!(foci_formula(&[7, 26]), Vec::<u32>::new());
+        assert_eq!(foci_formula(&[]), Vec::<u32>::new());
+    }
+
+    #[test]
+    fn missing_components_arithmetic() {
+        let have = |id: u32| match id {
+            1 => 3,
+            7 => 1,
+            188 => 2,
+            _ => 0,
+        };
+        assert!(missing_components(&[1, 7], have).is_empty());
+        assert_eq!(
+            missing_components(&[1, 7, 26, 41, 61], have),
+            [(26, 1), (41, 1), (61, 1)]
+        );
+        // Repeats count: four tapers wanted, two carried.
+        assert_eq!(
+            missing_components(&[6, 188, 188, 188, 188], have),
+            [(6, 1), (188, 2)]
+        );
+        assert_eq!(missing_components(&[1, 1, 1, 1], have), [(1, 1)]);
+        assert!(missing_components(&[], have).is_empty());
+    }
+
+    #[test]
+    fn focus_lookup() {
+        use ac_formats::spell_table::school;
+        assert_eq!(focus_wcid(school::LIFE), Some(15270));
+        assert_eq!(focus_wcid(school::VOID), Some(43173));
+        assert_eq!(focus_wcid(school::NONE), None);
+    }
+
+    /// Offline session over the real archives: no packet is ever sent
+    /// (nothing calls `tick`).
+    fn offline_client(assets: std::rc::Rc<ac_scene::Assets>) -> Client {
+        Client::connect(
+            crate::Config {
+                host: "127.0.0.1:1".into(),
+                account: "acreborn".into(),
+                password: "x".into(),
+                character: None,
+            },
+            assets,
+        )
+        .unwrap()
+    }
+
+    const ME: u32 = 0x5000_0001;
+
+    fn pack_item(c: &mut Client, guid: u32, wcid: u32, stack: u32) {
+        c.world.objects.insert(
+            guid,
+            ac_world::WorldObject {
+                guid,
+                weenie_class_id: wcid,
+                stack_size: stack,
+                container: Some(ME),
+                parent: Some(ME),
+                ..Default::default()
+            },
+        );
+    }
+
+    #[test]
+    fn components_and_cast_checks_over_the_archives() {
+        let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+            eprintln!("AC_DATA_DIR unset; skipping");
+            return;
+        };
+        let assets = std::rc::Rc::new(ac_scene::Assets::open(dir).unwrap());
+        let mapper = assets.spell_component_ids().unwrap();
+        let mut c = offline_client(assets);
+        c.world.player_guid = Some(ME);
+        const HEAL_SELF_I: u32 = 6;
+        c.world.stats.spells = vec![HEAL_SELF_I];
+        // Heal Self I: lead scarab, hyssop, powder 26, potion 41, talisman
+        // 61; five stored components, so no personal tapers.
+        assert_eq!(c.current_formula(HEAL_SELF_I), [1, 7, 26, 41, 61]);
+        assert!(c.current_formula(999_999).is_empty());
+        assert!(c.components().is_empty());
+        // Two stacks of lead scarabs and some hyssop.
+        pack_item(&mut c, 0x8000_0010, 691, 3);
+        pack_item(&mut c, 0x8000_0011, 691, 2);
+        pack_item(&mut c, 0x8000_0012, mapper.component_wcid(7).unwrap(), 1);
+        pack_item(&mut c, 0x8000_0013, 12345, 1); // not a component
+        c.world.stats.options.desired_comps = vec![(1, 10), (188, 4), (7, 0)];
+        let comps = c.components();
+        let by_id = |id: u32| comps.iter().find(|x| x.component_id == id).cloned();
+        let lead = by_id(1).unwrap();
+        assert_eq!(
+            (lead.name.as_str(), lead.wcid, lead.count, lead.desired),
+            ("Lead Scarab", 691, 5, 10)
+        );
+        assert_eq!(by_id(7).unwrap().count, 1);
+        // Desired but not carried: listed with a count of 0.
+        let taper = by_id(188).unwrap();
+        assert_eq!((taper.count, taper.desired, taper.wcid), (0, 4, 20631));
+        assert_eq!(comps.len(), 3);
+        // Sorted by category then id.
+        let table = c.assets.spell_components().unwrap();
+        let keys: Vec<(u32, u32)> = comps
+            .iter()
+            .map(|x| (table.get(x.component_id).unwrap().category, x.component_id))
+            .collect();
+        assert!(keys.windows(2).all(|w| w[0] <= w[1]), "{keys:?}");
+
+        // Cast checks, in order.
+        assert_eq!(c.can_cast(999_999), CastCheck::NotKnown);
+        assert_eq!(c.can_cast(HEAL_SELF_I), CastCheck::NoCaster);
+        c.world.objects.insert(
+            0x8000_0020,
+            ac_world::WorldObject {
+                guid: 0x8000_0020,
+                item_type: ac_world::item_type::CASTER,
+                wielder: Some(ME),
+                parent: Some(ME),
+                ..Default::default()
+            },
+        );
+        assert_eq!(c.wielded_caster(), Some(0x8000_0020));
+        assert_eq!(
+            c.can_cast(HEAL_SELF_I),
+            CastCheck::MissingComponents(vec![(26, 1), (41, 1), (61, 1)])
+        );
+        // The Foci of Verdancy turns it into scarab + one prismatic taper.
+        pack_item(&mut c, 0x8000_0030, 15270, 1);
+        assert_eq!(c.current_formula(HEAL_SELF_I), [1, 188]);
+        assert_eq!(
+            c.can_cast(HEAL_SELF_I),
+            CastCheck::MissingComponents(vec![(188, 1)])
+        );
+        pack_item(&mut c, 0x8000_0031, 20631, 4);
+        assert_eq!(
+            c.can_cast(HEAL_SELF_I),
+            CastCheck::NotEnoughMana { need: 15, have: 0 }
+        );
+        c.world.stats.vitals[2].current = 15;
+        assert_eq!(c.can_cast(HEAL_SELF_I), CastCheck::Ok);
+        // No vendor open: nothing to fill.
+        assert_eq!(c.fill_components(), 0);
+        // A taper stack that got burned down is reflected through the
+        // world's stack-size update.
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(ac_net::messages::opcode::SET_STACK_SIZE)
+            .u8(1)
+            .u32(0x8000_0031)
+            .u32(0)
+            .u32(0);
+        c.world.apply(&w.finish());
+        // An empty stack still counts as one object until it is deleted.
+        assert_eq!(
+            c.components()
+                .iter()
+                .find(|x| x.component_id == 188)
+                .unwrap()
+                .count,
+            1
+        );
     }
 }

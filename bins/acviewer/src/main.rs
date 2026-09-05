@@ -559,7 +559,9 @@ impl App {
                 }
                 ac_client::Event::Connected
                 | ac_client::Event::Terminated(_)
-                | ac_client::Event::Refused(_) => {}
+                | ac_client::Event::Refused(_)
+                | ac_client::Event::SpellLearned(_)
+                | ac_client::Event::SpellForgotten(_) => {}
             }
         }
         let _ = count;

@@ -168,3 +168,45 @@ Debugging: set the `Packets` logger to DEBUG in
   spell words as our own HearSpeech; failures arrive as WeenieError
   (0x0402 YourSpellFizzled). ACE requires spell components unless
   `require_spell_comps` is false (`@modifybool require_spell_comps false`).
+
+## Magic events (from the ACE source, 2026-09-05; layouts unit-tested, not yet observed live)
+
+- **Spellbook.** MagicUpdateSpell (0x02C1) and MagicRemoveSpell (0x01A8)
+  both carry `u16 spell id, u16 layer` (the layer is always 0). The client
+  side RemoveSpell action (0x01A8) is a `u32 spell id`. `ac_world::stats`
+  keeps `spells` in sync and drops a forgotten spell from every spell bar;
+  `ac_client` reports `Event::SpellLearned` / `SpellForgotten`.
+- **Enchantment record** (`ac_world::stats::Enchantment`), as in
+  PlayerDescription: `u16 spell id, u16 layer, u16 category, u16 has spell
+  set, u32 power, f64 start time, f64 duration, u32 caster guid, f32 degrade
+  modifier, f32 degrade limit, f64 last degraded, u32 stat mod type, u32
+  stat mod key, f32 stat mod value, [u32 spell set id if has spell set]`.
+  ACE always writes "has spell set" = 1. Vitae is spell 666 at layer 0.
+  `stat mod type` is ACE's EnchantmentTypeFlags: Multiplicative 0x4000,
+  Additive 0x8000, Vitae 0x800000, Cooldown 0x1000000, Beneficial
+  0x2000000 (set on every buff, clear on debuffs).
+- **Enchantment events.** MagicUpdateEnchantment (0x02C2): one record;
+  MagicUpdateMultipleEnchantments (0x02C4): `u32 count`, records;
+  MagicRemoveEnchantment (0x02C3) and MagicDispelEnchantment (0x02C7):
+  `u16 spell id, u16 layer`; MagicRemoveMultipleEnchantments (0x02C5) and
+  MagicDispelMultipleEnchantments (0x02C8): `u32 count`, then `(u16 spell
+  id, u16 layer)` pairs; MagicPurgeEnchantments (0x02C6): no body, every
+  enchantment is gone; MagicPurgeBadEnchantments (0x0312): no body, sent
+  on death after the vitae update, the harmful ones are gone (the client
+  keeps buffs, vitae and cooldowns). An update with the same spell id and
+  layer replaces the record in place; a second layer is a second record.
+- **Stack sizes.** A burnt component or a merged vendor stack arrives as
+  SetStackSize (0x0197: `u8 sequence, u32 guid, u32 stack size, u32
+  value`), which `World` applies to the item; PublicUpdatePropertyInt
+  (0x02CE: `u8 sequence, u32 guid, u32 property, i32 value`) with
+  StackSize (12) or Value (19) is applied the same way. A stack that hits
+  0 is followed by ObjectDelete.
+- **Component checks.** ACE maps each component id of the current formula
+  to a weenie class through the DualDidMapper 0x27000002 (Lead Scarab 691,
+  Prismatic Taper 20631) and counts inventory items of that class; the
+  formula without a focus is the SpellTable formula with its taper slots
+  (1, 3 and 6 of a 6-8 component spell) rotated per account name
+  (`Spell::player_formula`; formula versions 1 to 3), and with the
+  school's focus in the packs it is the scarabs (plus chorizite) and 1 to
+  4 prismatic tapers by the first scarab's power. `@fillcomps` is one Buy
+  (0x005F) listing `(amount, prototype guid)` per short component.

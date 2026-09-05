@@ -306,6 +306,134 @@ impl Spell {
             _ => None,
         }
     }
+
+    /// The formula the server checks and burns for a player of `account`
+    /// without a focus: the stored formula with its taper slots replaced
+    /// by the account's "personal" tapers (ACE `SpellTable.GetSpellFormula`
+    /// / the client's per-account taper rotation). Spells stored with only
+    /// five components (scarab, herb, powder, potion, talisman) have no
+    /// taper slots and come back unchanged; `formula_version` 1 rotates the
+    /// tapers at slots 1, 3 and 6 of six-to-eight-component spells,
+    /// versions 2 and 3 the ones at slots 3 and 6.
+    pub fn player_formula(&self, account: &str) -> Vec<u32> {
+        let comps: Vec<u32> = self.formula().collect();
+        match self.formula_version {
+            1 => personal_tapers_v1(comps, account),
+            2 => personal_tapers_v2(comps, account),
+            3 => personal_tapers_v3(comps, account),
+            _ => comps,
+        }
+    }
+}
+
+/// Lowest taper id in the SpellComponentTable (Red Taper); the twelve
+/// tapers 63..=74 are what the personal-taper rotation picks from.
+pub const LOWEST_TAPER: u32 = 63;
+
+fn taper(n: u32) -> u32 {
+    n % 12 + LOWEST_TAPER
+}
+
+fn personal_tapers_v1(mut c: Vec<u32>, account: &str) -> Vec<u32> {
+    let seed = string_hash(account) % 0x13D573;
+    let n = c.len();
+    let (herb_i, taper1) = if n > 5 { (2, true) } else { (1, false) };
+    let (powder_i, taper2) = if n > 6 {
+        (herb_i + 2, true)
+    } else {
+        (herb_i + 1, false)
+    };
+    let potion_i = powder_i + 1;
+    let (talisman_i, taper3) = if n > 7 {
+        (potion_i + 2, true)
+    } else {
+        (potion_i + 1, false)
+    };
+    let Some(&talisman) = c.get(talisman_i) else {
+        return c;
+    };
+    let (scarab, herb, powder, potion) = (c[0], c[herb_i], c[powder_i], c[potion_i]);
+    if taper1 {
+        c[1] = taper(
+            powder
+                .wrapping_add(2u32.wrapping_mul(herb))
+                .wrapping_add(potion)
+                .wrapping_add(talisman)
+                .wrapping_add(scarab),
+        );
+    }
+    if taper2 {
+        let x = scarab
+            .wrapping_add(herb)
+            .wrapping_add(talisman)
+            .wrapping_add(2u32.wrapping_mul(powder.wrapping_add(potion)));
+        let d = seed
+            .checked_div(scarab.wrapping_add(powder.wrapping_add(potion)))
+            .unwrap_or(0);
+        c[3] = taper(x.wrapping_mul(d));
+    }
+    if taper3 {
+        let x = powder
+            .wrapping_add(2u32.wrapping_mul(talisman))
+            .wrapping_add(potion)
+            .wrapping_add(herb)
+            .wrapping_add(scarab);
+        let d = seed.checked_div(talisman.wrapping_add(scarab)).unwrap_or(0);
+        c[6] = taper(x.wrapping_mul(d));
+    }
+    c
+}
+
+fn personal_tapers_v2(mut c: Vec<u32>, account: &str) -> Vec<u32> {
+    if c.len() < 8 {
+        return c;
+    }
+    let seed = string_hash(account) % 0x13D573;
+    let (p1, cc, x, a) = (c[0], c[4], c[5], c[7]);
+    c[3] = taper(
+        a.wrapping_add(2u32.wrapping_mul(c[0]))
+            .wrapping_add(2u32.wrapping_mul(cc).wrapping_mul(x))
+            .wrapping_add(c[0])
+            .wrapping_add(c[2])
+            .wrapping_add(c[1]),
+    );
+    let y = a
+        .wrapping_add(2u32.wrapping_mul(p1).wrapping_mul(c[2]))
+        .wrapping_add(2u32.wrapping_mul(x))
+        .wrapping_add(p1.wrapping_mul(c[2]))
+        .wrapping_add(cc);
+    let d = seed
+        .checked_div(c[1].wrapping_mul(a).wrapping_add(2u32.wrapping_mul(cc)))
+        .unwrap_or(0);
+    c[6] = taper(y.wrapping_mul(d));
+    c
+}
+
+fn personal_tapers_v3(mut c: Vec<u32>, account: &str) -> Vec<u32> {
+    if c.len() < 7 {
+        return c;
+    }
+    let key = string_hash(account);
+    let h0 = (key % 0x13D573).wrapping_add(c[0]) % 12;
+    let h1 = (key % 0x4AEFD).wrapping_add(c[1]) % 12;
+    let h2 = (key % 0x96A7F).wrapping_add(c[2]) % 12;
+    let h4 = (key % 0x100A03).wrapping_add(c[4]) % 12;
+    let h5 = (key % 0xEB2EF).wrapping_add(c[5]) % 12;
+    // Some spells stop short of eight components ("Aerfalle's Touch").
+    let h7 = (key % 0x121E7D).wrapping_add(c.get(7).copied().unwrap_or(0)) % 12;
+    c[3] = taper(h0 + h1 + h2 + h4 + h5 + h2 * h5 + h0 * h1 + h7 * (h4 + 1));
+    c[6] = taper(
+        h0 + h1
+            + h2
+            + h4
+            + key % 0x65039 % 12
+            + h7 * (h4 * (h0 * h1 * h2 * h5 + 7) + 1)
+            + h5
+            + 4 * h0 * h1
+            + h0 * h1
+            + 11 * h2 * h5,
+    );
+    c
 }
 
 /// The client's string hash (`FUN_004fe440`): bytes as signed chars folded
@@ -473,6 +601,57 @@ mod tests {
         // Bytes >= 0x80 are signed: "\u{e9}" contributes -0x17, which
         // wraps and is folded back into 28 bits.
         assert_eq!(string_hash("\u{e9}"), 0x0FFF_FF19);
+    }
+
+    /// Expected values computed independently from ACE's
+    /// `RandomizeVersion1/2/3` for the account "acreborn"
+    /// (hash 176918782, seed 142310).
+    #[test]
+    fn personal_tapers_follow_the_account() {
+        let with = |version, comps: &[u32]| {
+            let mut s = Spell {
+                formula_version: version,
+                ..Default::default()
+            };
+            s.components[..comps.len()].copy_from_slice(comps);
+            s
+        };
+        assert_eq!(string_hash("acreborn"), 176_918_782);
+        // Five stored components (most retail spells): no taper slots.
+        assert_eq!(
+            with(1, &[1, 7, 26, 41, 61]).player_formula("acreborn"),
+            [1, 7, 26, 41, 61]
+        );
+        // Eight components, version 1: slots 1, 3 and 6 are the account's.
+        let eight = [6, 63, 15, 64, 34, 46, 65, 55];
+        assert_eq!(
+            with(1, &eight).player_formula("acreborn"),
+            [6, 66, 15, 71, 34, 46, 67, 55]
+        );
+        assert_eq!(
+            with(1, &eight).player_formula("Test Account"),
+            [6, 66, 15, 67, 34, 46, 68, 55]
+        );
+        assert_eq!(
+            with(2, &eight).player_formula("acreborn"),
+            [6, 63, 15, 66, 34, 46, 67, 55]
+        );
+        assert_eq!(
+            with(3, &eight).player_formula("acreborn"),
+            [6, 63, 15, 72, 34, 46, 65, 55]
+        );
+        // Aerfalle's Touch (2697): version 3 with seven components.
+        assert_eq!(
+            with(3, &[4, 63, 65, 66, 67, 69, 50]).player_formula("acreborn"),
+            [4, 63, 65, 66, 67, 69, 69]
+        );
+        // Unknown versions and short formulas pass through.
+        assert_eq!(with(0, &eight).player_formula("acreborn"), eight);
+        assert_eq!(with(2, &[1, 2, 3]).player_formula("acreborn"), [1, 2, 3]);
+        assert!(with(1, &[6, 63, 15, 64, 34, 46, 65, 55])
+            .player_formula("acreborn")
+            .iter()
+            .all(|&c| c != 0));
     }
 
     #[test]

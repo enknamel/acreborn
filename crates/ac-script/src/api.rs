@@ -65,6 +65,15 @@ pub trait Api {
     fn attack(&mut self, name: &str) -> bool;
     fn attack_guid(&mut self, guid: i64) -> bool;
     fn cast(&mut self, name: &str) -> bool;
+    /// Why a known spell (by name prefix) cannot be cast right now: "ok",
+    /// "not_known", "no_caster", "missing_components", "not_enough_mana".
+    fn can_cast(&mut self, name: &str) -> String;
+    /// Spell components carried: maps with `id`, `name`, `wcid`, `count`,
+    /// `desired`.
+    fn components(&mut self) -> Array;
+    /// With a vendor open, buy components up to their desired counts;
+    /// returns how many kinds were ordered.
+    fn fill_components(&mut self) -> i64;
     fn say(&mut self, text: &str);
     /// Open a corpse (`""` = the corpse of the last attack target).
     fn loot(&mut self, name: &str) -> bool;
@@ -193,6 +202,9 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("attack", |n: &str| with_api(|a| a.attack(n)));
     engine.register_fn("attack", |g: i64| with_api(|a| a.attack_guid(g)));
     engine.register_fn("cast", |n: &str| with_api(|a| a.cast(n)));
+    engine.register_fn("can_cast", |n: &str| with_api(|a| a.can_cast(n)));
+    engine.register_fn("components", || with_api(|a| a.components()));
+    engine.register_fn("fill_components", || with_api(|a| a.fill_components()));
     engine.register_fn("say", |t: &str| with_api(|a| a.say(t)));
     engine.register_fn("loot", || with_api(|a| a.loot("")));
     engine.register_fn("loot", |n: &str| with_api(|a| a.loot(n)));

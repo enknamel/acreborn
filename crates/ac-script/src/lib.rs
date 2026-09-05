@@ -76,6 +76,14 @@ pub fn event_map(ev: &Event) -> Map {
             m.insert("cell".into(), Dynamic::from_int(*cell as i64));
             "placed"
         }
+        Event::SpellLearned(spell) => {
+            m.insert("spell".into(), Dynamic::from_int(*spell as i64));
+            "spell_learned"
+        }
+        Event::SpellForgotten(spell) => {
+            m.insert("spell".into(), Dynamic::from_int(*spell as i64));
+            "spell_forgotten"
+        }
     };
     m.insert("kind".into(), kind.into());
     m
