@@ -34,6 +34,9 @@ pub struct Actions {
     pub activated: Vec<u32>,
     /// Items dragged onto a pack: (item, container guid; 0 = main pack).
     pub moves: Vec<(u32, u32)>,
+    /// An item dragged onto another item: (item, target), used on it
+    /// (a salvage bag tinkers, a mana stone charges, a key unlocks).
+    pub apply: Vec<(u32, u32)>,
 }
 
 /// Draw the panel: double-click uses an item, dragging one onto a side
@@ -100,8 +103,19 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, items: &[Item]) -> Acti
                                 actions.moves.push((p.0, it.guid));
                             }
                         }
-                    } else if item_row(ui, icons, it, color).double_clicked() {
-                        actions.activated.push(it.guid);
+                    } else {
+                        let (r, dropped) = ui
+                            .dnd_drop_zone::<ItemDrag, _>(egui::Frame::new(), |ui| {
+                                item_row(ui, icons, it, color)
+                            });
+                        if r.inner.double_clicked() {
+                            actions.activated.push(it.guid);
+                        }
+                        if let Some(p) = dropped {
+                            if p.0 != it.guid {
+                                actions.apply.push((p.0, it.guid));
+                            }
+                        }
                     }
                 }
             });
@@ -173,6 +187,9 @@ impl Plugin for Inventory {
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             for g in actions.activated {
                 c.interact(g);
+            }
+            for (item, target) in actions.apply {
+                c.use_on(item, target);
             }
             for (item, container) in actions.moves {
                 let container = if container == 0 {

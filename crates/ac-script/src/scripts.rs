@@ -474,6 +474,12 @@ mod tests {
             Dynamic::UNIT
         }
         fn allegiance_refresh(&mut self) {}
+        fn salvageable(&mut self) -> rhai::Array {
+            rhai::Array::new()
+        }
+        fn salvage(&mut self, _items: rhai::Array) -> bool {
+            false
+        }
         fn allegiance_name(&mut self, _n: &str) {}
         fn chat(&mut self, _c: &str, _t: &str) -> bool {
             false

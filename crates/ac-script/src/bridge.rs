@@ -94,6 +94,16 @@ fn object_map(o: &WorldObject, me: Option<[f32; 3]>, carried: bool) -> Map {
     map.insert("cell".into(), int(o.position.map(|p| p.cell).unwrap_or(0)));
     map.insert("stack".into(), int(o.stack_size));
     map.insert("value".into(), int(o.value));
+    map.insert(
+        "material".into(),
+        if o.material == 0 {
+            Dynamic::UNIT
+        } else {
+            ac_world::material::name(o.material).into()
+        },
+    );
+    map.insert("workmanship".into(), float(o.workmanship));
+    map.insert("structure".into(), int(o.structure));
     map
 }
 
@@ -443,6 +453,24 @@ impl Api for CtxApi<'_, '_> {
         let vassals: Array = a.vassals.iter().map(member).collect();
         m.insert("vassals".into(), vassals.into());
         Dynamic::from_map(m)
+    }
+
+    fn salvageable(&mut self) -> Array {
+        let c = self.client();
+        c.salvageable()
+            .into_iter()
+            .filter_map(|g| c.world.objects.get(&g))
+            .map(|o| Dynamic::from_map(object_map(o, None, true)))
+            .collect()
+    }
+
+    fn salvage(&mut self, items: Array) -> bool {
+        let guids: Vec<u32> = items
+            .into_iter()
+            .filter_map(|d| d.as_int().ok())
+            .map(|g| g as u32)
+            .collect();
+        self.client().salvage(&guids)
     }
 
     fn allegiance_refresh(&mut self) {

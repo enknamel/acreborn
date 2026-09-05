@@ -105,6 +105,10 @@ pub trait Api {
     fn allegiance(&mut self) -> Dynamic;
     /// Ask the server for the profile again.
     fn allegiance_refresh(&mut self);
+    /// Carried items an Ust would salvage (loot with `material` and `workmanship`).
+    fn salvageable(&mut self) -> Array;
+    /// Salvage these guids with the carried Ust; the yields show in chat.
+    fn salvage(&mut self, items: Array) -> bool;
     /// Name the allegiance (monarch), "" clears it.
     fn allegiance_name(&mut self, name: &str);
     /// Say something on a group channel: "v" vassals, "p" patron, "m"
@@ -280,6 +284,8 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("allegiance_refresh", || {
         with_api(|a| a.allegiance_refresh())
     });
+    engine.register_fn("salvageable", || with_api(|a| a.salvageable()));
+    engine.register_fn("salvage", |items: Array| with_api(|a| a.salvage(items)));
     engine.register_fn("allegiance_name", |n: &str| {
         with_api(|a| a.allegiance_name(n))
     });

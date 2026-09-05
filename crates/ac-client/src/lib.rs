@@ -142,6 +142,8 @@ pub struct Client {
     pub loot_queue: std::collections::VecDeque<u32>,
     pub loot_inflight: Option<(u32, Instant)>,
     pub selected: Option<u32>,
+    /// The salvage window is open (an Ust was used); the panel closes it.
+    pub salvage_open: bool,
     pub last_click: Option<(Instant, u32)>,
     pub player: Option<player::Player>,
     pub player_setup: u32,
@@ -224,6 +226,7 @@ impl Client {
             loot_queue: Default::default(),
             loot_inflight: None,
             selected: None,
+            salvage_open: false,
             last_click: None,
             player: None,
             player_setup: 0,
@@ -738,6 +741,17 @@ impl Client {
                 Some((_, _, event::CHANNEL_BROADCAST, rest)) => {
                     ChatLine::parse_channel_broadcast(rest)
                 }
+                Some((_, _, event::SALVAGE_OPERATIONS_RESULT, rest)) => {
+                    match ac_net::messages::SalvageResult::parse(rest) {
+                        Ok(res) => Ok(ChatLine {
+                            text: salvage_text(&res),
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 0,
+                        }),
+                        Err(e) => Err(e),
+                    }
+                }
                 Some((_, _, event::IDENTIFY_OBJECT_RESPONSE, rest)) => {
                     self.appraisal(rest);
                     return;
@@ -954,6 +968,13 @@ impl Client {
             if let Some(spell) = name.strip_prefix("Scroll of ") {
                 self.known_spells.insert(o.spell_id, spell.to_string());
             }
+        }
+        if carried && o.weenie_class_id == ac_world::material::UST_WCID {
+            // The Ust is the salvaging tool: using it opens the salvage
+            // window (the retail client did this itself; the server only
+            // hears the final list).
+            self.salvage_open = !self.salvage_open;
+            return;
         }
         if carried && o.wielder != me && o.item_type & item_type::WIELDABLE != 0 {
             tracing::info!("wield {name} ({guid:#010x}) at {:#x}", o.valid_locations);
@@ -1414,6 +1435,66 @@ impl Client {
             .retain(|c| !(c.kind == kind && c.context == context));
     }
 
+    /// The Ust we carry, if any: the salvaging tool.
+    pub fn salvage_tool(&self) -> Option<u32> {
+        self.world
+            .inventory()
+            .find(|o| o.weenie_class_id == ac_world::material::UST_WCID)
+            .map(|o| o.guid)
+    }
+
+    /// Carried, unwielded items the server would salvage: those with a
+    /// material and a workmanship (loot, not vendor stock).
+    pub fn salvageable(&self) -> Vec<u32> {
+        let me = self.world.player_guid;
+        let mut items: Vec<&ac_world::WorldObject> = self
+            .world
+            .inventory()
+            .filter(|o| {
+                o.wielder != me
+                    && o.material != 0
+                    && o.workmanship > 0.0
+                    && !o.name.starts_with("Salvaged ")
+            })
+            .collect();
+        items.sort_by(|a, b| a.name.cmp(&b.name).then(a.guid.cmp(&b.guid)));
+        items.into_iter().map(|o| o.guid).collect()
+    }
+
+    /// Salvage carried items with the Ust (CreateTinkeringTool 0x027D:
+    /// tool, count, guids). The server destroys them and answers with
+    /// SalvageOperationsResult per skill used, shown in chat, and the
+    /// salvage bags appear in the pack. False without an Ust or items.
+    pub fn salvage(&mut self, items: &[u32]) -> bool {
+        let Some(tool) = self.salvage_tool() else {
+            return false;
+        };
+        let me = self.world.player_guid;
+        let items: Vec<u32> = items
+            .iter()
+            .copied()
+            .filter(|g| {
+                self.world
+                    .objects
+                    .get(g)
+                    .map(|o| o.container == me || o.wielder == me)
+                    .unwrap_or(false)
+            })
+            .collect();
+        if items.is_empty() {
+            return false;
+        }
+        tracing::info!("salvage {} items with {tool:#010x}", items.len());
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(tool).u32(items.len() as u32);
+        for g in &items {
+            w.u32(*g);
+        }
+        self.session
+            .send_action(ac_net::messages::action::CREATE_TINKERING_TOOL, &w.finish());
+        true
+    }
+
     /// Say something on a group channel (ChatChannel 0x0147): fellowship,
     /// vassals, patron, monarch or co-vassals (`ac_net::messages::channel`).
     /// Everyone on it, us included, hears it as a ChannelBroadcast.
@@ -1758,5 +1839,84 @@ impl Client {
     /// Events produced since the last drain.
     pub fn drain_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
+    }
+}
+
+/// The chat line for a salvage result: "You obtain 3 Oak (workmanship
+/// 8.00) using your Salvaging skill." per material.
+pub fn salvage_text(res: &ac_net::messages::SalvageResult) -> String {
+    let skill = match res.skill {
+        40 => "Salvaging",
+        18 => "Item Tinkering",
+        28 => "Weapon Tinkering",
+        29 => "Armor Tinkering",
+        30 => "Magic Item Tinkering",
+        _ => "salvaging",
+    };
+    if res.yields.is_empty() {
+        return format!("You salvaged nothing using your {skill} skill.");
+    }
+    let parts: Vec<String> = res
+        .yields
+        .iter()
+        .map(|y| {
+            format!(
+                "{} {} (workmanship {:.2})",
+                y.units,
+                ac_world::material::name(y.material),
+                y.workmanship
+            )
+        })
+        .collect();
+    let mut text = format!("You obtain {} using your {skill} skill.", parts.join(", "));
+    if res.bonus_percent > 0 {
+        text.push_str(&format!(" ({}% from augmentations)", res.bonus_percent));
+    }
+    if !res.skipped.is_empty() {
+        text.push_str(&format!(
+            " {} item(s) could not be salvaged.",
+            res.skipped.len()
+        ));
+    }
+    text
+}
+
+#[cfg(test)]
+mod salvage_tests {
+    use super::*;
+    use ac_net::messages::{SalvageResult, SalvageYield};
+
+    #[test]
+    fn salvage_text_lists_materials() {
+        let res = SalvageResult {
+            skill: 40,
+            skipped: vec![1],
+            yields: vec![
+                SalvageYield {
+                    material: 0x4B,
+                    workmanship: 8.0,
+                    units: 3,
+                },
+                SalvageYield {
+                    material: 0x3D,
+                    workmanship: 5.5,
+                    units: 1,
+                },
+            ],
+            bonus_percent: 0,
+        };
+        assert_eq!(
+            salvage_text(&res),
+            "You obtain 3 Oak (workmanship 8.00), 1 Iron (workmanship 5.50) using your Salvaging skill. 1 item(s) could not be salvaged."
+        );
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(28).u32(0).u32(1).u32(0x40).f64(3.0).u32(2).u32(0);
+        let parsed = SalvageResult::parse(&w.finish()).unwrap();
+        assert_eq!(parsed.skill, 28);
+        assert_eq!(parsed.yields[0].units, 2);
+        assert_eq!(
+            salvage_text(&parsed),
+            "You obtain 2 Steel (workmanship 3.00) using your Weapon Tinkering skill."
+        );
     }
 }

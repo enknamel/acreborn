@@ -4,6 +4,7 @@
 //! positions.
 
 pub mod allegiance;
+pub mod material;
 pub mod motion;
 pub mod object;
 pub mod stats;
@@ -102,6 +103,13 @@ pub struct WorldObject {
     pub stack_size: u32,
     pub value: u32,
     pub spell_id: u32,
+    /// ACE `MaterialType`, 0 when none (see `material::name`).
+    pub material: u32,
+    /// Loot workmanship 1..=10, 0 when none; what salvaging yields.
+    pub workmanship: f32,
+    /// Uses left (a salvage bag's units), and the maximum.
+    pub structure: u32,
+    pub max_structure: u32,
     /// Container holding this item (a pack, or a creature's inventory).
     pub container: Option<u32>,
     /// Creature wielding this item.
@@ -286,7 +294,13 @@ impl World {
                     }
                     let obj = WorldObject {
                         guid: oc.guid,
-                        name: oc.name,
+                        // Salvage bags are sent as "Salvage"; the client
+                        // names them by material, as retail did.
+                        name: if oc.name.starts_with("Salvage") && oc.material != 0 {
+                            format!("Salvaged {}", material::name(oc.material))
+                        } else {
+                            oc.name
+                        },
                         weenie_class_id: oc.weenie_class_id,
                         setup_id: oc.setup_id,
                         motion_table_id: oc.motion_table_id,
@@ -304,6 +318,10 @@ impl World {
                         stack_size: oc.stack_size,
                         value: oc.value,
                         spell_id: oc.spell_id,
+                        material: oc.material,
+                        workmanship: oc.workmanship,
+                        structure: oc.structure,
+                        max_structure: oc.max_structure,
                         container: oc.container,
                         wielder: oc.wielder,
                         valid_locations: oc.valid_locations,
@@ -450,7 +468,9 @@ impl World {
                     Applied::Failed
                 }
             },
-            opcode::OBJECT_DELETE => {
+            opcode::OBJECT_DELETE | opcode::INVENTORY_REMOVE_OBJECT => {
+                // InventoryRemoveObject: a spent/given item is gone from
+                // the pack; the server sends no DeleteObject for it.
                 if body.len() >= 4 {
                     let guid = u32::from_le_bytes(body[..4].try_into().unwrap());
                     if self.objects.remove(&guid).is_some() {

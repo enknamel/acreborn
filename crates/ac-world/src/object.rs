@@ -159,6 +159,13 @@ pub struct ObjectCreate {
     /// Base value in pyreals (vendor prices scale it).
     pub value: u32,
     pub spell_id: u32,
+    /// ACE `MaterialType` (0x3D iron, 0x40 steel...), 0 when none.
+    pub material: u32,
+    /// Item workmanship 1..=10 (loot), 0 when none.
+    pub workmanship: f32,
+    /// Structure (uses left, salvage units) and its maximum, 0 unless sent.
+    pub structure: u32,
+    pub max_structure: u32,
     /// EquipMask bits the item can be wielded in.
     pub valid_locations: u32,
     pub wielded_location: u32,
@@ -254,6 +261,13 @@ pub struct WeenieDesc {
     pub icon_underlay: u32,
     /// Spell a scroll teaches / an item casts, or 0.
     pub spell_id: u32,
+    /// ACE `MaterialType` (0x3D iron, 0x40 steel...), 0 when none.
+    pub material: u32,
+    /// Item workmanship 1..=10 (loot), 0 when none.
+    pub workmanship: f32,
+    /// Structure (uses left, salvage units) and its maximum, 0 unless sent.
+    pub structure: u32,
+    pub max_structure: u32,
 }
 
 impl WeenieDesc {
@@ -303,12 +317,16 @@ impl WeenieDesc {
         if weenie_flags & COMBAT_USE != 0 {
             r.u8()?;
         }
-        if weenie_flags & STRUCTURE != 0 {
-            r.u16()?;
-        }
-        if weenie_flags & MAX_STRUCTURE != 0 {
-            r.u16()?;
-        }
+        let structure = if weenie_flags & STRUCTURE != 0 {
+            r.u16()? as u32
+        } else {
+            0
+        };
+        let max_structure = if weenie_flags & MAX_STRUCTURE != 0 {
+            r.u16()? as u32
+        } else {
+            0
+        };
         let stack_size = if weenie_flags & STACK_SIZE != 0 {
             r.u16()? as u32
         } else {
@@ -349,9 +367,11 @@ impl WeenieDesc {
         if weenie_flags & PSCRIPT != 0 {
             r.u16()?;
         }
-        if weenie_flags & WORKMANSHIP != 0 {
-            r.f32()?;
-        }
+        let workmanship = if weenie_flags & WORKMANSHIP != 0 {
+            r.f32()?
+        } else {
+            0.0
+        };
         if weenie_flags & BURDEN != 0 {
             r.u16()?;
         }
@@ -385,9 +405,11 @@ impl WeenieDesc {
         } else {
             0
         };
-        if weenie_flags & MATERIAL_TYPE != 0 {
-            r.u32()?;
-        }
+        let material = if weenie_flags & MATERIAL_TYPE != 0 {
+            r.u32()?
+        } else {
+            0
+        };
         if weenie_flags2 & F2_COOLDOWN != 0 {
             r.u32()?;
         }
@@ -417,6 +439,10 @@ impl WeenieDesc {
             icon_overlay,
             icon_underlay,
             spell_id,
+            material,
+            workmanship,
+            structure,
+            max_structure,
         })
     }
 }
@@ -604,6 +630,10 @@ impl ObjectCreate {
             icon_overlay,
             icon_underlay,
             spell_id,
+            material,
+            workmanship,
+            structure,
+            max_structure,
         } = WeenieDesc::parse(&mut r)?;
         Ok(ObjectCreate {
             guid,
@@ -638,6 +668,10 @@ impl ObjectCreate {
             stack_size,
             value,
             spell_id,
+            material,
+            workmanship,
+            structure,
+            max_structure,
             valid_locations,
             wielded_location,
             no_draw: physics_state & (PHYSICS_STATE_NO_DRAW | PHYSICS_STATE_HIDDEN) != 0,

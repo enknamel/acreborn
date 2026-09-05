@@ -30,6 +30,7 @@ pub mod inventory;
 pub mod loot;
 pub mod options;
 pub mod radar;
+pub mod salvage;
 pub mod skills;
 pub mod spellbar;
 pub mod spellbook;
@@ -110,7 +111,12 @@ impl Item {
         Item {
             guid: o.guid,
             name: o.name.clone(),
-            stack: o.stack_size,
+            // A salvage bag counts its units the way a stack does.
+            stack: if o.name.starts_with("Salvaged ") && o.structure > 0 {
+                o.structure
+            } else {
+                o.stack_size
+            },
             wielded,
             container: o.item_type & ac_world::item_type::CONTAINER != 0,
             icon: IconLayers::of(o),
@@ -211,6 +217,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(trade::Trade::default()),
         Box::new(fellowship::Fellowship::default()),
         Box::new(allegiance::Allegiance::default()),
+        Box::new(salvage::Salvage::default()),
         Box::new(confirm::Confirm::default()),
         Box::new(options::Options::default()),
         Box::new(combat::Combat::default()),
@@ -237,6 +244,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         Box::new(trade::Trade::demo()),
         Box::new(fellowship::Fellowship::demo()),
         Box::new(allegiance::Allegiance::demo()),
+        Box::new(salvage::Salvage::demo()),
         Box::new(confirm::Confirm::demo()),
         Box::new(options::Options::demo()),
         Box::new(combat::Combat::demo()),

@@ -27,7 +27,14 @@ pub struct CharacterOption {
 }
 
 /// The options a player is likely to touch, in panel order.
-pub const OPTIONS: [CharacterOption; 20] = [
+pub const OPTIONS: [CharacterOption; 21] = [
+    CharacterOption {
+        id: 0x1A,
+        word: Word::One,
+        bit: 0x8000_0000,
+        label: "Ask before tinkering (chance of success dialog)",
+        inverted: false,
+    },
     CharacterOption {
         id: 0x02,
         word: Word::One,

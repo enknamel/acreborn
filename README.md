@@ -80,7 +80,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # O the components panel, U the buffs, F the fellowship, L the allegiance
 # (swear to the selected player, break, name it; /v /p /m /c chat to
 # vassals, patron, monarch, co-vassals), X the character options; server
-# questions such as a fellowship invitation or an oath pop up with Yes/No). C toggles combat in the stance of
+# questions such as a fellowship invitation or an oath pop up with Yes/No;
+# double-click the Ust to open the salvage window, drag a salvage bag onto
+# an item in the pack to tinker it). C toggles combat in the stance of
 # the wielded weapon (a bow, crossbow or atlatl with ammunition in the
 # ammo slot gives missile mode; anything else melee):
 # the combat bar then shows the attack height and the power/accuracy

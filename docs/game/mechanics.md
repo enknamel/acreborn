@@ -553,9 +553,43 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
 * Mana stones charge wielded items; healing kits heal (Healing skill,
   difficulty = missing health × 2, harder in combat, 1 stamina per 5
   health); potions and food restore vitals.
-* Salvaging (an Ust opens the salvage panel; drag items in; Salvage
-  destroys them into bags by material and workmanship) and Tinkering
-  (apply salvage to items) are the crafting systems around loot.
+* **Salvaging**: using the Ust (wcid 20646) opens the salvage window
+  client-side; the server only hears CreateTinkeringTool 0x027D (tool
+  guid, count, item guids). It skips items without a material or a
+  workmanship (vendor stock) and retained ones, destroys the rest and
+  merges them into salvage bags per material ("Salvaged Oak", one bag
+  per 100 units; `Structure` counts the units, `ItemWorkmanship` their
+  average), then answers SalvageOperationsResult 0x02B4 per skill used:
+  skill id, guids it could not salvage, (material, workmanship f64,
+  units) per material, augmentation bonus percent. Units per item are
+  1 + floor(skill / 194 × workmanship), with the Salvaging skill or the
+  best trained tinkering skill, whichever yields more (tinkering skills
+  are capped at the workmanship). The item's material and workmanship
+  travel in the WeenieDesc (flags 0x80000000 and 0x1000000), so the
+  client knows what is salvageable without appraising.
+* **Tinkering**: UseWithTarget 0x0035 with a salvage bag on an item. The
+  server finds the recipe (material × item kind), computes the chance
+  from the tinkering skill against the difficulty, and with the
+  "crafting chance dialog" option on asks a kind 5 confirmation ("You
+  determine that you have a 38 percent chance to succeed."); yes applies
+  it: success raises the item's tinkered property and its tinker count
+  (10 max), failure destroys the bag. Untrained skills answer "You are not
+  trained in Weapon Tinkering." A bag must be full (100 units, its
+  `Structure` equal to `MaxStructure`) or the recipe requirement answers
+  "The material is not complete!". Salvage bags are also the ingredient
+  of other recipes (keys, tokens) through the same use-on path. The
+  server sends "Salvage (n)" as the bag's name; the client shows
+  "Salvaged Iron (n)" from the material and structure, as retail did.
+* Verified on ACE: three Rusted Maces salvaged with an Ust into
+  "Salvaged Iron (6)" ("You obtain 6 Iron (workmanship 3.00) using your
+  Weapon Tinkering skill."), the salvaged items removed by
+  InventoryRemoveObject 0x0024 (a top-level message the client now
+  handles; spent, given and corpse-dropped items use it, not
+  DeleteObject); a full bag on a mace asked "You determine that you have
+  a 21 percent chance to succeed." and on yes "+Admin fails to apply the
+  Iron Salvage (workmanship 3.00) to the Iron Rusted Mace. The target is
+  destroyed." Items the server cannot add to the pack (burden over
+  three times 150 × Strength) are silently not created by `@ci`.
 
 ## 6. Vendors, trade, pyreals
 

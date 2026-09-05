@@ -14,6 +14,9 @@ pub mod opcode {
     pub const OBJECT_CREATE: u32 = 0xF745;
     pub const PLAYER_CREATE: u32 = 0xF746;
     pub const OBJECT_DELETE: u32 = 0xF747;
+    /// A carried item left our inventory (spent, given, dropped to the
+    /// corpse): the guid; the object itself is not deleted.
+    pub const INVENTORY_REMOVE_OBJECT: u32 = 0x0024;
     pub const UPDATE_POSITION: u32 = 0xF748;
     pub const SET_STATE: u32 = 0xF74B;
     pub const PLAYER_TELEPORT: u32 = 0xF751;
@@ -396,6 +399,8 @@ pub mod event {
     pub const ALLEGIANCE_UPDATE_DONE: u32 = 0x01C8;
     pub const ALLEGIANCE_LOGIN_NOTIFICATION: u32 = 0x027A;
     pub const ALLEGIANCE_INFO_RESPONSE: u32 = 0x027C;
+    /// Salvage results: skill, skipped guids, (material, workmanship, units) list, bonus.
+    pub const SALVAGE_OPERATIONS_RESULT: u32 = 0x02B4;
     pub const REGISTER_TRADE: u32 = 0x01FD;
     pub const OPEN_TRADE: u32 = 0x01FE;
     pub const CLOSE_TRADE: u32 = 0x01FF;
@@ -540,6 +545,53 @@ impl ChatLine {
             sender,
             sender_id: channel,
             kind: channel::KIND,
+        })
+    }
+}
+
+/// One material's yield in a SalvageOperationsResult.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SalvageYield {
+    pub material: u32,
+    pub workmanship: f64,
+    pub units: u32,
+}
+
+/// SalvageOperationsResult (game event 0x02B4): the skill used (ACE
+/// `Skill`: 40 salvaging, 18/28/29/30 the tinkerings), the guids that
+/// could not be salvaged, the yields, and the augmentation bonus percent.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SalvageResult {
+    pub skill: u32,
+    pub skipped: Vec<u32>,
+    pub yields: Vec<SalvageYield>,
+    pub bonus_percent: u32,
+}
+
+impl SalvageResult {
+    pub fn parse(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let skill = r.u32()?;
+        let n = r.u32()? as usize;
+        let mut skipped = Vec::with_capacity(n.min(64));
+        for _ in 0..n {
+            skipped.push(r.u32()?);
+        }
+        let n = r.u32()? as usize;
+        let mut yields = Vec::with_capacity(n.min(64));
+        for _ in 0..n {
+            yields.push(SalvageYield {
+                material: r.u32()?,
+                workmanship: r.f64()?,
+                units: r.u32()?,
+            });
+        }
+        let bonus_percent = r.u32().unwrap_or(0);
+        Ok(SalvageResult {
+            skill,
+            skipped,
+            yields,
+            bonus_percent,
         })
     }
 }
@@ -966,6 +1018,9 @@ pub mod action {
     pub const SET_MOTD: u32 = 0x0254;
     pub const QUERY_MOTD: u32 = 0x0255;
     pub const CLEAR_MOTD: u32 = 0x0256;
+    /// Salvage with an Ust: tool guid, count, item guids (ACE names it
+    /// after the retail client's "create tinkering tool" verb).
+    pub const CREATE_TINKERING_TOOL: u32 = 0x027D;
     pub const OPEN_TRADE_NEGOTIATIONS: u32 = 0x01F6;
     pub const CLOSE_TRADE_NEGOTIATIONS: u32 = 0x01F7;
     pub const ADD_TO_TRADE: u32 = 0x01F8;

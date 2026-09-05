@@ -34,7 +34,7 @@ Reads (maps have the listed fields):
 
 - `me()`: `session, guid, name, level, health, health_max, stamina, stamina_max, mana, mana_max, total_xp, available_xp, skill_credits, x, y, z, cell, local_x, local_y, local_z` (position within the landblock, the numbers `@loc` and `@teleloc` use), `vitae` (penalty in percent, 0 without one), `combat, magic, target, target_name, selected, placed, vendor_open, container_open` (`target`/`selected` are guids or `()`)
 - `objects()`: nearest first; each `guid, name, distance, is_creature, is_player` (another player character), `is_corpse, health, x, y, z, cell, stack, value`
-- `inventory()`, `container()` (items of the open corpse/chest): same shape
+- `inventory()`, `container()` (items of the open corpse/chest): same shape, plus `material` (name or `()`), `workmanship`, `structure` (a salvage bag's units)
 - `sessions()`: number of sessions; `session(i)`: summary of session `i` or `()`; `session_index()`
 
 Actions (on the current session; names match by prefix, like the console):
@@ -44,6 +44,7 @@ Actions (on the current session; names match by prefix, like the console):
 - `buy(name)`, `sell(name)` (a vendor must be open), `combat(true|false)`, `select(guid)` (`0` clears)
 - `log(text)` (and `print`): a line in the chat log, not sent to the server
 - Social: `fellow_create(name, share_xp)`, `fellow_recruit(guid)`, `fellow_quit(disband)`, `fellowship()`; `trade_open(guid)`, `trade_add(item)`, `trade_accept()`, `trade_decline()`, `trade_reset()`, `trade_close()`, `trade()`; `confirmations()`, `confirm(yes)` (the oldest pending question); `swear(guid)`, `break_allegiance(guid)`, `allegiance()` (`name, rank, total_members, total_vassals, motd, monarch, patron, me, vassals`, members with `guid, name, level, rank, loyalty, leadership, online, xp_cached, xp_tithed`), `allegiance_refresh()`, `allegiance_name(name)`; `chat("v"|"p"|"m"|"c"|"f", text)` for the vassals, patron, monarch, co-vassals and fellowship channels
+- `salvageable()` (carried loot an Ust can salvage), `salvage([guids])` (needs an Ust in the pack; yields show in chat); tinkering is `use_on(bag, item)` then `confirm(true)`
 - `option(name, on)` sets a character option by label prefix; `raise(what)`, `train(skill)` spend XP and credits
 - `switch(i)`: make session `i` the active one
 - `with_session(i, || ...)`: run the closure with session `i` current, then restore; returns the closure's value
