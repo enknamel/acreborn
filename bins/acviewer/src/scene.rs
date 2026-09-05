@@ -371,15 +371,30 @@ pub fn appearance_of(
             .entry(app.palette_hash)
             .or_insert_with(|| p.clone());
     }
+    // Hash in a fixed order: the swap maps iterate differently per instance,
+    // and an unstable key would upload a fresh mesh set every frame.
+    let mut tex: Vec<(u64, u64, u64)> = app
+        .texture_swaps
+        .iter()
+        .flat_map(|(idx, swaps)| {
+            swaps
+                .iter()
+                .map(move |(old, new)| (*idx as u64, *old as u64, *new as u64))
+        })
+        .collect();
+    tex.sort_unstable();
+    let mut parts: Vec<(u64, u64)> = app
+        .part_swaps
+        .iter()
+        .map(|(idx, id)| (*idx as u64, *id as u64))
+        .collect();
+    parts.sort_unstable();
     let mut key = app.palette_hash;
-    for (idx, swaps) in &app.texture_swaps {
-        for (old, new) in swaps {
-            key = key.wrapping_mul(0x100_0000_01b3)
-                ^ ((*idx as u64) << 56 | (*old as u64) << 24 ^ *new as u64);
-        }
+    for (idx, old, new) in tex {
+        key = key.wrapping_mul(0x100_0000_01b3) ^ (idx << 56 | old << 24 ^ new);
     }
-    for (idx, id) in &app.part_swaps {
-        key = key.wrapping_mul(0x100_0000_01b3) ^ ((*idx as u64) << 48 | *id as u64);
+    for (idx, id) in parts {
+        key = key.wrapping_mul(0x100_0000_01b3) ^ (idx << 48 | id);
     }
     (app, key)
 }

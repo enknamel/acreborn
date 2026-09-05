@@ -805,6 +805,14 @@ impl Gpu {
         self.blocks.insert(id, uploaded);
     }
 
+    pub fn material_count(&self) -> usize {
+        self.materials.borrow().len()
+    }
+
+    pub fn instance_count(&self) -> usize {
+        self.dynamic_instances.len() + self.player_instances.len()
+    }
+
     pub fn remove_block(&mut self, id: u32) {
         self.blocks.remove(&id);
     }

@@ -66,9 +66,9 @@ struct Cli {
     /// With --connect --screenshot: walk forward for this many seconds first
     #[arg(long, default_value_t = 0.0)]
     walk: f32,
-    /// Connected headless mode: say this line once the player is placed.
+    /// Connected headless mode: say these lines (one per second) once placed.
     #[arg(long)]
-    say: Option<String>,
+    say: Vec<String>,
     /// Connected headless mode: double-click this pixel (x,y) once placed;
     /// repeat the flag for several clicks 1.5 s apart.
     #[arg(long)]
@@ -494,48 +494,32 @@ impl App {
         }
     }
 
-    /// Like `use_by_name` but matches a name prefix (test hook).
-    fn use_by_name_prefix(&mut self, prefix: &str) {
-        let full = self.net.as_ref().and_then(|net| {
-            let me = net.player.as_ref().map(|p| p.world_position());
-            net.world
-                .drawable()
-                .filter(|o| o.name.starts_with(prefix))
-                .filter_map(|o| {
-                    let p = o.display.or(o.position)?;
-                    let d =
-                        me.map(|m| (ac_world::landblock_origin(p.cell) + p.local).distance(m))?;
-                    Some((d, o.name.clone()))
-                })
-                .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap())
-                .map(|(_, n)| n)
-        });
-        if let Some(n) = full {
-            self.use_by_name(&n);
-        }
-    }
-
     /// Send Use for the nearest drawable object called `name` (test hook).
-    fn use_by_name(&mut self, name: &str) {
-        let Some(net) = self.net.as_mut() else { return };
+    fn use_by_name(&mut self, name: &str) -> bool {
+        let Some(net) = self.net.as_mut() else {
+            return false;
+        };
         let me = net.player.as_ref().map(|p| p.world_position());
         let my_guid = net.world.player_guid;
         let mut best: Option<(f32, u32)> = None;
         for o in net.world.objects.values() {
-            if o.name != name {
+            if !o.name.starts_with(name) {
                 continue;
             }
-            // Carried items count as distance zero, so they win over the floor.
+            // Carried items count as distance zero, so they win over the floor;
+            // exact names beat prefix matches.
             let carried = my_guid.is_some() && (o.container == my_guid || o.wielder == my_guid);
-            let d = if carried {
-                0.0
-            } else {
-                let Some(p) = o.display.or(o.position) else {
-                    continue;
+            let exact = if o.name == name { 0.0 } else { 1000.0 };
+            let d = exact
+                + if carried {
+                    0.0
+                } else {
+                    let Some(p) = o.display.or(o.position) else {
+                        continue;
+                    };
+                    me.map(|m| (ac_world::landblock_origin(p.cell) + p.local).distance(m))
+                        .unwrap_or(0.0)
                 };
-                me.map(|m| (ac_world::landblock_origin(p.cell) + p.local).distance(m))
-                    .unwrap_or(0.0)
-            };
             if best.map(|(bd, _)| d < bd).unwrap_or(true) {
                 best = Some((d, o.guid));
             }
@@ -544,8 +528,12 @@ impl App {
             Some((_, guid)) => {
                 net.selected = Some(guid);
                 self.interact(guid);
+                true
             }
-            None => tracing::warn!("no object named {name:?} in view"),
+            None => {
+                tracing::debug!("no object named {name:?} in view yet");
+                false
+            }
         }
     }
 
@@ -1563,6 +1551,9 @@ fn main() -> Result<()> {
             // Each --click entry is a double click: (entry index, clicks sent).
             let mut click_state = (0usize, 0u32);
             let use_requested = app.cli.use_name.is_some() || app.cli.attack.is_some();
+            let mut said = 0usize;
+            let mut retry_at = Instant::now() - Duration::from_secs(5);
+            let say_delay = app.cli.say.len() as f32 + 1.0;
             let mut attack_started: Option<Instant> = None;
             let mut loot_state = 0u8;
             let mut loot_at = Instant::now();
@@ -1582,19 +1573,29 @@ fn main() -> Result<()> {
                     let t = started.elapsed().as_secs_f32();
                     // Hold W for `walk` seconds after a short settle, then settle again.
                     let walking = t > 1.0 && t < 1.0 + app.cli.walk;
-                    if t > 1.0 {
-                        if let (Some(line), Some(ui)) = (app.cli.say.take(), app.ui.as_mut()) {
-                            ui.outgoing.push(line);
+                    if t > 1.0 + said as f32 && said < app.cli.say.len() {
+                        if let Some(ui) = app.ui.as_mut() {
+                            ui.outgoing.push(app.cli.say[said].clone());
                         }
+                        said += 1;
                     }
-                    if t > 1.0 + app.cli.walk {
-                        if let Some(name) = app.cli.use_name.take() {
-                            app.use_by_name(&name);
+                    if t > 1.0 + app.cli.walk + say_delay
+                        && retry_at.elapsed() > Duration::from_secs(1)
+                    {
+                        retry_at = Instant::now();
+                        if let Some(name) = app.cli.use_name.clone() {
+                            if app.use_by_name(&name) || t > 25.0 + say_delay {
+                                app.cli.use_name = None;
+                            }
                         }
-                        if let Some(name) = app.cli.attack.take() {
-                            app.toggle_combat();
-                            attack_started = Some(Instant::now());
-                            app.use_by_name(&name);
+                        if let Some(name) = app.cli.attack.clone() {
+                            if !app.net.as_ref().is_some_and(|n| n.combat) {
+                                app.toggle_combat();
+                            }
+                            if app.use_by_name(&name) || t > 25.0 + say_delay {
+                                attack_started = Some(Instant::now());
+                                app.cli.attack = None;
+                            }
                         }
                     }
                     // Attack phase: wait for the target to die, then loot.
@@ -1611,8 +1612,7 @@ fn main() -> Result<()> {
                             if app.net.as_ref().is_some_and(|n| n.combat) {
                                 app.toggle_combat();
                             }
-                            app.use_by_name("Corpse of Sparring Golem");
-                            app.use_by_name_prefix("Corpse");
+                            app.use_by_name("Corpse");
                         }
                         loot_state = 2;
                         loot_at = Instant::now();
@@ -1635,7 +1635,7 @@ fn main() -> Result<()> {
                             loot_at = Instant::now();
                         }
                     }
-                    if !listed && t > 1.5 {
+                    if !listed && t > 1.5 + say_delay {
                         listed = true;
                         let mut names: Vec<String> = app
                             .net
@@ -1673,13 +1673,21 @@ fn main() -> Result<()> {
                     last_tick = Instant::now();
                     ticks += 1;
                     if ticks_since.elapsed() >= Duration::from_secs(1) {
-                        tracing::info!("{ticks} ticks/s (frame work incl. player rebuild)");
+                        tracing::info!(
+                            "{ticks} ticks/s; {} gpu meshes, {} materials, {} instances",
+                            app.net.as_ref().map(|n| n.gpu_meshes.len()).unwrap_or(0),
+                            gpu.material_count(),
+                            gpu.instance_count()
+                        );
                         ticks = 0;
                         ticks_since = Instant::now();
                     }
                     // Capture while still walking so the walk pose is visible,
                     // or after a short settle when not walking.
-                    let done = if attack_started.is_some() {
+                    let pending = app.cli.attack.is_some() || app.cli.use_name.is_some();
+                    let done = if pending {
+                        false
+                    } else if attack_started.is_some() {
                         loot_state == 3 && loot_at.elapsed() > Duration::from_secs(3)
                             || (loot_state == 1
                                 && !app.cli.loot
@@ -1687,7 +1695,7 @@ fn main() -> Result<()> {
                     } else if app.cli.walk > 0.0 {
                         t > 0.9 + app.cli.walk
                     } else if !app.cli.click.is_empty() || use_requested {
-                        t > 8.0 + app.cli.click.len() as f32 * 3.0
+                        t > 8.0 + say_delay + app.cli.click.len() as f32 * 3.0
                     } else {
                         t > 3.0
                     };
