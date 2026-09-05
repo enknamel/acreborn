@@ -21,6 +21,7 @@ cargo run --release -p acdat -- $AC_DATA_DIR/client_portal.dat decode 13000000  
 
 cargo run --release -p acviewer -- --landblock A9B4 --radius 1      # fly around Holtburg
 cargo run --release -p acviewer -- --model 02000001                 # inspect a Setup
+cargo run --release -p acviewer -- --emitter 3200026E --screenshot torch.png   # a particle emitter (or a 0x33 script, or a Setup's default script)
 cargo run --release -p acviewer -- --landblock A9B4 --screenshot out.png   # headless render
 # a new character from the CharGen table: race,gender,hair,eyes,nose,mouth,skin[,hair_color,eye_color]
 cargo run --release -p acviewer -- --chargen aluvian,m,3,0,0,0,0.5 --camera 0,0.8,1.62,180,0 --screenshot face.png

@@ -237,6 +237,27 @@ fn motion_tables() {
 }
 
 #[test]
+fn particle_emitters() {
+    check(FileKind::ParticleEmitter, |id, b| {
+        particle_emitter::ParticleEmitterInfo::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
+fn physics_scripts() {
+    check(FileKind::PhysicsScript, |id, b| {
+        physics_script::PhysicsScript::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
+fn physics_script_tables() {
+    check(FileKind::PhysicsScriptTable, |id, b| {
+        physics_script_table::PhysicsScriptTable::parse(id, b).map(|_| ())
+    });
+}
+
+#[test]
 fn waves() {
     check(FileKind::Wave, |id, b| wave::Wave::parse(id, b).map(|_| ()));
 }

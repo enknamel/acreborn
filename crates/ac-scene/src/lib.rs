@@ -15,6 +15,7 @@ pub mod collision;
 pub mod interior;
 pub mod landblock;
 pub mod model;
+pub mod particles;
 pub mod scenery;
 pub mod terrain;
 pub mod texmerge;
@@ -27,8 +28,9 @@ use std::rc::Rc;
 use ac_dat::DatArchive;
 use ac_formats::{
     chargen::CharGen, environment::Environment, gfxobj::GfxObj, palette::Palette,
-    palette_set::PaletteSet, region::Region, scene::Scene, setup::Setup, surface::Surface,
-    surface_texture::SurfaceTexture, texture::Texture,
+    palette_set::PaletteSet, particle_emitter::ParticleEmitterInfo, physics_script::PhysicsScript,
+    physics_script_table::PhysicsScriptTable, region::Region, scene::Scene, setup::Setup,
+    surface::Surface, surface_texture::SurfaceTexture, texture::Texture,
 };
 
 use crate::landblock::LandblockScene;
@@ -67,6 +69,9 @@ pub struct Assets {
     palette_sets: RefCell<HashMap<u32, Rc<PaletteSet>>>,
     scenes: RefCell<HashMap<u32, Rc<Scene>>>,
     environments: RefCell<HashMap<u32, Rc<Environment>>>,
+    particle_emitters: RefCell<HashMap<u32, Rc<ParticleEmitterInfo>>>,
+    physics_scripts: RefCell<HashMap<u32, Rc<PhysicsScript>>>,
+    physics_script_tables: RefCell<HashMap<u32, Rc<PhysicsScriptTable>>>,
     /// Assembled landblocks, most recent [`LANDBLOCK_CACHE`] of them, so
     /// that rendering and collision share one load.
     landblocks: RefCell<HashMap<u32, Rc<LandblockScene>>>,
@@ -108,6 +113,9 @@ impl Assets {
             palette_sets: Default::default(),
             scenes: Default::default(),
             environments: Default::default(),
+            particle_emitters: Default::default(),
+            physics_scripts: Default::default(),
+            physics_script_tables: Default::default(),
             landblocks: Default::default(),
             landblock_order: Default::default(),
         })
@@ -122,6 +130,19 @@ impl Assets {
     cached!(palette_set, palette_sets, PaletteSet, portal);
     cached!(scene, scenes, Scene, portal);
     cached!(environment, environments, Environment, portal);
+    cached!(
+        particle_emitter,
+        particle_emitters,
+        ParticleEmitterInfo,
+        portal
+    );
+    cached!(physics_script, physics_scripts, PhysicsScript, portal);
+    cached!(
+        physics_script_table,
+        physics_script_tables,
+        PhysicsScriptTable,
+        portal
+    );
 
     /// The assembled landblock `block_id` (low 16 bits ignored), shared
     /// with every other caller that asks for it while it stays cached.

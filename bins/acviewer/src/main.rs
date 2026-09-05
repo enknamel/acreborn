@@ -2,6 +2,7 @@
 //!
 //!   acviewer --landblock A9B4 [--radius 1]
 //!   acviewer --model 02000001
+//!   acviewer --emitter 32000273            # simulate an emitter's particles
 //!   acviewer --chargen aluvian,m,3,0,0,0,0.5     # a dressed-up human head
 //!
 //! Controls: right mouse drag to look, WASD to move, Q/E down/up,
@@ -9,6 +10,7 @@
 
 mod camera;
 mod gpu;
+mod particles;
 mod player;
 mod scene;
 mod sky;
@@ -50,6 +52,11 @@ struct Cli {
     /// indices, skin is a 0..1 shade. Shows the race's Setup unless --model is given.
     #[arg(long)]
     chargen: Option<String>,
+    /// Simulate particles at the origin for a few seconds and draw them: a
+    /// ParticleEmitterInfo (32xxxxxx), a PhysicsScript (33xxxxxx) or a
+    /// Setup's default script (02xxxxxx), hex. Combine with --model.
+    #[arg(long)]
+    emitter: Option<String>,
     /// Connect to an ACE server, log in, and view the world around the character
     #[arg(long)]
     connect: Option<String>,
@@ -1513,6 +1520,13 @@ impl App {
                 palettes.insert(app.palette_hash, p.clone());
             }
             scene::build_model_with(&assets, id, &app)?
+        } else if self.cli.emitter.is_some() {
+            scene::Built {
+                batches: Default::default(),
+                center: Vec3::ZERO,
+                radius: 1.0,
+                is_dungeon: false,
+            }
         } else {
             let lb = self.cli.landblock.as_deref().unwrap_or("A9B4");
             let id = u32::from_str_radix(lb.trim_start_matches("0x"), 16)? << 16;
@@ -1528,12 +1542,33 @@ impl App {
         gpu.set_scene(built.batches, |k| {
             scene::material_image(&assets, k, &palettes)
         });
+        let (mut center, mut radius) = (built.center, built.radius);
+        if let Some(e) = &self.cli.emitter {
+            let id = u32::from_str_radix(e.trim_start_matches("0x"), 16)?;
+            let mut demo = particles::Demo::new(&assets, id, glam::Mat4::IDENTITY)?;
+            demo.simulate(&assets, 3.0);
+            let (c, r) = demo.bounds();
+            let quads = demo.quads();
+            tracing::info!(
+                "{id:#010x}: {} emitters, {} particles, centre {c:?} radius {r:.2}",
+                demo.system.len(),
+                quads.len()
+            );
+            gpu.set_particles(particles::draws(&quads, c + Vec3::Y * -r), |k| {
+                scene::material_image(&assets, k, &palettes)
+            });
+            if self.cli.model.is_none() && self.cli.chargen.is_none() {
+                (center, radius) = (c, r);
+            }
+        }
         let region = assets.region()?;
-        if let Some(env) = sky::Environment::from_region(&region, 0.5) {
+        // Particles alone are shown at night so glowing sprites read.
+        let day = if self.cli.emitter.is_some() { 0.0 } else { 0.5 };
+        if let Some(env) = sky::Environment::from_region(&region, day) {
             gpu.set_environment(env);
         }
-        let d = built.radius.max(5.0);
-        self.camera.position = built.center + Vec3::new(0.0, -d * 0.8, d * 0.5);
+        let d = radius.max(if self.cli.emitter.is_some() { 1.0 } else { 5.0 });
+        self.camera.position = center + Vec3::new(0.0, -d * 0.8, d * 0.5);
         self.camera.yaw = 0.0;
         self.camera.pitch = -0.45;
         self.camera.speed = (d * 0.25).max(2.0);

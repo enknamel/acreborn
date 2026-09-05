@@ -141,7 +141,13 @@ pub enum HookData {
     SetLight {
         light_on: i32,
     },
-    CreateBlockingParticle,
+    /// As `CreateParticle`, but the script waits for the emitter to finish.
+    CreateBlockingParticle {
+        emitter_info_id: u32,
+        part_index: u32,
+        offset: Frame,
+        emitter_id: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -152,7 +158,7 @@ pub struct Hook {
 }
 
 impl Hook {
-    fn parse(r: &mut Reader) -> Result<Self> {
+    pub(crate) fn parse(r: &mut Reader) -> Result<Self> {
         let hook_type = r.u32()?;
         let dir = HookDir::from(r.i32()?);
         use HookData::*;
@@ -256,7 +262,12 @@ impl Hook {
                 v: r.f32()?,
             },
             25 => SetLight { light_on: r.i32()? },
-            26 => CreateBlockingParticle,
+            26 => CreateBlockingParticle {
+                emitter_info_id: r.u32()?,
+                part_index: r.u32()?,
+                offset: Frame::parse(r)?,
+                emitter_id: r.u32()?,
+            },
             other => {
                 return Err(crate::Error::Unsupported {
                     what: "animation hook type",
