@@ -146,6 +146,10 @@ pub struct ObjectCreate {
     pub name: String,
     pub weenie_class_id: u32,
     pub icon_id: u32,
+    /// RenderSurface (0x06) drawn over the icon, or 0.
+    pub icon_overlay: u32,
+    /// RenderSurface (0x06) drawn under the icon, or 0.
+    pub icon_underlay: u32,
     pub item_type: u32,
     pub object_desc_flags: u32,
     pub weenie_flags: u32,
@@ -440,12 +444,16 @@ impl ObjectCreate {
         if weenie_flags & HOOK_TYPE != 0 {
             r.u16()?;
         }
-        if weenie_flags & ICON_OVERLAY != 0 {
-            packed_of_type(&mut r, 0x0600_0000)?;
-        }
-        if weenie_flags2 & F2_ICON_UNDERLAY != 0 {
-            packed_of_type(&mut r, 0x0600_0000)?;
-        }
+        let icon_overlay = if weenie_flags & ICON_OVERLAY != 0 {
+            packed_of_type(&mut r, 0x0600_0000)?
+        } else {
+            0
+        };
+        let icon_underlay = if weenie_flags2 & F2_ICON_UNDERLAY != 0 {
+            packed_of_type(&mut r, 0x0600_0000)?
+        } else {
+            0
+        };
         if weenie_flags & MATERIAL_TYPE != 0 {
             r.u32()?;
         }
@@ -482,6 +490,8 @@ impl ObjectCreate {
             name,
             weenie_class_id,
             icon_id,
+            icon_overlay,
+            icon_underlay,
             item_type,
             object_desc_flags,
             weenie_flags,
