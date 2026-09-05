@@ -168,10 +168,14 @@ pub struct Spell {
 
 impl Spell {
     fn parse(r: &mut Reader) -> Result<Self> {
-        let name = r.obfuscated_string()?;
+        // The formula key hashes the original bytes (Windows-1252), not the
+        // decoded text.
+        let name_bytes = r.obfuscated_bytes()?;
         r.align4()?;
-        let description = r.obfuscated_string()?;
+        let description_bytes = r.obfuscated_bytes()?;
         r.align4()?;
+        let name = crate::reader::decode_windows_1252(&name_bytes);
+        let description = crate::reader::decode_windows_1252(&description_bytes);
         let school = r.u32()?;
         let icon_id = r.u32()?;
         let category = r.u32()?;
@@ -196,7 +200,7 @@ impl Spell {
             },
             _ => TypeData::None,
         };
-        let key = formula_key(&name, &description);
+        let key = formula_key(&name_bytes, &description_bytes);
         let mut components = [0u32; 8];
         for c in &mut components {
             let raw = r.u32()?;
@@ -455,9 +459,26 @@ pub fn string_hash(s: &str) -> u32 {
     }
 }
 
-/// The per-spell key subtracted from each stored component id.
-fn formula_key(name: &str, description: &str) -> u32 {
-    (string_hash(description) % 0xBEAD_CF45).wrapping_add(string_hash(name) % 0x1210_7680)
+/// The per-spell key subtracted from each stored component id, over the
+/// strings' original bytes.
+fn formula_key(name: &[u8], description: &[u8]) -> u32 {
+    (hash_bytes(description) % 0xBEAD_CF45).wrapping_add(hash_bytes(name) % 0x1210_7680)
+}
+
+/// [`string_hash`] over raw single-byte characters.
+pub fn hash_bytes(s: &[u8]) -> u32 {
+    let mut h: u32 = 0;
+    for &b in s {
+        h = (h << 4).wrapping_add(b as i8 as i32 as u32);
+        if h & 0xF000_0000 != 0 {
+            h = (h ^ ((h & 0xF000_0000) >> 24)) & 0x0FFF_FFFF;
+        }
+    }
+    if h == u32::MAX {
+        u32::MAX - 1
+    } else {
+        h
+    }
 }
 
 /// Spells granted by an equipment set at each combined item level.

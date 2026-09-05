@@ -5,6 +5,7 @@
 pub mod advance;
 pub mod creation;
 pub mod magic;
+pub mod options;
 pub mod player;
 pub mod route;
 
@@ -368,6 +369,8 @@ impl Client {
                         | ac_world::Applied::Health
                         | ac_world::Applied::Vendor
                         | ac_world::Applied::Trade
+                        | ac_world::Applied::Fellowship
+                        | ac_world::Applied::Confirmation
                         | ac_world::Applied::Inventory => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
                         ac_world::Applied::Ignored => {}
@@ -1323,6 +1326,50 @@ impl Client {
         self.session
             .send_action(action::GIVE_OBJECT_REQUEST, &w.finish());
         true
+    }
+
+    /// Found a fellowship (FellowshipCreate 0x00A2: name, share XP).
+    pub fn fellowship_create(&mut self, name: &str, share_xp: bool) {
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(name.trim()).u32(u32::from(share_xp));
+        self.session
+            .send_action(ac_net::messages::action::FELLOWSHIP_CREATE, &w.finish());
+    }
+
+    /// Invite a player (FellowshipRecruit 0x00A5); they get a
+    /// confirmation to answer.
+    pub fn fellowship_recruit(&mut self, player: u32) {
+        self.session.send_action(
+            ac_net::messages::action::FELLOWSHIP_RECRUIT,
+            &player.to_le_bytes(),
+        );
+    }
+
+    /// Leave the fellowship; the leader may disband it instead.
+    pub fn fellowship_quit(&mut self, disband: bool) {
+        self.session.send_action(
+            ac_net::messages::action::FELLOWSHIP_QUIT,
+            &u32::from(disband).to_le_bytes(),
+        );
+    }
+
+    /// Remove a member (leader only).
+    pub fn fellowship_dismiss(&mut self, player: u32) {
+        self.session.send_action(
+            ac_net::messages::action::FELLOWSHIP_DISMISS,
+            &player.to_le_bytes(),
+        );
+    }
+
+    /// Answer a server confirmation (ConfirmationResponse 0x0275).
+    pub fn confirm(&mut self, kind: u32, context: u32, yes: bool) {
+        let mut w = ac_net::wire::Writer::new();
+        w.i32(kind as i32).u32(context).i32(i32::from(yes));
+        self.session
+            .send_action(ac_net::messages::action::CONFIRMATION_RESPONSE, &w.finish());
+        self.world
+            .confirmations
+            .retain(|c| !(c.kind == kind && c.context == context));
     }
 
     /// Ask another player to trade (OpenTradeNegotiations 0x01F6). Both

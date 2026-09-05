@@ -163,6 +163,11 @@ pub struct World {
     pub open_vendor: Option<object::ApproachVendor>,
     /// The secure trade in progress, if any.
     pub trade: Option<Trade>,
+    /// The fellowship we belong to, if any.
+    pub fellowship: Option<Fellowship>,
+    /// Questions the server asked (recruit into a fellowship, swear
+    /// allegiance...), until answered with `confirm`.
+    pub confirmations: Vec<Confirmation>,
 }
 
 /// What `apply` did with a message, for logging.
@@ -188,6 +193,10 @@ pub enum Applied {
     Inventory,
     /// The trade window changed (opened, items, acceptance, closed).
     Trade,
+    /// Fellowship membership or vitals changed.
+    Fellowship,
+    /// A confirmation request arrived or was resolved.
+    Confirmation,
     /// An object's look changed (equipment).
     Appearance,
     /// A creature's health fraction changed.
@@ -485,6 +494,90 @@ impl World {
                         }
                         Err(_) => Applied::Failed,
                     }
+                }
+                Some((_, _, event::FELLOWSHIP_FULL_UPDATE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    let parsed = (|| {
+                        let n = r.u16().ok()? as usize;
+                        let _buckets = r.u16().ok()?;
+                        let mut members = Vec::with_capacity(n.min(16));
+                        for _ in 0..n {
+                            members.push(parse_fellow(&mut r)?);
+                        }
+                        let name = r.string16().ok()?;
+                        let leader = r.u32().ok()?;
+                        let share_xp = r.u32().ok()? != 0;
+                        let even_share = r.u32().ok()? != 0;
+                        let open = r.u32().ok()? != 0;
+                        let locked = r.u32().ok()? != 0;
+                        Some(Fellowship {
+                            name,
+                            leader,
+                            share_xp,
+                            even_share,
+                            open,
+                            locked,
+                            members,
+                        })
+                    })();
+                    match parsed {
+                        Some(f) => {
+                            self.fellowship = Some(f);
+                            self.generation += 1;
+                            Applied::Fellowship
+                        }
+                        None => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::FELLOWSHIP_UPDATE_FELLOW, rest)) => {
+                    let mut r = Reader::new(rest);
+                    match (parse_fellow(&mut r), self.fellowship.as_mut()) {
+                        (Some(f), Some(fs)) => {
+                            match fs.members.iter_mut().find(|m| m.guid == f.guid) {
+                                Some(m) => *m = f,
+                                None => fs.members.push(f),
+                            }
+                            Applied::Fellowship
+                        }
+                        _ => Applied::Ignored,
+                    }
+                }
+                Some((_, _, event::FELLOWSHIP_DISBAND, _)) => {
+                    self.fellowship = None;
+                    self.generation += 1;
+                    Applied::Fellowship
+                }
+                Some((_, _, event::FELLOWSHIP_QUIT | event::FELLOWSHIP_DISMISS, rest)) => {
+                    let who = Reader::new(rest).u32().unwrap_or(0);
+                    if Some(who) == self.player_guid {
+                        self.fellowship = None;
+                    } else if let Some(fs) = self.fellowship.as_mut() {
+                        fs.members.retain(|m| m.guid != who);
+                    }
+                    self.generation += 1;
+                    Applied::Fellowship
+                }
+                Some((_, _, event::CONFIRMATION_REQUEST, rest)) => {
+                    let mut r = Reader::new(rest);
+                    match (r.u32(), r.u32(), r.string16()) {
+                        (Ok(kind), Ok(context), Ok(text)) => {
+                            self.confirmations.push(Confirmation {
+                                kind,
+                                context,
+                                text,
+                            });
+                            Applied::Confirmation
+                        }
+                        _ => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::CONFIRMATION_DONE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    if let (Ok(kind), Ok(context)) = (r.u32(), r.u32()) {
+                        self.confirmations
+                            .retain(|c| !(c.kind == kind && c.context == context));
+                    }
+                    Applied::Confirmation
                 }
                 Some((_, _, event::REGISTER_TRADE, rest)) => {
                     let mut r = Reader::new(rest);
@@ -832,6 +925,64 @@ pub struct Trade {
     pub they_accepted: bool,
     /// Last failure from the server (item, WeenieError), for the panel.
     pub failure: Option<(u32, u32)>,
+}
+
+/// One member of the fellowship (ACE `Fellow`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Fellow {
+    pub guid: u32,
+    pub name: String,
+    pub level: u32,
+    pub health: (u32, u32),
+    pub stamina: (u32, u32),
+    pub mana: (u32, u32),
+    pub share_loot: bool,
+}
+
+/// A fellowship: up to nine players sharing XP and, optionally, loot.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Fellowship {
+    pub name: String,
+    pub leader: u32,
+    pub share_xp: bool,
+    pub even_share: bool,
+    pub open: bool,
+    pub locked: bool,
+    pub members: Vec<Fellow>,
+}
+
+/// A yes/no question from the server (ConfirmationRequest 0x0274):
+/// `kind` is ACE `ConfirmationType` (1 swear allegiance, 2 alter skill,
+/// 3 alter attribute, 4 fellowship, 5 craft, 6 augmentation, 7 yes/no).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Confirmation {
+    pub kind: u32,
+    pub context: u32,
+    pub text: String,
+}
+
+fn parse_fellow(r: &mut Reader) -> Option<Fellow> {
+    let guid = r.u32().ok()?;
+    let _cp = r.u32().ok()?;
+    let _lum = r.u32().ok()?;
+    let level = r.u32().ok()?;
+    let hmax = r.u32().ok()?;
+    let smax = r.u32().ok()?;
+    let mmax = r.u32().ok()?;
+    let h = r.u32().ok()?;
+    let st = r.u32().ok()?;
+    let m = r.u32().ok()?;
+    let share = r.u32().ok()?;
+    let name = r.string16().ok()?;
+    Some(Fellow {
+        guid,
+        name,
+        level,
+        health: (h, hmax),
+        stamina: (st, smax),
+        mana: (m, mmax),
+        share_loot: share != 0,
+    })
 }
 
 /// Convenience for callers building a camera.

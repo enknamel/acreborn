@@ -22,8 +22,11 @@
 
 pub mod buffs;
 pub mod components;
+pub mod confirm;
+pub mod fellowship;
 pub mod inventory;
 pub mod loot;
+pub mod options;
 pub mod radar;
 pub mod skills;
 pub mod spellbar;
@@ -204,6 +207,9 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(target::Target::default()),
         Box::new(vendor::Vendor::default()),
         Box::new(trade::Trade::default()),
+        Box::new(fellowship::Fellowship::default()),
+        Box::new(confirm::Confirm::default()),
+        Box::new(options::Options::default()),
         Box::new(loot::Loot::default()),
         Box::new(inventory::Inventory::default()),
         Box::new(skills::Skills::default()),
@@ -225,6 +231,9 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         Box::new(target::Target::demo()),
         Box::new(vendor::Vendor::demo()),
         Box::new(trade::Trade::demo()),
+        Box::new(fellowship::Fellowship::demo()),
+        Box::new(confirm::Confirm::demo()),
+        Box::new(options::Options::demo()),
         Box::new(loot::Loot::demo()),
         Box::new(inventory::Inventory::demo()),
         Box::new(skills::Skills::demo()),

@@ -81,6 +81,17 @@ pub trait Api {
     fn loot(&mut self, name: &str) -> bool;
     /// Queue an item of the open container to be picked up.
     fn take(&mut self, guid: i64) -> bool;
+    /// Set a character option by (prefix of) its label; false when unknown.
+    fn option(&mut self, name: &str, on: bool) -> bool;
+    fn fellow_create(&mut self, name: &str, share_xp: bool);
+    fn fellow_recruit(&mut self, player: i64);
+    fn fellow_quit(&mut self, disband: bool);
+    /// Pending server questions as maps { kind, context, text }.
+    fn confirmations(&mut self) -> Array;
+    /// Answer the oldest pending question; false when there is none.
+    fn confirm(&mut self, yes: bool) -> bool;
+    /// The fellowship as a map { name, leader, members: [{guid, name, level, health, ...}] } or unit.
+    fn fellowship(&mut self) -> Dynamic;
     /// Open a secure trade with a player (guid); add an item; accept/decline/reset/close.
     fn trade_open(&mut self, player: i64);
     fn trade_add(&mut self, item: i64) -> bool;
@@ -233,6 +244,15 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("loot", || with_api(|a| a.loot("")));
     engine.register_fn("loot", |n: &str| with_api(|a| a.loot(n)));
     engine.register_fn("take", |g: i64| with_api(|a| a.take(g)));
+    engine.register_fn("option", |n: &str, on: bool| with_api(|a| a.option(n, on)));
+    engine.register_fn("fellow_create", |n: &str, s: bool| {
+        with_api(|a| a.fellow_create(n, s))
+    });
+    engine.register_fn("fellow_recruit", |g: i64| with_api(|a| a.fellow_recruit(g)));
+    engine.register_fn("fellow_quit", |d: bool| with_api(|a| a.fellow_quit(d)));
+    engine.register_fn("confirmations", || with_api(|a| a.confirmations()));
+    engine.register_fn("confirm", |y: bool| with_api(|a| a.confirm(y)));
+    engine.register_fn("fellowship", || with_api(|a| a.fellowship()));
     engine.register_fn("trade_open", |g: i64| with_api(|a| a.trade_open(g)));
     engine.register_fn("trade_add", |g: i64| with_api(|a| a.trade_add(g)));
     engine.register_fn("trade_accept", || with_api(|a| a.trade_accept()));

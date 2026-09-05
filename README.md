@@ -77,7 +77,8 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # to hand it over, onto an open chest to store it, or onto empty ground to
 # drop it; K shows the skills panel, P the spellbook, B the spell bar
 # (1..9 cast its spells, Insert/PageUp cycle tabs, Delete/PageDown spells),
-# O the components panel, U the buffs). C toggles combat in the stance of
+# O the components panel, U the buffs, F the fellowship, X the character
+# options; server questions such as a fellowship invitation pop up with Yes/No). C toggles combat in the stance of
 # the wielded weapon (a bow, crossbow or atlatl with ammunition in the
 # ammo slot gives missile mode; anything else melee):
 # double-click another player (in peace mode) to open a secure trade: drag

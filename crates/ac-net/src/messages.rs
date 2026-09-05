@@ -384,6 +384,13 @@ pub mod event {
     pub const WIELD_OBJECT: u32 = 0x0023;
     pub const INVENTORY_PUT_OBJECT_IN_3D: u32 = 0x019A;
     pub const VIEW_CONTENTS: u32 = 0x0196;
+    pub const FELLOWSHIP_QUIT: u32 = 0x00A3;
+    pub const FELLOWSHIP_DISMISS: u32 = 0x00A4;
+    pub const FELLOWSHIP_FULL_UPDATE: u32 = 0x02BE;
+    pub const FELLOWSHIP_DISBAND: u32 = 0x02BF;
+    pub const FELLOWSHIP_UPDATE_FELLOW: u32 = 0x02C0;
+    pub const CONFIRMATION_REQUEST: u32 = 0x0274;
+    pub const CONFIRMATION_DONE: u32 = 0x0276;
     pub const REGISTER_TRADE: u32 = 0x01FD;
     pub const OPEN_TRADE: u32 = 0x01FE;
     pub const CLOSE_TRADE: u32 = 0x01FF;
@@ -875,6 +882,13 @@ mod tests {
 /// GameAction type ids (inside a 0xF7B1 message).
 pub mod action {
     pub const TALK: u32 = 0x0015;
+    pub const SET_SINGLE_CHARACTER_OPTION: u32 = 0x0005;
+    pub const FELLOWSHIP_CREATE: u32 = 0x00A2;
+    pub const FELLOWSHIP_QUIT: u32 = 0x00A3;
+    pub const FELLOWSHIP_DISMISS: u32 = 0x00A4;
+    pub const FELLOWSHIP_RECRUIT: u32 = 0x00A5;
+    pub const FELLOWSHIP_UPDATE_REQUEST: u32 = 0x00A6;
+    pub const CONFIRMATION_RESPONSE: u32 = 0x0275;
     pub const OPEN_TRADE_NEGOTIATIONS: u32 = 0x01F6;
     pub const CLOSE_TRADE_NEGOTIATIONS: u32 = 0x01F7;
     pub const ADD_TO_TRADE: u32 = 0x01F8;

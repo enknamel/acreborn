@@ -370,6 +370,76 @@ impl Api for CtxApi<'_, '_> {
         m
     }
 
+    fn fellow_create(&mut self, name: &str, share_xp: bool) {
+        self.client().fellowship_create(name, share_xp);
+    }
+
+    fn fellow_recruit(&mut self, player: i64) {
+        self.client().fellowship_recruit(player as u32);
+    }
+
+    fn fellow_quit(&mut self, disband: bool) {
+        self.client().fellowship_quit(disband);
+    }
+
+    fn confirmations(&mut self) -> Array {
+        self.client()
+            .world
+            .confirmations
+            .iter()
+            .map(|q| {
+                let mut m = Map::new();
+                m.insert("kind".into(), int(q.kind));
+                m.insert("context".into(), int(q.context));
+                m.insert("text".into(), q.text.clone().into());
+                Dynamic::from_map(m)
+            })
+            .collect()
+    }
+
+    fn confirm(&mut self, yes: bool) -> bool {
+        let c = self.client();
+        let Some(q) = c.world.confirmations.first().cloned() else {
+            return false;
+        };
+        c.confirm(q.kind, q.context, yes);
+        true
+    }
+
+    fn fellowship(&mut self) -> Dynamic {
+        let c = self.client();
+        let Some(f) = c.world.fellowship.as_ref() else {
+            return Dynamic::UNIT;
+        };
+        let mut m = Map::new();
+        m.insert("name".into(), f.name.clone().into());
+        m.insert("leader".into(), int(f.leader));
+        m.insert("share_xp".into(), f.share_xp.into());
+        let members: Array = f
+            .members
+            .iter()
+            .map(|x| {
+                let mut mm = Map::new();
+                mm.insert("guid".into(), int(x.guid));
+                mm.insert("name".into(), x.name.clone().into());
+                mm.insert("level".into(), int(x.level));
+                mm.insert("health".into(), int(x.health.0));
+                mm.insert("health_max".into(), int(x.health.1));
+                Dynamic::from_map(mm)
+            })
+            .collect();
+        m.insert("members".into(), members.into());
+        Dynamic::from_map(m)
+    }
+
+    fn option(&mut self, name: &str, on: bool) -> bool {
+        let Some(o) = ac_plugin::ac_client::options::option_by_name(name) else {
+            return false;
+        };
+        self.client().set_option(o, on);
+        true
+    }
+
     fn drop_item(&mut self, g: i64) -> bool {
         self.client().drop_item(g as u32)
     }

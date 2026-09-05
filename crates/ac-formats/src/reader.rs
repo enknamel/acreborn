@@ -161,9 +161,14 @@ impl<'a> Reader<'a> {
     /// u16 length prefix, then bytes with nibbles swapped (the client's
     /// light "obfuscation" of strings in some tables).
     pub fn obfuscated_string(&mut self) -> Result<String> {
+        Ok(decode_windows_1252(&self.obfuscated_bytes()?))
+    }
+
+    /// The raw (unscrambled, undecoded) bytes of an obfuscated string, for
+    /// hashes the client computed over the original characters.
+    pub fn obfuscated_bytes(&mut self) -> Result<Vec<u8>> {
         let n = self.u16()? as usize;
-        let b: Vec<u8> = self.bytes(n)?.iter().map(|&c| c.rotate_left(4)).collect();
-        Ok(decode_windows_1252(&b))
+        Ok(self.bytes(n)?.iter().map(|&c| c.rotate_left(4)).collect())
     }
 
     /// .NET `BinaryReader.ReadString`: 7-bit varint byte length, then UTF-8.

@@ -452,6 +452,21 @@ mod tests {
         fn trade(&mut self) -> Map {
             Map::new()
         }
+        fn fellow_create(&mut self, _n: &str, _s: bool) {}
+        fn fellow_recruit(&mut self, _p: i64) {}
+        fn fellow_quit(&mut self, _d: bool) {}
+        fn confirmations(&mut self) -> rhai::Array {
+            rhai::Array::new()
+        }
+        fn confirm(&mut self, _y: bool) -> bool {
+            false
+        }
+        fn fellowship(&mut self) -> Dynamic {
+            Dynamic::UNIT
+        }
+        fn option(&mut self, _n: &str, _on: bool) -> bool {
+            false
+        }
         fn drop_item(&mut self, _guid: i64) -> bool {
             false
         }

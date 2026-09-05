@@ -575,17 +575,23 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
 
 ## 7. Social systems
 
-* **Fellowship**: up to 9 members; XP shared equally when all are within
-  5 levels of the founder (or all 50+), proportionally within 10 levels,
-  with a group bonus (2 members 75% each, 3 60%, 9 30%); optional loot
-  sharing (members may loot each other's kills). Wire: FellowshipCreate
-  (0x00A2: name, share xp), FellowshipQuit (0x00A3), FellowshipDismiss
-  (0x00A4), FellowshipRecruit (0x00A5: guid), FellowshipUpdateRequest
-  (0x00A6); events FellowshipFullUpdate (0x02BE), FellowshipUpdateFellow
-  (0x02C0), FellowshipDisband (0x02BF), Quit/Dismiss (0x00A3/0x00A4),
-  FellowshipFellowUpdateDone / FellowshipFellowStatsDone (0x01C9/0x01CA).
-  The panel shows every member's vitals; members are green radar blips
-  (leader triangle up).
+* **Fellowship** (verified live): up to 9 members; XP shared equally
+  when all are within 5 levels of the founder (or all 50+),
+  proportionally within 10 levels, with a group bonus (2 members 75%
+  each, 3 60%, 9 30%); optional loot sharing. FellowshipCreate (0x00A2:
+  name, share xp) answers with FellowshipFullUpdate (0x02BE: hash-table
+  header u16 count/u16 buckets, then per fellow guid, cp, luminance,
+  level, max health/stamina/mana, current health/stamina/mana, share
+  loot, name; then name, leader, share xp, even share, open, locked,
+  departed members, locks). FellowshipRecruit (0x00A5: guid) sends the
+  target a ConfirmationRequest (0x0274: type 4 Fellowship, context,
+  text) unless their character options ignore fellowship requests (the
+  retail default; "X is not accepting fellowship requests");
+  ConfirmationResponse (0x0275: type, context, yes) joins, and everyone
+  gets FellowshipUpdateFellow (0x02C0: fellow record + update type).
+  FellowshipQuit (0x00A3: disband) / FellowshipDismiss (0x00A4: guid)
+  echo as events with the guid; FellowshipDisband (0x02BF) ends it.
+  Members are green radar blips (leader triangle up).
 * **Allegiance**: swear to a patron of equal or higher level
   (SwearAllegiance 0x001D, BreakAllegiance 0x001E, AllegianceUpdateRequest
   0x001F → AllegianceUpdate 0x0020); vassals pass XP up by Loyalty and the
@@ -603,6 +609,12 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   0x000F, `/tell Name, text` Tell 0x005D (text, name), `/emote text`
   Emote 0x01DF. acreborn's chat box tries plugin commands first, then
   these (`Client::slash_command`), then sends the rest as `@command`.
+* **Character options**: two bitfields in PlayerDescription
+  (CharacterOptions1/2), changed with SetSingleCharacterOption (0x0005:
+  option id from ACE `CharacterOption`, value); "ignore fellowship
+  requests", "auto-repeat attacks", "let others give you items" and the
+  chat channels among them. New characters ignore fellowship requests by
+  default.
 * **Chat**: local (`@say`, emotes), `@tell` (Tell 0x005D, events Tell
   0x02BD), fellowship and allegiance channels, global channels General,
   Trade, LFG, Roleplay, Society (`@cg`, `@ct`, `@clfg`; `/join` and
