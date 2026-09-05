@@ -45,8 +45,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # slowly, Enter opens the chat box (server commands start with @), left click
 # selects and appraises an object, double-click uses it (doors, NPCs), picks
 # it up (ground items) or puts it on / takes it off (in the inventory panel,
-# toggled with I). C toggles melee combat: double-click a creature to attack
-# it until it dies; double-click its corpse to loot (Take all / Close)
+# toggled with I; K shows the skills panel). C toggles melee combat:
+# double-click a creature to attack it until it dies; double-click its corpse
+# to loot (Take all / Close). Space jumps. Sounds play unless --mute.
 cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
 ```
 

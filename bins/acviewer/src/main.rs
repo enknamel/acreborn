@@ -83,6 +83,9 @@ struct Cli {
     /// Disable sound output.
     #[arg(long)]
     mute: bool,
+    /// Connected headless mode: open the skills panel in the screenshot.
+    #[arg(long)]
+    show_skills: bool,
     /// Connected headless mode: jump once after placement.
     #[arg(long)]
     jump: bool,
@@ -2059,6 +2062,25 @@ fn main() -> Result<()> {
                             .unwrap_or_default();
                         names.sort();
                         tracing::debug!("objects in view: {}", names.join(" | "));
+                        if let Some(n) = app.net.as_ref() {
+                            let st = &n.world.stats;
+                            tracing::info!(
+                                "sheet: level {} xp {} avail {} credits {}; {} skills, {} spells, {} inventory guids, {} wielded guids",
+                                st.level,
+                                st.total_xp,
+                                st.available_xp,
+                                st.skill_credits,
+                                st.skills.len(),
+                                st.spells.len(),
+                                st.inventory.len(),
+                                st.wielded.len()
+                            );
+                        }
+                        if app.cli.show_skills {
+                            if let Some(ui) = app.ui.as_mut() {
+                                ui.show_skills = true;
+                            }
+                        }
                     }
                     let (ci, sent) = click_state;
                     if ci < app.cli.click.len() && t > 1.0 + app.cli.walk + ci as f32 * 3.0 {
