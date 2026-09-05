@@ -14,7 +14,9 @@ chat overlay for talking to the server and other players.
 See [`docs/architecture.md`](docs/architecture.md) for the crate map and
 data flow, [`docs/plugins.md`](docs/plugins.md) for writing a plugin,
 [`docs/multi-session.md`](docs/multi-session.md) for running several
-clients, `docs/subsystems/` for the format and protocol specs, and
+clients, [`docs/game/mechanics.md`](docs/game/mechanics.md) for the game
+rules the client must follow (magic, combat, advancement, death, trade),
+`docs/subsystems/` for the format and protocol specs, and
 `reference/README.md` for how the reverse-engineering material is
 regenerated.
 
