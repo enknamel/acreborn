@@ -150,3 +150,21 @@ Debugging: set the `Packets` logger to DEBUG in
 - **Errors as text.** CommunicationTransientString 0x02EB (string16) carries
   the "You cannot attack X" style messages; WeenieError 0x028A (u32) and
   WeenieErrorWithString 0x028B (u32, string16) the coded ones.
+- **Vendors.** Use on a vendor answers ApproachVendor (0x0062): vendor guid,
+  merchandise item types, min/max value, deals-magical u32, `BuyPrice` f32
+  (the rate the vendor pays us), `SellPrice` f32 (the rate it charges),
+  alternate currency wcid, then `u32 amount, string16 plural name` (zero and
+  empty without one), `u32 count` and per item `u32 packed (stack & 0xFFFFFF
+  | 0xFF << 24)`, then the item as game data only: guid + weenie header
+  (the same block ObjectCreate carries after the physics description). Buy
+  (0x005F) / Sell (0x0060): vendor, count, `(i32 amount, u32 guid)` pairs,
+  u32 alternate currency (0). Prices: charged = max(1, ceil(SellPrice*value
+  - 0.1)), paid = max(1, floor(BuyPrice*value + 0.1)). A refused sale comes
+  back as InventoryServerSaveFailed for our own guid plus a transient string.
+- **Spells.** Using a scroll teaches its spell (weenie header `Spell` u16 on
+  the scroll): MagicUpdateSpell (0x02C1: spell id, layer). Casting needs
+  ChangeCombatMode 8 (magic), then CastUntargetedSpell (0x0048: spell id) or
+  CastTargetedSpell (0x004A: target guid, spell id). The server speaks the
+  spell words as our own HearSpeech; failures arrive as WeenieError
+  (0x0402 YourSpellFizzled). ACE requires spell components unless
+  `require_spell_comps` is false (`@modifybool require_spell_comps false`).
