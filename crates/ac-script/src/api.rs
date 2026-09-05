@@ -81,6 +81,8 @@ pub trait Api {
     fn loot(&mut self, name: &str) -> bool;
     /// Queue an item of the open container to be picked up.
     fn take(&mut self, guid: i64) -> bool;
+    /// Apply a carried item to a target guid (0 = yourself): kits, stones, keys.
+    fn use_on(&mut self, item: i64, target: i64) -> bool;
     /// Set a character option by (prefix of) its label; false when unknown.
     fn option(&mut self, name: &str, on: bool) -> bool;
     fn fellow_create(&mut self, name: &str, share_xp: bool);
@@ -244,6 +246,7 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("loot", || with_api(|a| a.loot("")));
     engine.register_fn("loot", |n: &str| with_api(|a| a.loot(n)));
     engine.register_fn("take", |g: i64| with_api(|a| a.take(g)));
+    engine.register_fn("use_on", |i: i64, t: i64| with_api(|a| a.use_on(i, t)));
     engine.register_fn("option", |n: &str, on: bool| with_api(|a| a.option(n, on)));
     engine.register_fn("fellow_create", |n: &str, s: bool| {
         with_api(|a| a.fellow_create(n, s))

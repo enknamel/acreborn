@@ -61,6 +61,15 @@ pub mod item_type {
     pub const MISSILE_WEAPON: u32 = 0x100;
     pub const CONTAINER: u32 = 0x200;
     pub const CASTER: u32 = 0x8000;
+    pub const FOOD: u32 = 0x20;
+    pub const GEM: u32 = 0x800;
+    pub const KEY: u32 = 0x4000;
+    pub const HEALER: u32 = 0x10000;
+    pub const LOCKPICK: u32 = 0x20000;
+    pub const MANA_STONE: u32 = 0x80000;
+    /// Items applied to a target rather than given: kits, stones, keys,
+    /// lockpicks, gems.
+    pub const USABLE_ON_TARGET: u32 = HEALER | MANA_STONE | KEY | LOCKPICK | GEM;
     /// Item types that go on the body: wield them rather than use them.
     pub const WIELDABLE: u32 = MELEE_WEAPON | ARMOR | CLOTHING | JEWELRY | MISSILE_WEAPON | CASTER;
 }

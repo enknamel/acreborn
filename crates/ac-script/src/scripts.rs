@@ -467,6 +467,9 @@ mod tests {
         fn option(&mut self, _n: &str, _on: bool) -> bool {
             false
         }
+        fn use_on(&mut self, _i: i64, _t: i64) -> bool {
+            false
+        }
         fn drop_item(&mut self, _guid: i64) -> bool {
             false
         }

@@ -440,6 +440,16 @@ impl Api for CtxApi<'_, '_> {
         true
     }
 
+    fn use_on(&mut self, item: i64, target: i64) -> bool {
+        let c = self.client();
+        let target = if target == 0 {
+            c.world.player_guid.unwrap_or(0)
+        } else {
+            target as u32
+        };
+        c.use_on(item as u32, target)
+    }
+
     fn drop_item(&mut self, g: i64) -> bool {
         self.client().drop_item(g as u32)
     }

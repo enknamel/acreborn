@@ -486,11 +486,20 @@ impl App {
                         || o.object_desc_flags & object_desc_flags::ATTACKABLE == 0)
             })
         });
-        match receiver {
-            Some(t) => {
+        let usable = c
+            .world
+            .objects
+            .get(&item)
+            .is_some_and(|o| o.item_type & item_type::USABLE_ON_TARGET != 0);
+        match (receiver, target) {
+            // A kit on a player, a key on a chest, a stone on an item.
+            (_, Some(t)) if usable => {
+                c.use_on(item, t);
+            }
+            (Some(t), _) => {
                 c.give(t, item, None);
             }
-            None => {
+            _ => {
                 c.drop_item(item);
             }
         }

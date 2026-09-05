@@ -95,7 +95,18 @@ impl Plugin for Target {
         if let Some(t) = t {
             let given = draw(egui, &t);
             if let (Some(item), Source::Live, Some(c)) = (given, &self.source, cx.try_client()) {
-                c.give(t.guid, item, None);
+                // Kits, stones and keys are applied to the target; the
+                // rest is handed over.
+                let usable = c
+                    .world
+                    .objects
+                    .get(&item)
+                    .is_some_and(|o| o.item_type & ac_world::item_type::USABLE_ON_TARGET != 0);
+                if usable {
+                    c.use_on(item, t.guid);
+                } else {
+                    c.give(t.guid, item, None);
+                }
             }
         }
     }

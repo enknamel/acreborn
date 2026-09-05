@@ -882,6 +882,7 @@ mod tests {
 /// GameAction type ids (inside a 0xF7B1 message).
 pub mod action {
     pub const TALK: u32 = 0x0015;
+    pub const USE_WITH_TARGET: u32 = 0x0035;
     pub const SET_SINGLE_CHARACTER_OPTION: u32 = 0x0005;
     pub const FELLOWSHIP_CREATE: u32 = 0x00A2;
     pub const FELLOWSHIP_QUIT: u32 = 0x00A3;

@@ -8,6 +8,7 @@ pub mod magic;
 pub mod options;
 pub mod player;
 pub mod route;
+pub mod weenie_errors;
 
 use std::time::{Duration, Instant};
 
@@ -839,7 +840,33 @@ impl Client {
                         .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                         .unwrap_or(0);
                     tracing::info!("weenie error {code:#x}");
-                    return;
+                    // The informational ones (teleported, turbine chat) stay
+                    // in the log; refusals reach the chat.
+                    match weenie_errors::text(code) {
+                        Some(t) if !matches!(code, 0x3c | 0x51d) => Ok(ChatLine {
+                            text: t.to_string(),
+                            sender: String::new(),
+                            sender_id: 0,
+                            kind: 7,
+                        }),
+                        _ => return,
+                    }
+                }
+                Some((_, _, event::WEENIE_ERROR_WITH_STRING, rest)) => {
+                    let mut r = ac_net::wire::Reader::new(rest);
+                    match (r.u32(), r.string16()) {
+                        (Ok(code), Ok(param)) => {
+                            tracing::info!("weenie error {code:#x} ({param})");
+                            Ok(ChatLine {
+                                text: weenie_errors::text_with(code, &param)
+                                    .unwrap_or_else(|| format!("{param}: error {code:#x}")),
+                                sender: String::new(),
+                                sender_id: 0,
+                                kind: 7,
+                            })
+                        }
+                        _ => return,
+                    }
                 }
                 Some((_, _, event::POPUP_STRING, rest)) => {
                     match ac_net::wire::Reader::new(rest).string16() {
@@ -1370,6 +1397,33 @@ impl Client {
         self.world
             .confirmations
             .retain(|c| !(c.kind == kind && c.context == context));
+    }
+
+    /// Apply a carried item to a target (UseWithTarget 0x0035): a healing
+    /// kit on yourself or a fellow, a mana stone on an item, a key or
+    /// lockpick on a chest or door. The server walks us into reach first.
+    pub fn use_on(&mut self, item: u32, target: u32) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let Some(o) = self.world.objects.get(&item) else {
+            return false;
+        };
+        if me.is_none() || (o.container != me && o.wielder != me) {
+            return false;
+        }
+        let what = o.name.clone();
+        let who = self
+            .world
+            .objects
+            .get(&target)
+            .map(|t| t.name.clone())
+            .unwrap_or_default();
+        tracing::info!("use {what} ({item:#010x}) on {who} ({target:#010x})");
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(item).u32(target);
+        self.session
+            .send_action(action::USE_WITH_TARGET, &w.finish());
+        true
     }
 
     /// Ask another player to trade (OpenTradeNegotiations 0x01F6). Both
