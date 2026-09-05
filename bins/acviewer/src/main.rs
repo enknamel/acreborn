@@ -16,6 +16,7 @@ mod scene;
 mod sky;
 mod ui;
 mod water;
+mod world_fx;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -239,6 +240,8 @@ struct Net {
     attack_backoff: Duration,
     /// Name of the last creature we attacked (its corpse is what we loot).
     last_target_name: String,
+    /// Particle emitters of the loaded landblocks' static objects.
+    fx: world_fx::WorldFx,
     /// Sound output, when a device could be opened and --mute is off.
     audio: Option<ac_audio::Audio>,
     sound_tables:
@@ -1196,6 +1199,7 @@ impl App {
             last_attack: Instant::now(),
             attack_backoff: Duration::from_millis(300),
             last_target_name: String::new(),
+            fx: Default::default(),
             audio,
             sound_tables: Default::default(),
             waves: Default::default(),
@@ -1477,6 +1481,7 @@ impl App {
                         gpu.add_block(id, built.batches, |k| {
                             scene::material_image(assets, k, palettes)
                         });
+                        net.fx.load_block(assets, id);
                         if id == center {
                             // Daylight sky and fog outdoors; dungeons get a
                             // black sky and no fog.
@@ -1512,11 +1517,21 @@ impl App {
                 .collect();
             for id in stale {
                 gpu.remove_block(id);
+                net.fx.unload_block(id);
                 net.loaded_blocks.remove(&id);
                 tracing::info!("landblock {id:#010x} unloaded");
             }
         }
         net.world.tick(self.frame_dt);
+        if !net.fx.is_empty() {
+            net.fx.update(&net.assets, self.frame_dt);
+            let quads = net.fx.quads();
+            let assets = &net.assets;
+            let palettes = &net.palettes;
+            gpu.set_particles(particles::draws(&quads, self.camera.position), |k| {
+                scene::material_image(assets, k, palettes)
+            });
+        }
         let changed = net.world.generation != net.last_generation;
         let animate = scene::any_animated(&net.anims)
             && net.last_anim_refresh.elapsed() > Duration::from_millis(66);
