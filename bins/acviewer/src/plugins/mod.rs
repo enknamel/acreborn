@@ -14,3 +14,12 @@ pub fn builtin() -> Host {
     )));
     host
 }
+
+/// `--bus ADDR`: join the local cross-process bus (or host it) as the
+/// first account, or `pidN` when the viewer runs without one.
+pub fn join_bus(host: &mut Host, addr: &str, account: Option<&str>) -> std::io::Result<()> {
+    let name = account
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("pid{}", std::process::id()));
+    host.join_bus(Some(addr), &name)
+}

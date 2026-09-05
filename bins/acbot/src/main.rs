@@ -50,6 +50,12 @@ struct Cli {
     /// Print chat lines, prefixed with the account.
     #[arg(long)]
     log_chat: bool,
+    /// Join the local cross-process bus so plugins here and in other
+    /// acbot/acviewer processes share posts and values: HOST:PORT or PORT
+    /// (default 127.0.0.1:9500, or $ACREBORN_BUS). The first process up
+    /// hosts it.
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    bus: Option<String>,
 }
 
 /// One `--client` argument, parsed.
@@ -226,6 +232,14 @@ fn main() -> Result<()> {
     }
 
     let mut host = Host::new();
+    if let Some(bus) = &cli.bus {
+        let name = sessions.first().map(|s| s.client.config.account.clone());
+        host.join_bus(
+            Some(bus),
+            &name.unwrap_or_else(|| format!("pid{}", std::process::id())),
+        )
+        .context("joining the bus")?;
+    }
     host.register(Box::new(Console));
     host.register(Box::new(ac_plugin::party::Party::default()));
     host.register(Box::new(ac_script::ScriptPlugin::new(

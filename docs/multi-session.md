@@ -85,6 +85,55 @@ acviewer --` from the workspace root. Passwords are plain text. "Add /
 create" only adds an account: ACE creates it on first login, and
 `acclient --create NAME` makes the first character.
 
+## Cross-process bus
+
+Sessions in one process share the plugin blackboard (`docs/plugins.md`);
+processes do not, so a party split across several `acviewer`/`acbot`
+processes could not coordinate. `--bus [ADDR]` links them through
+`crates/ac-bus`, a local hub on loopback TCP:
+
+```
+cargo run -p acbot -- --connect HOST --client alice:pw1 --bus
+cargo run -p acviewer -- --connect HOST -a bob -v pw2 --bus          # joins alice's hub
+ACREBORN_BUS=127.0.0.1:9600 cargo run -p acbot -- ... --bus          # another bus
+```
+
+* `ADDR` is `HOST:PORT` or a bare port; empty means `$ACREBORN_BUS` or
+  `127.0.0.1:9500`. The flag is off by default and processes without it
+  are unaffected.
+* **Auto-hosting.** `BusClient::connect_or_host` connects to the hub at
+  the address or, when the connection is refused, starts a `BusServer` in
+  this process and connects to it: the first process up is the hub, later
+  ones join. When the hub's process exits, every client reconnects with
+  backoff (0.1 s doubling to 2 s) and each also tries to bind the address;
+  the one that wins re-hosts, seeded with the values it last saw, and the
+  others' next attempt connects to it. Two processes can race for the port;
+  the loser's bind fails with "address in use" and it simply connects a
+  moment later. Posts made while a process has no link are dropped; `set`s
+  are kept (latest per key) and sent on rejoin.
+* **Protocol.** One JSON object per line: `{"kind":"hello","name":..}`
+  from a joining client, answered by `{"kind":"state","values":{..}}`;
+  then `{"kind":"post","from":..,"topic":..,"value":..}` and
+  `{"kind":"set","key":..,"value":..}` in both directions. The hub forwards
+  each post and set to every *other* connection (no echo) and keeps the
+  values map. Anything that speaks this (a script over `nc`, say) can join.
+* **In the blackboard.** `Host::attach_bus(client, name)` (or
+  `Host::join_bus(addr, name)`, which does the connect-or-host too) hooks
+  the client into `Blackboard::end_frame`: this frame's local posts go out
+  tagged with the process name (the first account, or `pidN`), posts from
+  other processes come in as messages readable next frame with
+  `from == ac_plugin::REMOTE` and `origin: Some(process name)`,
+  `Blackboard::set` publishes, and incoming sets and the join-time state
+  update `values`. A plugin that already reads `messages_on("party.target")`
+  therefore sees the whole party's posts without change; one that must not
+  act on other processes' posts checks `Message::is_remote()`. Rhai scripts
+  see `origin` on the message map.
+* **Latency and ordering.** Local posts are readable at home the next
+  frame and elsewhere one hub hop later (sub-millisecond on loopback, so
+  usually the next frame there too). Messages from different processes are
+  ordered per sender only. Sockets live on background threads; the main
+  loop only drains a channel.
+
 ## Resources
 
 * **DAT archives.** `ac_dat::DatArchive` mmaps the files. Within a process

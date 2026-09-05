@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+ac-bus = { path = "../ac-bus" }
 ac-client = { path = "../ac-client" }
 ac-world = { path = "../ac-world" }
 ac-scene = { path = "../ac-scene" }

@@ -133,6 +133,12 @@ struct Cli {
     /// items so the icon overlay can be checked without a server.
     #[arg(long, hide = true)]
     demo_ui: bool,
+    /// Join the local cross-process bus so plugins here and in other
+    /// acviewer/acbot processes share posts and values: HOST:PORT or PORT
+    /// (default 127.0.0.1:9500, or $ACREBORN_BUS). The first process up
+    /// hosts it.
+    #[arg(long, num_args = 0..=1, default_missing_value = "")]
+    bus: Option<String>,
 }
 
 /// An icon loader for the egui overlay: decodes RenderSurfaces (0x06) from
@@ -1501,6 +1507,9 @@ fn main() -> Result<()> {
             fx: Default::default(),
             audio: None,
         };
+        if let Some(bus) = app.cli.bus.clone() {
+            plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
+        }
         app.load_scene(&mut gpu)?;
         let (w, h) = gpu.size();
         let mut ui = ui::Ui::new(gpu.device(), gpu.format(), None, w, h);
@@ -1950,6 +1959,9 @@ fn main() -> Result<()> {
         fx: Default::default(),
         audio: None,
     };
+    if let Some(bus) = app.cli.bus.clone() {
+        plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
+    }
     event_loop.run_app(&mut app)?;
     Ok(())
 }
