@@ -1,0 +1,358 @@
+# Writing a plugin
+
+A plugin is a plain Rust type implementing `ac_plugin::Plugin`, registered
+with the `Host` in `bins/acviewer/src/plugins/mod.rs`. It sees every
+session in the process through `Ctx`, can call any `ac_client::Client`
+method, draw egui panels, take keys, and handle `/commands`. Plugins in
+different sessions coordinate through the shared `Blackboard`.
+
+The crate re-exports what you need: `ac_plugin::{Client, Event, Ctx,
+Plugin, Blackboard, Message, Host, Requests, egui, serde_json, Value}`.
+
+## The `Plugin` trait
+
+```rust
+pub trait Plugin {
+    fn name(&self) -> &str;
+
+    /// A server event for `cx.client()` (chat lines, sounds, placement...).
+    fn on_event(&mut self, _cx: &mut Ctx, _ev: &Event) {}
+
+    /// Once per frame per session, after the session ticked.
+    fn tick(&mut self, _cx: &mut Ctx) {}
+
+    /// Draw panels for the active session. Runs inside the frame's egui
+    /// pass; use `egui::Window`/`egui::Area` freely.
+    fn ui(&mut self, _cx: &mut Ctx, _egui: &egui::Context) {}
+
+    /// A key went down or up while no text box had focus. Return true to
+    /// consume it so the client's own bindings ignore it.
+    fn key(&mut self, _cx: &mut Ctx, _key: egui::Key, _pressed: bool) -> bool { false }
+
+    /// `/name args` typed in the chat box. Return true when handled.
+    fn command(&mut self, _cx: &mut Ctx, _name: &str, _args: &str) -> bool { false }
+}
+```
+
+Call order each frame (`Host::frame`, once per session `i`): every
+plugin's `on_event` for each of session `i`'s events, then its `tick`.
+`ui`, `key` and `command` run with `index` = the active session. `key` and
+`command` stop at the first plugin that returns `true`; an unhandled
+command logs `Unknown command /name`.
+
+`Event` (from `ac_client`):
+
+```rust
+pub enum Event {
+    Chat { text: String, kind: u32 },   // kind = server ChatMessageType
+    Sound { wave: Rc<Wave>, volume: f32 },
+    Connected,
+    Terminated(String),
+    Refused(u32),                       // CharacterError / AccountBoot opcode
+    Placed { cell: u32 },               // the character stands in the world
+}
+```
+
+## `Ctx`
+
+```rust
+pub struct Ctx<'a> {
+    pub clients: Vec<&'a mut Client>, // every session, in order
+    pub index: usize,                 // the session this callback is about
+    pub board: &'a mut Blackboard,
+    pub dt: f32,                      // seconds since the last frame (0 in ui/key/command)
+    pub now: Instant,
+    pub chat: Vec<(String, u32)>,     // lines to add to the active chat log
+    pub activate: Option<usize>,      // ask the host to switch the active session
+}
+
+impl Ctx<'_> {
+    pub fn client(&mut self) -> &mut Client;   // self.clients[self.index]
+    pub fn client_count(&self) -> usize;
+    pub fn log(&mut self, text: impl Into<String>);            // chat line, kind 0 (system)
+    pub fn post(&mut self, topic: impl Into<String>, value: impl Into<Value>); // bus, from this session
+}
+```
+
+### `Client` fields worth reading
+
+| field | what it is |
+|---|---|
+| `config: Config` | `host`, `account`, `password`, `character` of this session. |
+| `world: ac_world::World` | Everything the server described: see below. |
+| `assets: Rc<ac_scene::Assets>` | The DAT loader; `spell_table()`, `skill_table()`, `region()`, `setup(id)`, ... |
+| `player: Option<player::Player>` | Our physics body once placed: `cell`, `local`, `heading`, `stance`, `world_position()`, `forward()`, `landblock()`, `is_indoors()`, `is_airborne()`, `busy()`, `turn(d_yaw)`. |
+| `scene_block: Option<u32>` | Landblock the scene is built around; `placed()` is `scene_block.is_some()`. |
+| `combat: bool`, `magic: bool` | Melee and magic combat modes. |
+| `attack_target: Option<u32>` | Creature we keep swinging at until it dies or `attack_target = None`. |
+| `attack_pending: bool` | A swing was sent and AttackDone has not come back. |
+| `last_target_name: String` | Name of the last creature attacked (its corpse is what `/loot` opens). |
+| `move_to: Option<MoveTarget>` | A server-requested MoveTo we are carrying out. |
+| `selected: Option<u32>` | The selected object (target bar, appraisal, targeted casts). |
+| `known_spells: HashMap<u32, String>` | Spells learnt from scrolls this session, by name. |
+| `loot_queue: VecDeque<u32>`, `loot_inflight: Option<(u32, Instant)>` | Items still to take from the open container, and the one in flight. |
+| `characters: Vec<CharacterEntry>` | The account's character list. |
+| `session: ac_net::session::Session` | Raw access: `send_action(action, body)`, `send_message(queue, msg)` for anything `Client` has no method for. |
+
+### `World` (`crates/ac-world/src/lib.rs`)
+
+| item | meaning |
+|---|---|
+| `objects: HashMap<u32, WorldObject>` | Every object the server created, by guid. |
+| `player_guid: Option<u32>`, `player()`, `player_mut()` | Our own object. |
+| `stats: PlayerStats` | The character sheet (below). |
+| `open_container: Option<(u32, Vec<u32>)>` | A corpse or chest we are looking into: its guid and item guids. |
+| `open_vendor: Option<ApproachVendor>` | The vendor we are trading with: `vendor`, `items: Vec<VendorItem>` (`guid`, `stack`, `desc.name`, `desc.value`), `buy_rate`, `sell_rate`. |
+| `generation: u64` | Bumped whenever a drawable object or position changes. |
+| `inventory()`, `wielded()` | Iterators over our pack items and equipped items. |
+| `drawable()` | Objects with a position and a model (what is in view). |
+
+`WorldObject`: `guid`, `name`, `weenie_class_id`, `setup_id`,
+`motion_table_id`, `position: Option<Position>` (`cell`, `local`,
+`rotation`), `display` (smoothed position), `world_pos()`,
+`object_desc_flags` (`object_desc_flags::{PLAYER, ATTACKABLE, VENDOR,
+DOOR, CORPSE, PORTAL, STUCK, OPENABLE}`), `item_type`
+(`item_type::{CREATURE, CONTAINER, WIELDABLE, ...}`), `container`,
+`wielder`, `stack_size`, `value`, `spell_id`, `health: Option<f32>`
+(fraction, creatures we have hit), `is_player`, `motion` (current stance
+and forward command), `target: Option<MoveTarget>`. `ac_world::
+landblock_origin(cell) + position.local` is the world position.
+
+`PlayerStats` (`crates/ac-world/src/stats.rs`): `name`, `level`,
+`total_xp`, `available_xp`, `skill_credits`, `attributes: [Attribute; 6]`
+(Strength, Endurance, Quickness, Coordination, Focus, Self; `value()`),
+`vitals: [Vital; 3]` (Health, Stamina, Mana; `current`), `vital_max(i)`,
+`skills: Vec<Skill>`, `skill(id)`, `skill_value(skill, base)`, `spells:
+Vec<u32>` (known spell ids), `enchantments`, `inventory`, `wielded`,
+`options` (shortcuts, spell bars).
+
+### `Client` methods (actions)
+
+| method | effect |
+|---|---|
+| `tick(input: Option<player::Input>, dt, now) -> PlayerFrame` | Pump the network, apply messages, run timers and physics. The host calls this; plugins do not. |
+| `drain_events() -> Vec<Event>` | Events since the last drain (the host drains and passes them to `on_event`). |
+| `placed() -> bool` | The character is in the world. |
+| `say(text)` | Local chat, or an `@command`. |
+| `select(guid: Option<u32>)` | Set the selection (targeted spells go to it). |
+| `interact(guid)` | Double-click semantics: attack if in melee and attackable, wield/unwield carried items, pick up ground items, else Use (doors, NPCs, corpses, vendors, portals). |
+| `use_by_name(name) -> bool` | `interact` on the nearest object whose name starts with `name` (carried items win, exact names beat prefixes); false if nothing matches yet. |
+| `toggle_combat()` | Melee mode on/off (`combat`); leaving it clears the attack target. |
+| `attack(guid)` | One TargetedMeleeAttack and set `attack_target`; `tick_combat` re-swings until the target dies. Needs `combat`. |
+| `cast(spell_id)` | Enter magic mode if needed, then cast: self-targeted spells untargeted, others at `selected` (or ourselves). |
+| `take(guid)` | Queue an item of the open container for pickup. |
+| `close_container()` | Stop viewing the open container. |
+| `buy(guid)`, `sell(guid)`, `close_vendor()` | Trade with `world.open_vendor`. |
+| `disconnect(now)` | Clean disconnect. |
+
+`player::Input { forward: f32, strafe: f32, run: bool, jump: bool }` is
+what the host builds from the keys for the active session; a plugin cannot
+steer the character directly yet, but `client.player.heading` and
+`client.move_to` are public, and setting `move_to = Some(MoveTarget::
+Position { cell, local })` makes `tick` run there.
+
+## Blackboard and bus
+
+```rust
+pub struct Blackboard { pub values: HashMap<String, Value>, /* inbox, outbox */ }
+impl Blackboard {
+    pub fn get(&self, key: &str) -> Option<&Value>;
+    pub fn set(&mut self, key: impl Into<String>, value: impl Into<Value>);
+    pub fn post(&mut self, from: usize, topic: impl Into<String>, value: impl Into<Value>);
+    pub fn messages(&self) -> impl Iterator<Item = &Message>;
+    pub fn messages_on<'a>(&'a self, topic: &'a str) -> impl Iterator<Item = &'a Message> + 'a;
+}
+pub struct Message { pub from: usize, pub topic: String, pub value: Value }
+```
+
+* `values` persist for the life of the process: use them for shared facts
+  (`board.set("leader", 0)`, `board.get("leader")`).
+* Messages posted this frame (`cx.post(topic, value)`) are readable by every
+  plugin, for every session, during the next frame only. `Host::end_frame`
+  rotates the queues after all sessions ran.
+* Values are `serde_json::Value`; use `serde_json::json!({...})` for
+  structured payloads and `.as_u64()` etc. to read them.
+
+## Registering a plugin
+
+`bins/acviewer/src/plugins/mod.rs`:
+
+```rust
+pub mod autoheal;
+pub mod console;
+
+pub fn builtin() -> Host {
+    let mut host = Host::new();
+    host.register(Box::new(console::Console::default()));
+    host.register(Box::new(autoheal::AutoHeal::default()));
+    host
+}
+```
+
+Order matters for `key` and `command` (first to return `true` wins), so
+put plugins that claim generic keys last. Any binary that drives sessions
+can host plugins the same way: `Host::new()`, `register`, then
+`frame`/`ui`/`key`/`command`/`end_frame` (see `crates/ac-plugin/src/host.rs`).
+
+## Worked example: auto-heal
+
+Casts Heal Self when health drops under half, at most every four seconds;
+`/autoheal` toggles it. Save as `bins/acviewer/src/plugins/autoheal.rs`
+and register it as above. (This file type-checks against the current
+crates.)
+
+```rust
+//! Auto-heal: cast Heal Self whenever health drops under half.
+//! `/autoheal` toggles it.
+
+use std::time::{Duration, Instant};
+
+use ac_plugin::{Client, Ctx, Plugin};
+
+pub struct AutoHeal {
+    enabled: bool,
+    last_cast: Option<Instant>,
+}
+
+impl Default for AutoHeal {
+    fn default() -> Self {
+        AutoHeal {
+            enabled: true,
+            last_cast: None,
+        }
+    }
+}
+
+impl AutoHeal {
+    /// The Heal Self the character knows: first from the spellbook (ids in
+    /// `world.stats.spells`, named through the portal's SpellTable), else a
+    /// scroll read this session.
+    fn heal_self(c: &Client) -> Option<u32> {
+        let table = c.assets.spell_table().ok()?;
+        c.world
+            .stats
+            .spells
+            .iter()
+            .copied()
+            .find(|id| table.get(*id).is_some_and(|sp| sp.name.starts_with("Heal Self")))
+            .or_else(|| {
+                c.known_spells
+                    .iter()
+                    .find(|(_, n)| n.starts_with("Heal Self"))
+                    .map(|(id, _)| *id)
+            })
+    }
+}
+
+impl Plugin for AutoHeal {
+    fn name(&self) -> &str {
+        "autoheal"
+    }
+
+    /// Once per frame for every session: each session heals itself.
+    fn tick(&mut self, cx: &mut Ctx) {
+        if !self.enabled {
+            return;
+        }
+        let c = cx.client();
+        if !c.placed() {
+            return;
+        }
+        let max = c.world.stats.vital_max(0);
+        let health = c.world.stats.vitals[0].current;
+        if max == 0 || health * 2 >= max {
+            return;
+        }
+        if self.last_cast.is_some_and(|t| t.elapsed() < Duration::from_secs(4)) {
+            return;
+        }
+        let Some(spell) = Self::heal_self(c) else {
+            return;
+        };
+        // Heal Self is self-targeted, so `cast` sends it untargeted. It also
+        // switches the character into magic mode (out of melee).
+        c.cast(spell);
+        self.last_cast = Some(Instant::now());
+        cx.log(format!("autoheal: {health}/{max}, casting Heal Self"));
+        cx.post("autoheal", health);
+    }
+
+    fn command(&mut self, cx: &mut Ctx, name: &str, _args: &str) -> bool {
+        if name != "autoheal" {
+            return false;
+        }
+        self.enabled = !self.enabled;
+        cx.log(format!(
+            "autoheal {}",
+            if self.enabled { "on" } else { "off" }
+        ));
+        true
+    }
+}
+```
+
+Notes: `tick` runs once per session, so with three `--client`s each
+character heals itself and `self.last_cast` is shared; keep per-session
+state in a `Vec` indexed by `cx.index` when that matters. Health arrives
+as `PrivateUpdateAttribute2ndLevel` and is applied to
+`stats.vitals[0].current` before your `tick` sees it. ACE needs spell
+components unless `@modifybool require_spell_comps false`.
+
+## An agent-style plugin
+
+A bot that plays the game is the same shape, with a perceive / decide /
+act loop in `tick` and coordination over the bus:
+
+**Perceive** from `cx.client().world`: `drawable()` for what is in view,
+`object_desc_flags & ATTACKABLE` plus `item_type & CREATURE` for monsters,
+`health` for ones we have hit, `player().position` and
+`landblock_origin(cell) + local` for distances, `stats.vitals` for our own
+state, `open_container`/`open_vendor` for what is open, and the `Event`s
+in `on_event` (`Chat` lines carry server errors and `TransientString`
+refusals as text).
+
+**Decide** with plain state in the plugin struct: a small enum per session
+(`Idle`, `Fighting(guid)`, `Looting`, `Healing`) indexed by `cx.index`,
+with `Instant`s for timeouts, because the server answers asynchronously
+and some answers never come.
+
+**Act** through `Client`: `toggle_combat` + `attack(guid)` (or
+`use_by_name`), `cast`, `interact`/`use_by_name` on corpses and doors,
+`take` per item, `buy`/`sell`, `say`, and `session.send_action` for the
+rest.
+
+**Coordinate**: `cx.post("assist", json!({"target": guid}))` from the
+leader; followers read `cx.board.messages_on("assist")` next frame and
+`attack` the same guid. `board.set("leader", index)` for facts that must
+persist. `cx.activate = Some(i)` switches the window to a session that
+needs eyes on it.
+
+Protocol facts from [subsystems/net.md](subsystems/net.md) that shape a
+bot:
+
+* **Server-driven MoveTo.** Using or attacking something out of reach makes
+  ACE send a MoveTo for our guid and poll our reported position; ACE does
+  not move us. `Client` runs toward `move_to` and holds MoveToState until
+  the server says idle (any MoveToState cancels the chain). While
+  `client.move_to.is_some()` do not re-send the action; `tick_combat`
+  already waits. A move-to times out after 12 s.
+* **One pickup at a time.** The server refuses a second PutItemInContainer
+  while one is in flight (`YoureTooBusy`). `take(guid)` queues and
+  `tick_loot` sends one at a time, waiting for the item to land or 4 s;
+  check `loot_queue.is_empty() && loot_inflight.is_none()` before closing
+  the container or walking off.
+* **AttackDone semantics.** Every swing sequence ends with AttackDone
+  carrying `ActionCancelled` (0x36); that is the normal end, not a
+  failure. `attack_pending` is cleared there and `tick_combat` re-swings
+  after `attack_backoff` (300 ms). Watch `world.objects[target].health`
+  (fraction) and the `Chat` kill line; `attack_target` becomes `None` when
+  the target is gone.
+* **Lifestone protection.** After a respawn attacks are refused (WeenieError
+  0x0502) or the protection is dispelled by acting; back off on the
+  "cannot attack" transient strings rather than hammering.
+* **Modes.** `cast` flips to magic mode and clears `combat`; call
+  `toggle_combat` again before the next melee swing. `toggle_combat` off
+  also drops `attack_target`.
+* **Names, not guids, across sessions.** Guids are per object and stable
+  while the object exists, so a guid on the bus is fine; names are for
+  humans and `use_by_name` prefix matching.
