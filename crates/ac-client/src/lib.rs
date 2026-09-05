@@ -68,12 +68,9 @@ pub struct Client {
     /// reports us idle again.
     pub move_to: Option<ac_world::object::MoveTarget>,
     pub move_to_since: Instant,
-    /// Waypoints being followed toward `move_to` when the straight line
-    /// to it is blocked (see `route`).
-    pub route: Option<route::Route>,
-    /// Next time the straight line to `move_to` is re-tested while no
-    /// route is being followed.
-    pub route_check: Instant,
+    /// Route steering toward `move_to` when the straight line to it is
+    /// blocked (see `route`).
+    pub steering: route::Steering,
     /// Melee combat mode is on.
     pub combat: bool,
     /// Magic combat mode is on.
@@ -158,8 +155,7 @@ impl Client {
             scene_block: None,
             move_to: None,
             move_to_since: Instant::now(),
-            route: None,
-            route_check: Instant::now(),
+            steering: route::Steering::new(Instant::now()),
             combat: false,
             magic: false,
             known_spells: Default::default(),
@@ -246,6 +242,19 @@ impl Client {
                             continue;
                         }
                         ac_world::Applied::Moved => continue,
+                        ac_world::Applied::PlayerMoved => {
+                            // A teleport or a server correction: stand where
+                            // the server put us and forget the current route.
+                            if let (Some(pl), Some(p)) = (
+                                self.player.as_mut(),
+                                self.world.player().and_then(|o| o.position),
+                            ) {
+                                pl.cell = p.cell;
+                                pl.local = p.local;
+                                pl.dirty = true;
+                            }
+                            self.steering.reset();
+                        }
                         ac_world::Applied::PlayerMoveTo | ac_world::Applied::PlayerMotion => {
                             // A MoveTo aimed at us is ours to carry out; a plain
                             // motion state for us means the server is done
@@ -446,7 +455,7 @@ impl Client {
             // the target until close enough, unless the user takes over.
             let manual = input.forward != 0.0 || input.strafe != 0.0;
             if self.move_to.is_none() || manual {
-                self.route = None;
+                self.steering.reset();
             }
             if let Some(t) = self.move_to {
                 let goal = match t {
@@ -466,15 +475,7 @@ impl Client {
                     if !manual && flat.length() > stop {
                         // Straight at the goal while nothing is in the
                         // way; through the waypoints of a route otherwise.
-                        let aim = route::steer(
-                            &mut self.route,
-                            &mut self.route_check,
-                            pl,
-                            &self.assets,
-                            g,
-                            goal_cell,
-                            now,
-                        );
+                        let aim = self.steering.steer(pl, &self.assets, g, goal_cell, now);
                         let d = aim - pl.world_position();
                         let flat = glam::Vec2::new(d.x, d.y);
                         if flat.length() > 1e-3 {

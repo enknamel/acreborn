@@ -425,24 +425,74 @@ impl CollisionWorld {
     /// floor within `step_up` above or `step_down` below sets the new z,
     /// and a ceiling the capsule does not fit under blocks the move.
     pub fn walk(&self, from: Vec3, to: Vec3, cap: &Capsule) -> Walk {
-        let pos = self.resolve_above(to, cap.radius, cap.height, cap.step_up);
-        let probe = Vec3::new(pos.x, pos.y, from.z);
-        let floor = self.floor_at(probe, cap.step_up, cap.step_down);
-        let feet = Vec3::new(pos.x, pos.y, floor.map(|(z, _)| z).unwrap_or(from.z));
-        if let Some(cz) = self.ceiling_at(feet, cap.radius) {
-            if cz - feet.z < cap.height {
-                return Walk {
-                    pos: from,
-                    floor: self.floor_at(from, cap.step_up, cap.step_down),
-                    blocked: true,
-                };
+        let mut target = to;
+        // A low overhang beside the path (a brazier, a bracket) pushes
+        // the capsule aside like a wall; only one directly overhead
+        // blocks the step.
+        for _ in 0..3 {
+            let pos = self.resolve_above(target, cap.radius, cap.height, cap.step_up);
+            let probe = Vec3::new(pos.x, pos.y, from.z);
+            let floor = self.floor_at(probe, cap.step_up, cap.step_down);
+            let feet = Vec3::new(pos.x, pos.y, floor.map(|(z, _)| z).unwrap_or(from.z));
+            match self.overhang_escape(feet, cap.radius, cap.height) {
+                None => break,
+                Some(push) if push.length_squared() < 1e-8 => {
+                    return Walk {
+                        pos: feet,
+                        floor,
+                        blocked: false,
+                    };
+                }
+                Some(push) => target = Vec3::new(feet.x + push.x, feet.y + push.y, to.z),
             }
         }
         Walk {
-            pos: feet,
-            floor,
-            blocked: false,
+            pos: from,
+            floor: self.floor_at(from, cap.step_up, cap.step_down),
+            blocked: true,
         }
+    }
+
+    /// How a capsule (feet at `p`, radius `r`, height `h`) gets out from
+    /// under a ceiling lower than its height: the horizontal push that
+    /// clears every offending triangle (zero when none is too low), or
+    /// `None` when one is directly overhead.
+    pub fn overhang_escape(&self, p: Vec3, r: f32, h: f32) -> Option<glam::Vec2> {
+        let min_z = p.z + 0.2;
+        let mut push = glam::Vec2::ZERO;
+        for t in self.nearby(p, r) {
+            let facing_down = t.normal.z < -0.5 || (t.two_sided && t.normal.z > 0.5);
+            if !facing_down {
+                continue;
+            }
+            if point_in_tri_xy(p, t) {
+                let z =
+                    t.a.z - ((p.x - t.a.x) * t.normal.x + (p.y - t.a.y) * t.normal.y) / t.normal.z;
+                if z >= min_z && z - p.z < h {
+                    return None;
+                }
+                continue;
+            }
+            let top = t.a.z.max(t.b.z).max(t.c.z).min(p.z + 100.0);
+            let q = closest_point_on_tri(Vec3::new(p.x, p.y, top), t);
+            let away = glam::Vec2::new(p.x - q.x, p.y - q.y);
+            let d = away.length();
+            if d >= r || q.z < min_z || q.z - p.z >= h {
+                continue;
+            }
+            let dir = if d > 1e-4 {
+                away / d
+            } else {
+                glam::Vec2::new(-t.normal.x, -t.normal.y).normalize_or(glam::Vec2::X)
+            };
+            let need = dir * (r - d + 0.02);
+            // Keep the largest push per direction rather than summing
+            // neighbouring facets of one object.
+            if need.length_squared() > push.length_squared() {
+                push = need;
+            }
+        }
+        Some(push)
     }
 
     /// Move the capsule vertically by `dz` (negative = falling): land on

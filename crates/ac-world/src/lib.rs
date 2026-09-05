@@ -168,6 +168,9 @@ pub struct World {
 pub enum Applied {
     Created,
     Moved,
+    /// The server moved our own character somewhere else (a teleport
+    /// or a correction of more than a few metres).
+    PlayerMoved,
     Deleted,
     PlayerSet,
     /// Name, level, attributes or vitals changed.
@@ -309,7 +312,11 @@ impl World {
                         // The server's own position supersedes local prediction.
                         o.target = None;
                         self.generation += 1;
-                        Applied::Moved
+                        if is_player {
+                            Applied::PlayerMoved
+                        } else {
+                            Applied::Moved
+                        }
                     } else {
                         Applied::Ignored
                     }

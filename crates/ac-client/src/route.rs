@@ -61,70 +61,130 @@ impl Route {
     }
 }
 
-/// Where to head this frame to reach `goal` (world space, in landblock
-/// `goal_block`): the goal itself while the straight line is clear or
-/// the goal lies in another landblock, else the next waypoint of a route
-/// planned (and re-planned as `Route::stale` says) on the graph.
-/// `next_check` throttles the straight-line test while no route exists.
-pub fn steer(
-    route: &mut Option<Route>,
-    next_check: &mut Instant,
-    player: &mut Player,
-    assets: &Assets,
-    goal: Vec3,
-    goal_block: u32,
-    now: Instant,
-) -> Vec3 {
-    let me = player.world_position();
-    let block = player.landblock();
-    if goal_block & 0xFFFF_0000 != block {
-        *route = None;
-        return goal;
+/// Steering state of one character: the route being followed and the
+/// throttles and stuck detection around it.
+#[derive(Debug, Clone)]
+pub struct Steering {
+    pub route: Option<Route>,
+    /// Next time the straight line is re-tested while no route exists.
+    next_check: Instant,
+    /// Where the character last made progress, and when.
+    last_pos: Option<Vec3>,
+    last_progress: Instant,
+    /// The straight line is not trusted before this: the character got
+    /// stuck walking it (the line test passed but the walk did not).
+    straight_blocked_until: Instant,
+}
+
+/// No progress for this long while steering counts as stuck.
+const STUCK_AFTER: Duration = Duration::from_millis(1500);
+/// Movement below this (metres, flat) is not progress.
+const PROGRESS: f32 = 0.1;
+/// After getting stuck on the straight line, route on the graph for
+/// this long before trusting the line again.
+const AVOID_STRAIGHT: Duration = Duration::from_secs(8);
+
+impl Steering {
+    pub fn new(now: Instant) -> Self {
+        Steering {
+            route: None,
+            next_check: now,
+            last_pos: None,
+            last_progress: now,
+            straight_blocked_until: now,
+        }
     }
-    let replan = match route {
-        None => now >= *next_check,
-        Some(r) => r.stale(goal, now),
-    };
-    if replan {
-        *next_check = now + LINE_CHECK;
-        if !player.line_blocked(assets, block, me, goal) {
-            if route.take().is_some() {
-                tracing::debug!("route: straight line clear again");
-            }
+
+    /// Forget the route and the progress history (the goal went away or
+    /// the user took over).
+    pub fn reset(&mut self) {
+        self.route = None;
+        self.last_pos = None;
+    }
+
+    /// Where to head this frame to reach `goal` (world space, in landblock
+    /// `goal_block`): the goal itself while the straight line is clear or
+    /// the goal lies in another landblock, else the next waypoint of a
+    /// route planned (and re-planned as `Route::stale` says) on the
+    /// graph. A character that stops making progress drops its route,
+    /// stops trusting the straight line for a while, and re-plans.
+    pub fn steer(
+        &mut self,
+        player: &mut Player,
+        assets: &Assets,
+        goal: Vec3,
+        goal_block: u32,
+        now: Instant,
+    ) -> Vec3 {
+        let me = player.world_position();
+        let block = player.landblock();
+        if goal_block & 0xFFFF_0000 != block {
+            self.route = None;
             return goal;
         }
-        match player.find_path(assets, block, me, goal) {
-            Some(waypoints) => {
-                let origin = ac_world::landblock_origin(block);
-                let local: Vec<[f32; 3]> = waypoints
-                    .iter()
-                    .map(|w| {
-                        let l = *w - origin;
-                        [
-                            (l.x * 10.0).round() / 10.0,
-                            (l.y * 10.0).round() / 10.0,
-                            (l.z * 10.0).round() / 10.0,
-                        ]
-                    })
-                    .collect();
-                tracing::debug!(
-                    "route: {} waypoints to {:?} in {block:#010x}: {local:?}",
-                    waypoints.len(),
-                    goal - origin
-                );
-                *route = Some(Route::new(goal, waypoints, now));
+        match self.last_pos {
+            Some(p) if glam::Vec2::new(me.x - p.x, me.y - p.y).length() < PROGRESS => {
+                if now.duration_since(self.last_progress) >= STUCK_AFTER {
+                    tracing::debug!(
+                        "route: stuck at {:?}, re-planning",
+                        me - ac_world::landblock_origin(block)
+                    );
+                    self.route = None;
+                    self.next_check = now;
+                    self.straight_blocked_until = now + AVOID_STRAIGHT;
+                    self.last_progress = now;
+                }
             }
-            None => {
-                tracing::debug!("route: no path to {goal:?}, going straight");
-                *route = None;
-                *next_check = now + REPLAN_AFTER;
-                return goal;
+            _ => {
+                self.last_pos = Some(me);
+                self.last_progress = now;
             }
         }
-    }
-    match route {
-        Some(r) => r.target(me),
-        None => goal,
+        let replan = match &self.route {
+            None => now >= self.next_check,
+            Some(r) => r.stale(goal, now),
+        };
+        if replan {
+            self.next_check = now + LINE_CHECK;
+            if now >= self.straight_blocked_until && !player.line_blocked(assets, block, me, goal) {
+                if self.route.take().is_some() {
+                    tracing::debug!("route: straight line clear again");
+                }
+                return goal;
+            }
+            match player.find_path(assets, block, me, goal) {
+                Some(waypoints) => {
+                    let origin = ac_world::landblock_origin(block);
+                    let local: Vec<[f32; 3]> = waypoints
+                        .iter()
+                        .map(|w| {
+                            let l = *w - origin;
+                            [
+                                (l.x * 10.0).round() / 10.0,
+                                (l.y * 10.0).round() / 10.0,
+                                (l.z * 10.0).round() / 10.0,
+                            ]
+                        })
+                        .collect();
+                    tracing::debug!(
+                        "route: {} waypoints to {:?} in {block:#010x}: {local:?}",
+                        waypoints.len(),
+                        goal - origin
+                    );
+                    self.route = Some(Route::new(goal, waypoints, now));
+                }
+                None => {
+                    tracing::debug!("route: no path to {goal:?}, going straight");
+                    self.route = None;
+                    self.next_check = now + REPLAN_AFTER;
+                    return goal;
+                }
+            }
+        }
+        match &mut self.route {
+            Some(r) => r.target(me),
+            None => goal,
+        }
     }
 }
 

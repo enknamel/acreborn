@@ -340,10 +340,10 @@ impl Player {
         b.collision.as_ref()
     }
 
-    /// Whether static geometry of landblock `block` (or of the blocks
-    /// under either end) crosses the chest-height line from `from` to
-    /// `to`: the test that decides between walking straight and planning
-    /// a route.
+    /// Whether the straight walk from `from` to `to` is blocked: static
+    /// geometry of landblock `block` (or of the blocks under either end)
+    /// crosses the chest-height line, or the capsule cannot walk it. The
+    /// test that decides between walking straight and planning a route.
     pub fn line_blocked(&mut self, assets: &Assets, block: u32, from: Vec3, to: Vec3) -> bool {
         let mut blocks = vec![block & 0xFFFF_0000];
         for b in [block_of(from), block_of(to)] {
@@ -351,10 +351,36 @@ impl Player {
                 blocks.push(b);
             }
         }
-        blocks.into_iter().any(|blk| {
+        if blocks.iter().any(|&blk| {
             self.collision(assets, blk)
                 .is_some_and(|c| !nav::line_clear(c, from, to))
-        })
+        }) {
+            return true;
+        }
+        // The ray misses, but the capsule may still not fit (door jambs,
+        // benches, a corridor that bends less than a body width).
+        self.walkable(assets, block, from, to) == Some(false)
+    }
+
+    /// Whether the capsule can walk the straight line from `from` to `to`
+    /// over landblock `block`'s geometry (see `nav::Ground::walkable`);
+    /// `None` when the block has no collision.
+    fn walkable(&mut self, assets: &Assets, block: u32, from: Vec3, to: Vec3) -> Option<bool> {
+        let block = block & 0xFFFF_0000;
+        self.collision(assets, block)?;
+        let cap = self.capsule;
+        let height_table = self.height_table.clone();
+        let b = self.blocks.get(&block)?;
+        let collision = b.collision.as_ref()?;
+        let sampler = TerrainSampler::new(&b.lb, &height_table);
+        let origin = ac_world::landblock_origin(block);
+        let terrain =
+            |x: f32, y: f32| sampler.height_at(Vec3::new(x - origin.x, y - origin.y, 0.0));
+        let ground = Ground {
+            collision,
+            terrain: (!b.dungeon).then_some(&terrain),
+        };
+        Some(ground.walkable(from, to, &cap).0)
     }
 
     /// A walkable route from `from` to `to` (world positions, both in
