@@ -865,6 +865,18 @@ mod tests {
 /// GameAction type ids (inside a 0xF7B1 message).
 pub mod action {
     pub const TALK: u32 = 0x0015;
+    pub const SET_AFK_MODE: u32 = 0x000F;
+    pub const SET_AFK_MESSAGE: u32 = 0x0010;
+    pub const TELL: u32 = 0x005D;
+    pub const TELE_TO_LIFESTONE: u32 = 0x0063;
+    pub const EMOTE: u32 = 0x01DF;
+    pub const SOUL_EMOTE: u32 = 0x01E1;
+    pub const TELE_TO_HOUSE: u32 = 0x0262;
+    pub const TELE_TO_MANSION: u32 = 0x0278;
+    pub const TELE_TO_MARKETPLACE: u32 = 0x028D;
+    pub const ENTER_PK_LITE: u32 = 0x028F;
+    pub const RECALL_ALLEGIANCE_HOMETOWN: u32 = 0x02AB;
+    pub const DIE: u32 = 0x0279;
     pub const TARGETED_MELEE_ATTACK: u32 = 0x0008;
     pub const PUT_ITEM_IN_CONTAINER: u32 = 0x0019;
     pub const GET_AND_WIELD_ITEM: u32 = 0x001A;

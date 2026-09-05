@@ -569,6 +569,18 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   0x001F → AllegianceUpdate 0x0020); vassals pass XP up by Loyalty and the
   patron's Leadership. Officers, names, motd and chat are separate
   actions (0x0030..0x0042, 0x0254).
+* **Commands**: the server (ACE `GameActionTalk`) treats only Talk lines
+  starting with `@` as commands (`@acehelp`, `@myquests`, admin commands;
+  unknown ones answer "Unknown command: X"). Retail's `/` commands were
+  the client's own and map to game actions: `/lifestone` (`/ls`)
+  TeleToLifestone 0x0063 (refused inside the Training Academy with
+  WeenieError 0x055D), `/die` Suicide 0x0279, `/house` TeleToHouse
+  0x0262, `/mansion` TeleToMansion 0x0278, `/hometown`
+  RecallAllegianceHometown 0x02AB, `/marketplace` 0x028D, `/pklite`
+  EnterPkLite 0x028F, `/afk [message]` SetAfkMessage 0x0010 + SetAfkMode
+  0x000F, `/tell Name, text` Tell 0x005D (text, name), `/emote text`
+  Emote 0x01DF. acreborn's chat box tries plugin commands first, then
+  these (`Client::slash_command`), then sends the rest as `@command`.
 * **Chat**: local (`@say`, emotes), `@tell` (Tell 0x005D, events Tell
   0x02BD), fellowship and allegiance channels, global channels General,
   Trade, LFG, Roleplay, Society (`@cg`, `@ct`, `@clfg`; `/join` and

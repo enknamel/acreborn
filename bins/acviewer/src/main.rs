@@ -399,7 +399,15 @@ impl App {
                 for (l, _) in &r.chat {
                     tracing::info!("{t} -> {l}");
                 }
+                let consumed = r.consumed;
                 requests.push(r);
+                if !consumed {
+                    // Not a plugin command: the game's own (/lifestone,
+                    // /tell ...) or a server command sent as @.
+                    if let Some(net) = self.nets.get_mut(active) {
+                        net.client.slash_command(&t);
+                    }
+                }
             } else if let Some(net) = self.nets.get_mut(active) {
                 net.client.say(&t);
             }

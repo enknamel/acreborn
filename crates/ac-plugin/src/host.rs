@@ -185,9 +185,6 @@ impl Host {
                 break;
             }
         }
-        if !consumed {
-            cx.log(format!("Unknown command /{name}"));
-        }
         Requests {
             chat: cx.chat,
             activate: cx.activate,

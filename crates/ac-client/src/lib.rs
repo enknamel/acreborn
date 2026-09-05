@@ -1320,6 +1320,75 @@ impl Client {
     }
 
     /// Say something (or an @command) in local chat.
+    /// A chat line starting with `/`: the retail client's own commands
+    /// become their game actions; anything else goes to the server as an
+    /// `@command` (ACE runs its command manager on those and answers
+    /// "Unknown command" for the rest). Returns false for an empty line.
+    pub fn slash_command(&mut self, line: &str) -> bool {
+        use ac_net::messages::action;
+        let body = line.trim_start_matches(['/', '@']).trim();
+        if body.is_empty() {
+            return false;
+        }
+        let (name, args) = body
+            .split_once(char::is_whitespace)
+            .map(|(n, a)| (n, a.trim()))
+            .unwrap_or((body, ""));
+        let name = name.to_ascii_lowercase();
+        let mut w = ac_net::wire::Writer::new();
+        match name.as_str() {
+            "lifestone" | "ls" => self.session.send_action(action::TELE_TO_LIFESTONE, &[]),
+            "die" => self.session.send_action(action::DIE, &[]),
+            "house" | "home" => self.session.send_action(action::TELE_TO_HOUSE, &[]),
+            "mansion" | "mp" => self.session.send_action(action::TELE_TO_MANSION, &[]),
+            "hometown" => self
+                .session
+                .send_action(action::RECALL_ALLEGIANCE_HOMETOWN, &[]),
+            "marketplace" | "mkt" => self.session.send_action(action::TELE_TO_MARKETPLACE, &[]),
+            "pklite" => self.session.send_action(action::ENTER_PK_LITE, &[]),
+            "afk" => {
+                if !args.is_empty() {
+                    w.string16(args);
+                    self.session
+                        .send_action(action::SET_AFK_MESSAGE, &w.finish());
+                    w = ac_net::wire::Writer::new();
+                }
+                w.u32(1);
+                self.session.send_action(action::SET_AFK_MODE, &w.finish());
+            }
+            "back" => {
+                w.u32(0);
+                self.session.send_action(action::SET_AFK_MODE, &w.finish());
+            }
+            "tell" | "t" => {
+                // `/tell Name, message` or `/tell Name message`.
+                let (target, msg) = match args.split_once(',') {
+                    Some((t, m)) => (t.trim(), m.trim()),
+                    None => args
+                        .split_once(char::is_whitespace)
+                        .map(|(t, m)| (t.trim(), m.trim()))
+                        .unwrap_or((args, "")),
+                };
+                if target.is_empty() || msg.is_empty() {
+                    return false;
+                }
+                w.string16(msg).string16(target);
+                self.session.send_action(action::TELL, &w.finish());
+            }
+            "emote" | "e" | "me" => {
+                w.string16(args);
+                self.session.send_action(action::EMOTE, &w.finish());
+            }
+            _ => {
+                // The server's own commands (@acehelp, @myquests, admin
+                // commands...): ACE reads them from Talk with an @ prefix.
+                w.string16(&format!("@{body}"));
+                self.session.send_action(action::TALK, &w.finish());
+            }
+        }
+        true
+    }
+
     pub fn say(&mut self, text: &str) {
         let mut w = ac_net::wire::Writer::new();
         w.string16(text);

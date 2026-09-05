@@ -433,6 +433,9 @@ fn main() -> Result<()> {
                     for (text, _) in r.chat {
                         println!("[{account}] {text}");
                     }
+                    if !r.consumed {
+                        sessions[i].client.slash_command(&line);
+                    }
                 } else {
                     println!("[{account}] > {line}");
                     sessions[i].client.say(&line);

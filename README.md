@@ -89,8 +89,10 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # Create sends it when the rules pass; Escape returns to the list.
 # Offline: --demo-select and --demo-create show both screens with no server
 # (--press ArrowRight steps the creation panes; add --screenshot out.png).
-# Chat lines starting with / are plugin commands (/help lists them: /use,
-# /attack, /cast, /loot, /buy, /sell, /combat, /peace, /who, /switch N).
+# Chat lines starting with / go to the plugins first (/help lists them),
+# then to the game's own commands (/lifestone, /die, /house, /tell Name,
+# text, /emote, /afk), and anything else to the server as @command
+# (/acehelp lists those).
 cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
 # several characters in one window: --client ACCOUNT:PASSWORD[:CHARACTER]
 # per extra session; Tab (or /switch N) picks the one shown and steered
