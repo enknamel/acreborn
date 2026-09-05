@@ -119,6 +119,7 @@ struct Net {
     /// An attack was sent and AttackDone has not come back yet.
     attack_pending: bool,
     last_attack: Instant,
+    attack_backoff: Duration,
     selected: Option<u32>,
     last_click: Option<(Instant, u32)>,
     gpu_meshes: scene::GpuMeshCache,
@@ -160,9 +161,19 @@ impl App {
                     self.appraisal(rest);
                     return;
                 }
-                Some((_, _, event::ATTACK_DONE, _)) => {
+                Some((_, _, event::ATTACK_DONE, rest)) => {
+                    let err = rest
+                        .get(..4)
+                        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                        .unwrap_or(0);
                     if let Some(net) = self.net.as_mut() {
                         net.attack_pending = false;
+                        net.attack_backoff = if err == 0 {
+                            Duration::from_millis(300)
+                        } else {
+                            tracing::debug!("attack done with error {err:#x}");
+                            Duration::from_millis(1500)
+                        };
                     }
                     return;
                 }
@@ -456,7 +467,12 @@ impl App {
             net.attack_pending = false;
             return;
         }
-        if !net.attack_pending && net.last_attack.elapsed() > Duration::from_millis(300) {
+        // Re-sending while the server walks us to the target would cancel
+        // that walk, so wait for it; back off after a refused attack.
+        if !net.attack_pending
+            && net.move_to.is_none()
+            && net.last_attack.elapsed() > net.attack_backoff
+        {
             self.attack(target);
         }
     }
@@ -780,6 +796,7 @@ impl App {
             attack_target: None,
             attack_pending: false,
             last_attack: Instant::now(),
+            attack_backoff: Duration::from_millis(300),
             selected: None,
             last_click: None,
             gpu_meshes: Default::default(),
@@ -1132,6 +1149,16 @@ impl App {
             let now = Instant::now();
             let dt = self.frame_dt;
             pl.update(&net.assets, &input, dt);
+            // One-shot motions the server broadcast for us (attacks, emotes).
+            let mut cmds = Vec::new();
+            if let Some(o) = net.world.player_mut() {
+                while let Some(c) = o.commands.pop() {
+                    cmds.push(c);
+                }
+            }
+            for c in cmds {
+                pl.play_command(&net.assets, c.command as u32, c.speed);
+            }
             let pose = pl.animate(&net.assets, &input, dt);
             if pose.is_some() {
                 pl.dirty = true;
@@ -1584,7 +1611,7 @@ fn main() -> Result<()> {
                     {
                         retry_at = Instant::now();
                         if let Some(name) = app.cli.use_name.clone() {
-                            if app.use_by_name(&name) || t > 25.0 + say_delay {
+                            if app.use_by_name(&name) || t > 60.0 + say_delay {
                                 app.cli.use_name = None;
                             }
                         }
@@ -1592,7 +1619,7 @@ fn main() -> Result<()> {
                             if !app.net.as_ref().is_some_and(|n| n.combat) {
                                 app.toggle_combat();
                             }
-                            if app.use_by_name(&name) || t > 25.0 + say_delay {
+                            if app.use_by_name(&name) || t > 60.0 + say_delay {
                                 attack_started = Some(Instant::now());
                                 app.cli.attack = None;
                             }
