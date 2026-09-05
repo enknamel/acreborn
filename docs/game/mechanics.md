@@ -493,7 +493,17 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
 * The corpse holds the dropped items, is locked to the owner unless the
   player `@permit`s someone or is a PK, and decays after level × 5 minutes
   (at least 1 hour) while its landblock is loaded; then the items fall on
-  the ground.
+  the ground. ACE destroys the dropped pyreals outright by default
+  (`corpse_destroy_pyreals`), so the corpse only holds the items.
+* On the wire a death is VictimNotification 0x01AC ("You killed
+  yourself", "Drudge killed you"), the vitae as MagicUpdateEnchantment
+  (spell 666, `stat_mod_value` 0.95 for 95%), then MagicPurgeEnchantments
+  and, after the death animation, the "You've lost 223 Pyreals, and your
+  Iron Scarab!" system line and the teleport to the lifestone. The purge
+  keeps the vitae: the client holds it in its own registry slot.
+* Verified on ACE with acbot: suicide, corpse listed and opened at the
+  death spot, item taken back, vitae shown, lifestone attune ("You have
+  attuned your spirit to this Lifestone...").
 * `/lifestone` (`/ls`) recalls to the attuned lifestone alive (long
   animation: TeleToLifestone 0x0063); `/die` kills the character. Item
   Enchantment adds Lifestone Tie / Recall / Sending and Portal Tie /
@@ -601,8 +611,9 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   starting with `@` as commands (`@acehelp`, `@myquests`, admin commands;
   unknown ones answer "Unknown command: X"). Retail's `/` commands were
   the client's own and map to game actions: `/lifestone` (`/ls`)
-  TeleToLifestone 0x0063 (refused inside the Training Academy with
-  WeenieError 0x055D), `/die` Suicide 0x0279, `/house` TeleToHouse
+  TeleToLifestone 0x0063 (refused with WeenieError 0x055D while
+  `RecallsDisabled` is set: from character creation until the Training
+  Academy's exit portal is used), `/die` Suicide 0x0279, `/house` TeleToHouse
   0x0262, `/mansion` TeleToMansion 0x0278, `/hometown`
   RecallAllegianceHometown 0x02AB, `/marketplace` 0x028D, `/pklite`
   EnterPkLite 0x028F, `/afk [message]` SetAfkMessage 0x0010 + SetAfkMode

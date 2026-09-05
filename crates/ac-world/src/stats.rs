@@ -772,9 +772,11 @@ impl PlayerStats {
         self.enchantments.len() != before
     }
 
-    /// Drop every enchantment (MagicPurgeEnchantments).
+    /// Drop every enchantment (MagicPurgeEnchantments, sent on death
+    /// right after the raised vitae). Vitae stays: the client keeps it in
+    /// its own registry slot, and the server drops everything else.
     pub fn purge_enchantments(&mut self) {
-        self.enchantments.clear();
+        self.enchantments.retain(|e| e.is_vitae());
     }
 
     /// Drop the harmful enchantments; buffs, vitae and cooldowns stay
@@ -1540,7 +1542,7 @@ mod tests {
             &game_event(event::MAGIC_PURGE_BAD_ENCHANTMENTS, &[]),
         );
         assert_eq!(ids(&st), vec![(666, 1), (3, 1)]);
-        // Purge drops everything.
+        // Purge (death) drops everything but the vitae.
         assert_eq!(
             st.apply(
                 opcode::GAME_EVENT,
@@ -1548,7 +1550,7 @@ mod tests {
             ),
             Some(StatsApplied::Enchantments)
         );
-        assert!(st.enchantments.is_empty());
+        assert_eq!(ids(&st), vec![(666, 1)]);
         // A short record is reported, not applied.
         assert_eq!(
             st.apply(
@@ -1557,7 +1559,7 @@ mod tests {
             ),
             Some(StatsApplied::Enchantments)
         );
-        assert!(st.enchantments.is_empty());
+        assert_eq!(ids(&st), vec![(666, 1)]);
     }
 
     #[test]

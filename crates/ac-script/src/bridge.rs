@@ -122,6 +122,23 @@ fn summary(c: &Client, index: usize) -> Map {
         .or_else(|| c.world.player()?.position.map(|p| p.cell))
         .unwrap_or(0);
     map.insert("cell".into(), int(cell));
+    // Position within the landblock, the numbers @loc and @teleloc use.
+    let local = c.player.as_ref().map(|p| p.local).or_else(|| {
+        let p = c.world.player()?.position?;
+        Some(p.local)
+    });
+    let l = local.unwrap_or_default();
+    map.insert("local_x".into(), float(l.x));
+    map.insert("local_y".into(), float(l.y));
+    map.insert("local_z".into(), float(l.z));
+    // Vitae penalty in percent (5 for 95% vitae), 0 without one.
+    let vitae = c
+        .enchantments()
+        .iter()
+        .find(|e| e.spell_id == 666)
+        .map(|e| ((1.0 - e.stat_mod_value) * 100.0).round() as i64)
+        .unwrap_or(0);
+    map.insert("vitae".into(), int(vitae));
     map.insert("combat".into(), c.combat.into());
     map.insert("magic".into(), c.magic.into());
     map.insert("target".into(), opt_guid(c.attack_target));
