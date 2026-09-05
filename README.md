@@ -1,5 +1,7 @@
 # acreborn
 
+[![CI](https://github.com/enknamel/acreborn/actions/workflows/ci.yml/badge.svg)](https://github.com/enknamel/acreborn/actions/workflows/ci.yml)
+
 A from-scratch Rust reimplementation of the Asheron's Call client, built to
 play against the [ACE](https://github.com/ACEmulator/ACE) server emulator.
 
