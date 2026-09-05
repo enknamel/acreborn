@@ -14,6 +14,7 @@ pub mod chargen;
 pub mod collision;
 pub mod interior;
 pub mod landblock;
+pub mod lighting;
 pub mod model;
 pub mod scenery;
 pub mod terrain;
@@ -141,6 +142,13 @@ impl Assets {
         cache.insert(block_id, s.clone());
         order.push_back(block_id);
         Ok(s)
+    }
+
+    /// The assembled landblock of `id` (a block or cell id) only if it is
+    /// still cached: a lookup that never assembles, for per-frame callers
+    /// such as lighting the objects standing in a block.
+    pub fn cached_landblock(&self, id: u32) -> Option<Rc<LandblockScene>> {
+        self.landblocks.borrow().get(&(id & 0xFFFF_0000)).cloned()
     }
 
     pub fn region(&self) -> Result<Rc<Region>> {

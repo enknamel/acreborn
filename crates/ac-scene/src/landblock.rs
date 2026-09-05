@@ -5,6 +5,7 @@ use std::rc::Rc;
 use ac_formats::landblock::{CellLandblock, LandblockInfo};
 use glam::Mat4;
 
+use crate::lighting::{self, LightSampler};
 use crate::model::{frame_to_mat, place, PlacedPart};
 use crate::terrain::{self, TerrainMesh};
 use crate::{lbid, scenery, Assets, Result};
@@ -22,6 +23,8 @@ pub struct LandblockScene {
     pub is_dungeon: bool,
     /// Interior cells (buildings' insides, dungeons).
     pub cells: Vec<crate::interior::CellScene>,
+    /// Per-cell interior lighting (torches and lamps plus a low ambient).
+    pub lights: LightSampler,
 }
 
 /// The assembled landblock, from [`Assets::landblock`]'s cache when it
@@ -87,6 +90,12 @@ pub(crate) fn build(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
         _ => Vec::new(),
     };
     let is_dungeon = !cells.is_empty() && lb.height.iter().all(|&h| h == 0);
+    let ambient = if is_dungeon {
+        lighting::DUNGEON_AMBIENT
+    } else {
+        lighting::BUILDING_AMBIENT
+    };
+    let lights = LightSampler::build(&cells, ambient);
     Ok(LandblockScene {
         id: block_id,
         terrain,
@@ -95,5 +104,6 @@ pub(crate) fn build(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
         scenery_count,
         cells,
         is_dungeon,
+        lights,
     })
 }

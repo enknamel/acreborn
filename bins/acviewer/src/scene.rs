@@ -3,6 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use ac_scene::anim::{motion, AnimPlayer};
+use ac_scene::lighting::CellLighting;
 use ac_scene::{landblock, model, texmerge, Assets, CELLS_PER_BLOCK, CELL_SIZE, VERTS_PER_SIDE};
 use anyhow::Result;
 use glam::{Mat4, Vec3};
@@ -17,16 +18,31 @@ pub struct Built {
     pub is_dungeon: bool,
 }
 
-pub fn push_mesh(batches: &mut HashMap<MaterialKey, Batch>, mesh: &model::Mesh, transform: Mat4) {
-    push_submeshes(batches, &mesh.submeshes, transform);
+/// Append a mesh transformed into world space to its material batches,
+/// lit by the sun, or pre-lit from `lit` (an interior cell's lights).
+pub fn push_mesh(
+    batches: &mut HashMap<MaterialKey, Batch>,
+    mesh: &model::Mesh,
+    transform: Mat4,
+    lit: Option<&CellLighting>,
+) {
+    push_submeshes(batches, &mesh.submeshes, transform, lit);
 }
 
+/// Longest edge (world metres) of a pre-lit triangle: longer ones are
+/// subdivided so that a torch pool shows on a wall whose corners are
+/// beyond its reach (cell walls are single polygons up to 10 m across).
+const BAKE_STEP: f32 = 2.0;
+
 /// Append submeshes transformed into world space to their material
-/// batches; returns the bounds of the vertices pushed.
+/// batches; returns the bounds of the vertices pushed. With `lit`, each
+/// vertex's colour becomes the light arriving at it (see
+/// [`Vertex::PRELIT`]) and large triangles are subdivided first.
 fn push_submeshes(
     batches: &mut HashMap<MaterialKey, Batch>,
     submeshes: &[model::SubMesh],
     transform: Mat4,
+    lit: Option<&CellLighting>,
 ) -> (Vec3, Vec3) {
     let normal_mat = transform.inverse().transpose();
     let mut min = Vec3::splat(f32::MAX);
@@ -45,23 +61,162 @@ fn push_submeshes(
         let base = batch.vertices.len() as u32;
         batch.vertices.reserve(sub.vertices.len());
         batch.indices.reserve(sub.indices.len());
-        for v in &sub.vertices {
-            let p = transform.transform_point3(v.position);
-            min = min.min(p);
-            max = max.max(p);
-            batch.vertices.push(Vertex {
-                position: p.to_array(),
-                normal: normal_mat
-                    .transform_vector3(v.normal)
-                    .normalize_or(Vec3::Z)
-                    .to_array(),
-                uv: v.uv.to_array(),
-                color: [1.0, 1.0, 1.0, alpha],
-            });
+        let world: Vec<Vertex> = sub
+            .vertices
+            .iter()
+            .map(|v| {
+                let p = transform.transform_point3(v.position);
+                min = min.min(p);
+                max = max.max(p);
+                Vertex {
+                    position: p.to_array(),
+                    normal: normal_mat
+                        .transform_vector3(v.normal)
+                        .normalize_or(Vec3::Z)
+                        .to_array(),
+                    uv: v.uv.to_array(),
+                    color: [1.0, 1.0, 1.0, alpha],
+                }
+            })
+            .collect();
+        match lit {
+            None => {
+                batch.vertices.extend_from_slice(&world);
+                batch.indices.extend(sub.indices.iter().map(|i| i + base));
+            }
+            Some(cell) => {
+                for tri in sub.indices.chunks_exact(3) {
+                    let corners = [
+                        world[tri[0] as usize],
+                        world[tri[1] as usize],
+                        world[tri[2] as usize],
+                    ];
+                    let base = batch.vertices.len() as u32;
+                    let (verts, idx) = subdivide(&corners, BAKE_STEP);
+                    batch
+                        .vertices
+                        .extend(verts.into_iter().map(|v| bake_vertex(v, cell, alpha)));
+                    batch.indices.extend(idx.into_iter().map(|i| i + base));
+                }
+            }
         }
-        batch.indices.extend(sub.indices.iter().map(|i| i + base));
     }
     (min, max)
+}
+
+/// A world-space vertex pre-lit by its cell: the lighting term goes into
+/// the colour, flagged for the shader.
+fn bake_vertex(v: Vertex, cell: &CellLighting, alpha: f32) -> Vertex {
+    let light = cell.at(Vec3::from(v.position), Some(Vec3::from(v.normal)));
+    Vertex {
+        color: [light.x, light.y, light.z, alpha + Vertex::PRELIT],
+        ..v
+    }
+}
+
+/// Segments an edge from `p` to `q` is cut into at `step`.
+fn edge_segments(p: Vec3, q: Vec3, step: f32) -> u32 {
+    ((p.distance(q) / step).ceil().max(1.0)) as u32
+}
+
+/// Point `k / n` of the way along the edge `p -> q`, computed in one
+/// canonical direction so that the two triangles sharing the edge get
+/// bit-identical points (and so identical baked light) and the mesh
+/// stays watertight.
+fn edge_point(p: Vec3, q: Vec3, k: u32, n: u32) -> Vec3 {
+    if k == 0 {
+        return p;
+    }
+    if k >= n {
+        return q;
+    }
+    let (lo, hi, k) = if p.to_array() <= q.to_array() {
+        (p, q, k)
+    } else {
+        (q, p, n - k)
+    };
+    lo + (hi - lo) * (k as f32 / n as f32)
+}
+
+/// Split a triangle into an `n x n` grid of triangles, `n` bringing its
+/// longest edge under `step`. Each edge is cut into the number of
+/// segments its own length asks for (so the neighbour across it, cutting
+/// the same edge the same way, shares every point and there are no
+/// T-junctions); grid points on a coarser edge collapse onto its cuts,
+/// leaving a few zero-area triangles. Positions, normals and UVs
+/// interpolate linearly; returns the grid's vertices and triangle indices.
+fn subdivide(tri: &[Vertex; 3], step: f32) -> (Vec<Vertex>, Vec<u32>) {
+    let [a, b, c] = tri.map(|v| Vec3::from(v.position));
+    // Edges ab, bc, ca.
+    let cuts = [
+        edge_segments(a, b, step),
+        edge_segments(b, c, step),
+        edge_segments(c, a, step),
+    ];
+    let n = cuts.iter().copied().max().unwrap_or(1);
+    if n == 1 {
+        return (tri.to_vec(), vec![0, 1, 2]);
+    }
+    let lerp3 = |x: [f32; 3], y: [f32; 3], z: [f32; 3], s: f32, t: f32| {
+        Vec3::from(x) + (Vec3::from(y) - Vec3::from(x)) * s + (Vec3::from(z) - Vec3::from(x)) * t
+    };
+    let snap = |u: f32, cuts: u32| -> (u32, f32) {
+        let k = (u * cuts as f32).round() as u32;
+        (k, k as f32 / cuts as f32)
+    };
+    let mut verts = Vec::with_capacity(((n + 1) * (n + 2) / 2) as usize);
+    // Row `j` (0..=n) holds vertices i = 0..=n-j; index by prefix sums.
+    let row_start = |j: u32| j * (n + 1) - j * (j.saturating_sub(1)) / 2;
+    for j in 0..=n {
+        for i in 0..=(n - j) {
+            let (mut s, mut t) = (i as f32 / n as f32, j as f32 / n as f32);
+            // Boundary points snap to their edge's own cuts.
+            let p = if j == 0 {
+                let (k, u) = snap(s, cuts[0]);
+                s = u;
+                edge_point(a, b, k, cuts[0])
+            } else if i == 0 {
+                let (k, u) = snap(t, cuts[2]);
+                t = u;
+                edge_point(c, a, cuts[2] - k, cuts[2])
+            } else if i + j == n {
+                let (k, u) = snap(t, cuts[1]);
+                t = u;
+                s = 1.0 - u;
+                edge_point(b, c, k, cuts[1])
+            } else {
+                lerp3(tri[0].position, tri[1].position, tri[2].position, s, t)
+            };
+            let nrm = lerp3(tri[0].normal, tri[1].normal, tri[2].normal, s, t)
+                .normalize_or(Vec3::from(tri[0].normal));
+            let uv = {
+                let (u0, u1, u2) = (tri[0].uv, tri[1].uv, tri[2].uv);
+                [
+                    u0[0] + (u1[0] - u0[0]) * s + (u2[0] - u0[0]) * t,
+                    u0[1] + (u1[1] - u0[1]) * s + (u2[1] - u0[1]) * t,
+                ]
+            };
+            verts.push(Vertex {
+                position: p.to_array(),
+                normal: nrm.to_array(),
+                uv,
+                color: tri[0].color,
+            });
+        }
+    }
+    let mut idx = Vec::with_capacity((n * n * 3) as usize);
+    for j in 0..n {
+        for i in 0..(n - j) {
+            let v00 = row_start(j) + i;
+            let v10 = v00 + 1;
+            let v01 = row_start(j + 1) + i;
+            idx.extend_from_slice(&[v00, v10, v01]);
+            if i + j + 1 < n {
+                idx.extend_from_slice(&[v10, v01 + 1, v01]);
+            }
+        }
+    }
+    (verts, idx)
 }
 
 /// Terrain material key for a region without texture merging: the terrain
@@ -171,8 +326,10 @@ pub fn build_landblock(
         crate::water::push_water(&mut batches, &region, &scene.terrain, origin);
     }
     let t_terrain = t0.elapsed() - t_load;
+    // Interiors are lit from their cells' lights, never the sun.
     for cell in &scene.cells {
-        let (lo, hi) = push_submeshes(&mut batches, &cell.submeshes, cell.transform);
+        let lit = scene.lights.cell(cell.cell_id);
+        let (lo, hi) = push_submeshes(&mut batches, &cell.submeshes, cell.transform, lit);
         min = min.min(lo);
         max = max.max(hi);
         for part in &cell.parts {
@@ -187,10 +344,21 @@ pub fn build_landblock(
                     }
                 }
             }
-            push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
+            push_mesh(
+                &mut batches,
+                &mesh_cache[&part.gfxobj_id],
+                part.transform,
+                lit,
+            );
         }
     }
     let t_cells = t0.elapsed() - t_load - t_terrain;
+    // A dungeon has no sun for its outdoor-placed objects either.
+    let underground = CellLighting {
+        ambient: ac_scene::lighting::DUNGEON_AMBIENT,
+        lights: Vec::new(),
+    };
+    let outdoor_lit = scene.is_dungeon.then_some(&underground);
     for part in &scene.parts {
         if !mesh_cache.contains_key(&part.gfxobj_id) {
             let g = match assets.gfxobj(part.gfxobj_id) {
@@ -202,7 +370,12 @@ pub fn build_landblock(
             };
             mesh_cache.insert(part.gfxobj_id, model::build_mesh(assets, &g)?);
         }
-        push_mesh(&mut batches, &mesh_cache[&part.gfxobj_id], part.transform);
+        push_mesh(
+            &mut batches,
+            &mesh_cache[&part.gfxobj_id],
+            part.transform,
+            outdoor_lit,
+        );
     }
     let t_parts = t0.elapsed() - t_load - t_terrain - t_cells;
     tracing::debug!(
@@ -281,7 +454,7 @@ pub fn build_model_with(assets: &Assets, model_id: u32, app: &model::Appearance)
                 max = max.max(p);
             }
         }
-        push_mesh(&mut batches, &mesh, part.transform);
+        push_mesh(&mut batches, &mesh, part.transform, None);
     }
     let center = (min + max) * 0.5;
     Ok(Built {
@@ -290,6 +463,89 @@ pub fn build_model_with(assets: &Assets, model_id: u32, app: &model::Appearance)
         radius: ((max - min).length() * 0.5).max(1.0),
         is_dungeon: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(x: f32, y: f32) -> Vertex {
+        Vertex {
+            position: [x, y, 0.0],
+            normal: [0.0, 0.0, 1.0],
+            uv: [x, y],
+            color: [1.0; 4],
+        }
+    }
+
+    #[test]
+    fn subdivide_keeps_small_triangles_and_grids_large_ones() {
+        let small = [v(0.0, 0.0), v(1.0, 0.0), v(0.0, 1.0)];
+        let (verts, idx) = subdivide(&small, 2.0);
+        assert_eq!((verts.len(), idx.len()), (3, 3));
+        // A right triangle with 4 m legs at a 2 m step: the hypotenuse
+        // asks for three cuts, the legs two, so it is a 3-grid whose leg
+        // points collapse onto the legs' midpoints. Area is preserved,
+        // nothing flips, and every edge stays short.
+        let big = [v(0.0, 0.0), v(4.0, 0.0), v(0.0, 4.0)];
+        let (verts, idx) = subdivide(&big, 2.0);
+        assert_eq!((verts.len(), idx.len()), (10, 27));
+        let mut area = 0.0;
+        for t in idx.chunks_exact(3) {
+            let [a, b, c] = [0, 1, 2].map(|k| Vec3::from(verts[t[k] as usize].position));
+            assert!((b - a).length() <= 2.0 * 2f32.sqrt() + 1e-5);
+            let n = (b - a).cross(c - a);
+            assert!(n.z >= 0.0, "winding flipped");
+            area += n.length() * 0.5;
+        }
+        assert!((area - 8.0).abs() < 1e-4, "{area}");
+        for p in verts.iter().filter(|v| v.position[1] == 0.0) {
+            assert!([0.0, 2.0, 4.0].contains(&p.position[0]), "{:?}", p.position);
+        }
+        // UVs follow the positions.
+        let mid = verts
+            .iter()
+            .find(|v| v.position == [2.0, 0.0, 0.0])
+            .unwrap();
+        assert_eq!(mid.uv, [2.0, 0.0]);
+    }
+
+    #[test]
+    fn subdivide_shares_edge_points_with_the_neighbour() {
+        // Two triangles of different shapes on either side of the edge
+        // (0,0)-(10,0) cut it into the same points, bit for bit.
+        let left = [v(0.0, 0.0), v(10.0, 0.0), v(0.0, 3.0)];
+        let right = [v(10.0, 0.0), v(0.0, 0.0), v(7.0, -9.0)];
+        let on_edge = |tri: &[Vertex; 3]| {
+            let (verts, _) = subdivide(tri, 2.0);
+            let mut xs: Vec<u32> = verts
+                .iter()
+                .filter(|v| v.position[1] == 0.0)
+                .map(|v| v.position[0].to_bits())
+                .collect();
+            xs.sort_unstable();
+            xs.dedup();
+            xs
+        };
+        let l = on_edge(&left);
+        assert_eq!(l.len(), 6, "five 2 m cuts: {l:?}");
+        assert_eq!(l, on_edge(&right));
+    }
+
+    #[test]
+    fn baked_vertex_is_flagged_prelit() {
+        let cell = CellLighting {
+            ambient: Vec3::splat(0.2),
+            lights: vec![ac_scene::lighting::CellLight {
+                position: Vec3::new(0.0, 0.0, 1.0),
+                color: Vec3::new(1.0, 0.5, 0.0),
+                radius: 4.0,
+            }],
+        };
+        let b = bake_vertex(v(0.0, 0.0), &cell, 0.5);
+        assert!(b.color[3] >= Vertex::PRELIT && (b.opacity() - 0.5).abs() < 1e-6);
+        assert!(b.color[0] > 0.2 && b.color[2] == 0.2, "{:?}", b.color);
+    }
 }
 
 /// Composed palettes referenced by material keys, by hash.
@@ -666,7 +922,8 @@ pub fn any_animated(anims: &HashMap<u32, ObjectAnim>) -> bool {
 pub type GpuMeshCache = HashMap<(u32, u64), std::rc::Rc<crate::gpu::GpuMesh>>;
 
 /// Instances for one model placed at `transform` (with appearance and an
-/// optional animated pose); meshes are uploaded once per (GfxObj, look).
+/// optional animated pose), lit by the sun; meshes are uploaded once per
+/// (GfxObj, look).
 #[allow(clippy::too_many_arguments)]
 pub fn instances_for(
     assets: &Assets,
@@ -678,6 +935,39 @@ pub fn instances_for(
     app: &model::Appearance,
     app_key: u64,
     pose: Option<&[Mat4]>,
+) -> Vec<crate::gpu::Instance> {
+    instances_lit(
+        assets, gpu, meshes, palettes, setup_id, transform, app, app_key, pose, None,
+    )
+}
+
+/// The light on an object standing in an interior cell of a loaded
+/// block: the cell's torches and ambient summed at its position. `None`
+/// outdoors (or in a block not assembled yet), which means the sun.
+pub fn object_light(assets: &Assets, o: &ac_world::WorldObject) -> Option<Vec3> {
+    let p = o.display.or(o.position)?;
+    if p.cell & 0xFFFF < 0x100 {
+        return None;
+    }
+    let scene = assets.cached_landblock(p.cell)?;
+    scene
+        .lights
+        .sample(p.cell, ac_world::landblock_origin(p.cell) + p.local)
+}
+
+/// [`instances_for`] with an interior lighting term for every instance.
+#[allow(clippy::too_many_arguments)]
+pub fn instances_lit(
+    assets: &Assets,
+    gpu: &crate::gpu::Gpu,
+    meshes: &mut GpuMeshCache,
+    palettes: &Palettes,
+    setup_id: u32,
+    transform: Mat4,
+    app: &model::Appearance,
+    app_key: u64,
+    pose: Option<&[Mat4]>,
+    light: Option<Vec3>,
 ) -> Vec<crate::gpu::Instance> {
     let parts = match model::place_posed(assets, setup_id, transform, app, pose) {
         Ok(p) => p,
@@ -704,6 +994,7 @@ pub fn instances_for(
         out.push(crate::gpu::Instance {
             mesh: meshes[&key].clone(),
             model: part.transform,
+            light,
         });
     }
     out
@@ -738,7 +1029,8 @@ pub fn object_instances(
         let anim = anims.get_mut(&o.guid).unwrap();
         queue_commands(assets, o, tables, anim);
         let pose = anim.pose(dt);
-        let inst = instances_for(
+        let light = object_light(assets, o);
+        let inst = instances_lit(
             assets,
             gpu,
             meshes,
@@ -748,6 +1040,7 @@ pub fn object_instances(
             &app,
             key,
             pose.as_deref(),
+            light,
         );
         picks.extend(inst.iter().map(|i| Pickable::of(o.guid, i)));
         out.extend(inst);

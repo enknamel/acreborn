@@ -2,10 +2,11 @@
 
 use ac_formats::environment::CellStruct;
 use ac_formats::gfxobj::{CullMode, Polygon};
-use ac_formats::landblock::EnvCell;
+use ac_formats::landblock::{env_cell_flags, EnvCell};
 use ac_formats::surface::SurfaceBase;
 use glam::Mat4;
 
+use crate::lighting::{cell_lights, CellLight};
 use crate::model::{
     emit_polygon, frame_to_mat, place, PlacedPart, SubMesh, SubMeshes, VertexTable,
 };
@@ -22,6 +23,12 @@ pub struct CellScene {
     pub transform: Mat4,
     pub submeshes: Vec<SubMesh>,
     pub parts: Vec<PlacedPart>,
+    /// Lights carried by the cell's static objects, in world space.
+    pub lights: Vec<CellLight>,
+    /// Full ids of the cells behind this cell's portals.
+    pub portal_cells: Vec<u32>,
+    /// The cell can be seen from outdoors (`env_cell_flags::SEEN_OUTSIDE`).
+    pub seen_outside: bool,
 }
 
 /// Build the drawable triangles of a cell structure. Portal polygons (the
@@ -110,13 +117,22 @@ pub fn load_cells(
         };
         let transform = origin * frame_to_mat(&cell.position);
         let submeshes = build_cell_mesh(assets, cs, &cell.surfaces)?;
+        // Static object frames are landblock-local, not cell-local: the
+        // client places them by the block's frame alone (as does ACViewer
+        // with its landblock matrix).
         let mut parts = Vec::new();
         for stab in &cell.static_objects {
-            match place(assets, stab.id, transform * frame_to_mat(&stab.frame)) {
+            match place(assets, stab.id, origin * frame_to_mat(&stab.frame)) {
                 Ok(p) => parts.extend(p),
                 Err(e) => tracing::warn!("cell static {:#010x}: {e}", stab.id),
             }
         }
+        let lights = cell_lights(assets, &cell.static_objects, origin);
+        let portal_cells = cell
+            .portals
+            .iter()
+            .map(|p| (block_id & 0xFFFF_0000) | p.other_cell_id as u32)
+            .collect();
         out.push(CellScene {
             cell_id,
             environment_id: cell.environment_id,
@@ -124,6 +140,9 @@ pub fn load_cells(
             transform,
             submeshes,
             parts,
+            lights,
+            portal_cells,
+            seen_outside: cell.flags & env_cell_flags::SEEN_OUTSIDE != 0,
         });
     }
     Ok(out)

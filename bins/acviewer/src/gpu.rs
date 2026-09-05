@@ -12,6 +12,10 @@ use winit::window::Window;
 
 use crate::sky::Environment;
 
+/// A batched vertex. `color.rgb` tints the texture; `color.a` is the
+/// opacity, offset by [`Vertex::PRELIT`] for a vertex whose `rgb` is the
+/// whole lighting term (interior geometry lit from its cell's lights at
+/// build time) rather than a tint under the sun.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug)]
 pub struct Vertex {
@@ -22,8 +26,21 @@ pub struct Vertex {
 }
 
 impl Vertex {
+    /// Added to `color.a` to mark a pre-lit vertex; the shader subtracts it
+    /// back out and skips the sun.
+    pub const PRELIT: f32 = 2.0;
+
     const ATTRS: [wgpu::VertexAttribute; 4] =
         wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4];
+
+    /// The opacity, whether or not the vertex is pre-lit.
+    pub fn opacity(&self) -> f32 {
+        if self.color[3] >= Self::PRELIT {
+            self.color[3] - Self::PRELIT
+        } else {
+            self.color[3]
+        }
+    }
     fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as u64,
@@ -230,9 +247,14 @@ pub struct GpuMesh {
 pub struct Instance {
     pub mesh: std::rc::Rc<GpuMesh>,
     pub model: Mat4,
+    /// Lighting term replacing the sun and ambient for an instance standing
+    /// in a lit interior cell; `None` draws it under the sun.
+    pub light: Option<Vec3>,
 }
 
 const MODEL_STRIDE: u64 = 256;
+/// Bytes of the per-instance uniform: the model matrix and a light vec4.
+const MODEL_SIZE: u64 = 80;
 const MAX_INSTANCES: u64 = 8192;
 
 impl Gpu {
@@ -359,7 +381,7 @@ impl Gpu {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(64),
+                    min_binding_size: wgpu::BufferSize::new(MODEL_SIZE),
                 },
                 count: None,
             }],
@@ -510,11 +532,8 @@ impl Gpu {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        queue.write_buffer(
-            &models_buf,
-            0,
-            bytemuck::bytes_of(&Mat4::IDENTITY.to_cols_array_2d()),
-        );
+        // Slot 0: identity, lit by the sun (static geometry).
+        queue.write_buffer(&models_buf, 0, &model_bytes(Mat4::IDENTITY, None));
         let models_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("models"),
             layout: &models_layout,
@@ -523,7 +542,7 @@ impl Gpu {
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &models_buf,
                     offset: 0,
-                    size: wgpu::BufferSize::new(64),
+                    size: wgpu::BufferSize::new(MODEL_SIZE),
                 }),
             }],
         });
@@ -1006,7 +1025,7 @@ impl Gpu {
             let kind = match key {
                 MaterialKey::Water(_) => DrawKind::Water,
                 MaterialKey::Terrain => DrawKind::Terrain,
-                _ if b.vertices.first().is_some_and(|v| v.color[3] < 1.0) => DrawKind::Translucent,
+                _ if b.vertices.first().is_some_and(|v| v.opacity() < 1.0) => DrawKind::Translucent,
                 _ => DrawKind::Opaque,
             };
             out.push(DrawBatch {
@@ -1197,9 +1216,8 @@ impl Gpu {
             .chain(self.player_instances.iter())
             .take(MAX_INSTANCES as usize - 1)
         {
-            let m = inst.model.to_cols_array_2d();
-            mats.extend_from_slice(bytemuck::bytes_of(&m));
-            mats.resize(mats.len() + (MODEL_STRIDE as usize - 64), 0);
+            mats.extend_from_slice(&model_bytes(inst.model, inst.light));
+            mats.resize(mats.len() + (MODEL_STRIDE - MODEL_SIZE) as usize, 0);
         }
         if !mats.is_empty() {
             self.queue
@@ -1294,6 +1312,19 @@ impl Gpu {
         }
         self.queue.submit([encoder.finish()]);
     }
+}
+
+/// One instance's uniform: its model matrix, then the interior lighting
+/// term with `w = 1` when it applies (`w = 0` draws under the sun).
+fn model_bytes(model: Mat4, light: Option<Vec3>) -> [u8; MODEL_SIZE as usize] {
+    let mut out = [0u8; MODEL_SIZE as usize];
+    out[..64].copy_from_slice(bytemuck::bytes_of(&model.to_cols_array_2d()));
+    let l = match light {
+        Some(l) => Vec4::from((l, 1.0)),
+        None => Vec4::ZERO,
+    };
+    out[64..].copy_from_slice(bytemuck::bytes_of(&l.to_array()));
+    out
 }
 
 /// One RGBA8 mip level down: a 2x2 box filter (odd edges reuse their last

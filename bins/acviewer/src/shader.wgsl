@@ -19,8 +19,15 @@ struct Globals {
 @group(1) @binding(1) var s_diffuse: sampler;
 struct Model {
     m: mat4x4<f32>,
+    // rgb: interior light on this instance, w: 1 to use it instead of the sun.
+    light: vec4<f32>,
 };
 @group(2) @binding(0) var<uniform> model: Model;
+
+// Vertex colour alpha at or above this marks a pre-lit vertex: its rgb is
+// the whole lighting term (interior geometry baked from its cell's lights)
+// and the opacity is alpha minus this (gpu.rs `Vertex::PRELIT`).
+const PRELIT: f32 = 2.0;
 
 struct VsIn {
     @location(0) position: vec3<f32>,
@@ -34,6 +41,7 @@ struct VsOut {
     @location(1) uv: vec2<f32>,
     @location(2) color: vec4<f32>,
     @location(3) world: vec3<f32>,
+    @location(4) @interpolate(flat) light: vec4<f32>,
 };
 
 @vertex
@@ -45,6 +53,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.uv = in.uv;
     out.color = in.color;
     out.world = world.xyz;
+    out.light = model.light;
     return out;
 }
 
@@ -67,8 +76,21 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
     let n = normalize(in.normal);
-    let rgb = tex.rgb * in.color.rgb * lighting(n);
-    return vec4<f32>(fog(rgb, in.world), tex.a * in.color.a);
+    var light: vec3<f32>;
+    var alpha = in.color.a;
+    if (in.color.a >= PRELIT) {
+        // Interior geometry: the cell's lights were baked per vertex.
+        light = in.color.rgb;
+        alpha = in.color.a - PRELIT;
+    } else if (in.light.w > 0.0) {
+        // An object standing in a lit cell: its sampled light, with a
+        // little top-down shape so it does not read as a flat cut-out.
+        light = in.color.rgb * in.light.rgb * (0.75 + 0.25 * max(n.z, 0.0));
+    } else {
+        light = in.color.rgb * lighting(n);
+    }
+    let rgb = tex.rgb * light;
+    return vec4<f32>(fog(rgb, in.world), tex.a * alpha);
 }
 
 // ---- Sky: a full-screen triangle shaded by view direction -------------
