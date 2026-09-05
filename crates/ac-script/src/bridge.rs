@@ -348,6 +348,22 @@ impl Api for CtxApi<'_, '_> {
         self.client().fill_components() as i64
     }
 
+    /// Set the desired quantity of a component by (prefix of) its name;
+    /// false when no such component is in the table.
+    fn set_desired_component(&mut self, name: &str, quantity: i64) -> bool {
+        let c = self.client();
+        let Some(id) = c
+            .assets
+            .spell_components()
+            .ok()
+            .and_then(|t| t.find_by_name(name))
+        else {
+            return false;
+        };
+        c.set_desired_component(id, quantity.max(0) as u32);
+        true
+    }
+
     fn buy(&mut self, name: &str) -> bool {
         let c = self.client();
         let guid = c

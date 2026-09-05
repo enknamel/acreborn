@@ -675,11 +675,33 @@ impl Plugin for SpellBar {
         }
         match parse_bar_args(args) {
             BarCmd::Status => {
-                for (i, bar) in self.view.bars.iter().enumerate() {
+                // Read the live bars: the cached view may lag a frame.
+                let bars: Vec<Vec<String>> = match cx.try_client() {
+                    Some(c) => c
+                        .spell_bars()
+                        .iter()
+                        .map(|b| {
+                            b.iter()
+                                .map(|&id| {
+                                    c.spell(id)
+                                        .map(|s| s.name)
+                                        .unwrap_or_else(|| format!("#{id}"))
+                                })
+                                .collect()
+                        })
+                        .collect(),
+                    None => self
+                        .view
+                        .bars
+                        .iter()
+                        .map(|b| b.iter().map(|s| s.name.clone()).collect())
+                        .collect(),
+                };
+                for (i, bar) in bars.iter().enumerate() {
                     if bar.is_empty() && i != self.shown {
                         continue;
                     }
-                    let names: Vec<&str> = bar.iter().map(|s| s.name.as_str()).collect();
+                    let names: Vec<&str> = bar.iter().map(|s| s.as_str()).collect();
                     cx.log(format!(
                         "bar {}{}: {}",
                         i + 1,

@@ -421,6 +421,9 @@ mod tests {
             self.record("fill_components");
             0
         }
+        fn set_desired_component(&mut self, _name: &str, _quantity: i64) -> bool {
+            false
+        }
         fn say(&mut self, text: &str) {
             self.record(format!("say {text}"));
         }

@@ -240,6 +240,10 @@ fn main() -> Result<()> {
         )
         .context("joining the bus")?;
     }
+    // The panels draw nothing here but their commands (/bar ...) work.
+    for p in ac_plugin::panels::live() {
+        host.register(p);
+    }
     host.register(Box::new(Console));
     host.register(Box::new(ac_plugin::party::Party::default()));
     host.register(Box::new(ac_script::ScriptPlugin::new(

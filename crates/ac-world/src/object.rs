@@ -397,6 +397,9 @@ impl WeenieDesc {
         if weenie_flags2 & F2_PET_OWNER != 0 {
             r.u32()?;
         }
+        // The server pads the description to a dword (ACE WriteWeenieDesc
+        // ends with Align); vendor stock lists pack them back to back.
+        r.align4()?;
 
         Ok(WeenieDesc {
             name,

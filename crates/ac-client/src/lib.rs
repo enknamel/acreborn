@@ -981,6 +981,32 @@ impl Client {
         }
     }
 
+    /// Wield the carried item whose name starts with `name` (the first
+    /// exact match wins); nothing happens when it is wielded already.
+    /// Returns false when no such item is carried.
+    pub fn wield_by_name(&mut self, name: &str) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let Some((guid, locations, wielded)) = self
+            .world
+            .objects
+            .values()
+            .filter(|o| me.is_some() && (o.container == me || o.wielder == me))
+            .filter(|o| o.name.starts_with(name))
+            .min_by_key(|o| if o.name == name { 0 } else { 1 })
+            .map(|o| (o.guid, o.valid_locations, o.wielder == me))
+        else {
+            return false;
+        };
+        if !wielded {
+            let mut w = ac_net::wire::Writer::new();
+            w.u32(guid).u32(locations);
+            self.session
+                .send_action(action::GET_AND_WIELD_ITEM, &w.finish());
+        }
+        true
+    }
+
     pub fn toggle_combat(&mut self) {
         use ac_net::messages::{action, combat_mode};
         self.combat = !self.combat;

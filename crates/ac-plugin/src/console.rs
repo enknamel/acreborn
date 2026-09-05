@@ -17,11 +17,16 @@ impl Plugin for Console {
         match name {
             "help" => {
                 cx.log("/use NAME  /attack NAME  /cast NAME  /loot [NAME]  /buy NAME  /sell NAME");
-                cx.log("/combat  /peace  /stop  /who  /clients  /switch N");
+                cx.log("/wield NAME  /combat  /peace  /stop  /who  /clients  /switch N");
             }
             "use" => {
                 if !cx.client().use_by_name(args) {
                     cx.log(format!("Nothing named {args:?} in view"));
+                }
+            }
+            "wield" => {
+                if !cx.client().wield_by_name(args) {
+                    cx.log(format!("Nothing named {args:?} carried"));
                 }
             }
             "attack" => {

@@ -232,11 +232,12 @@ impl Client {
                 }
             }
         }
-        for &(id, desired) in &self.world.stats.options.desired_comps {
-            match out.iter_mut().find(|c| c.component_id == id) {
+        // The server keys desired quantities by weenie class id.
+        for &(wcid, desired) in &self.world.stats.options.desired_comps {
+            match out.iter_mut().find(|c| c.wcid == wcid) {
                 Some(c) => c.desired = desired,
                 None if desired > 0 => {
-                    let Some(wcid) = mapper.component_wcid(id) else {
+                    let Some(id) = mapper.component_of_wcid(wcid) else {
                         continue;
                     };
                     let mut c = describe(id, wcid);
@@ -295,13 +296,23 @@ impl Client {
     /// Set how many of a component the player wants to keep
     /// (SetDesiredComponentLevel), locally and on the server.
     pub fn set_desired_component(&mut self, component_id: u32, quantity: u32) {
+        // The wire (and the PlayerDescription list) use the weenie class.
+        let Some(wcid) = self
+            .assets
+            .spell_component_ids()
+            .ok()
+            .and_then(|m| m.component_wcid(component_id))
+        else {
+            tracing::warn!("no weenie for spell component {component_id}");
+            return;
+        };
         let list = &mut self.world.stats.options.desired_comps;
-        match list.iter_mut().find(|(c, _)| *c == component_id) {
+        match list.iter_mut().find(|(c, _)| *c == wcid) {
             Some(e) => e.1 = quantity,
-            None => list.push((component_id, quantity)),
+            None => list.push((wcid, quantity)),
         }
         let mut w = ac_net::wire::Writer::new();
-        w.u32(component_id);
+        w.u32(wcid);
         w.u32(quantity);
         self.session.send_action(
             ac_net::messages::action::SET_DESIRED_COMPONENT_LEVEL,
@@ -320,6 +331,14 @@ impl Client {
         let Ok(mapper) = self.assets.spell_component_ids() else {
             return 0;
         };
+        tracing::debug!(
+            "vendor stock: {:?}",
+            vendor
+                .items
+                .iter()
+                .map(|i| (i.desc.name.clone(), i.desc.weenie_class_id, i.stack))
+                .collect::<Vec<_>>()
+        );
         let orders: Vec<(u32, i32)> = self
             .components()
             .iter()

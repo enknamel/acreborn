@@ -105,6 +105,24 @@ impl SpellComponentTable {
             .map(|i| &self.components[i].1)
     }
 
+    /// The component whose name equals `name`, else the first whose name
+    /// starts with it (case-insensitive).
+    pub fn find_by_name(&self, name: &str) -> Option<u32> {
+        let want = name.trim().to_lowercase();
+        if want.is_empty() {
+            return None;
+        }
+        self.components
+            .iter()
+            .find(|(_, c)| c.name.to_lowercase() == want)
+            .or_else(|| {
+                self.components
+                    .iter()
+                    .find(|(_, c)| c.name.to_lowercase().starts_with(&want))
+            })
+            .map(|(id, _)| *id)
+    }
+
     /// The incantation for a formula: the herb's word, then the powder's
     /// and potion's words joined and capitalised as one ("Zojak Quafeth").
     pub fn spell_words(&self, formula: impl IntoIterator<Item = u32>) -> String {

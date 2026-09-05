@@ -461,6 +461,10 @@ impl World {
                         }
                         Err(e) => {
                             tracing::warn!("ApproachVendor: {e}");
+                            tracing::debug!(
+                                "ApproachVendor payload: {}",
+                                rest.iter().map(|b| format!("{b:02x}")).collect::<String>()
+                            );
                             Applied::Failed
                         }
                     }
