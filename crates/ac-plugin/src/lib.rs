@@ -15,6 +15,7 @@ use std::time::Instant;
 
 pub mod console;
 pub mod host;
+pub mod party;
 
 pub use ac_client::{self, Client, Event};
 pub use egui;

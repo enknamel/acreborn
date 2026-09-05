@@ -227,6 +227,7 @@ fn main() -> Result<()> {
 
     let mut host = Host::new();
     host.register(Box::new(Console));
+    host.register(Box::new(ac_plugin::party::Party::default()));
     let period = Duration::from_secs_f64(1.0 / cli.tick_hz as f64);
     println!(
         "acbot: {} session(s) to {}, {} Hz ({} ms per tick), {} scripted line(s), {}",

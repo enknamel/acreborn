@@ -11,7 +11,7 @@
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
-use ac_plugin::{egui, Client, Ctx, Plugin, Value};
+use crate::{egui, Client, Ctx, Plugin, Value};
 use ac_world::object::MoveTarget;
 use glam::Vec3;
 
