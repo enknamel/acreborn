@@ -13,6 +13,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
+pub mod console;
 pub mod host;
 
 pub use ac_client::{self, Client, Event};
