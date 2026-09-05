@@ -2,11 +2,11 @@
 
 use std::collections::HashMap;
 
-use ac_scene::{landblock, model, Assets, CELL_SIZE};
+use ac_scene::{landblock, model, texmerge, Assets, CELLS_PER_BLOCK, CELL_SIZE, VERTS_PER_SIDE};
 use anyhow::Result;
 use glam::{Mat4, Vec3};
 
-use crate::gpu::{Batch, MaterialKey, Rgba, Vertex};
+use crate::gpu::{Batch, MaterialKey, Rgba, TerrainBlend, Vertex};
 
 pub struct Built {
     pub batches: HashMap<MaterialKey, Batch>,
@@ -45,29 +45,34 @@ pub fn push_mesh(batches: &mut HashMap<MaterialKey, Batch>, mesh: &model::Mesh, 
     }
 }
 
-/// Terrain material key: the SurfaceTexture id of the terrain type's base
-/// texture from the Region tex-merge table, or a color fallback.
-fn terrain_key(assets: &Assets, terrain_type: u16) -> Result<MaterialKey> {
+/// Terrain material key for a region without texture merging: the terrain
+/// type's colour.
+fn terrain_color_key(assets: &Assets, terrain_type: u16) -> Result<MaterialKey> {
     let region = assets.region()?;
-    if let Some(tm) = &region.tex_merge {
-        if let Some((_, tex)) = tm
-            .terrain_desc
-            .iter()
-            .find(|(t, _)| *t == terrain_type as u32)
-        {
-            return Ok(MaterialKey::Texture {
-                id: tex.tex_gid,
-                tex: 0,
-                palette: 0,
-            });
-        }
-    }
     let color = region
         .terrain_types
         .get(terrain_type as usize)
         .map(|t| t.color)
         .unwrap_or(0xFF80_8080);
     Ok(MaterialKey::Solid(color))
+}
+
+/// Blend data for one terrain vertex of a cell painted as `surface`.
+fn terrain_blend(surface: &texmerge::CellSurface, cell_uv: [f32; 2]) -> TerrainBlend {
+    let word = |o: Option<texmerge::Overlay>| {
+        o.map(|o| TerrainBlend::overlay(o.texture, o.alpha, o.rotation))
+            .unwrap_or(0)
+    };
+    TerrainBlend {
+        cell_uv,
+        layers: [
+            surface.base as u32,
+            word(surface.overlays[0]),
+            word(surface.overlays[1]),
+            word(surface.overlays[2]),
+        ],
+        roads: [word(surface.roads[0]), word(surface.roads[1])],
+    }
 }
 
 /// Build one landblock's static geometry (terrain, buildings, scenery,
@@ -82,7 +87,13 @@ pub fn build_landblock(
     let mut max = Vec3::splat(f32::MIN);
     let scene = landblock::load(assets, id)?;
     let origin = ac_scene::lbid::world_origin(id);
-    // Terrain: one batch per terrain type, UV tiles once per cell.
+    // Terrain: each cell's six vertices carry the cell's texture recipe
+    // (base texture, overlays and roads with their alpha maps); the whole
+    // block is one batch. Texture space has u east and v south, with the
+    // base texture repeating `tiling` times per cell, like the client's
+    // merged cell textures.
+    let region = assets.region()?;
+    let tables = texmerge::Tables::from_region(&region);
     let terrain_cells = if scene.is_dungeon { 0 } else { usize::MAX };
     for (cell, tri) in scene
         .terrain
@@ -91,7 +102,15 @@ pub fn build_landblock(
         .enumerate()
         .take(terrain_cells)
     {
-        let key = terrain_key(assets, scene.terrain.cell_types[cell])?;
+        let (cell_x, cell_y) = (
+            (cell / CELLS_PER_BLOCK as usize) as f32,
+            (cell % CELLS_PER_BLOCK as usize) as f32,
+        );
+        let surface = tables
+            .as_ref()
+            .map(|t| t.cell_surface(scene.terrain.cell_codes[cell]));
+        let tiling = surface.map(|s| s.tiling as f32).unwrap_or(1.0);
+        let mut blend = Vec::with_capacity(6);
         let verts: Vec<Vertex> = tri
             .iter()
             .map(|&i| {
@@ -99,18 +118,32 @@ pub fn build_landblock(
                 let p = v.position + origin;
                 min = min.min(p);
                 max = max.max(p);
+                let (gx, gy) = (
+                    (i as usize / VERTS_PER_SIDE) as f32,
+                    (i as usize % VERTS_PER_SIDE) as f32,
+                );
+                let cell_uv = [gx - cell_x, 1.0 - (gy - cell_y)];
+                if let Some(s) = &surface {
+                    blend.push(terrain_blend(s, cell_uv));
+                }
                 Vertex {
                     position: p.to_array(),
                     normal: v.normal.to_array(),
-                    uv: [p.x / CELL_SIZE, p.y / CELL_SIZE],
+                    uv: [p.x / CELL_SIZE * tiling, -p.y / CELL_SIZE * tiling],
                     color: [1.0; 4],
                 }
             })
             .collect();
-        batches
-            .entry(key)
-            .or_default()
-            .push(&verts, &[0, 1, 2, 3, 4, 5]);
+        match surface {
+            Some(_) => batches
+                .entry(MaterialKey::Terrain)
+                .or_default()
+                .push_terrain(&verts, &blend, &[0, 1, 2, 3, 4, 5]),
+            None => batches
+                .entry(terrain_color_key(assets, scene.terrain.cell_types[cell])?)
+                .or_default()
+                .push(&verts, &[0, 1, 2, 3, 4, 5]),
+        }
     }
     for cell in &scene.cells {
         for sub in &cell.submeshes {
@@ -186,8 +219,7 @@ pub fn build_landblocks(assets: &Assets, center_id: u32, radius: u32) -> Result<
                 }
             };
             for (k, b) in built.batches {
-                let dst = batches.entry(k).or_default();
-                dst.push(&b.vertices, &b.indices);
+                batches.entry(k).or_default().append(&b);
             }
             if built.radius > 0.0 {
                 min = min.min(built.center - Vec3::splat(built.radius));
@@ -233,8 +265,12 @@ pub fn build_model(assets: &Assets, model_id: u32) -> Result<Built> {
 pub type Palettes = HashMap<u64, std::rc::Rc<Vec<u32>>>;
 
 pub fn material_image(assets: &Assets, key: MaterialKey, palettes: &Palettes) -> Option<Rgba> {
-    let MaterialKey::Texture { id, tex, palette } = key else {
-        return None;
+    let (id, tex, palette) = match key {
+        MaterialKey::Texture { id, tex, palette } => (id, tex, palette),
+        MaterialKey::TerrainLayer(n) | MaterialKey::TerrainAlpha(n) => {
+            return terrain_layer_image(assets, key, n)
+        }
+        MaterialKey::Solid(_) | MaterialKey::Terrain => return None,
     };
     // Which texture: an appearance override, the surface's texture, or the id itself.
     let source = if tex != 0 {
@@ -278,6 +314,34 @@ pub fn material_image(assets: &Assets, key: MaterialKey, palettes: &Palettes) ->
         None => {
             tracing::warn!("material {id:#010x}: no image");
             None
+        }
+    }
+}
+
+/// The `n`th terrain texture or alpha map layer of the region's tex-merge
+/// tables; None past the end, a magenta placeholder when it fails to decode
+/// (so layer numbers stay aligned with `texmerge::Tables`).
+fn terrain_layer_image(assets: &Assets, key: MaterialKey, n: u32) -> Option<Rgba> {
+    let region = assets.region().ok()?;
+    let tables = texmerge::Tables::from_region(&region)?;
+    let ids = match key {
+        MaterialKey::TerrainAlpha(_) => &tables.alpha_ids,
+        _ => &tables.texture_ids,
+    };
+    let id = *ids.get(n as usize)?;
+    match assets.texture_rgba(id, None) {
+        Ok(img) => Some(Rgba {
+            width: img.width,
+            height: img.height,
+            pixels: img.pixels,
+        }),
+        Err(e) => {
+            tracing::warn!("terrain layer {id:#010x}: {e}");
+            Some(Rgba {
+                width: 1,
+                height: 1,
+                pixels: vec![255, 0, 255, 255],
+            })
         }
     }
 }

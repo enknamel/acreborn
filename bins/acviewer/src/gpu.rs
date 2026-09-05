@@ -30,6 +30,38 @@ impl Vertex {
     }
 }
 
+/// Per-vertex terrain blend data, a second vertex buffer alongside
+/// [`Vertex`] for [`MaterialKey::Terrain`] batches. Overlay words are
+/// `texture layer | alpha layer << 8 | rotation << 16 | 1 << 31` (0 when
+/// absent); the alpha layer is sampled at `cell_uv` rotated by quarter turns.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug, Default)]
+pub struct TerrainBlend {
+    /// Position within the cell: u east, v south, both in [0, 1].
+    pub cell_uv: [f32; 2],
+    /// Base texture layer, then three terrain overlay words.
+    pub layers: [u32; 4],
+    /// Two road overlay words.
+    pub roads: [u32; 2],
+}
+
+impl TerrainBlend {
+    const ATTRS: [wgpu::VertexAttribute; 3] =
+        wgpu::vertex_attr_array![4 => Float32x2, 5 => Uint32x4, 6 => Uint32x2];
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TerrainBlend>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRS,
+        }
+    }
+
+    /// An overlay word.
+    pub fn overlay(texture: u8, alpha: u8, rotation: u8) -> u32 {
+        1 << 31 | (rotation as u32 & 3) << 16 | (alpha as u32) << 8 | texture as u32
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Globals {
@@ -43,6 +75,8 @@ struct Globals {
 pub struct Batch {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
+    /// Terrain blend data parallel to `vertices`; empty for other materials.
+    pub blend: Vec<TerrainBlend>,
 }
 
 impl Batch {
@@ -50,6 +84,23 @@ impl Batch {
         let base = self.vertices.len() as u32;
         self.vertices.extend_from_slice(verts);
         self.indices.extend(indices.iter().map(|i| i + base));
+    }
+
+    /// Push terrain triangles with their blend data.
+    pub fn push_terrain(&mut self, verts: &[Vertex], blend: &[TerrainBlend], indices: &[u32]) {
+        debug_assert_eq!(verts.len(), blend.len());
+        self.push(verts, indices);
+        self.blend.extend_from_slice(blend);
+    }
+
+    /// Append another batch of the same material.
+    pub fn append(&mut self, other: &Batch) {
+        self.push(&other.vertices, &other.indices);
+        self.blend.extend_from_slice(&other.blend);
+    }
+
+    fn is_terrain(&self) -> bool {
+        !self.blend.is_empty()
     }
 }
 
@@ -65,6 +116,14 @@ pub enum MaterialKey {
         palette: u64,
     },
     Solid(u32),
+    /// Outdoor terrain: batches carry [`TerrainBlend`] data and draw with
+    /// the layered terrain textures.
+    Terrain,
+    /// Not a batch material: asks the image callback for the `n`th terrain
+    /// texture layer (None past the end).
+    TerrainLayer(u32),
+    /// Likewise for the `n`th alpha map layer.
+    TerrainAlpha(u32),
 }
 
 pub struct Rgba {
@@ -78,6 +137,8 @@ struct DrawBatch {
     index_buf: wgpu::Buffer,
     index_count: u32,
     bind_group: std::rc::Rc<wgpu::BindGroup>,
+    /// Second vertex buffer of [`TerrainBlend`]; drawn with the terrain pipeline.
+    blend_buf: Option<wgpu::Buffer>,
 }
 
 /// Callback that draws an overlay onto the frame after the 3D pass.
@@ -91,10 +152,14 @@ pub struct Gpu {
     config: wgpu::SurfaceConfiguration,
     depth: wgpu::TextureView,
     pipeline: wgpu::RenderPipeline,
+    terrain_pipeline: wgpu::RenderPipeline,
     globals_buf: wgpu::Buffer,
     globals_bg: wgpu::BindGroup,
     material_layout: wgpu::BindGroupLayout,
+    terrain_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    /// Clamp-to-edge, for the per-cell alpha maps.
+    sampler_clamp: wgpu::Sampler,
     batches: Vec<DrawBatch>,
     /// Streamed landblocks, keyed by block id.
     blocks: HashMap<u32, Vec<DrawBatch>>,
@@ -227,6 +292,31 @@ impl Gpu {
                 },
             ],
         });
+        let array_tex = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let sampler_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        };
+        let terrain_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("terrain"),
+            entries: &[
+                array_tex(2),
+                array_tex(3),
+                sampler_entry(4),
+                sampler_entry(5),
+            ],
+        });
         let models_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("model"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -249,41 +339,65 @@ impl Gpu {
             ],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("main"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[Some(Vertex::layout())],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let terrain_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("terrain pipeline"),
+                bind_group_layouts: &[
+                    Some(&globals_layout),
+                    Some(&terrain_layout),
+                    Some(&models_layout),
+                ],
+                immediate_size: 0,
+            });
+        let make_pipeline = |label, layout, entries: (&str, &str), buffers: &[_]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some(entries.0),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(entries.1),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipeline = make_pipeline(
+            "main",
+            &pipeline_layout,
+            ("vs_main", "fs_main"),
+            &[Some(Vertex::layout())],
+        );
+        let terrain_pipeline = make_pipeline(
+            "terrain",
+            &terrain_pipeline_layout,
+            ("vs_terrain", "fs_terrain"),
+            &[Some(Vertex::layout()), Some(TerrainBlend::layout())],
+        );
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -329,6 +443,14 @@ impl Gpu {
             mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
+        let sampler_clamp = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
         Ok(Gpu {
             surface,
             device,
@@ -336,10 +458,13 @@ impl Gpu {
             config,
             depth,
             pipeline,
+            terrain_pipeline,
             globals_buf,
             globals_bg,
             material_layout,
+            terrain_layout,
             sampler,
+            sampler_clamp,
             batches: Vec::new(),
             blocks: HashMap::new(),
             materials: Default::default(),
@@ -403,13 +528,89 @@ impl Gpu {
 
     /// Upload a material's texture (with a full mip chain) and return its bind group.
     fn make_material(&self, img: &Rgba) -> wgpu::BindGroup {
-        let mip_levels = (32 - img.width.max(img.height).leading_zeros()).max(1);
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+        let texture = self.make_texture(img.width, img.height, 1);
+        self.upload_layer(&texture, 0, img);
+        let view = texture.create_view(&Default::default());
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &self.material_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        })
+    }
+
+    /// The terrain material: one texture array of the terrain textures and
+    /// one of the alpha maps. Layers are resampled to the first layer's
+    /// size when they differ.
+    fn make_terrain_material(&self, layers: &[Rgba], alphas: &[Rgba]) -> wgpu::BindGroup {
+        let array = |imgs: &[Rgba]| {
+            let fallback = Rgba {
+                width: 1,
+                height: 1,
+                pixels: vec![255, 0, 255, 255],
+            };
+            let imgs = if imgs.is_empty() {
+                std::slice::from_ref(&fallback)
+            } else {
+                imgs
+            };
+            let (w, h) = (imgs[0].width, imgs[0].height);
+            let texture = self.make_texture(w, h, imgs.len() as u32);
+            for (i, img) in imgs.iter().enumerate() {
+                if img.width == w && img.height == h {
+                    self.upload_layer(&texture, i as u32, img);
+                } else {
+                    self.upload_layer(&texture, i as u32, &resample(img, w, h));
+                }
+            }
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            })
+        };
+        let layers = array(layers);
+        let alphas = array(alphas);
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("terrain"),
+            layout: &self.terrain_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&layers),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&alphas),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler_clamp),
+                },
+            ],
+        })
+    }
+
+    /// An RGBA8 texture (array) with a full mip chain.
+    fn make_texture(&self, width: u32, height: u32, layers: u32) -> wgpu::Texture {
+        let mip_levels = (32 - width.max(height).leading_zeros()).max(1);
+        self.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
-                width: img.width,
-                height: img.height,
-                depth_or_array_layers: 1,
+                width,
+                height,
+                depth_or_array_layers: layers,
             },
             mip_level_count: mip_levels,
             sample_count: 1,
@@ -417,15 +618,22 @@ impl Gpu {
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
-        });
-        // CPU box-filter mip chain.
+        })
+    }
+
+    /// Write an image and its CPU box-filtered mip chain into one layer.
+    fn upload_layer(&self, texture: &wgpu::Texture, layer: u32, img: &Rgba) {
         let (mut w, mut h, mut px) = (img.width, img.height, img.pixels.clone());
-        for level in 0..mip_levels {
+        for level in 0..texture.mip_level_count() {
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
+                    texture,
                     mip_level: level,
-                    origin: wgpu::Origin3d::ZERO,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 &px,
@@ -471,21 +679,6 @@ impl Gpu {
             h = nh;
             px = next;
         }
-        let view = texture.create_view(&Default::default());
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.material_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        })
     }
 
     /// Replace the scene with these batches. `materials` maps each key to
@@ -617,22 +810,35 @@ impl Gpu {
         if let Some(bg) = self.materials.borrow().get(&key).cloned() {
             return bg;
         }
-        let img = match key {
-            MaterialKey::Solid(argb) => Rgba {
+        let bg = match key {
+            MaterialKey::Solid(argb) => self.make_material(&Rgba {
                 width: 1,
                 height: 1,
                 pixels: vec![(argb >> 16) as u8, (argb >> 8) as u8, argb as u8, 255],
-            },
-            MaterialKey::Texture { .. } => match materials(key) {
-                Some(i) => i,
-                None => Rgba {
-                    width: 1,
-                    height: 1,
-                    pixels: vec![255, 0, 255, 255],
-                },
-            },
+            }),
+            MaterialKey::Texture { .. }
+            | MaterialKey::TerrainLayer(_)
+            | MaterialKey::TerrainAlpha(_) => self.make_material(&materials(key).unwrap_or(Rgba {
+                width: 1,
+                height: 1,
+                pixels: vec![255, 0, 255, 255],
+            })),
+            MaterialKey::Terrain => {
+                let layers: Vec<Rgba> = (0..)
+                    .map_while(|i| materials(MaterialKey::TerrainLayer(i)))
+                    .collect();
+                let alphas: Vec<Rgba> = (0..)
+                    .map_while(|i| materials(MaterialKey::TerrainAlpha(i)))
+                    .collect();
+                tracing::debug!(
+                    "terrain material: {} texture layers, {} alpha maps",
+                    layers.len(),
+                    alphas.len()
+                );
+                self.make_terrain_material(&layers, &alphas)
+            }
         };
-        let bg = std::rc::Rc::new(self.make_material(&img));
+        let bg = std::rc::Rc::new(bg);
         self.materials.borrow_mut().insert(key, bg.clone());
         bg
     }
@@ -645,8 +851,10 @@ impl Gpu {
         let mut out = Vec::new();
         let mut keys: Vec<_> = batches.keys().copied().collect();
         keys.sort_by_key(|k| match k {
-            MaterialKey::Texture { id, tex, palette } => (0u8, *id, *tex, *palette),
-            MaterialKey::Solid(c) => (1, *c, 0, 0),
+            MaterialKey::Terrain => (0u8, 0, 0, 0),
+            MaterialKey::Texture { id, tex, palette } => (1, *id, *tex, *palette),
+            MaterialKey::Solid(c) => (2, *c, 0, 0),
+            MaterialKey::TerrainLayer(i) | MaterialKey::TerrainAlpha(i) => (3, *i, 0, 0),
         });
         for key in keys {
             let b = &batches[&key];
@@ -668,11 +876,20 @@ impl Gpu {
                     contents: bytemuck::cast_slice(&b.indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
+            let blend_buf = b.is_terrain().then(|| {
+                self.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: None,
+                        contents: bytemuck::cast_slice(&b.blend),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    })
+            });
             out.push(DrawBatch {
                 vertex_buf,
                 index_buf,
                 index_count: b.indices.len() as u32,
                 bind_group,
+                blend_buf,
             });
         }
         tracing::debug!("uploaded {} batches", out.len());
@@ -852,11 +1069,26 @@ impl Gpu {
             pass.set_bind_group(2, &self.models_bg, &[0]);
             let hide_static = std::env::var_os("ACV_HIDE_STATIC").is_some();
             let streamed = self.blocks.values().flat_map(|v| v.iter());
+            let mut terrain = false;
             for b in self.batches.iter().chain(streamed).filter(|_| !hide_static) {
+                if b.blend_buf.is_some() != terrain {
+                    terrain = b.blend_buf.is_some();
+                    pass.set_pipeline(if terrain {
+                        &self.terrain_pipeline
+                    } else {
+                        &self.pipeline
+                    });
+                }
                 pass.set_bind_group(1, &*b.bind_group, &[]);
                 pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
+                if let Some(blend) = &b.blend_buf {
+                    pass.set_vertex_buffer(1, blend.slice(..));
+                }
                 pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..b.index_count, 0, 0..1);
+            }
+            if terrain {
+                pass.set_pipeline(&self.pipeline);
             }
             // Instances: one model matrix each, via dynamic offset.
             for (i, inst) in self
@@ -876,5 +1108,23 @@ impl Gpu {
             }
         }
         self.queue.submit([encoder.finish()]);
+    }
+}
+
+/// Nearest-neighbour resample, for texture-array layers of unequal size.
+fn resample(img: &Rgba, width: u32, height: u32) -> Rgba {
+    let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        let sy = (y as u64 * img.height as u64 / height as u64) as u32;
+        for x in 0..width {
+            let sx = (x as u64 * img.width as u64 / width as u64) as u32;
+            let o = ((sy * img.width + sx) * 4) as usize;
+            pixels.extend_from_slice(&img.pixels[o..o + 4]);
+        }
+    }
+    Rgba {
+        width,
+        height,
+        pixels,
     }
 }
