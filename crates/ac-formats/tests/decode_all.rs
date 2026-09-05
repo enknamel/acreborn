@@ -366,3 +366,134 @@ fn human_sound_table_resolves() {
         }
     }
 }
+
+#[test]
+fn spell_table() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    use spell_table::{flags, school, spell_type, SpellTable, TypeData};
+    let t = SpellTable::parse(SpellTable::ID, &dat.read(SpellTable::ID).unwrap()).unwrap();
+    assert_eq!(t.spells.len(), 6266, "{} spells", t.spells.len());
+    assert_eq!(t.spell_sets.len(), 139, "{} spell sets", t.spell_sets.len());
+    let comps = spell_components::SpellComponentTable::parse(
+        spell_components::SpellComponentTable::ID,
+        &dat.read(spell_components::SpellComponentTable::ID).unwrap(),
+    )
+    .unwrap();
+    // The descrambled formula of every spell must index the component
+    // table; nearly every scarab-led formula ends with a talisman (a few
+    // creature-only spells such as "Exploding Magma" do not).
+    let mut levels = [0usize; 9];
+    let (mut scarab_led, mut talisman_last) = (0, 0);
+    for (id, s) in &t.spells {
+        for c in s.formula() {
+            assert!(
+                comps.get(c).is_some(),
+                "spell {id} {:?}: component {c} unknown ({:?})",
+                s.name,
+                s.components
+            );
+        }
+        levels[s.level() as usize] += 1;
+        if s.scarab_level() != 0 {
+            scarab_led += 1;
+            let last = s.formula().last().unwrap();
+            if comps.get(last).unwrap().kind == spell_components::component_type::TALISMAN {
+                talisman_last += 1;
+            }
+        }
+    }
+    eprintln!(
+        "spells per level 0..8: {levels:?}; {scarab_led} scarab-led, {talisman_last} end in a talisman"
+    );
+    assert_eq!(levels[0], 0, "every spell has a level");
+    assert!(scarab_led > 5000 && talisman_last * 100 > scarab_led * 95);
+    // Strength Other I: creature enchantment, targeted, level 1.
+    let (id, s) = t.find_by_name("Strength Other I").unwrap();
+    assert_eq!(id, 1);
+    assert_eq!(s.school, school::CREATURE);
+    assert_eq!(s.level(), 1);
+    assert_eq!(s.scarab_level(), 1);
+    assert!(s.is_beneficial() && s.needs_target() && !s.is_self_targeted());
+    assert_eq!(s.meta_spell_type, spell_type::ENCHANTMENT);
+    assert!(matches!(s.type_data, TypeData::Enchantment { duration, .. } if duration > 0.0));
+    assert_eq!(s.formula().collect::<Vec<_>>(), [1, 7, 33, 44, 49]);
+    assert_eq!(comps.spell_words(s.formula()), "Malar Cazael");
+    // Heal Self I: life boost, self only, level 1.
+    let s = t.get(6).unwrap();
+    assert_eq!(s.name, "Heal Self I");
+    assert_eq!(s.school, school::LIFE);
+    assert_eq!(s.level(), 1);
+    assert!(s.is_self_targeted() && !s.needs_target());
+    assert_eq!(s.meta_spell_type, spell_type::BOOST);
+    assert_eq!(s.type_data, TypeData::None);
+    assert_eq!(comps.spell_words(s.formula()), "Malar Zhapaj");
+    // Acid Stream III..VI: war projectiles, levels 3..6 by power.
+    for (id, level) in [(60, 3), (61, 4), (62, 5), (63, 6)] {
+        let s = t.get(id).unwrap();
+        assert!(s.name.starts_with("Acid Stream "), "{id}: {}", s.name);
+        assert_eq!(s.level(), level, "{id}: power {}", s.power);
+        assert_eq!(s.scarab_level(), level);
+        assert_eq!(s.school, school::WAR);
+        assert!(s.has_flag(flags::RESISTABLE) && s.needs_target());
+        assert_eq!(s.meta_spell_type, spell_type::PROJECTILE);
+        assert!(s.is_projectile());
+    }
+    // Shock Wave II: level 2 at power 50.
+    let s = t.get(65).unwrap();
+    assert_eq!(s.name, "Shock Wave II");
+    assert_eq!((s.power, s.level()), (50, 2));
+    // Mind Blossom: level 7 (power 300), platinum scarab.
+    let s = t.get(2091).unwrap();
+    assert_eq!(s.name, "Mind Blossom");
+    assert_eq!((s.level(), s.scarab_level(), s.components[0]), (7, 7, 112));
+    assert!(s.is_self_targeted());
+    // Level 8 spells exist (power 400) and the client's scarab rule
+    // disagrees with the power rule for them, as ACE notes.
+    let s = t.get(4001).unwrap();
+    assert_eq!(s.name, "Burning Earth");
+    assert_eq!((s.level(), s.scarab_level()), (8, 6));
+    assert!(t.get(0).is_none());
+    // Spell sets: tiers are sorted and `active` picks the highest reached.
+    let (_, set) = t.spell_sets.first().unwrap();
+    assert!(set.tiers.windows(2).all(|w| w[0].0 < w[1].0));
+    let (top, spells) = set.tiers.last().unwrap();
+    assert_eq!(set.active(*top), spells.as_slice());
+    assert_eq!(set.active(*top + 10), spells.as_slice());
+}
+
+#[test]
+fn spell_components() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    use spell_components::{component_type, SpellComponentTable};
+    let t = SpellComponentTable::parse(
+        SpellComponentTable::ID,
+        &dat.read(SpellComponentTable::ID).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(t.components.len(), 163, "{} components", t.components.len());
+    let lead = t.get(1).unwrap();
+    assert_eq!(lead.name, "Lead Scarab");
+    assert_eq!(lead.kind, component_type::SCARAB);
+    assert_eq!(lead.icon_id >> 24, 0x06);
+    let hyssop = t.get(7).unwrap();
+    assert_eq!(
+        (hyssop.name.as_str(), hyssop.text.as_str()),
+        ("Hyssop", "Malar")
+    );
+    assert_eq!(hyssop.kind, component_type::HERB);
+    assert_eq!(t.get(63).unwrap().name, "Red Taper");
+    assert_eq!(t.get(63).unwrap().kind, component_type::TAPER);
+    let poplar = t.get(49).unwrap();
+    assert_eq!(poplar.kind, component_type::TALISMAN);
+    assert!(poplar.gesture & 0x4000_0000 != 0 && poplar.time > 1.0);
+    assert_eq!(t.get(198).unwrap().name, "Essence of Kemeroi");
+    assert!(t.get(199).is_none());
+    for (_, c) in &t.components {
+        assert!(c.icon_id >> 24 == 0x06);
+        assert!(c.kind >= 1 && c.kind <= 7, "{}: kind {}", c.name, c.kind);
+    }
+}

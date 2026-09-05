@@ -24,6 +24,8 @@ pub mod scene;
 pub mod setup;
 pub mod skill_table;
 pub mod sound_table;
+pub mod spell_components;
+pub mod spell_table;
 pub mod surface;
 pub mod surface_texture;
 pub mod texture;

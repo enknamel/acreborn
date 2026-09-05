@@ -151,8 +151,37 @@ fn icon_loader(data_dir: PathBuf) -> ui::IconLoader {
     })
 }
 
-/// Sample panels for `--demo-ui`: known 32x32 icons from the portal.
-fn demo_ui(ui: &mut ui::Ui) {
+/// Spellbook rows for the given spell ids, sorted by level then name.
+/// Ids missing from the table are skipped.
+fn spell_rows(
+    table: &ac_formats::spell_table::SpellTable,
+    comps: &ac_formats::spell_components::SpellComponentTable,
+    ids: impl IntoIterator<Item = u32>,
+) -> Vec<ui::SpellRow> {
+    let mut rows: Vec<ui::SpellRow> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let s = table.get(id)?;
+            Some(ui::SpellRow {
+                id,
+                name: s.name.clone(),
+                level: s.level(),
+                school: ac_formats::spell_table::school::short_name(s.school),
+                mana: s.base_mana,
+                self_targeted: s.is_self_targeted(),
+                icon: s.icon_id,
+                description: s.description.clone(),
+                words: comps.spell_words(s.formula()),
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| a.level.cmp(&b.level).then_with(|| a.name.cmp(&b.name)));
+    rows
+}
+
+/// Sample panels for `--demo-ui`: known 32x32 icons from the portal, and
+/// a spellbook of real spells from the spell table.
+fn demo_ui(ui: &mut ui::Ui, data_dir: &std::path::Path) {
     let item = |guid: u32, name: &str, stack: u32, wielded: bool, icon: u32| ui::Item {
         guid,
         name: name.to_string(),
@@ -199,6 +228,18 @@ fn demo_ui(ui: &mut ui::Ui) {
         overlay: 0,
     };
     ui.status += "  selected: Demo item";
+    match ac_scene::Assets::open(data_dir)
+        .and_then(|a| Ok((a.spell_table()?, a.spell_components()?)))
+    {
+        Ok((table, comps)) => {
+            // Strength Other/Self I, Heal Other/Self I, Infuse Mana Other I,
+            // Invulnerability Other I, Fire Protection Self I, Armor Self I,
+            // Acid Stream III, Shock Wave II, Mind Blossom.
+            ui.spells = spell_rows(&table, &comps, [1, 2, 5, 6, 9, 17, 20, 24, 60, 65, 2091]);
+        }
+        Err(e) => tracing::warn!("demo spellbook: {e}"),
+    }
+    ui.show_spells = true;
 }
 
 /// Live server connection state for `--connect`.
@@ -636,9 +677,22 @@ impl App {
             net.magic = true;
             net.combat = false;
         }
-        let name = net.known_spells.get(&spell).cloned().unwrap_or_default();
-        // "Other" spells go to the selected creature; the rest are self casts.
-        let target = net.selected.filter(|_| name.contains("Other"));
+        let table = net.assets.spell_table().ok();
+        let entry = table.as_ref().and_then(|t| t.get(spell));
+        let name = entry
+            .map(|sp| sp.name.clone())
+            .or_else(|| net.known_spells.get(&spell).cloned())
+            .unwrap_or_default();
+        // Spells that need a target go to the selected creature (or
+        // ourselves when nothing is selected); the rest are self casts.
+        let needs_target = entry
+            .map(|sp| sp.needs_target())
+            .unwrap_or_else(|| name.contains("Other"));
+        let target = if needs_target {
+            net.selected.or(net.world.player_guid)
+        } else {
+            None
+        };
         match target {
             Some(t) => {
                 tracing::info!("cast {name} ({spell}) on {t:#010x}");
@@ -936,6 +990,12 @@ impl App {
                 skills,
             }
         });
+        if ui.spells.len() != st.spells.len() {
+            ui.spells = match (net.assets.spell_table(), net.assets.spell_components()) {
+                (Ok(table), Ok(comps)) => spell_rows(&table, &comps, st.spells.iter().copied()),
+                _ => Vec::new(),
+            };
+        }
         ui.target = net
             .attack_target
             .or(net.selected)
@@ -1426,6 +1486,14 @@ impl App {
         for guid in activated {
             self.interact(guid);
         }
+        let casts: Vec<u32> = self
+            .ui
+            .as_mut()
+            .map(|u| std::mem::take(&mut u.cast_requests))
+            .unwrap_or_default();
+        for spell in casts {
+            self.cast(spell);
+        }
         let Some(net) = self.net.as_mut() else { return };
         // Build the static scene once the player is placed.
         if net.scene_block.is_none() {
@@ -1868,6 +1936,12 @@ impl ApplicationHandler for App {
                     if code == KeyCode::KeyK && event.state == ElementState::Pressed {
                         if let Some(ui) = &mut self.ui {
                             ui.show_skills = !ui.show_skills;
+                        }
+                        return;
+                    }
+                    if code == KeyCode::KeyP && event.state == ElementState::Pressed {
+                        if let Some(ui) = &mut self.ui {
+                            ui.show_spells = !ui.show_spells;
                         }
                         return;
                     }
@@ -2421,7 +2495,7 @@ fn main() -> Result<()> {
         app.refresh_status();
         let mut ui = app.ui.take().unwrap();
         if app.cli.demo_ui {
-            demo_ui(&mut ui);
+            demo_ui(&mut ui, &app.cli.data_dir);
         }
         // egui's first frame only loads fonts and asks for a repaint.
         ui.begin(None, gpu.device(), gpu.queue(), w, h);
