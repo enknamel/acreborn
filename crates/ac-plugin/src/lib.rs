@@ -13,8 +13,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 
+pub mod host;
+
 pub use ac_client::{self, Client, Event};
 pub use egui;
+pub use host::{Host, Requests};
 pub use serde_json::{self, Value};
 
 /// A message on the in-process bus.

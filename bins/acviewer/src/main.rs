@@ -1473,7 +1473,7 @@ fn main() -> Result<()> {
             last_frame: Instant::now(),
             ui: None,
             fps: 0.0,
-            plugins: plugins::Host::builtin(),
+            plugins: plugins::builtin(),
             pending_switch: None,
         };
         app.load_scene(&mut gpu)?;
@@ -1904,7 +1904,7 @@ fn main() -> Result<()> {
         last_frame: Instant::now(),
         ui: None,
         fps: 0.0,
-        plugins: plugins::Host::builtin(),
+        plugins: plugins::builtin(),
         pending_switch: None,
     };
     event_loop.run_app(&mut app)?;
