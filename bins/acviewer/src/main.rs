@@ -80,6 +80,9 @@ struct Cli {
     /// with this name until it dies (or 90 s pass).
     #[arg(long)]
     attack: Option<String>,
+    /// Connected headless mode: jump once after placement.
+    #[arg(long)]
+    jump: bool,
     /// Connected headless mode: open the corpse of the attacked creature (or
     /// the container named here) and take everything.
     #[arg(long, num_args = 0..=1, default_missing_value = "")]
@@ -149,6 +152,8 @@ struct App {
     keys: HashSet<KeyCode>,
     looking: bool,
     cursor: Option<(f64, f64)>,
+    /// Space was pressed since the last frame.
+    jump_requested: bool,
     last_cursor: Option<(f64, f64)>,
     last_frame: Instant,
     ui: Option<ui::Ui>,
@@ -1186,7 +1191,7 @@ impl App {
                 strafe: (self.keys.contains(&KeyCode::KeyD) as i8
                     - self.keys.contains(&KeyCode::KeyA) as i8) as f32,
                 run: !self.keys.contains(&KeyCode::ShiftLeft),
-                jump: false,
+                jump: std::mem::take(&mut self.jump_requested),
             };
             // Server-driven MoveTo (using something out of reach): run toward
             // the target until close enough, unless the user takes over.
@@ -1223,6 +1228,13 @@ impl App {
             let now = Instant::now();
             let dt = self.frame_dt;
             pl.update(&net.assets, &input, dt);
+            if let Some(j) = pl.last_jump.take() {
+                tracing::info!("jump power {:.2} velocity {:?}", j.power, j.velocity);
+                net.session.send_action(
+                    ac_net::messages::action::JUMP,
+                    &ac_net::messages::jump(j.power, j.velocity.to_array(), 1),
+                );
+            }
             // One-shot motions the server broadcast for us (attacks, emotes).
             let mut cmds = Vec::new();
             if let Some(o) = net.world.player_mut() {
@@ -1433,6 +1445,12 @@ impl ApplicationHandler for App {
                     if typing {
                         return;
                     }
+                    if code == KeyCode::Space
+                        && event.state == ElementState::Pressed
+                        && self.net.is_some()
+                    {
+                        self.jump_requested = true;
+                    }
                     if code == KeyCode::KeyC && event.state == ElementState::Pressed {
                         self.toggle_combat();
                         return;
@@ -1632,6 +1650,7 @@ fn main() -> Result<()> {
             keys: HashSet::new(),
             looking: false,
             cursor: None,
+            jump_requested: false,
             last_cursor: None,
             last_frame: Instant::now(),
             ui: None,
@@ -1685,6 +1704,10 @@ fn main() -> Result<()> {
                             ui.outgoing.push(app.cli.say[said].clone());
                         }
                         said += 1;
+                    }
+                    if app.cli.jump && t > 1.5 {
+                        app.cli.jump = false;
+                        app.jump_requested = true;
                     }
                     if t > 1.0 + app.cli.walk + say_delay
                         && retry_at.elapsed() > Duration::from_secs(1)
@@ -1898,6 +1921,7 @@ fn main() -> Result<()> {
         keys: HashSet::new(),
         looking: false,
         cursor: None,
+        jump_requested: false,
         last_cursor: None,
         last_frame: Instant::now(),
         ui: None,

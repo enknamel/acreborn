@@ -821,6 +821,25 @@ pub fn autonomous_position(p: &WirePosition, instance_seq: u16, contact: bool) -
     w.finish()
 }
 
+/// Jump (0xF61B) body: extent (charge 0..=1), launch velocity in the
+/// character's local frame, then the instance/control/teleport/force
+/// sequences.
+pub fn jump(power: f32, velocity: [f32; 3], instance_seq: u16) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.f32(power)
+        .f32(velocity[0])
+        .f32(velocity[1])
+        .f32(velocity[2])
+        .u16(instance_seq)
+        .u16(0)
+        .u16(0)
+        .u16(0)
+        // Trailing object guid and spell id the server reads (unused).
+        .u32(0)
+        .u32(0);
+    w.finish()
+}
+
 /// The raw input state the client reports in MoveToState.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct RawMotion {
