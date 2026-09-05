@@ -70,3 +70,9 @@ pack); using a scroll learns its spell.
 
 Game data and the original executable are not distributed with this
 repository and are gitignored.
+
+## License
+
+Dual-licensed under MIT or Apache-2.0, at your option. Game data, the
+original executable and the ACE emulator sources (AGPL, used only as a
+reference) are not part of this repository.
