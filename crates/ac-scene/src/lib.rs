@@ -3,6 +3,7 @@
 //! * [`Assets`]: memoizing loader over the portal and cell archives.
 //! * [`terrain`]: landblock height grid -> triangle mesh, following the
 //!   client's cell diagonal rule.
+//! * [`texmerge`]: which textures and alpha masks paint each terrain cell.
 //! * [`model`]: GfxObj -> triangle lists grouped by surface; Setup -> parts
 //!   with placement frames.
 //! * [`landblock`]: a whole outdoor landblock (terrain + statics +
@@ -15,6 +16,7 @@ pub mod landblock;
 pub mod model;
 pub mod scenery;
 pub mod terrain;
+pub mod texmerge;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

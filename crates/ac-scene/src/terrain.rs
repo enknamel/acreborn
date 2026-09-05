@@ -3,7 +3,7 @@
 use ac_formats::landblock::{terrain as tbits, CellLandblock};
 use glam::Vec3;
 
-use crate::{lbid, CELLS_PER_BLOCK, CELL_SIZE, VERTS_PER_SIDE};
+use crate::{lbid, texmerge, CELLS_PER_BLOCK, CELL_SIZE, VERTS_PER_SIDE};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TerrainVertex {
@@ -24,6 +24,9 @@ pub struct TerrainMesh {
     pub indices: Vec<u32>,
     /// Per cell (x * 8 + y): terrain type of its south-west corner.
     pub cell_types: Vec<u16>,
+    /// Per cell: palette code of its corners' terrain types and road bits,
+    /// for [`texmerge::Tables::cell_surface`].
+    pub cell_codes: Vec<u32>,
 }
 
 /// The client's cell diagonal rule (credit: AC2D). True = split from the
@@ -64,6 +67,7 @@ pub fn build(lb: &CellLandblock, height_table: &[f32]) -> TerrainMesh {
     let idx = |x: usize, y: usize| (x * n + y) as u32;
     let mut indices = Vec::with_capacity(8 * 8 * 6);
     let mut cell_types = Vec::with_capacity(64);
+    let mut cell_codes = Vec::with_capacity(64);
     for x in 0..CELLS_PER_BLOCK as usize {
         for y in 0..CELLS_PER_BLOCK as usize {
             let ll = idx(x, y);
@@ -77,6 +81,16 @@ pub fn build(lb: &CellLandblock, height_table: &[f32]) -> TerrainMesh {
                 indices.extend_from_slice(&[ll, lr, tr, ll, tr, tl]);
             }
             cell_types.push(vertices[ll as usize].terrain_type);
+            let corner = |i: u32| {
+                let v = &vertices[i as usize];
+                (v.terrain_type, v.road)
+            };
+            cell_codes.push(texmerge::pal_code([
+                corner(ll),
+                corner(lr),
+                corner(tr),
+                corner(tl),
+            ]));
         }
     }
     // Smooth normals from face normals.
@@ -97,6 +111,7 @@ pub fn build(lb: &CellLandblock, height_table: &[f32]) -> TerrainMesh {
         vertices,
         indices,
         cell_types,
+        cell_codes,
     }
 }
 
