@@ -86,6 +86,10 @@ struct Cli {
     /// Connected headless mode: open the skills panel in the screenshot.
     #[arg(long)]
     show_skills: bool,
+    /// Connected headless mode: once a vendor window is open (after --use
+    /// on the vendor), buy the first stock item whose name starts with this.
+    #[arg(long)]
+    buy: Option<String>,
     /// Connected headless mode: jump once after placement.
     #[arg(long)]
     jump: bool,
@@ -669,6 +673,42 @@ impl App {
         }
     }
 
+    /// Buy from / sell to the open vendor, as the UI asked.
+    fn tick_vendor(&mut self) {
+        use ac_net::messages::{action, trade};
+        let (buy, sell, close) = match self.ui.as_mut() {
+            Some(ui) => (
+                std::mem::take(&mut ui.vendor_buy),
+                std::mem::take(&mut ui.vendor_sell),
+                std::mem::take(&mut ui.vendor_close),
+            ),
+            None => return,
+        };
+        let Some(net) = self.net.as_mut() else { return };
+        let Some(vendor) = net.world.open_vendor.as_ref().map(|v| v.vendor) else {
+            return;
+        };
+        for guid in buy {
+            tracing::info!("buy {guid:#010x} from {vendor:#010x}");
+            net.session
+                .send_action(action::BUY, &trade(vendor, &[(guid, 1)]));
+        }
+        for guid in sell {
+            let amount = net
+                .world
+                .objects
+                .get(&guid)
+                .map(|o| o.stack_size.max(1) as i32)
+                .unwrap_or(1);
+            tracing::info!("sell {guid:#010x} to {vendor:#010x}");
+            net.session
+                .send_action(action::SELL, &trade(vendor, &[(guid, amount)]));
+        }
+        if close {
+            net.world.open_vendor = None;
+        }
+    }
+
     /// Take items out of the open container / close it, as the UI asked.
     fn tick_loot(&mut self) {
         use ac_net::messages::action;
@@ -864,6 +904,42 @@ impl App {
                 })
                 .collect();
             (name, list)
+        });
+        ui.vendor = net.world.open_vendor.as_ref().map(|v| {
+            let name = net
+                .world
+                .objects
+                .get(&v.vendor)
+                .map(|o| o.name.clone())
+                .unwrap_or_else(|| "Vendor".into());
+            let stock = v
+                .items
+                .iter()
+                .map(|it| ui::TradeItem {
+                    guid: it.guid,
+                    name: it.desc.name.clone(),
+                    price: (it.desc.value as f32 * v.buy_rate).ceil() as u32,
+                    icon: it.desc.icon_id,
+                    unlimited: it.stack == 0x00FF_FFFF,
+                })
+                .collect();
+            let selling = net
+                .world
+                .inventory()
+                .filter(|o| o.value > 0)
+                .map(|o| ui::TradeItem {
+                    guid: o.guid,
+                    name: o.name.clone(),
+                    price: (o.value as f32 * v.sell_rate).floor() as u32,
+                    icon: o.icon_id,
+                    unlimited: false,
+                })
+                .collect();
+            ui::Vendor {
+                name,
+                stock,
+                selling,
+            }
         });
         ui.items.clear();
         for o in net.world.wielded() {
@@ -1165,6 +1241,7 @@ impl App {
                         | ac_world::Applied::Deleted
                         | ac_world::Applied::Stats
                         | ac_world::Applied::Health
+                        | ac_world::Applied::Vendor
                         | ac_world::Applied::Inventory => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
                         ac_world::Applied::Ignored => {}
@@ -1259,6 +1336,8 @@ impl App {
                                     let err =
                                         u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
                                     tracing::debug!("use done, error {err:#x}");
+                                    // The walk the server asked for is over either way.
+                                    net.move_to = None;
                                 } else {
                                     tracing::debug!("game event {ev:#06x} ({} bytes)", rest.len());
                                 }
@@ -1275,6 +1354,7 @@ impl App {
         self.send_chat();
         self.tick_combat();
         self.tick_loot();
+        self.tick_vendor();
         let activated: Vec<u32> = self
             .ui
             .as_mut()
@@ -1903,6 +1983,7 @@ fn main() -> Result<()> {
             let mut click_state = (0usize, 0u32);
             let use_requested = app.cli.use_name.is_some() || app.cli.attack.is_some();
             let mut said = 0usize;
+            let mut bought_at: Option<Instant> = None;
             let mut retry_at = Instant::now() - Duration::from_secs(5);
             let say_delay = 3.0 * app.cli.say.len() as f32 + 1.0;
             let mut attack_started: Option<Instant> = None;
@@ -1962,6 +2043,32 @@ fn main() -> Result<()> {
                                 tracing::info!("wrote {}", mid.display());
                             }
                             app.ui = ui;
+                        }
+                    }
+                    if let Some(want) = app.cli.buy.clone() {
+                        if let (Some(net), Some(ui)) = (app.net.as_ref(), app.ui.as_mut()) {
+                            if let Some(v) = &net.world.open_vendor {
+                                tracing::info!(
+                                    "vendor stock: {}",
+                                    v.items
+                                        .iter()
+                                        .map(|i| format!(
+                                            "{} ({}p)",
+                                            i.desc.name,
+                                            (i.desc.value as f32 * v.buy_rate).ceil()
+                                        ))
+                                        .collect::<Vec<_>>()
+                                        .join(" | ")
+                                );
+                                if let Some(it) =
+                                    v.items.iter().find(|i| i.desc.name.starts_with(&want))
+                                {
+                                    tracing::info!("buying {}", it.desc.name);
+                                    ui.vendor_buy.push(it.guid);
+                                }
+                                app.cli.buy = None;
+                                bought_at = Some(Instant::now());
+                            }
                         }
                     }
                     if app.cli.jump && t > 1.5 {
@@ -2121,20 +2228,23 @@ fn main() -> Result<()> {
                         .net
                         .as_ref()
                         .is_some_and(|n| !n.loot_queue.is_empty() || n.loot_inflight.is_some());
-                    let done = if pending || looting {
-                        false
-                    } else if attack_started.is_some() || loot_only {
-                        loot_state == 3 && loot_at.elapsed() > Duration::from_secs(3)
-                            || (loot_state == 1
-                                && app.cli.loot.is_none()
-                                && loot_at.elapsed() > Duration::from_secs(3))
-                    } else if app.cli.walk > 0.0 {
-                        t > 0.9 + app.cli.walk
-                    } else if !app.cli.click.is_empty() || use_requested {
-                        t > 8.0 + say_delay + app.cli.click.len() as f32 * 3.0
-                    } else {
-                        t > 3.0
-                    };
+                    let done =
+                        if pending || looting || app.cli.buy.is_some() && t < 40.0 + say_delay {
+                            false
+                        } else if let Some(b) = bought_at {
+                            b.elapsed() > Duration::from_secs(4)
+                        } else if attack_started.is_some() || loot_only {
+                            loot_state == 3 && loot_at.elapsed() > Duration::from_secs(3)
+                                || (loot_state == 1
+                                    && app.cli.loot.is_none()
+                                    && loot_at.elapsed() > Duration::from_secs(3))
+                        } else if app.cli.walk > 0.0 {
+                            t > 0.9 + app.cli.walk
+                        } else if !app.cli.click.is_empty() || use_requested {
+                            t > 8.0 + say_delay + app.cli.click.len() as f32 * 3.0
+                        } else {
+                            t > 3.0
+                        };
                     if done {
                         break;
                     }

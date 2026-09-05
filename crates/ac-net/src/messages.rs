@@ -364,6 +364,7 @@ pub mod event {
     pub const INVENTORY_PUT_OBJECT_IN_3D: u32 = 0x019A;
     pub const VIEW_CONTENTS: u32 = 0x0196;
     pub const CLOSE_GROUND_CONTAINER: u32 = 0x0052;
+    pub const APPROACH_VENDOR: u32 = 0x0062;
     pub const ATTACK_DONE: u32 = 0x01A7;
     pub const VICTIM_NOTIFICATION: u32 = 0x01AC;
     pub const KILLER_NOTIFICATION: u32 = 0x01AD;
@@ -594,6 +595,18 @@ impl AttackNotice {
     }
 }
 
+/// Buy/Sell body: vendor, count, then `(amount, guid)` per item, and the
+/// alternate currency id (0 for pyreals).
+pub fn trade(vendor: u32, items: &[(u32, i32)]) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u32(vendor).u32(items.len() as u32);
+    for (guid, amount) in items {
+        w.i32(*amount).u32(*guid);
+    }
+    w.u32(0);
+    w.finish()
+}
+
 /// Sound (0xF750): an object plays a sound-table entry: `(guid, sound type, volume)`.
 pub fn parse_sound(body: &[u8]) -> Result<(u32, u32, f32), Truncated> {
     let mut r = Reader::new(body);
@@ -768,6 +781,8 @@ pub mod action {
     pub const DROP_ITEM: u32 = 0x001B;
     pub const USE: u32 = 0x0036;
     pub const CHANGE_COMBAT_MODE: u32 = 0x0053;
+    pub const BUY: u32 = 0x005F;
+    pub const SELL: u32 = 0x0060;
     pub const NO_LONGER_VIEWING_CONTENTS: u32 = 0x0195;
     pub const IDENTIFY_OBJECT: u32 = 0x00C8;
     /// Sent after entering the world and after each teleport; the server

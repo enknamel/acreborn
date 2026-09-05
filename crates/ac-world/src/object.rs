@@ -156,6 +156,8 @@ pub struct ObjectCreate {
     pub container: Option<u32>,
     pub wielder: Option<u32>,
     pub stack_size: u32,
+    /// Base value in pyreals (vendor prices scale it).
+    pub value: u32,
     /// EquipMask bits the item can be wielded in.
     pub valid_locations: u32,
     pub wielded_location: u32,
@@ -227,6 +229,251 @@ impl ObjDescEvent {
             desc,
             instance_seq: r.u16()?,
             visual_seq: r.u16()?,
+        })
+    }
+}
+
+/// The weenie header: the game-data half of an ObjectCreate, also sent on
+/// its own for vendor stock (SerializeGameDataOnly).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WeenieDesc {
+    pub name: String,
+    pub weenie_class_id: u32,
+    pub icon_id: u32,
+    pub item_type: u32,
+    pub object_desc_flags: u32,
+    pub weenie_flags: u32,
+    pub value: u32,
+    pub stack_size: u32,
+    pub container: Option<u32>,
+    pub wielder: Option<u32>,
+    pub valid_locations: u32,
+    pub wielded_location: u32,
+    pub icon_overlay: u32,
+    pub icon_underlay: u32,
+}
+
+impl WeenieDesc {
+    pub fn parse(r: &mut Reader) -> Result<Self> {
+        use weenie_flags::*;
+        let weenie_flags = r.u32()?;
+        let name = r.string16()?;
+        let weenie_class_id = r.packed_u32()?;
+        let icon_id = packed_of_type(r, 0x0600_0000)?;
+        let item_type = r.u32()?;
+        let object_desc_flags = r.u32()?;
+        r.align4()?;
+        let weenie_flags2 = if object_desc_flags & INCLUDES_SECOND_HEADER != 0 {
+            r.u32()?
+        } else {
+            0
+        };
+        if weenie_flags & PLURAL_NAME != 0 {
+            r.string16()?;
+        }
+        if weenie_flags & ITEMS_CAPACITY != 0 {
+            r.u8()?;
+        }
+        if weenie_flags & CONTAINERS_CAPACITY != 0 {
+            r.u8()?;
+        }
+        if weenie_flags & AMMO_TYPE != 0 {
+            r.u16()?;
+        }
+        let value = if weenie_flags & VALUE != 0 {
+            r.u32()?
+        } else {
+            0
+        };
+        if weenie_flags & USABLE != 0 {
+            r.u32()?;
+        }
+        if weenie_flags & USE_RADIUS != 0 {
+            r.f32()?;
+        }
+        if weenie_flags & TARGET_TYPE != 0 {
+            r.u32()?;
+        }
+        if weenie_flags & UI_EFFECTS != 0 {
+            r.u32()?;
+        }
+        if weenie_flags & COMBAT_USE != 0 {
+            r.u8()?;
+        }
+        if weenie_flags & STRUCTURE != 0 {
+            r.u16()?;
+        }
+        if weenie_flags & MAX_STRUCTURE != 0 {
+            r.u16()?;
+        }
+        let stack_size = if weenie_flags & STACK_SIZE != 0 {
+            r.u16()? as u32
+        } else {
+            1
+        };
+        if weenie_flags & MAX_STACK_SIZE != 0 {
+            r.u16()?;
+        }
+        let container = if weenie_flags & CONTAINER != 0 {
+            Some(r.u32()?).filter(|&c| c != 0)
+        } else {
+            None
+        };
+        let wielder = if weenie_flags & WIELDER != 0 {
+            Some(r.u32()?).filter(|&c| c != 0)
+        } else {
+            None
+        };
+        let valid_locations = if weenie_flags & VALID_LOCATIONS != 0 {
+            r.u32()?
+        } else {
+            0
+        };
+        let wielded_location = if weenie_flags & CURRENTLY_WIELDED_LOCATION != 0 {
+            r.u32()?
+        } else {
+            0
+        };
+        if weenie_flags & PRIORITY != 0 {
+            r.u32()?;
+        }
+        if weenie_flags & RADAR_BLIP_COLOR != 0 {
+            r.u8()?;
+        }
+        if weenie_flags & RADAR_BEHAVIOR != 0 {
+            r.u8()?;
+        }
+        if weenie_flags & PSCRIPT != 0 {
+            r.u16()?;
+        }
+        if weenie_flags & WORKMANSHIP != 0 {
+            r.f32()?;
+        }
+        if weenie_flags & BURDEN != 0 {
+            r.u16()?;
+        }
+        if weenie_flags & SPELL != 0 {
+            r.u16()?;
+        }
+        if weenie_flags & HOUSE_OWNER != 0 {
+            r.u32()?;
+        }
+        if weenie_flags & HOUSE_RESTRICTIONS != 0 {
+            return Err(Error::Unsupported("house restrictions"));
+        }
+        if weenie_flags & HOOK_ITEM_TYPES != 0 {
+            r.u32()?;
+        }
+        if weenie_flags & MONARCH != 0 {
+            r.u32()?;
+        }
+        if weenie_flags & HOOK_TYPE != 0 {
+            r.u16()?;
+        }
+        let icon_overlay = if weenie_flags & ICON_OVERLAY != 0 {
+            packed_of_type(r, 0x0600_0000)?
+        } else {
+            0
+        };
+        let icon_underlay = if weenie_flags2 & F2_ICON_UNDERLAY != 0 {
+            packed_of_type(r, 0x0600_0000)?
+        } else {
+            0
+        };
+        if weenie_flags & MATERIAL_TYPE != 0 {
+            r.u32()?;
+        }
+        if weenie_flags2 & F2_COOLDOWN != 0 {
+            r.u32()?;
+        }
+        if weenie_flags2 & F2_COOLDOWN_DURATION != 0 {
+            r.f64()?;
+        }
+        if weenie_flags2 & F2_PET_OWNER != 0 {
+            r.u32()?;
+        }
+
+        Ok(WeenieDesc {
+            name,
+            weenie_class_id,
+            icon_id,
+            item_type,
+            object_desc_flags,
+            weenie_flags,
+            value,
+            stack_size,
+            container,
+            wielder,
+            valid_locations,
+            wielded_location,
+            icon_overlay,
+            icon_underlay,
+        })
+    }
+}
+
+/// ApproachVendor (game event 0x0062): a vendor's terms and stock.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VendorItem {
+    /// Prototype guid to name in Buy; -1 stack means unlimited supply.
+    pub guid: u32,
+    pub stack: u32,
+    pub desc: WeenieDesc,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApproachVendor {
+    pub vendor: u32,
+    pub item_types: u32,
+    pub min_value: u32,
+    pub max_value: u32,
+    pub magical: bool,
+    /// Price multipliers applied to an item's value.
+    pub buy_rate: f32,
+    pub sell_rate: f32,
+    pub alt_currency: u32,
+    pub alt_amount: u32,
+    pub alt_name: String,
+    pub items: Vec<VendorItem>,
+}
+
+impl ApproachVendor {
+    pub fn parse(body: &[u8]) -> Result<Self> {
+        let mut r = Reader::new(body);
+        let vendor = r.u32()?;
+        let item_types = r.u32()?;
+        let min_value = r.u32()?;
+        let max_value = r.u32()?;
+        let magical = r.u32()? != 0;
+        let buy_rate = r.f32()?;
+        let sell_rate = r.f32()?;
+        let alt_currency = r.u32()?;
+        let alt_amount = r.u32()?;
+        let alt_name = r.string16()?;
+        let n = r.u32()? as usize;
+        let mut items = Vec::with_capacity(n.min(512));
+        for _ in 0..n {
+            let packed = r.u32()?;
+            let guid = r.u32()?;
+            let desc = WeenieDesc::parse(&mut r)?;
+            items.push(VendorItem {
+                guid,
+                stack: packed & 0x00FF_FFFF,
+                desc,
+            });
+        }
+        Ok(ApproachVendor {
+            vendor,
+            item_types,
+            min_value,
+            max_value,
+            magical,
+            buy_rate,
+            sell_rate,
+            alt_currency,
+            alt_amount,
+            alt_name,
+            items,
         })
     }
 }
@@ -331,142 +578,22 @@ impl ObjectCreate {
         r.align4()?;
 
         // Weenie data.
-        use weenie_flags::*;
-        let weenie_flags = r.u32()?;
-        let name = r.string16()?;
-        let weenie_class_id = r.packed_u32()?;
-        let icon_id = packed_of_type(&mut r, 0x0600_0000)?;
-        let item_type = r.u32()?;
-        let object_desc_flags = r.u32()?;
-        r.align4()?;
-        let weenie_flags2 = if object_desc_flags & INCLUDES_SECOND_HEADER != 0 {
-            r.u32()?
-        } else {
-            0
-        };
-        if weenie_flags & PLURAL_NAME != 0 {
-            r.string16()?;
-        }
-        if weenie_flags & ITEMS_CAPACITY != 0 {
-            r.u8()?;
-        }
-        if weenie_flags & CONTAINERS_CAPACITY != 0 {
-            r.u8()?;
-        }
-        if weenie_flags & AMMO_TYPE != 0 {
-            r.u16()?;
-        }
-        if weenie_flags & VALUE != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & USABLE != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & USE_RADIUS != 0 {
-            r.f32()?;
-        }
-        if weenie_flags & TARGET_TYPE != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & UI_EFFECTS != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & COMBAT_USE != 0 {
-            r.u8()?;
-        }
-        if weenie_flags & STRUCTURE != 0 {
-            r.u16()?;
-        }
-        if weenie_flags & MAX_STRUCTURE != 0 {
-            r.u16()?;
-        }
-        let stack_size = if weenie_flags & STACK_SIZE != 0 {
-            r.u16()? as u32
-        } else {
-            1
-        };
-        if weenie_flags & MAX_STACK_SIZE != 0 {
-            r.u16()?;
-        }
-        let container = if weenie_flags & CONTAINER != 0 {
-            Some(r.u32()?).filter(|&c| c != 0)
-        } else {
-            None
-        };
-        let wielder = if weenie_flags & WIELDER != 0 {
-            Some(r.u32()?).filter(|&c| c != 0)
-        } else {
-            None
-        };
-        let valid_locations = if weenie_flags & VALID_LOCATIONS != 0 {
-            r.u32()?
-        } else {
-            0
-        };
-        let wielded_location = if weenie_flags & CURRENTLY_WIELDED_LOCATION != 0 {
-            r.u32()?
-        } else {
-            0
-        };
-        if weenie_flags & PRIORITY != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & RADAR_BLIP_COLOR != 0 {
-            r.u8()?;
-        }
-        if weenie_flags & RADAR_BEHAVIOR != 0 {
-            r.u8()?;
-        }
-        if weenie_flags & PSCRIPT != 0 {
-            r.u16()?;
-        }
-        if weenie_flags & WORKMANSHIP != 0 {
-            r.f32()?;
-        }
-        if weenie_flags & BURDEN != 0 {
-            r.u16()?;
-        }
-        if weenie_flags & SPELL != 0 {
-            r.u16()?;
-        }
-        if weenie_flags & HOUSE_OWNER != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & HOUSE_RESTRICTIONS != 0 {
-            return Err(Error::Unsupported("house restrictions"));
-        }
-        if weenie_flags & HOOK_ITEM_TYPES != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & MONARCH != 0 {
-            r.u32()?;
-        }
-        if weenie_flags & HOOK_TYPE != 0 {
-            r.u16()?;
-        }
-        let icon_overlay = if weenie_flags & ICON_OVERLAY != 0 {
-            packed_of_type(&mut r, 0x0600_0000)?
-        } else {
-            0
-        };
-        let icon_underlay = if weenie_flags2 & F2_ICON_UNDERLAY != 0 {
-            packed_of_type(&mut r, 0x0600_0000)?
-        } else {
-            0
-        };
-        if weenie_flags & MATERIAL_TYPE != 0 {
-            r.u32()?;
-        }
-        if weenie_flags2 & F2_COOLDOWN != 0 {
-            r.u32()?;
-        }
-        if weenie_flags2 & F2_COOLDOWN_DURATION != 0 {
-            r.f64()?;
-        }
-        if weenie_flags2 & F2_PET_OWNER != 0 {
-            r.u32()?;
-        }
-
+        let WeenieDesc {
+            name,
+            weenie_class_id,
+            icon_id,
+            item_type,
+            object_desc_flags,
+            weenie_flags,
+            value,
+            stack_size,
+            container,
+            wielder,
+            valid_locations,
+            wielded_location,
+            icon_overlay,
+            icon_underlay,
+        } = WeenieDesc::parse(&mut r)?;
         Ok(ObjectCreate {
             guid,
             palette_id,
@@ -498,6 +625,7 @@ impl ObjectCreate {
             container,
             wielder,
             stack_size,
+            value,
             valid_locations,
             wielded_location,
             no_draw: physics_state & (PHYSICS_STATE_NO_DRAW | PHYSICS_STATE_HIDDEN) != 0,

@@ -89,6 +89,7 @@ pub struct WorldObject {
     pub icon_overlay: u32,
     pub icon_underlay: u32,
     pub stack_size: u32,
+    pub value: u32,
     /// Container holding this item (a pack, or a creature's inventory).
     pub container: Option<u32>,
     /// Creature wielding this item.
@@ -156,6 +157,8 @@ pub struct World {
     pub stats: stats::PlayerStats,
     /// A ground container we are looking into: its guid and item guids.
     pub open_container: Option<(u32, Vec<u32>)>,
+    /// The vendor we are trading with.
+    pub open_vendor: Option<object::ApproachVendor>,
 }
 
 /// What `apply` did with a message, for logging.
@@ -173,6 +176,8 @@ pub enum Applied {
     Appearance,
     /// A creature's health fraction changed.
     Health,
+    /// A vendor opened its stock to us.
+    Vendor,
     /// The server told our own character to move to a target.
     PlayerMoveTo,
     /// The server described our own character's motion (no target): a
@@ -233,6 +238,7 @@ impl World {
                         icon_overlay: oc.icon_overlay,
                         icon_underlay: oc.icon_underlay,
                         stack_size: oc.stack_size,
+                        value: oc.value,
                         container: oc.container,
                         wielder: oc.wielder,
                         valid_locations: oc.valid_locations,
@@ -428,6 +434,18 @@ impl World {
                             Applied::Inventory
                         }
                         Err(_) => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::APPROACH_VENDOR, rest)) => {
+                    match object::ApproachVendor::parse(rest) {
+                        Ok(v) => {
+                            self.open_vendor = Some(v);
+                            Applied::Vendor
+                        }
+                        Err(e) => {
+                            tracing::warn!("ApproachVendor: {e}");
+                            Applied::Failed
+                        }
                     }
                 }
                 Some((_, _, event::CLOSE_GROUND_CONTAINER, _)) => {

@@ -165,6 +165,22 @@ impl IconCache {
     }
 }
 
+/// A vendor's stock line or one of our items offered for sale.
+pub struct TradeItem {
+    pub guid: u32,
+    pub name: String,
+    pub price: u32,
+    pub icon: u32,
+    /// Unlimited supply (vendor stock) when true.
+    pub unlimited: bool,
+}
+
+pub struct Vendor {
+    pub name: String,
+    pub stock: Vec<TradeItem>,
+    pub selling: Vec<TradeItem>,
+}
+
 pub struct Ui {
     pub ctx: egui::Context,
     state: Option<egui_winit::State>,
@@ -193,6 +209,12 @@ pub struct Ui {
     /// Loot items double-clicked or "take all"; drained by the caller.
     pub loot_take: Vec<u32>,
     pub loot_close: bool,
+    /// Open vendor window, if any.
+    pub vendor: Option<Vendor>,
+    /// Buy/sell requests (guid) and close, drained by the caller.
+    pub vendor_buy: Vec<u32>,
+    pub vendor_sell: Vec<u32>,
+    pub vendor_close: bool,
     pub combat: bool,
     pub blips: Vec<Blip>,
     /// Radar range in metres (edge of the circle).
@@ -248,6 +270,10 @@ impl Ui {
             loot: None,
             loot_take: Vec::new(),
             loot_close: false,
+            vendor: None,
+            vendor_buy: Vec::new(),
+            vendor_sell: Vec::new(),
+            vendor_close: false,
             combat: false,
             blips: Vec::new(),
             radar_range: 100.0,
@@ -454,6 +480,80 @@ impl Ui {
                                     egui::Color32::WHITE,
                                 );
                             });
+                    });
+            }
+            if let Some(v) = &self.vendor {
+                egui::Window::new("vendor")
+                    .fade_in(false)
+                    .title_bar(false)
+                    .resizable(false)
+                    .frame(
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_black_alpha(200))
+                            .inner_margin(8),
+                    )
+                    .fixed_pos(egui::pos2(w * 0.5 - 220.0, 60.0))
+                    .fixed_size(egui::vec2(440.0, 420.0))
+                    .show(ctx, |ui| {
+                        ui.set_min_size(egui::vec2(424.0, 404.0));
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new(&v.name)
+                                    .color(egui::Color32::WHITE)
+                                    .strong(),
+                            );
+                            if ui.button("Close").clicked() {
+                                self.vendor_close = true;
+                            }
+                        });
+                        ui.columns(2, |cols| {
+                            cols[0].label(
+                                egui::RichText::new("For sale")
+                                    .color(egui::Color32::from_gray(180)),
+                            );
+                            egui::ScrollArea::vertical()
+                                .id_salt("stock")
+                                .max_height(360.0)
+                                .show(&mut cols[0], |ui| {
+                                    for it in &v.stock {
+                                        ui.horizontal(|ui| {
+                                            if ui.small_button("Buy").clicked() {
+                                                self.vendor_buy.push(it.guid);
+                                            }
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{}  {}p",
+                                                    it.name, it.price
+                                                ))
+                                                .color(egui::Color32::WHITE),
+                                            );
+                                        });
+                                    }
+                                });
+                            cols[1].label(
+                                egui::RichText::new("Your pack")
+                                    .color(egui::Color32::from_gray(180)),
+                            );
+                            egui::ScrollArea::vertical()
+                                .id_salt("sell")
+                                .max_height(360.0)
+                                .show(&mut cols[1], |ui| {
+                                    for it in &v.selling {
+                                        ui.horizontal(|ui| {
+                                            if ui.small_button("Sell").clicked() {
+                                                self.vendor_sell.push(it.guid);
+                                            }
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{}  {}p",
+                                                    it.name, it.price
+                                                ))
+                                                .color(egui::Color32::WHITE),
+                                            );
+                                        });
+                                    }
+                                });
+                        });
                     });
             }
             if let Some((name, items)) = &self.loot {
