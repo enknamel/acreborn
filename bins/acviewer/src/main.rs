@@ -110,8 +110,10 @@ struct Net {
     mesh_cache: std::collections::HashMap<u32, ac_scene::model::Mesh>,
     last_generation: u64,
     pickables: Vec<scene::Pickable>,
-    /// Server-requested MoveTo for our own character, until reached.
+    /// Server-requested MoveTo for our own character, until the server
+    /// reports us idle again.
     move_to: Option<ac_world::object::MoveTarget>,
+    move_to_since: Instant,
     /// Melee combat mode is on.
     combat: bool,
     /// Creature we keep swinging at until it dies or we stop.
@@ -120,6 +122,8 @@ struct Net {
     attack_pending: bool,
     last_attack: Instant,
     attack_backoff: Duration,
+    /// Name of the last creature we attacked (its corpse is what we loot).
+    last_target_name: String,
     selected: Option<u32>,
     last_click: Option<(Instant, u32)>,
     gpu_meshes: scene::GpuMeshCache,
@@ -439,6 +443,7 @@ impl App {
             .map(|o| o.name.clone())
             .unwrap_or_default();
         tracing::info!("attack {name} ({guid:#010x})");
+        net.last_target_name = name.clone();
         let mut w = ac_net::wire::Writer::new();
         w.u32(guid).u32(2).f32(0.5);
         net.session
@@ -792,11 +797,13 @@ impl App {
             last_generation: 0,
             pickables: Vec::new(),
             move_to: None,
+            move_to_since: Instant::now(),
             combat: false,
             attack_target: None,
             attack_pending: false,
             last_attack: Instant::now(),
             attack_backoff: Duration::from_millis(300),
+            last_target_name: String::new(),
             selected: None,
             last_click: None,
             gpu_meshes: Default::default(),
@@ -847,14 +854,34 @@ impl App {
                                 .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
                             continue;
                         }
-                        ac_world::Applied::Moved => {
-                            // A MoveTo aimed at us is ours to carry out; the
-                            // object table only sees our echoed motion states.
+                        ac_world::Applied::Moved => continue,
+                        ac_world::Applied::PlayerMoveTo | ac_world::Applied::PlayerMotion => {
+                            // A MoveTo aimed at us is ours to carry out; a plain
+                            // motion state for us means the server is done
+                            // walking us (or echoed our own state).
                             let stance = net.world.player().map(|o| o.motion.style);
-                            if let Some(o) = net.world.player_mut() {
-                                if let Some(t) = o.target.take() {
-                                    tracing::debug!("server move-to {t:?}");
+                            let target = net.world.player_mut().and_then(|o| o.target.take());
+                            match target {
+                                Some(t) => {
+                                    if net.move_to.is_none() {
+                                        tracing::debug!("server move-to {t:?}");
+                                        net.move_to_since = Instant::now();
+                                    }
                                     net.move_to = Some(t);
+                                }
+                                None => {
+                                    if net.move_to.take().is_some() {
+                                        tracing::debug!("server move-to finished");
+                                        // Take the server's idea of where we ended up.
+                                        if let (Some(pl), Some(p)) = (
+                                            net.player.as_mut(),
+                                            net.world.player().and_then(|o| o.position),
+                                        ) {
+                                            pl.cell = p.cell;
+                                            pl.local = p.local;
+                                            pl.dirty = true;
+                                        }
+                                    }
                                 }
                             }
                             // Our stance follows the server (combat mode changes).
@@ -1142,10 +1169,7 @@ impl App {
                     }
                     _ => true,
                 };
-                if arrived {
-                    tracing::debug!("move-to done ({t:?})");
-                    net.move_to = None;
-                }
+                let _ = arrived;
             }
             let now = Instant::now();
             let dt = self.frame_dt;
@@ -1164,7 +1188,13 @@ impl App {
             if pose.is_some() {
                 pl.dirty = true;
             }
-            pl.report(&mut net.session, &input, now);
+            let quiet =
+                net.move_to.is_some() && net.move_to_since.elapsed() < Duration::from_secs(12);
+            if !quiet && net.move_to.is_some() {
+                tracing::debug!("server move-to timed out");
+                net.move_to = None;
+            }
+            pl.report(&mut net.session, &input, now, quiet);
             // Third-person camera behind the character.
             let pos = pl.world_position();
             let fwd = pl.forward();
@@ -1640,7 +1670,14 @@ fn main() -> Result<()> {
                             if app.net.as_ref().is_some_and(|n| n.combat) {
                                 app.toggle_combat();
                             }
-                            app.use_by_name("Corpse");
+                            let corpse = format!(
+                                "Corpse of {}",
+                                app.net
+                                    .as_ref()
+                                    .map(|n| n.last_target_name.clone())
+                                    .unwrap_or_default()
+                            );
+                            app.use_by_name(&corpse);
                         }
                         loot_state = 2;
                         loot_at = Instant::now();

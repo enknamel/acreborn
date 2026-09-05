@@ -585,7 +585,13 @@ impl Player {
 
     /// Send MoveToState when the input state changes and AutonomousPosition
     /// four times a second while moving.
-    pub fn report(&mut self, session: &mut Session, input: &Input, now: Instant) {
+    /// Report motion to the server. `quiet` suppresses MoveToState while
+    /// the server itself is walking us somewhere: ACE cancels its move-to
+    /// chain on any MoveToState it receives.
+    pub fn report(&mut self, session: &mut Session, input: &Input, now: Instant, quiet: bool) {
+        if quiet {
+            return;
+        }
         let m = RawMotion {
             running: input.run,
             forward: if input.forward > 0.0 {

@@ -168,6 +168,11 @@ pub enum Applied {
     Appearance,
     /// A creature's health fraction changed.
     Health,
+    /// The server told our own character to move to a target.
+    PlayerMoveTo,
+    /// The server described our own character's motion (no target): a
+    /// server-driven move is over, or our own state was echoed.
+    PlayerMotion,
     Ignored,
     Failed,
 }
@@ -323,7 +328,15 @@ impl World {
                         }
                     }
                     self.generation += 1;
-                    Applied::Moved
+                    if Some(ev.guid) == self.player_guid {
+                        if ev.target.is_some() {
+                            Applied::PlayerMoveTo
+                        } else {
+                            Applied::PlayerMotion
+                        }
+                    } else {
+                        Applied::Moved
+                    }
                 }
                 Err(e) => {
                     tracing::warn!("MovementEvent: {e}");
