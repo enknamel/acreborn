@@ -248,6 +248,38 @@ impl CollisionWorld {
         best
     }
 
+    /// Axis-aligned bounds of every triangle, if there are any.
+    pub fn bounds(&self) -> Option<(Vec3, Vec3)> {
+        let mut it = self.tris.iter();
+        let first = it.next()?;
+        let (mut lo, mut hi) = (
+            first.a.min(first.b).min(first.c),
+            first.a.max(first.b).max(first.c),
+        );
+        for t in it {
+            lo = lo.min(t.a).min(t.b).min(t.c);
+            hi = hi.max(t.a).max(t.b).max(t.c);
+        }
+        Some((lo, hi))
+    }
+
+    /// Every floor (up-facing triangle) crossing the vertical line at
+    /// `(x, y)`: heights with cell ids, highest first. A dungeon's stacked
+    /// levels each show up once.
+    pub fn floors_at_xy(&self, x: f32, y: f32) -> Vec<(f32, u32)> {
+        let p = Vec3::new(x, y, 0.0);
+        let mut out: Vec<(f32, u32)> = Vec::new();
+        for t in self.nearby(p, 0.5) {
+            if t.normal.z < 0.5 || !point_in_tri_xy(p, t) {
+                continue;
+            }
+            let z = t.a.z - ((p.x - t.a.x) * t.normal.x + (p.y - t.a.y) * t.normal.y) / t.normal.z;
+            out.push((z, t.cell));
+        }
+        out.sort_by(|a, b| b.0.total_cmp(&a.0));
+        out
+    }
+
     /// Height of the highest floor triangle directly under `p` within
     /// `max_drop` below and `max_rise` above, with its cell id.
     pub fn floor_at(&self, p: Vec3, max_rise: f32, max_drop: f32) -> Option<(f32, u32)> {
@@ -326,6 +358,32 @@ impl CollisionWorld {
             }
         }
         pos
+    }
+
+    /// Whether a capsule (feet at `p`, radius `r`, height `h`) touches a
+    /// steep triangle above `p.z + skirt`: the contact test behind
+    /// [`resolve_above`](Self::resolve_above), without the pushing (which
+    /// can cancel out between two facing walls).
+    pub fn wall_contact(&self, p: Vec3, r: f32, h: f32, skirt: f32) -> bool {
+        let hi = h - r;
+        let lo = (skirt + r).min(hi);
+        let heights = [lo, (lo + hi) * 0.5, hi];
+        for t in self.nearby(p, r + 0.5) {
+            if t.normal.z.abs() > 0.6 {
+                continue;
+            }
+            for dz in heights {
+                let c = p + Vec3::new(0.0, 0.0, dz);
+                let q = closest_point_on_tri(c, t);
+                if (c - q).length() >= r {
+                    continue;
+                }
+                if t.two_sided || (c - t.a).dot(t.normal) < r {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Lowest ceiling above the feet position `p` within the capsule's

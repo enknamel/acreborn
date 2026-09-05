@@ -3,6 +3,7 @@
 //! Nothing here renders; several `Client`s can live in one process.
 
 pub mod player;
+pub mod route;
 
 use std::time::{Duration, Instant};
 
@@ -67,6 +68,12 @@ pub struct Client {
     /// reports us idle again.
     pub move_to: Option<ac_world::object::MoveTarget>,
     pub move_to_since: Instant,
+    /// Waypoints being followed toward `move_to` when the straight line
+    /// to it is blocked (see `route`).
+    pub route: Option<route::Route>,
+    /// Next time the straight line to `move_to` is re-tested while no
+    /// route is being followed.
+    pub route_check: Instant,
     /// Melee combat mode is on.
     pub combat: bool,
     /// Magic combat mode is on.
@@ -151,6 +158,8 @@ impl Client {
             scene_block: None,
             move_to: None,
             move_to_since: Instant::now(),
+            route: None,
+            route_check: Instant::now(),
             combat: false,
             magic: false,
             known_spells: Default::default(),
@@ -436,6 +445,9 @@ impl Client {
             // Server-driven MoveTo (using something out of reach): run toward
             // the target until close enough, unless the user takes over.
             let manual = input.forward != 0.0 || input.strafe != 0.0;
+            if self.move_to.is_none() || manual {
+                self.route = None;
+            }
             if let Some(t) = self.move_to {
                 let goal = match t {
                     ac_world::object::MoveTarget::Object(g) => self
@@ -443,27 +455,35 @@ impl Client {
                         .objects
                         .get(&g)
                         .and_then(|o| o.display.or(o.position))
-                        .map(|p| (ac_world::landblock_origin(p.cell) + p.local, 1.0)),
+                        .map(|p| (ac_world::landblock_origin(p.cell) + p.local, 1.0, p.cell)),
                     ac_world::object::MoveTarget::Position { cell, local } => {
-                        Some((ac_world::landblock_origin(cell) + local, 0.3))
+                        Some((ac_world::landblock_origin(cell) + local, 0.3, cell))
                     }
                 };
-                let arrived = match goal {
-                    Some((g, stop)) if !manual => {
-                        let d = g - pl.world_position();
+                if let Some((g, stop, goal_cell)) = goal {
+                    let d = g - pl.world_position();
+                    let flat = glam::Vec2::new(d.x, d.y);
+                    if !manual && flat.length() > stop {
+                        // Straight at the goal while nothing is in the
+                        // way; through the waypoints of a route otherwise.
+                        let aim = route::steer(
+                            &mut self.route,
+                            &mut self.route_check,
+                            pl,
+                            &self.assets,
+                            g,
+                            goal_cell,
+                            now,
+                        );
+                        let d = aim - pl.world_position();
                         let flat = glam::Vec2::new(d.x, d.y);
-                        if flat.length() > stop {
+                        if flat.length() > 1e-3 {
                             pl.heading = (-flat.x).atan2(flat.y);
-                            input.forward = 1.0;
-                            input.run = true;
-                            false
-                        } else {
-                            true
                         }
+                        input.forward = 1.0;
+                        input.run = true;
                     }
-                    _ => true,
-                };
-                let _ = arrived;
+                }
             }
             pl.update(&self.assets, &input, dt);
             if let Some(j) = pl.last_jump.take() {

@@ -29,6 +29,42 @@ pub struct TerrainMesh {
     pub cell_codes: Vec<u32>,
 }
 
+impl TerrainMesh {
+    /// Terrain height under a landblock-local point, from the cell's two
+    /// triangles (so it agrees with what is drawn and walked on).
+    pub fn height_at(&self, local: Vec3) -> Option<f32> {
+        let n = CELLS_PER_BLOCK as f32;
+        if !(0.0..=n * CELL_SIZE).contains(&local.x) || !(0.0..=n * CELL_SIZE).contains(&local.y) {
+            return None;
+        }
+        let cx = ((local.x / CELL_SIZE).floor() as usize).min(CELLS_PER_BLOCK as usize - 1);
+        let cy = ((local.y / CELL_SIZE).floor() as usize).min(CELLS_PER_BLOCK as usize - 1);
+        let base = (cx * CELLS_PER_BLOCK as usize + cy) * 6;
+        let tris = self.indices.get(base..base + 6)?;
+        for t in tris.as_chunks::<3>().0 {
+            let a = self.vertices[t[0] as usize].position;
+            let b = self.vertices[t[1] as usize].position;
+            let c = self.vertices[t[2] as usize].position;
+            let d1 = (local.x - b.x) * (a.y - b.y) - (a.x - b.x) * (local.y - b.y);
+            let d2 = (local.x - c.x) * (b.y - c.y) - (b.x - c.x) * (local.y - c.y);
+            let d3 = (local.x - a.x) * (c.y - a.y) - (c.x - a.x) * (local.y - a.y);
+            let neg = d1 < -1e-4 || d2 < -1e-4 || d3 < -1e-4;
+            let pos = d1 > 1e-4 || d2 > 1e-4 || d3 > 1e-4;
+            if neg && pos {
+                continue;
+            }
+            let normal = (b - a).cross(c - a);
+            if normal.z.abs() < 1e-6 {
+                continue;
+            }
+            return Some(
+                a.z - ((local.x - a.x) * normal.x + (local.y - a.y) * normal.y) / normal.z,
+            );
+        }
+        None
+    }
+}
+
 /// The client's cell diagonal rule (credit: AC2D). True = split from the
 /// north-west corner to the south-east corner.
 pub fn split_dir(block_x: u32, block_y: u32, cell_x: u32, cell_y: u32) -> bool {
