@@ -90,6 +90,10 @@ struct Cli {
     /// on the vendor), buy the first stock item whose name starts with this.
     #[arg(long)]
     buy: Option<String>,
+    /// Connected headless mode: once a vendor window is open, sell the first
+    /// pack item whose name starts with this.
+    #[arg(long)]
+    sell: Option<String>,
     /// Connected headless mode: jump once after placement.
     #[arg(long)]
     jump: bool,
@@ -2046,6 +2050,20 @@ fn main() -> Result<()> {
                             app.ui = ui;
                         }
                     }
+                    if let Some(want) = app.cli.sell.clone() {
+                        if let (Some(net), Some(ui)) = (app.net.as_ref(), app.ui.as_mut()) {
+                            if net.world.open_vendor.is_some() {
+                                if let Some(o) =
+                                    net.world.inventory().find(|o| o.name.starts_with(&want))
+                                {
+                                    tracing::info!("selling {}", o.name);
+                                    ui.vendor_sell.push(o.guid);
+                                }
+                                app.cli.sell = None;
+                                bought_at = Some(Instant::now());
+                            }
+                        }
+                    }
                     if let Some(want) = app.cli.buy.clone() {
                         if let (Some(net), Some(ui)) = (app.net.as_ref(), app.ui.as_mut()) {
                             if let Some(v) = &net.world.open_vendor {
@@ -2229,23 +2247,25 @@ fn main() -> Result<()> {
                         .net
                         .as_ref()
                         .is_some_and(|n| !n.loot_queue.is_empty() || n.loot_inflight.is_some());
-                    let done =
-                        if pending || looting || app.cli.buy.is_some() && t < 40.0 + say_delay {
-                            false
-                        } else if let Some(b) = bought_at {
-                            b.elapsed() > Duration::from_secs(4)
-                        } else if attack_started.is_some() || loot_only {
-                            loot_state == 3 && loot_at.elapsed() > Duration::from_secs(3)
-                                || (loot_state == 1
-                                    && app.cli.loot.is_none()
-                                    && loot_at.elapsed() > Duration::from_secs(3))
-                        } else if app.cli.walk > 0.0 {
-                            t > 0.9 + app.cli.walk
-                        } else if !app.cli.click.is_empty() || use_requested {
-                            t > 8.0 + say_delay + app.cli.click.len() as f32 * 3.0
-                        } else {
-                            t > 3.0
-                        };
+                    let done = if pending
+                        || looting
+                        || (app.cli.buy.is_some() || app.cli.sell.is_some()) && t < 40.0 + say_delay
+                    {
+                        false
+                    } else if let Some(b) = bought_at {
+                        b.elapsed() > Duration::from_secs(4)
+                    } else if attack_started.is_some() || loot_only {
+                        loot_state == 3 && loot_at.elapsed() > Duration::from_secs(3)
+                            || (loot_state == 1
+                                && app.cli.loot.is_none()
+                                && loot_at.elapsed() > Duration::from_secs(3))
+                    } else if app.cli.walk > 0.0 {
+                        t > 0.9 + app.cli.walk
+                    } else if !app.cli.click.is_empty() || use_requested {
+                        t > 8.0 + say_delay + app.cli.click.len() as f32 * 3.0
+                    } else {
+                        t > 3.0
+                    };
                     if done {
                         break;
                     }
