@@ -441,6 +441,17 @@ mod tests {
         fn train(&mut self, _s: &str) -> bool {
             false
         }
+        fn trade_open(&mut self, _p: i64) {}
+        fn trade_add(&mut self, _i: i64) -> bool {
+            false
+        }
+        fn trade_accept(&mut self) {}
+        fn trade_decline(&mut self) {}
+        fn trade_reset(&mut self) {}
+        fn trade_close(&mut self) {}
+        fn trade(&mut self) -> Map {
+            Map::new()
+        }
         fn drop_item(&mut self, _guid: i64) -> bool {
             false
         }

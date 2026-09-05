@@ -384,6 +384,16 @@ pub mod event {
     pub const WIELD_OBJECT: u32 = 0x0023;
     pub const INVENTORY_PUT_OBJECT_IN_3D: u32 = 0x019A;
     pub const VIEW_CONTENTS: u32 = 0x0196;
+    pub const REGISTER_TRADE: u32 = 0x01FD;
+    pub const OPEN_TRADE: u32 = 0x01FE;
+    pub const CLOSE_TRADE: u32 = 0x01FF;
+    pub const ADD_TO_TRADE: u32 = 0x0200;
+    pub const REMOVE_FROM_TRADE: u32 = 0x0201;
+    pub const ACCEPT_TRADE: u32 = 0x0202;
+    pub const DECLINE_TRADE: u32 = 0x0203;
+    pub const RESET_TRADE: u32 = 0x0205;
+    pub const TRADE_FAILURE: u32 = 0x0207;
+    pub const CLEAR_TRADE_ACCEPTANCE: u32 = 0x0208;
     pub const CLOSE_GROUND_CONTAINER: u32 = 0x0052;
     pub const APPROACH_VENDOR: u32 = 0x0062;
     /// `u16 spell id, u16 layer`: a spell left the spellbook.
@@ -865,6 +875,12 @@ mod tests {
 /// GameAction type ids (inside a 0xF7B1 message).
 pub mod action {
     pub const TALK: u32 = 0x0015;
+    pub const OPEN_TRADE_NEGOTIATIONS: u32 = 0x01F6;
+    pub const CLOSE_TRADE_NEGOTIATIONS: u32 = 0x01F7;
+    pub const ADD_TO_TRADE: u32 = 0x01F8;
+    pub const ACCEPT_TRADE: u32 = 0x01FA;
+    pub const DECLINE_TRADE: u32 = 0x01FB;
+    pub const RESET_TRADE: u32 = 0x0204;
     pub const RAISE_VITAL: u32 = 0x0044;
     pub const RAISE_ATTRIBUTE: u32 = 0x0045;
     pub const RAISE_SKILL: u32 = 0x0046;

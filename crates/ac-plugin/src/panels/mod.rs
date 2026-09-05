@@ -29,6 +29,7 @@ pub mod skills;
 pub mod spellbar;
 pub mod spellbook;
 pub mod target;
+pub mod trade;
 pub mod vendor;
 pub mod vitals;
 
@@ -202,6 +203,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(radar::Radar::default()),
         Box::new(target::Target::default()),
         Box::new(vendor::Vendor::default()),
+        Box::new(trade::Trade::default()),
         Box::new(loot::Loot::default()),
         Box::new(inventory::Inventory::default()),
         Box::new(skills::Skills::default()),
@@ -222,6 +224,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         Box::new(radar::Radar::demo()),
         Box::new(target::Target::demo()),
         Box::new(vendor::Vendor::demo()),
+        Box::new(trade::Trade::demo()),
         Box::new(loot::Loot::demo()),
         Box::new(inventory::Inventory::demo()),
         Box::new(skills::Skills::demo()),

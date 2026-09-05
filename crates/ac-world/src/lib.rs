@@ -161,6 +161,8 @@ pub struct World {
     pub open_container: Option<(u32, Vec<u32>)>,
     /// The vendor we are trading with.
     pub open_vendor: Option<object::ApproachVendor>,
+    /// The secure trade in progress, if any.
+    pub trade: Option<Trade>,
 }
 
 /// What `apply` did with a message, for logging.
@@ -184,6 +186,8 @@ pub enum Applied {
     Enchantments,
     /// An item moved between the world, a container and a wielder.
     Inventory,
+    /// The trade window changed (opened, items, acceptance, closed).
+    Trade,
     /// An object's look changed (equipment).
     Appearance,
     /// A creature's health fraction changed.
@@ -482,6 +486,109 @@ impl World {
                         Err(_) => Applied::Failed,
                     }
                 }
+                Some((_, _, event::REGISTER_TRADE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    match (r.u32(), r.u32()) {
+                        (Ok(initiator), Ok(partner)) => {
+                            let stamp = r.u64().unwrap_or(0) as i64;
+                            let me = self.player_guid.unwrap_or(0);
+                            let other = if initiator == me { partner } else { initiator };
+                            self.trade = Some(Trade {
+                                partner: other,
+                                initiator,
+                                stamp,
+                                ..Default::default()
+                            });
+                            self.generation += 1;
+                            Applied::Trade
+                        }
+                        _ => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::CLOSE_TRADE, _)) => {
+                    self.trade = None;
+                    self.generation += 1;
+                    Applied::Trade
+                }
+                Some((_, _, event::ADD_TO_TRADE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    match (r.u32(), r.u32()) {
+                        (Ok(item), Ok(side)) => {
+                            if let Some(t) = self.trade.as_mut() {
+                                let list = if side == 1 {
+                                    &mut t.mine
+                                } else {
+                                    &mut t.theirs
+                                };
+                                if !list.contains(&item) {
+                                    list.push(item);
+                                }
+                                t.i_accepted = false;
+                                t.they_accepted = false;
+                            }
+                            Applied::Trade
+                        }
+                        _ => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::REMOVE_FROM_TRADE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    if let (Ok(item), Some(t)) = (r.u32(), self.trade.as_mut()) {
+                        t.mine.retain(|&g| g != item);
+                        t.theirs.retain(|&g| g != item);
+                        t.i_accepted = false;
+                        t.they_accepted = false;
+                    }
+                    Applied::Trade
+                }
+                Some((_, _, event::ACCEPT_TRADE, rest)) => {
+                    let who = Reader::new(rest).u32().unwrap_or(0);
+                    let me = self.player_guid;
+                    if let Some(t) = self.trade.as_mut() {
+                        if Some(who) == me {
+                            t.i_accepted = true;
+                        } else {
+                            t.they_accepted = true;
+                        }
+                    }
+                    Applied::Trade
+                }
+                Some((_, _, event::DECLINE_TRADE, rest)) => {
+                    let who = Reader::new(rest).u32().unwrap_or(0);
+                    let me = self.player_guid;
+                    if let Some(t) = self.trade.as_mut() {
+                        if Some(who) == me {
+                            t.i_accepted = false;
+                        } else {
+                            t.they_accepted = false;
+                        }
+                    }
+                    Applied::Trade
+                }
+                Some((_, _, event::RESET_TRADE, _)) => {
+                    if let Some(t) = self.trade.as_mut() {
+                        t.mine.clear();
+                        t.theirs.clear();
+                        t.i_accepted = false;
+                        t.they_accepted = false;
+                    }
+                    Applied::Trade
+                }
+                Some((_, _, event::CLEAR_TRADE_ACCEPTANCE, _)) => {
+                    if let Some(t) = self.trade.as_mut() {
+                        t.i_accepted = false;
+                        t.they_accepted = false;
+                    }
+                    Applied::Trade
+                }
+                Some((_, _, event::TRADE_FAILURE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    if let (Ok(item), Ok(reason), Some(t)) = (r.u32(), r.u32(), self.trade.as_mut())
+                    {
+                        t.failure = Some((item, reason));
+                    }
+                    Applied::Trade
+                }
                 Some((_, _, event::VIEW_CONTENTS, rest)) => {
                     match messages::parse_view_contents(rest) {
                         Ok((c, items)) => {
@@ -704,6 +811,27 @@ impl World {
             .values()
             .filter(|o| o.position.is_some() && o.setup_id != 0 && !o.no_draw && o.parent.is_none())
     }
+}
+
+/// A secure trade with another player (ACE `Player_Trade`): both sides
+/// offer items, both accept, the server swaps them. Any change to an
+/// offer clears both acceptances; entering combat or walking away ends
+/// it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Trade {
+    pub partner: u32,
+    /// Who asked (from RegisterTrade), echoed back in AcceptTrade.
+    pub initiator: u32,
+    /// The server's trade timestamp (RegisterTrade's i64), echoed back.
+    pub stamp: i64,
+    /// Items we put in the window.
+    pub mine: Vec<u32>,
+    /// Items the partner put in (created for us as objects).
+    pub theirs: Vec<u32>,
+    pub i_accepted: bool,
+    pub they_accepted: bool,
+    /// Last failure from the server (item, WeenieError), for the panel.
+    pub failure: Option<(u32, u32)>,
 }
 
 /// Convenience for callers building a camera.

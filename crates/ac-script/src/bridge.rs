@@ -321,6 +321,55 @@ impl Api for CtxApi<'_, '_> {
         }
     }
 
+    fn trade_open(&mut self, player: i64) {
+        self.client().open_trade(player as u32);
+    }
+
+    fn trade_add(&mut self, item: i64) -> bool {
+        self.client().add_to_trade(item as u32)
+    }
+
+    fn trade_accept(&mut self) {
+        self.client().accept_trade();
+    }
+
+    fn trade_decline(&mut self) {
+        self.client().decline_trade();
+    }
+
+    fn trade_reset(&mut self) {
+        self.client().reset_trade();
+    }
+
+    fn trade_close(&mut self) {
+        self.client().close_trade();
+    }
+
+    fn trade(&mut self) -> Map {
+        let c = self.client();
+        let mut m = Map::new();
+        match c.world.trade.as_ref() {
+            Some(t) => {
+                m.insert("open".into(), true.into());
+                m.insert("partner".into(), int(t.partner));
+                m.insert(
+                    "mine".into(),
+                    t.mine.iter().map(|&g| int(g)).collect::<Array>().into(),
+                );
+                m.insert(
+                    "theirs".into(),
+                    t.theirs.iter().map(|&g| int(g)).collect::<Array>().into(),
+                );
+                m.insert("i_accepted".into(), t.i_accepted.into());
+                m.insert("they_accepted".into(), t.they_accepted.into());
+            }
+            None => {
+                m.insert("open".into(), false.into());
+            }
+        }
+        m
+    }
+
     fn drop_item(&mut self, g: i64) -> bool {
         self.client().drop_item(g as u32)
     }

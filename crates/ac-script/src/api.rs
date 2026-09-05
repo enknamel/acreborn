@@ -81,6 +81,15 @@ pub trait Api {
     fn loot(&mut self, name: &str) -> bool;
     /// Queue an item of the open container to be picked up.
     fn take(&mut self, guid: i64) -> bool;
+    /// Open a secure trade with a player (guid); add an item; accept/decline/reset/close.
+    fn trade_open(&mut self, player: i64);
+    fn trade_add(&mut self, item: i64) -> bool;
+    fn trade_accept(&mut self);
+    fn trade_decline(&mut self);
+    fn trade_reset(&mut self);
+    fn trade_close(&mut self);
+    /// Items offered so far: map { mine: [..], theirs: [..], i_accepted, they_accepted }.
+    fn trade(&mut self) -> Map;
     /// Spend XP on one rank of a skill / point of an attribute or vital, by name.
     fn raise(&mut self, what: &str) -> bool;
     /// Train an untrained skill with credits, by name.
@@ -224,6 +233,13 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("loot", || with_api(|a| a.loot("")));
     engine.register_fn("loot", |n: &str| with_api(|a| a.loot(n)));
     engine.register_fn("take", |g: i64| with_api(|a| a.take(g)));
+    engine.register_fn("trade_open", |g: i64| with_api(|a| a.trade_open(g)));
+    engine.register_fn("trade_add", |g: i64| with_api(|a| a.trade_add(g)));
+    engine.register_fn("trade_accept", || with_api(|a| a.trade_accept()));
+    engine.register_fn("trade_decline", || with_api(|a| a.trade_decline()));
+    engine.register_fn("trade_reset", || with_api(|a| a.trade_reset()));
+    engine.register_fn("trade_close", || with_api(|a| a.trade_close()));
+    engine.register_fn("trade", || with_api(|a| a.trade()));
     engine.register_fn("raise", |n: &str| with_api(|a| a.raise(n)));
     engine.register_fn("train", |n: &str| with_api(|a| a.train(n)));
     engine.register_fn("drop_item", |g: i64| with_api(|a| a.drop_item(g)));

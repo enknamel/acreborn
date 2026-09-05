@@ -554,14 +554,22 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   names: BuyPrice is what the vendor pays, SellPrice what it charges;
   values are rounded as in `docs/subsystems/net.md`. Trade notes are
   currency items; pyreals stack to 25,000.
-* Secure trade between players: OpenTradeNegotiations (0x01F6) on the
-  selected player, AddToTrade (0x01F8: item, slot), AcceptTrade (0x01FA),
-  DeclineTrade (0x01FB), ResetTrade (0x0204), CloseTradeNegotiations
-  (0x01F7); events RegisterTrade (0x01FD), OpenTrade, CloseTrade,
-  AddToTrade, RemoveFromTrade, AcceptTrade, DeclineTrade, ResetTrade,
-  TradeFailure, ClearTradeAcceptance (0x01FE..0x0208). Both sides must be
-  in peace mode and within range; the panel shows both offers and
-  accept states.
+* Secure trade between players (verified live): double-click a player
+  (the retail client sent OpenTradeNegotiations 0x01F6 itself; the server
+  ignores Use on players). Both must be in peace mode and close by.
+  RegisterTrade (0x01FD: initiator, partner, i64 stamp) opens the window
+  for both; AddToTrade (0x01F8: item, slot) puts an item in, echoed as
+  AddToTrade (0x0200: item, side 1 = own / 2 = partner, slot) to both;
+  RemoveFromTrade (0x0201); AcceptTrade (0x01FA: partner, stamp as f64,
+  status, initiator, initiator accepts, partner accepts; the server only
+  needs it to arrive) answered by AcceptTrade (0x0202: who) plus "You
+  have accepted the offer" / "X has accepted the offer"; when both have
+  accepted the server swaps the items ("The items are being traded"),
+  resets the window (ResetTrade 0x0205) and keeps it open. DeclineTrade
+  (0x01FB / 0x0203), ResetTrade (0x0204 / 0x0205), CloseTradeNegotiations
+  (0x01F7) / CloseTrade (0x01FF: reason 1 normal, 2 entered combat, 0x51
+  cancelled), TradeFailure (0x0207: item, WeenieError, e.g. attuned),
+  ClearTradeAcceptance (0x0208) after any change.
 * Giving: GiveObjectRequest (0x00CD: target, item, amount) to NPCs or
   players.
 
