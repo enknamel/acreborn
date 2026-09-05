@@ -889,11 +889,14 @@ mod tests {
             .position(|i| matches!(i, Incoming::Set { .. }))
             .unwrap();
         assert!(state_at < set_at);
-        let got = wait_for(&b, |i| matches!(i, Incoming::Set { .. }));
-        assert!(got.contains(&Incoming::Set {
-            key: "leader".into(),
-            value: json!("b"),
-        }));
+        // `b` learns the replayed value either as a set, or from the
+        // hub's state when it rejoins after `a` did.
+        let learnt = |i: &Incoming| match i {
+            Incoming::Set { key, value } => key == "leader" && *value == json!("b"),
+            Incoming::State { values } => values.get("leader") == Some(&json!("b")),
+            _ => false,
+        };
+        let got = wait_for(&b, learnt);
         assert!(!got.iter().any(|i| matches!(i, Incoming::Post { .. })));
         wait_until("hub has leader", || {
             server.values().get("leader") == Some(&json!("b"))
