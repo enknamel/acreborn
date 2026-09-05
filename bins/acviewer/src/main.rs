@@ -1993,7 +1993,8 @@ fn main() -> Result<()> {
                                 loot_at = Instant::now();
                             }
                         } else {
-                            loot_state = 2;
+                            // Nothing to loot: settle and finish.
+                            loot_state = 3;
                             loot_at = Instant::now();
                         }
                     }
