@@ -1647,7 +1647,11 @@ impl App {
                     Some(o) => scene::appearance_of(&net.assets, o, &mut net.palettes),
                     None => (ac_scene::model::Appearance::default(), 0),
                 };
-                let instances = scene::instances_for(
+                let light = net
+                    .world
+                    .player()
+                    .and_then(|o| scene::object_light(&net.assets, o));
+                let instances = scene::instances_lit(
                     &net.assets,
                     gpu,
                     &mut net.gpu_meshes,
@@ -1657,6 +1661,7 @@ impl App {
                     &app,
                     key,
                     pose.as_deref(),
+                    light,
                 );
                 gpu.set_player_instances(instances);
             }
