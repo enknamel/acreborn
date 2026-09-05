@@ -497,3 +497,69 @@ fn spell_components() {
         assert!(c.kind >= 1 && c.kind <= 7, "{}: kind {}", c.name, c.kind);
     }
 }
+
+#[test]
+fn dual_did_mappers() {
+    check(FileKind::DualDidMapper, |id, b| {
+        dual_did_mapper::DualDidMapper::parse(id, b).map(|_| ())
+    });
+}
+
+/// The spell component mapper agrees with the SpellComponentsTable and the
+/// ACE world database (Lead Scarab 691, Prismatic Taper 20631).
+#[test]
+fn spell_component_mapper() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    use dual_did_mapper::DualDidMapper;
+    let m = DualDidMapper::parse(
+        DualDidMapper::SPELL_COMPONENTS,
+        &dat.read(DualDidMapper::SPELL_COMPONENTS).unwrap(),
+    )
+    .unwrap();
+    let comps = spell_components::SpellComponentTable::parse(
+        spell_components::SpellComponentTable::ID,
+        &dat.read(spell_components::SpellComponentTable::ID).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(m.component_wcid(1), Some(691), "Lead Scarab");
+    assert_eq!(m.component_wcid(188), Some(20631), "Prismatic Taper");
+    assert_eq!(m.component_of_wcid(691), Some(1));
+    assert_eq!(m.component_of_wcid(20631), Some(188));
+    assert_eq!(m.name_of(1), Some("LeadScarab"));
+    // Every component of the table has a weenie, and the reverse map is
+    // consistent with the forward one.
+    for (id, c) in &comps.components {
+        let wcid = m
+            .component_wcid(*id)
+            .unwrap_or_else(|| panic!("component {id} {} has no weenie", c.name));
+        assert!(wcid != 0, "component {id} {} maps to weenie 0", c.name);
+        assert_eq!(m.component_of_wcid(wcid), Some(*id), "{}", c.name);
+    }
+    assert!(m.server_ids.is_empty() && m.server_names.is_empty());
+}
+
+#[test]
+fn xp_table() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    use xp_table::XpTable;
+    let t = XpTable::parse(XpTable::ID, &dat.read(XpTable::ID).unwrap()).unwrap();
+    assert_eq!(t.max_level(), 275);
+    assert_eq!(t.xp_for_level(1), Some(0));
+    assert_eq!(t.xp_for_level(2), Some(1000));
+    assert_eq!(t.xp_for_level(10), Some(83_511));
+    assert_eq!(t.xp_to_next_level(1), Some(1000));
+    assert_eq!(t.xp_to_next_level(9), Some(83_511 - 58_895));
+    assert_eq!(t.level_for_xp(83_510), 9);
+    assert_eq!(t.level_for_xp(83_511), 10);
+    assert_eq!(t.credits_at_level(2), 1);
+    assert_eq!(t.xp_for_attribute_point(0), Some(110));
+    assert_eq!(t.xp_for_vital_point(0), Some(73));
+    assert_eq!(t.xp_for_trained_skill_point(0), Some(58));
+    assert_eq!(t.xp_for_specialized_skill_point(0), Some(23));
+    assert!(t.level_xp.windows(2).all(|w| w[0] <= w[1]));
+    assert!(t.attribute.windows(2).all(|w| w[0] < w[1]));
+}

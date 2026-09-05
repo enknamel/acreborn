@@ -10,6 +10,7 @@ pub mod reader;
 
 pub mod animation;
 pub mod chargen;
+pub mod dual_did_mapper;
 pub mod environment;
 pub mod gfxobj;
 pub mod landblock;
@@ -30,6 +31,7 @@ pub mod surface;
 pub mod surface_texture;
 pub mod texture;
 pub mod wave;
+pub mod xp_table;
 
 pub use reader::Reader;
 

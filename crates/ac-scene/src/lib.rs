@@ -29,11 +29,12 @@ use std::rc::Rc;
 
 use ac_dat::DatArchive;
 use ac_formats::{
-    chargen::CharGen, environment::Environment, gfxobj::GfxObj, palette::Palette,
-    palette_set::PaletteSet, particle_emitter::ParticleEmitterInfo, physics_script::PhysicsScript,
-    physics_script_table::PhysicsScriptTable, region::Region, scene::Scene, setup::Setup,
-    skill_table::SkillTable, spell_components::SpellComponentTable, spell_table::SpellTable,
-    surface::Surface, surface_texture::SurfaceTexture, texture::Texture,
+    chargen::CharGen, dual_did_mapper::DualDidMapper, environment::Environment, gfxobj::GfxObj,
+    palette::Palette, palette_set::PaletteSet, particle_emitter::ParticleEmitterInfo,
+    physics_script::PhysicsScript, physics_script_table::PhysicsScriptTable, region::Region,
+    scene::Scene, setup::Setup, skill_table::SkillTable, spell_components::SpellComponentTable,
+    spell_table::SpellTable, surface::Surface, surface_texture::SurfaceTexture, texture::Texture,
+    xp_table::XpTable,
 };
 
 use crate::landblock::LandblockScene;
@@ -66,6 +67,8 @@ pub struct Assets {
     skill_table: RefCell<Option<Rc<SkillTable>>>,
     spell_table: RefCell<Option<Rc<SpellTable>>>,
     spell_components: RefCell<Option<Rc<SpellComponentTable>>>,
+    spell_component_ids: RefCell<Option<Rc<DualDidMapper>>>,
+    xp_table: RefCell<Option<Rc<XpTable>>>,
     gfxobjs: RefCell<HashMap<u32, Rc<GfxObj>>>,
     setups: RefCell<HashMap<u32, Rc<Setup>>>,
     surfaces: RefCell<HashMap<u32, Rc<Surface>>>,
@@ -113,6 +116,8 @@ impl Assets {
             skill_table: RefCell::new(None),
             spell_table: RefCell::new(None),
             spell_components: RefCell::new(None),
+            spell_component_ids: RefCell::new(None),
+            xp_table: RefCell::new(None),
             gfxobjs: Default::default(),
             setups: Default::default(),
             surfaces: Default::default(),
@@ -260,6 +265,38 @@ impl Assets {
             })?,
         );
         *self.spell_components.borrow_mut() = Some(t.clone());
+        Ok(t)
+    }
+
+    /// The spell component → weenie class mapper (DualDidMapper
+    /// 0x27000002): which inventory item each component id is.
+    pub fn spell_component_ids(&self) -> Result<Rc<DualDidMapper>> {
+        if let Some(t) = self.spell_component_ids.borrow().as_ref() {
+            return Ok(t.clone());
+        }
+        let id = DualDidMapper::SPELL_COMPONENTS;
+        let bytes = self.portal.read(id)?;
+        let t = Rc::new(
+            DualDidMapper::parse(id, &bytes).map_err(|source| Error::Format { id, source })?,
+        );
+        *self.spell_component_ids.borrow_mut() = Some(t.clone());
+        Ok(t)
+    }
+
+    /// The experience table (0x0E000018): level, attribute, vital and
+    /// skill costs.
+    pub fn xp_table(&self) -> Result<Rc<XpTable>> {
+        if let Some(t) = self.xp_table.borrow().as_ref() {
+            return Ok(t.clone());
+        }
+        let bytes = self.portal.read(XpTable::ID)?;
+        let t = Rc::new(
+            XpTable::parse(XpTable::ID, &bytes).map_err(|source| Error::Format {
+                id: XpTable::ID,
+                source,
+            })?,
+        );
+        *self.xp_table.borrow_mut() = Some(t.clone());
         Ok(t)
     }
 

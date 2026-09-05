@@ -305,7 +305,7 @@ fn main() -> Result<()> {
                         println!("[{account}] refused (opcode {op:#06X})");
                         sessions[i].ended = true;
                     }
-                    Event::Sound { .. } => {}
+                    Event::Sound { .. } | Event::SpellLearned(_) | Event::SpellForgotten(_) => {}
                 }
             }
             let r = host.frame(clients_of(&mut sessions), i, &events, dt, now);

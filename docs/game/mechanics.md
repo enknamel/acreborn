@@ -37,9 +37,9 @@ by comparing the caster's skill with the target's Magic Defense.
   trophies, VIII scrolls are crafted (quill + mana scarab + ink + glyph).
 * The server owns the spellbook. It arrives in PlayerDescription (vector
   flag `Spell`: a hash table of spell id → `2.0f`) and changes with
-  MagicUpdateSpell (0x02C1: spell id, layer) and MagicRemoveSpell
-  (0x01A8). A player may delete a spell from the book with RemoveSpellC2S
-  (0x01A8: spell id).
+  MagicUpdateSpell (0x02C1: u16 spell id, u16 layer) and MagicRemoveSpell
+  (0x01A8: the same two u16s). A player may delete a spell from the book
+  with RemoveSpellC2S (0x01A8: u32 spell id).
 * Spellbook filters (which schools and levels are shown) are per
   character and stored server side: SpellbookFilter (0x0286) with a
   bitfield Creature 0x1, Item 0x2, Life 0x4, War 0x8, Level1..Level9
@@ -95,10 +95,19 @@ coexist:
 
 1. **Full formula** (the original system): each spell's formula is 5 to 8
    components in the order scarab, taper, herb, taper, powder, potion,
-   taper, talisman. The scarab sets the level: Lead I, Iron II, Copper
-   III, Silver IV, Gold V, Pyreal VI, Platinum VII, Mana VIII (Diamond and
-   Dark are extra scarabs for a few spells). Lead to Silver come from any
-   mage shopkeeper, Gold to Platinum from Mastermages.
+   taper, talisman. In the end-of-retail SpellTable 1,296 spells store
+   only the five non-taper components (scarab, herb, powder, potion,
+   talisman: no tapers at all); the other 4,970 store six to eight, and
+   the tapers in slots 1, 3 and 6 are "personal": the client (and ACE's
+   `SpellTable.GetSpellFormula`) replaces them with tapers picked by a
+   hash of the account name, using the spell's `formula_version` (1, 2
+   or 3) to choose the rotation (`Spell::player_formula`). The scarab
+   sets the level: Lead I, Iron II, Copper III, Silver IV, Gold V, Pyreal
+   VI, Platinum VII, Mana VIII (Diamond, level VI and power 7, and Dark,
+   level VII and power 9, lead a few spells; component ids Lead 1, Iron
+   2, Copper 3, Silver 4, Gold 5, Pyreal 6, Diamond 110, Platinum 112,
+   Dark 192, Mana 193). Lead to Silver come from any mage shopkeeper,
+   Gold to Platinum from Mastermages.
 2. **Foci** (post-"Castling"): a Focus of Strife (war), Verdancy (life),
    Enchantment (creature), Artifice (item) or Shadow (void) takes a whole
    pack slot and cannot be dropped or sold. With the school's focus in the

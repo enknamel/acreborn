@@ -29,6 +29,10 @@ pub enum Event {
     Placed {
         cell: u32,
     },
+    /// A spell entered the spellbook (MagicUpdateSpell).
+    SpellLearned(u32),
+    /// A spell left the spellbook (MagicRemoveSpell).
+    SpellForgotten(u32),
 }
 
 /// How to reach the server and who to be.
@@ -76,8 +80,14 @@ pub struct Client {
     pub combat: bool,
     /// Magic combat mode is on.
     pub magic: bool,
-    /// Spells we know by name (learnt from scrolls this session).
+    /// Names of spells learnt from scrolls this session, for spells the
+    /// SpellTable lacks; `world.stats.spells` is the spellbook itself.
     pub known_spells: std::collections::HashMap<u32, String>,
+    /// Refuse to cast when components of the current formula are missing
+    /// (`CastCheck::MissingComponents`). Off by default: the server
+    /// decides whether components are required (`require_spell_comps`),
+    /// and a refused cast is only a chat line.
+    pub require_components: bool,
     /// Creature we keep swinging at until it dies or we stop.
     pub attack_target: Option<u32>,
     /// An attack was sent and AttackDone has not come back yet.
@@ -160,6 +170,7 @@ impl Client {
             combat: false,
             magic: false,
             known_spells: Default::default(),
+            require_components: false,
             attack_target: None,
             attack_pending: false,
             last_attack: Instant::now(),
@@ -217,11 +228,8 @@ impl Client {
             let _ = self.socket.send_to(&dg, to);
         }
         let mut buf = [0u8; 2048];
-        loop {
-            match self.socket.recv_from(&mut buf) {
-                Ok((n, _)) => self.session.receive(&buf[..n], now),
-                Err(_) => break,
-            }
+        while let Ok((n, _)) = self.socket.recv_from(&mut buf) {
+            self.session.receive(&buf[..n], now);
         }
         self.session.poll(now);
         for ev in self.session.events() {
@@ -300,9 +308,22 @@ impl Client {
                             }
                             continue;
                         }
+                        ac_world::Applied::Spellbook { spell, known } => {
+                            tracing::info!(
+                                "spell {spell} {}",
+                                if known { "learned" } else { "forgotten" }
+                            );
+                            self.events.push(if known {
+                                self::Event::SpellLearned(spell)
+                            } else {
+                                self::Event::SpellForgotten(spell)
+                            });
+                            continue;
+                        }
                         ac_world::Applied::Created
                         | ac_world::Applied::Deleted
                         | ac_world::Applied::Stats
+                        | ac_world::Applied::Enchantments
                         | ac_world::Applied::Health
                         | ac_world::Applied::Vendor
                         | ac_world::Applied::Inventory => continue,
@@ -803,8 +824,34 @@ impl Client {
         }
     }
 
+    /// Cast a spell (see [`Client::try_cast`]); the outcome is logged.
     pub fn cast(&mut self, spell: u32) {
+        let _ = self.try_cast(spell);
+    }
+
+    /// Cast a spell on the selected target (or ourselves), switching to
+    /// magic mode first when needed. `CastCheck::Ok` once the cast was
+    /// sent. Without a wielded caster nothing is sent (`NoCaster`: the
+    /// server would only drop us back to peace mode); missing components
+    /// refuse the cast only with `require_components` set. An unknown
+    /// spell or low mana is logged and sent anyway, the server being the
+    /// judge (Mana Conversion can make a cast the estimate rejects).
+    pub fn try_cast(&mut self, spell: u32) -> magic::CastCheck {
         use ac_net::messages::{action, combat_mode};
+        use magic::CastCheck;
+        let check = self.can_cast(spell);
+        match &check {
+            CastCheck::Ok => {}
+            CastCheck::NoCaster => {
+                tracing::warn!("cannot cast {spell}: no magic caster wielded");
+                return check;
+            }
+            CastCheck::MissingComponents(missing) if self.require_components => {
+                tracing::warn!("cannot cast {spell}: missing components {missing:?}");
+                return check;
+            }
+            other => tracing::info!("casting {spell} although {other:?}"),
+        }
         if !self.magic {
             self.session.send_action(
                 action::CHANGE_COMBAT_MODE,
@@ -843,6 +890,7 @@ impl Client {
                     .send_action(action::CAST_UNTARGETED_SPELL, &spell.to_le_bytes());
             }
         }
+        CastCheck::Ok
     }
 
     pub fn attack(&mut self, guid: u32) {
@@ -1043,13 +1091,21 @@ impl Client {
 
     /// Buy one of a vendor's stock items.
     pub fn buy(&mut self, guid: u32) {
+        self.buy_amount(guid, 1);
+    }
+
+    /// Buy `amount` of a vendor's stock item (a stack for stackables).
+    pub fn buy_amount(&mut self, guid: u32, amount: u32) {
         use ac_net::messages::{action, trade};
         let Some(vendor) = self.world.open_vendor.as_ref().map(|v| v.vendor) else {
             return;
         };
-        tracing::info!("buy {guid:#010x} from {vendor:#010x}");
+        if amount == 0 {
+            return;
+        }
+        tracing::info!("buy {amount} x {guid:#010x} from {vendor:#010x}");
         self.session
-            .send_action(action::BUY, &trade(vendor, &[(guid, 1)]));
+            .send_action(action::BUY, &trade(vendor, &[(guid, amount as i32)]));
     }
 
     /// Sell a pack item (its whole stack) to the open vendor.

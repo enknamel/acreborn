@@ -365,8 +365,26 @@ pub mod event {
     pub const VIEW_CONTENTS: u32 = 0x0196;
     pub const CLOSE_GROUND_CONTAINER: u32 = 0x0052;
     pub const APPROACH_VENDOR: u32 = 0x0062;
+    /// `u16 spell id, u16 layer`: a spell left the spellbook.
     pub const MAGIC_REMOVE_SPELL: u32 = 0x01A8;
+    /// `u16 spell id, u16 layer`: a spell entered the spellbook.
     pub const MAGIC_UPDATE_SPELL: u32 = 0x02C1;
+    /// One enchantment record (see `ac_world::stats::Enchantment`).
+    pub const MAGIC_UPDATE_ENCHANTMENT: u32 = 0x02C2;
+    /// `u16 spell id, u16 layer`.
+    pub const MAGIC_REMOVE_ENCHANTMENT: u32 = 0x02C3;
+    /// `u32 count`, then enchantment records.
+    pub const MAGIC_UPDATE_MULTIPLE_ENCHANTMENTS: u32 = 0x02C4;
+    /// `u32 count`, then `(u16 spell id, u16 layer)` pairs.
+    pub const MAGIC_REMOVE_MULTIPLE_ENCHANTMENTS: u32 = 0x02C5;
+    /// No body: every enchantment is gone.
+    pub const MAGIC_PURGE_ENCHANTMENTS: u32 = 0x02C6;
+    /// `u16 spell id, u16 layer`: removed by a dispel.
+    pub const MAGIC_DISPEL_ENCHANTMENT: u32 = 0x02C7;
+    /// `u32 count`, then `(u16 spell id, u16 layer)` pairs.
+    pub const MAGIC_DISPEL_MULTIPLE_ENCHANTMENTS: u32 = 0x02C8;
+    /// No body: the harmful enchantments are gone (sent on death).
+    pub const MAGIC_PURGE_BAD_ENCHANTMENTS: u32 = 0x0312;
     pub const ATTACK_DONE: u32 = 0x01A7;
     pub const VICTIM_NOTIFICATION: u32 = 0x01AC;
     pub const KILLER_NOTIFICATION: u32 = 0x01AD;
@@ -545,6 +563,23 @@ impl Appraisal {
             .find(|(k, _)| *k == key)
             .map(|(_, v)| v.as_str())
     }
+}
+
+/// PropertyInt ids carried by the Public/PrivateUpdatePropertyInt
+/// messages (`u8 sequence, [u32 guid], u32 property, i32 value`).
+pub mod property_int {
+    pub const MAX_STACK_SIZE: u32 = 11;
+    pub const STACK_SIZE: u32 = 12;
+    pub const VALUE: u32 = 19;
+}
+
+/// SetStackSize (0x0197): `u8 sequence, u32 guid, u32 stack size, u32
+/// value`, sent for every change of a stack in view (including our own
+/// packs, after a spell burns components or a vendor buy merges).
+pub fn parse_set_stack_size(body: &[u8]) -> Result<(u32, u32, u32), Truncated> {
+    let mut r = Reader::new(body);
+    let _seq = r.u8()?;
+    Ok((r.u32()?, r.u32()?, r.u32()?))
 }
 
 /// CombatMode values for ChangeCombatMode.

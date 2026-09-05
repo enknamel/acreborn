@@ -65,7 +65,7 @@ pub mod item_type {
     pub const WIELDABLE: u32 = MELEE_WEAPON | ARMOR | CLOTHING | JEWELRY | MISSILE_WEAPON | CASTER;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WorldObject {
     pub guid: u32,
     pub name: String,
@@ -175,6 +175,13 @@ pub enum Applied {
     PlayerSet,
     /// Name, level, attributes or vitals changed.
     Stats,
+    /// A spell entered (`known`) or left our spellbook.
+    Spellbook {
+        spell: u32,
+        known: bool,
+    },
+    /// Our enchantment registry changed (a buff, debuff, dispel or purge).
+    Enchantments,
     /// An item moved between the world, a container and a wielder.
     Inventory,
     /// An object's look changed (equipment).
@@ -473,9 +480,42 @@ impl World {
                     }
                     Applied::Inventory
                 }
-                _ if self.stats.apply(op, body) => Applied::Stats,
-                _ => Applied::Ignored,
+                _ => self.apply_stats(op, body),
             },
+            opcode::SET_STACK_SIZE => match messages::parse_set_stack_size(body) {
+                Ok((guid, stack, value)) => {
+                    if let Some(o) = self.objects.get_mut(&guid) {
+                        o.stack_size = stack;
+                        o.value = value;
+                        self.generation += 1;
+                        Applied::Inventory
+                    } else {
+                        Applied::Ignored
+                    }
+                }
+                Err(_) => Applied::Failed,
+            },
+            opcode::PUBLIC_UPDATE_PROPERTY_INT => {
+                let mut r = Reader::new(body);
+                let _seq = r.u8();
+                match (r.u32(), r.u32(), r.i32()) {
+                    (Ok(guid), Ok(prop), Ok(value)) => {
+                        let Some(o) = self.objects.get_mut(&guid) else {
+                            return Applied::Ignored;
+                        };
+                        match prop {
+                            messages::property_int::STACK_SIZE => {
+                                o.stack_size = value.max(0) as u32
+                            }
+                            messages::property_int::VALUE => o.value = value.max(0) as u32,
+                            _ => return Applied::Ignored,
+                        }
+                        self.generation += 1;
+                        Applied::Inventory
+                    }
+                    _ => Applied::Failed,
+                }
+            }
             opcode::OBJ_DESC_EVENT => match object::ObjDescEvent::parse(body) {
                 Ok(ev) => {
                     if let Some(o) = self.objects.get_mut(&ev.guid) {
@@ -514,8 +554,24 @@ impl World {
                     _ => Applied::Failed,
                 }
             }
-            _ if self.stats.apply(op, body) => Applied::Stats,
-            _ => Applied::Ignored,
+            _ => self.apply_stats(op, body),
+        }
+    }
+
+    /// Hand a message to the character sheet and report what it changed.
+    fn apply_stats(&mut self, op: u32, body: &[u8]) -> Applied {
+        use stats::StatsApplied;
+        match self.stats.apply(op, body) {
+            Some(StatsApplied::Stats) => Applied::Stats,
+            Some(StatsApplied::Spellbook { spell, known }) => {
+                self.generation += 1;
+                Applied::Spellbook { spell, known }
+            }
+            Some(StatsApplied::Enchantments) => {
+                self.generation += 1;
+                Applied::Enchantments
+            }
+            None => Applied::Ignored,
         }
     }
 
@@ -606,4 +662,124 @@ pub fn heading_quat(deg: f32) -> Quat {
 /// Orientation facing a horizontal direction.
 pub fn heading_quat_from_dir(dir: Vec3) -> Quat {
     Quat::from_rotation_z((-dir.x).atan2(dir.y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ac_net::wire::Writer;
+
+    const ME: u32 = 0x5000_0001;
+
+    /// A whole GameEvent message: opcode, our guid, sequence, event, body.
+    fn game_event(ev: u32, rest: &[u8]) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.u32(opcode::GAME_EVENT).u32(ME).u32(1).u32(ev).bytes(rest);
+        w.finish()
+    }
+
+    fn world_with_stack(guid: u32, stack: u32) -> World {
+        let mut world = World {
+            player_guid: Some(ME),
+            ..Default::default()
+        };
+        world.objects.insert(
+            guid,
+            WorldObject {
+                guid,
+                name: "Lead Scarab".into(),
+                weenie_class_id: 691,
+                stack_size: stack,
+                value: stack * 5,
+                container: Some(ME),
+                parent: Some(ME),
+                ..Default::default()
+            },
+        );
+        world
+    }
+
+    #[test]
+    fn stack_size_updates_reach_pack_items() {
+        let mut world = world_with_stack(0x8000_0010, 10);
+        let gen = world.generation;
+        // SetStackSize: sequence, guid, stack, value.
+        let mut w = Writer::new();
+        w.u32(opcode::SET_STACK_SIZE)
+            .u8(3)
+            .u32(0x8000_0010)
+            .u32(9)
+            .u32(45);
+        assert_eq!(world.apply(&w.finish()), Applied::Inventory);
+        let o = &world.objects[&0x8000_0010];
+        assert_eq!((o.stack_size, o.value), (9, 45));
+        assert!(world.generation > gen);
+        // PublicUpdatePropertyInt StackSize on the same item.
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_INT)
+            .u8(4)
+            .u32(0x8000_0010)
+            .u32(messages::property_int::STACK_SIZE)
+            .i32(7);
+        assert_eq!(world.apply(&w.finish()), Applied::Inventory);
+        assert_eq!(world.objects[&0x8000_0010].stack_size, 7);
+        // Other properties and unknown objects are ignored.
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_INT)
+            .u8(5)
+            .u32(0x8000_0010)
+            .u32(99)
+            .i32(1);
+        assert_eq!(world.apply(&w.finish()), Applied::Ignored);
+        let mut w = Writer::new();
+        w.u32(opcode::SET_STACK_SIZE)
+            .u8(6)
+            .u32(0x8000_0099)
+            .u32(1)
+            .u32(1);
+        assert_eq!(world.apply(&w.finish()), Applied::Ignored);
+        assert_eq!(world.inventory().count(), 1);
+    }
+
+    #[test]
+    fn spellbook_and_enchantment_events_bump_generation() {
+        let mut world = World::default();
+        let gen = world.generation;
+        let mut w = Writer::new();
+        w.u16(2091).u16(0);
+        assert_eq!(
+            world.apply(&game_event(event::MAGIC_UPDATE_SPELL, &w.finish())),
+            Applied::Spellbook {
+                spell: 2091,
+                known: true
+            }
+        );
+        assert_eq!(world.stats.spells, vec![2091]);
+        assert!(world.generation > gen);
+        let mut w = Writer::new();
+        w.u16(2091).u16(0);
+        assert_eq!(
+            world.apply(&game_event(event::MAGIC_REMOVE_SPELL, &w.finish())),
+            Applied::Spellbook {
+                spell: 2091,
+                known: false
+            }
+        );
+        assert!(world.stats.spells.is_empty());
+        // A dispel of nothing is still an enchantment event.
+        let mut w = Writer::new();
+        w.u16(1).u16(1);
+        assert_eq!(
+            world.apply(&game_event(event::MAGIC_DISPEL_ENCHANTMENT, &w.finish())),
+            Applied::Enchantments
+        );
+        assert_eq!(
+            world.apply(&game_event(event::MAGIC_PURGE_ENCHANTMENTS, &[])),
+            Applied::Enchantments
+        );
+        assert_eq!(
+            world.apply(&game_event(event::USE_DONE, &[0, 0, 0, 0])),
+            Applied::Ignored
+        );
+    }
 }

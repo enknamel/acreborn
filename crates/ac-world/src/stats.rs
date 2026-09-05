@@ -179,7 +179,53 @@ pub struct Enchantment {
     pub spell_set_id: u32,
 }
 
+/// The Vitae penalty is an enchantment with this spell id.
+pub const VITAE_SPELL: u16 = 666;
+
+/// `Enchantment::stat_mod_type` bits (ACE `EnchantmentTypeFlags`).
+pub mod enchantment_type {
+    pub const ATTRIBUTE: u32 = 0x0000_0001;
+    pub const SECOND_ATTRIBUTE: u32 = 0x0000_0002;
+    pub const INT: u32 = 0x0000_0004;
+    pub const FLOAT: u32 = 0x0000_0008;
+    pub const SKILL: u32 = 0x0000_0010;
+    pub const MULTIPLICATIVE: u32 = 0x0000_4000;
+    pub const ADDITIVE: u32 = 0x0000_8000;
+    pub const VITAE: u32 = 0x0080_0000;
+    pub const COOLDOWN: u32 = 0x0100_0000;
+    /// Set by the server on every buff; clear on debuffs.
+    pub const BENEFICIAL: u32 = 0x0200_0000;
+}
+
 impl Enchantment {
+    /// Whether this is a buff (as opposed to a debuff, vitae or a
+    /// cooldown), by the server's flag.
+    pub fn is_beneficial(&self) -> bool {
+        self.stat_mod_type & enchantment_type::BENEFICIAL != 0
+    }
+
+    pub fn is_vitae(&self) -> bool {
+        self.spell_id == VITAE_SPELL || self.stat_mod_type & enchantment_type::VITAE != 0
+    }
+
+    pub fn is_cooldown(&self) -> bool {
+        self.stat_mod_type & enchantment_type::COOLDOWN != 0
+    }
+
+    /// Seconds left at server time `now` (`start_time` and `now` are the
+    /// server's clock; item spells with duration -1 never run out).
+    pub fn remaining(&self, now: f64) -> Option<f64> {
+        if self.duration < 0.0 {
+            return None;
+        }
+        Some((self.start_time + self.duration - now).max(0.0))
+    }
+
+    /// One enchantment record as every enchantment event carries it.
+    pub fn parse(r: &mut Reader) -> Result<Self, Truncated> {
+        Self::read(r)
+    }
+
     fn read(r: &mut Reader) -> Result<Self, Truncated> {
         let spell_id = r.u16()?;
         let layer = r.u16()?;
@@ -681,46 +727,170 @@ impl PlayerStats {
         Ok(())
     }
 
-    /// Apply one server message. Returns true if it was a stats message
-    /// (whether or not it decoded).
-    pub fn apply(&mut self, op: u32, body: &[u8]) -> bool {
-        let r = match op {
+    // ------------------------------------------------------- spellbook
+
+    /// Add a spell to the book; true if it was new.
+    pub fn learn_spell(&mut self, spell: u32) -> bool {
+        if self.spells.contains(&spell) {
+            return false;
+        }
+        self.spells.push(spell);
+        true
+    }
+
+    /// Take a spell out of the book (and off every spell bar); true if it
+    /// was there.
+    pub fn forget_spell(&mut self, spell: u32) -> bool {
+        let before = self.spells.len();
+        self.spells.retain(|&s| s != spell);
+        for bar in &mut self.options.spell_bars {
+            bar.retain(|&s| s != spell);
+        }
+        self.spells.len() != before
+    }
+
+    // ---------------------------------------------------- enchantments
+
+    /// Add an enchantment, replacing the one with the same spell id and
+    /// layer if present (a refresh keeps its slot).
+    pub fn upsert_enchantment(&mut self, e: Enchantment) {
+        match self
+            .enchantments
+            .iter_mut()
+            .find(|x| x.spell_id == e.spell_id && x.layer == e.layer)
+        {
+            Some(slot) => *slot = e,
+            None => self.enchantments.push(e),
+        }
+    }
+
+    /// Remove the enchantment with this spell id and layer; true if found.
+    pub fn remove_enchantment(&mut self, spell_id: u16, layer: u16) -> bool {
+        let before = self.enchantments.len();
+        self.enchantments
+            .retain(|x| !(x.spell_id == spell_id && x.layer == layer));
+        self.enchantments.len() != before
+    }
+
+    /// Drop every enchantment (MagicPurgeEnchantments).
+    pub fn purge_enchantments(&mut self) {
+        self.enchantments.clear();
+    }
+
+    /// Drop the harmful enchantments; buffs, vitae and cooldowns stay
+    /// (MagicPurgeBadEnchantments, sent on death).
+    pub fn purge_bad_enchantments(&mut self) {
+        self.enchantments
+            .retain(|e| e.is_beneficial() || e.is_vitae() || e.is_cooldown());
+    }
+
+    /// Apply one server message. `None` if it was not a stats message;
+    /// otherwise what changed (whether or not the body decoded).
+    pub fn apply(&mut self, op: u32, body: &[u8]) -> Option<StatsApplied> {
+        let (r, applied) = match op {
             opcode::GAME_EVENT => match split_game_event(body) {
-                Some((_, _, event::MAGIC_UPDATE_SPELL, rest)) => match Reader::new(rest).u32() {
-                    Ok(id) => {
-                        if !self.spells.contains(&id) {
-                            self.spells.push(id);
-                        }
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
-                },
                 Some((_, _, event::PLAYER_DESCRIPTION, rest)) => {
                     match Self::parse_description(rest) {
                         Ok(st) => {
                             *self = st;
-                            Ok(())
+                            (Ok(()), StatsApplied::Stats)
                         }
-                        Err(e) => Err(e),
+                        Err(e) => (Err(e), StatsApplied::Stats),
                     }
                 }
-                _ => return false,
+                Some((_, _, event::MAGIC_UPDATE_SPELL, rest)) => {
+                    match layered_spell(&mut Reader::new(rest)) {
+                        Ok((spell, _layer)) => {
+                            self.learn_spell(spell as u32);
+                            (
+                                Ok(()),
+                                StatsApplied::Spellbook {
+                                    spell: spell as u32,
+                                    known: true,
+                                },
+                            )
+                        }
+                        Err(e) => (Err(e), StatsApplied::Stats),
+                    }
+                }
+                Some((_, _, event::MAGIC_REMOVE_SPELL, rest)) => {
+                    match layered_spell(&mut Reader::new(rest)) {
+                        Ok((spell, _layer)) => {
+                            self.forget_spell(spell as u32);
+                            (
+                                Ok(()),
+                                StatsApplied::Spellbook {
+                                    spell: spell as u32,
+                                    known: false,
+                                },
+                            )
+                        }
+                        Err(e) => (Err(e), StatsApplied::Stats),
+                    }
+                }
+                Some((_, _, ev, rest)) if is_enchantment_event(ev) => (
+                    self.apply_enchantment_event(ev, rest),
+                    StatsApplied::Enchantments,
+                ),
+                _ => return None,
             },
-            opcode::PRIVATE_UPDATE_ATTRIBUTE => self.update_attribute(body),
-            opcode::PRIVATE_UPDATE_VITAL => self.update_vital(body),
-            opcode::PRIVATE_UPDATE_ATTRIBUTE_2ND_LEVEL => self.update_vital_current(body),
-            opcode::PRIVATE_UPDATE_SKILL => self.update_skill(body),
-            opcode::PRIVATE_UPDATE_SKILL_LEVEL => self.update_skill_level(body),
-            opcode::PRIVATE_UPDATE_SKILL_AC => self.update_skill_ac(body),
-            opcode::PRIVATE_UPDATE_PROPERTY_INT => self.update_int(body),
-            opcode::PRIVATE_UPDATE_PROPERTY_INT64 => self.update_int64(body),
-            opcode::PRIVATE_UPDATE_PROPERTY_STRING => self.update_string(body),
-            _ => return false,
+            opcode::PRIVATE_UPDATE_ATTRIBUTE => (self.update_attribute(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_VITAL => (self.update_vital(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_ATTRIBUTE_2ND_LEVEL => {
+                (self.update_vital_current(body), StatsApplied::Stats)
+            }
+            opcode::PRIVATE_UPDATE_SKILL => (self.update_skill(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_SKILL_LEVEL => {
+                (self.update_skill_level(body), StatsApplied::Stats)
+            }
+            opcode::PRIVATE_UPDATE_SKILL_AC => (self.update_skill_ac(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_PROPERTY_INT => (self.update_int(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_PROPERTY_INT64 => (self.update_int64(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_PROPERTY_STRING => {
+                (self.update_string(body), StatsApplied::Stats)
+            }
+            _ => return None,
         };
         if let Err(e) = r {
             tracing::warn!("stats message {op:#06x}: {e}");
         }
-        true
+        Some(applied)
+    }
+
+    /// The enchantment registry events (`ac_net::messages::event`
+    /// 0x02C2..0x02C8 and 0x0312), `rest` being the body after the
+    /// game-event header.
+    fn apply_enchantment_event(&mut self, ev: u32, rest: &[u8]) -> Result<(), Truncated> {
+        let mut r = Reader::new(rest);
+        match ev {
+            event::MAGIC_UPDATE_ENCHANTMENT => {
+                let e = Enchantment::read(&mut r)?;
+                self.upsert_enchantment(e);
+            }
+            event::MAGIC_UPDATE_MULTIPLE_ENCHANTMENTS => {
+                let n = read_count(&mut r, 60)?;
+                for _ in 0..n {
+                    let e = Enchantment::read(&mut r)?;
+                    self.upsert_enchantment(e);
+                }
+            }
+            event::MAGIC_REMOVE_ENCHANTMENT | event::MAGIC_DISPEL_ENCHANTMENT => {
+                let (spell, layer) = layered_spell(&mut r)?;
+                self.remove_enchantment(spell, layer);
+            }
+            event::MAGIC_REMOVE_MULTIPLE_ENCHANTMENTS
+            | event::MAGIC_DISPEL_MULTIPLE_ENCHANTMENTS => {
+                let n = read_count(&mut r, 4)?;
+                for _ in 0..n {
+                    let (spell, layer) = layered_spell(&mut r)?;
+                    self.remove_enchantment(spell, layer);
+                }
+            }
+            event::MAGIC_PURGE_ENCHANTMENTS => self.purge_enchantments(),
+            event::MAGIC_PURGE_BAD_ENCHANTMENTS => self.purge_bad_enchantments(),
+            _ => {}
+        }
+        Ok(())
     }
 
     fn update_attribute(&mut self, body: &[u8]) -> Result<(), Truncated> {
@@ -853,6 +1023,36 @@ impl PlayerStats {
     }
 }
 
+/// What a stats message changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatsApplied {
+    /// Name, level, attributes, vitals, skills or properties.
+    Stats,
+    /// A spell entered (`known`) or left the spellbook.
+    Spellbook { spell: u32, known: bool },
+    /// The enchantment registry changed.
+    Enchantments,
+}
+
+/// `u16 spell id, u16 layer` (ACE `LayeredSpell`).
+fn layered_spell(r: &mut Reader) -> Result<(u16, u16), Truncated> {
+    Ok((r.u16()?, r.u16()?))
+}
+
+fn is_enchantment_event(ev: u32) -> bool {
+    matches!(
+        ev,
+        event::MAGIC_UPDATE_ENCHANTMENT
+            | event::MAGIC_REMOVE_ENCHANTMENT
+            | event::MAGIC_UPDATE_MULTIPLE_ENCHANTMENTS
+            | event::MAGIC_REMOVE_MULTIPLE_ENCHANTMENTS
+            | event::MAGIC_PURGE_ENCHANTMENTS
+            | event::MAGIC_DISPEL_ENCHANTMENT
+            | event::MAGIC_DISPEL_MULTIPLE_ENCHANTMENTS
+            | event::MAGIC_PURGE_BAD_ENCHANTMENTS
+    )
+}
+
 /// PropertyAttribute2nd: 1 MaxHealth, 2 Health, 3 MaxStamina, 4 Stamina,
 /// 5 MaxMana, 6 Mana. Both the max and current ids address the same slot.
 fn vital_index(which: u32) -> Option<usize> {
@@ -901,8 +1101,18 @@ mod tests {
     }
 
     fn write_enchantment(w: &mut Writer, spell: u16, with_set: bool) {
+        write_enchantment_layer(w, spell, 1, with_set, 0x0011);
+    }
+
+    fn write_enchantment_layer(
+        w: &mut Writer,
+        spell: u16,
+        layer: u16,
+        with_set: bool,
+        stat_mod_type: u32,
+    ) {
         w.u16(spell)
-            .u16(1)
+            .u16(layer)
             .u16(0x9A)
             .u16(with_set as u16)
             .u32(50)
@@ -912,12 +1122,27 @@ mod tests {
             .f32(1.0)
             .f32(0.0)
             .f64(0.0)
-            .u32(0x0011)
+            .u32(stat_mod_type)
             .u32(6)
             .f32(0.15);
         if with_set {
             w.u32(7);
         }
+    }
+
+    /// A GameEvent body (after the opcode): our guid, sequence, event
+    /// type, then `rest`.
+    fn game_event(ev: u32, rest: &[u8]) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.u32(0x5000_0001).u32(1).u32(ev).bytes(rest);
+        w.finish()
+    }
+
+    fn ids(st: &PlayerStats) -> Vec<(u16, u16)> {
+        st.enchantments
+            .iter()
+            .map(|e| (e.spell_id, e.layer))
+            .collect()
     }
 
     /// A PlayerDescription body with every section populated, in the
@@ -1120,34 +1345,46 @@ mod tests {
         let mut w = Writer::new();
         w.u8(1);
         write_skill(&mut w, MELEE_DEFENSE, 11, sac::TRAINED, 4500, 5);
-        assert!(st.apply(opcode::PRIVATE_UPDATE_SKILL, &w.finish()));
+        assert!(st
+            .apply(opcode::PRIVATE_UPDATE_SKILL, &w.finish())
+            .is_some());
         let md = st.skill(MELEE_DEFENSE).unwrap();
         assert_eq!((md.ranks, md.xp), (11, 4500));
 
         let mut w = Writer::new();
         w.u8(2).u32(RUN).u32(7);
-        assert!(st.apply(opcode::PRIVATE_UPDATE_SKILL_LEVEL, &w.finish()));
+        assert!(st
+            .apply(opcode::PRIVATE_UPDATE_SKILL_LEVEL, &w.finish())
+            .is_some());
         assert_eq!(st.skill(RUN).unwrap().ranks, 7);
 
         let mut w = Writer::new();
         w.u8(3).u32(HEALING).u32(sac::TRAINED);
-        assert!(st.apply(opcode::PRIVATE_UPDATE_SKILL_AC, &w.finish()));
+        assert!(st
+            .apply(opcode::PRIVATE_UPDATE_SKILL_AC, &w.finish())
+            .is_some());
         assert_eq!(st.skill(HEALING).unwrap().advancement, sac::TRAINED);
 
         // a skill we had not seen yet is created
         let mut w = Writer::new();
         w.u8(4).u32(48).u32(sac::TRAINED);
-        assert!(st.apply(opcode::PRIVATE_UPDATE_SKILL_AC, &w.finish()));
+        assert!(st
+            .apply(opcode::PRIVATE_UPDATE_SKILL_AC, &w.finish())
+            .is_some());
         assert_eq!(st.skills.len(), 5);
         assert_eq!(st.skill(48).unwrap().advancement, sac::TRAINED);
 
         let mut w = Writer::new();
         w.u8(5).u32(property::INT64_AVAILABLE_EXPERIENCE).u64(4242);
-        assert!(st.apply(opcode::PRIVATE_UPDATE_PROPERTY_INT64, &w.finish()));
+        assert!(st
+            .apply(opcode::PRIVATE_UPDATE_PROPERTY_INT64, &w.finish())
+            .is_some());
         assert_eq!(st.available_xp, 4242);
         let mut w = Writer::new();
         w.u8(6).u32(property::INT_LEVEL).i32(13);
-        assert!(st.apply(opcode::PRIVATE_UPDATE_PROPERTY_INT, &w.finish()));
+        assert!(st
+            .apply(opcode::PRIVATE_UPDATE_PROPERTY_INT, &w.finish())
+            .is_some());
         assert_eq!(st.level, 13);
     }
 
@@ -1156,13 +1393,187 @@ mod tests {
         let mut st = PlayerStats::default();
         let mut w = Writer::new();
         w.u8(1).u32(2).u32(77);
-        assert!(st.apply(opcode::PRIVATE_UPDATE_ATTRIBUTE_2ND_LEVEL, &w.finish()));
+        assert!(st
+            .apply(opcode::PRIVATE_UPDATE_ATTRIBUTE_2ND_LEVEL, &w.finish())
+            .is_some());
         assert_eq!(st.vitals[0].current, 77);
         let mut w = Writer::new();
         w.u8(1).u32(6).u32(9).u32(0).u32(0).u32(120);
-        assert!(st.apply(opcode::PRIVATE_UPDATE_ATTRIBUTE, &w.finish()));
+        assert!(st
+            .apply(opcode::PRIVATE_UPDATE_ATTRIBUTE, &w.finish())
+            .is_some());
         assert_eq!(st.attributes[5].value(), 9);
-        assert!(!st.apply(opcode::OBJECT_DELETE, &[]));
+        assert!(st.apply(opcode::OBJECT_DELETE, &[]).is_none());
+    }
+
+    #[test]
+    fn spellbook_events() {
+        let mut st = PlayerStats::parse_description(&full_description()).unwrap();
+        assert_eq!(st.spells, vec![1, 2091]);
+        // MagicUpdateSpell: u16 id, u16 layer.
+        let mut w = Writer::new();
+        w.u16(2000).u16(0);
+        assert_eq!(
+            st.apply(
+                opcode::GAME_EVENT,
+                &game_event(event::MAGIC_UPDATE_SPELL, &w.finish())
+            ),
+            Some(StatsApplied::Spellbook {
+                spell: 2000,
+                known: true
+            })
+        );
+        assert_eq!(st.spells, vec![1, 2091, 2000]);
+        // Learning it again keeps one copy.
+        let mut w = Writer::new();
+        w.u16(2000).u16(0);
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_UPDATE_SPELL, &w.finish()),
+        );
+        assert_eq!(st.spells.len(), 3);
+        // MagicRemoveSpell takes it out of the book and off the bars.
+        let mut w = Writer::new();
+        w.u16(2091).u16(0);
+        assert_eq!(
+            st.apply(
+                opcode::GAME_EVENT,
+                &game_event(event::MAGIC_REMOVE_SPELL, &w.finish())
+            ),
+            Some(StatsApplied::Spellbook {
+                spell: 2091,
+                known: false
+            })
+        );
+        assert_eq!(st.spells, vec![1, 2000]);
+        assert_eq!(st.options.spell_bars[0], vec![1]);
+        // A truncated body is still a stats message.
+        assert_eq!(
+            st.apply(
+                opcode::GAME_EVENT,
+                &game_event(event::MAGIC_UPDATE_SPELL, &[1])
+            ),
+            Some(StatsApplied::Stats)
+        );
+    }
+
+    #[test]
+    fn enchantment_events() {
+        use enchantment_type::BENEFICIAL;
+        let mut st = PlayerStats::parse_description(&full_description()).unwrap();
+        assert_eq!(ids(&st), vec![(2091, 1), (666, 1)]);
+        // MagicUpdateEnchantment adds a new spell...
+        let mut w = Writer::new();
+        write_enchantment_layer(&mut w, 1, 1, false, BENEFICIAL | 0x1);
+        assert_eq!(
+            st.apply(
+                opcode::GAME_EVENT,
+                &game_event(event::MAGIC_UPDATE_ENCHANTMENT, &w.finish())
+            ),
+            Some(StatsApplied::Enchantments)
+        );
+        assert_eq!(ids(&st), vec![(2091, 1), (666, 1), (1, 1)]);
+        // ...replaces the same spell and layer in place...
+        let mut w = Writer::new();
+        write_enchantment_layer(&mut w, 1, 1, true, BENEFICIAL | 0x1);
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_UPDATE_ENCHANTMENT, &w.finish()),
+        );
+        assert_eq!(ids(&st), vec![(2091, 1), (666, 1), (1, 1)]);
+        assert_eq!(st.enchantments[2].spell_set_id, 7);
+        // ...and a second layer of it is a second entry.
+        let mut w = Writer::new();
+        write_enchantment_layer(&mut w, 1, 2, false, BENEFICIAL | 0x1);
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_UPDATE_ENCHANTMENT, &w.finish()),
+        );
+        assert_eq!(ids(&st), vec![(2091, 1), (666, 1), (1, 1), (1, 2)]);
+        // MagicUpdateMultipleEnchantments: count then records; one of
+        // them a debuff.
+        let mut w = Writer::new();
+        w.u32(2);
+        write_enchantment_layer(&mut w, 50, 1, false, 0x10);
+        write_enchantment_layer(&mut w, 2091, 1, true, BENEFICIAL | 0x10);
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_UPDATE_MULTIPLE_ENCHANTMENTS, &w.finish()),
+        );
+        assert_eq!(ids(&st), vec![(2091, 1), (666, 1), (1, 1), (1, 2), (50, 1)]);
+        assert!(st.enchantments[0].is_beneficial());
+        assert!(!st.enchantments[4].is_beneficial());
+        assert!(st.enchantments[1].is_vitae());
+        // MagicRemoveEnchantment removes one layer only.
+        let mut w = Writer::new();
+        w.u16(1).u16(1);
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_REMOVE_ENCHANTMENT, &w.finish()),
+        );
+        assert_eq!(ids(&st), vec![(2091, 1), (666, 1), (1, 2), (50, 1)]);
+        // An unknown layer is a no-op.
+        let mut w = Writer::new();
+        w.u16(1).u16(9);
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_DISPEL_ENCHANTMENT, &w.finish()),
+        );
+        assert_eq!(st.enchantments.len(), 4);
+        // MagicDispelMultipleEnchantments: count then (id, layer) pairs.
+        let mut w = Writer::new();
+        w.u32(2).u16(1).u16(2).u16(2091).u16(1);
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_DISPEL_MULTIPLE_ENCHANTMENTS, &w.finish()),
+        );
+        assert_eq!(ids(&st), vec![(666, 1), (50, 1)]);
+        // PurgeBad keeps vitae and buffs, drops the debuff.
+        let mut w = Writer::new();
+        write_enchantment_layer(&mut w, 3, 1, false, BENEFICIAL | 0x1);
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_UPDATE_ENCHANTMENT, &w.finish()),
+        );
+        st.apply(
+            opcode::GAME_EVENT,
+            &game_event(event::MAGIC_PURGE_BAD_ENCHANTMENTS, &[]),
+        );
+        assert_eq!(ids(&st), vec![(666, 1), (3, 1)]);
+        // Purge drops everything.
+        assert_eq!(
+            st.apply(
+                opcode::GAME_EVENT,
+                &game_event(event::MAGIC_PURGE_ENCHANTMENTS, &[])
+            ),
+            Some(StatsApplied::Enchantments)
+        );
+        assert!(st.enchantments.is_empty());
+        // A short record is reported, not applied.
+        assert_eq!(
+            st.apply(
+                opcode::GAME_EVENT,
+                &game_event(event::MAGIC_UPDATE_ENCHANTMENT, &[1, 0, 1, 0])
+            ),
+            Some(StatsApplied::Enchantments)
+        );
+        assert!(st.enchantments.is_empty());
+    }
+
+    #[test]
+    fn enchantment_timing() {
+        let e = Enchantment {
+            start_time: 100.0,
+            duration: 30.0,
+            ..Default::default()
+        };
+        assert_eq!(e.remaining(110.0), Some(20.0));
+        assert_eq!(e.remaining(200.0), Some(0.0));
+        let item = Enchantment {
+            duration: -1.0,
+            ..Default::default()
+        };
+        assert_eq!(item.remaining(0.0), None);
     }
 
     #[test]

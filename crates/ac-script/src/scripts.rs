@@ -410,6 +410,17 @@ mod tests {
             self.record(format!("cast {name}"));
             true
         }
+        fn can_cast(&mut self, name: &str) -> String {
+            self.record(format!("can_cast {name}"));
+            "ok".into()
+        }
+        fn components(&mut self) -> Array {
+            Array::new()
+        }
+        fn fill_components(&mut self) -> i64 {
+            self.record("fill_components");
+            0
+        }
         fn say(&mut self, text: &str) {
             self.record(format!("say {text}"));
         }
