@@ -4,11 +4,14 @@
 
 use std::time::Instant;
 
+use crate::icons::{IconCache, IconLoader};
 use crate::{Blackboard, Client, Ctx, Event, Plugin};
 
 pub struct Host {
     plugins: Vec<Box<dyn Plugin>>,
     pub board: Blackboard,
+    /// Icons plugins draw; empty until [`Host::set_icon_loader`].
+    pub icons: IconCache,
 }
 
 /// What a batch of callbacks asked the host for.
@@ -24,7 +27,14 @@ impl Host {
         Host {
             plugins: Vec::new(),
             board: Blackboard::default(),
+            icons: IconCache::default(),
         }
+    }
+
+    /// Install the RenderSurface decoder behind `cx.icons()`. Call once,
+    /// before the first `ui` pass; a host that never draws needs none.
+    pub fn set_icon_loader(&mut self, loader: IconLoader) {
+        self.icons.set_loader(loader);
     }
 
     pub fn register(&mut self, plugin: Box<dyn Plugin>) {
@@ -49,6 +59,7 @@ impl Host {
             clients,
             index,
             board: &mut self.board,
+            icons: &mut self.icons,
             dt,
             now,
             chat: Vec::new(),
@@ -82,6 +93,7 @@ impl Host {
             clients,
             index,
             board: &mut self.board,
+            icons: &mut self.icons,
             dt: 0.0,
             now: Instant::now(),
             chat: Vec::new(),
@@ -108,6 +120,7 @@ impl Host {
             clients,
             index,
             board: &mut self.board,
+            icons: &mut self.icons,
             dt: 0.0,
             now: Instant::now(),
             chat: Vec::new(),
@@ -136,6 +149,7 @@ impl Host {
             clients,
             index,
             board: &mut self.board,
+            icons: &mut self.icons,
             dt: 0.0,
             now: Instant::now(),
             chat: Vec::new(),

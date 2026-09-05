@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 ac-client = { path = "../ac-client" }
+ac-formats = { path = "../ac-formats" }
 ac-world = { path = "../ac-world" }
 ac-scene = { path = "../ac-scene" }
 egui = "0.36"

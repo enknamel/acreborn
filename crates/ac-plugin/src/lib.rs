@@ -15,11 +15,14 @@ use std::time::Instant;
 
 pub mod console;
 pub mod host;
+pub mod icons;
+pub mod panels;
 pub mod party;
 
 pub use ac_client::{self, Client, Event};
 pub use egui;
 pub use host::{Host, Requests};
+pub use icons::{IconCache, IconLayers, IconLoader};
 pub use serde_json::{self, Value};
 
 /// A message on the in-process bus.
@@ -81,6 +84,8 @@ pub struct Ctx<'a> {
     pub clients: Vec<&'a mut Client>,
     pub index: usize,
     pub board: &'a mut Blackboard,
+    /// Item and spell icons as egui textures (see [`icons`]).
+    pub icons: &'a mut IconCache,
     pub dt: f32,
     pub now: Instant,
     /// Lines to add to the active chat log (kind 0 = system yellow).
@@ -95,8 +100,20 @@ impl Ctx<'_> {
         self.clients[self.index]
     }
 
+    /// The session this callback is about, or `None` when the host runs
+    /// plugins with no session at all (the offline `--demo-ui` overlay).
+    pub fn try_client(&mut self) -> Option<&mut Client> {
+        let i = self.index;
+        self.clients.get_mut(i).map(|c| &mut **c)
+    }
+
     pub fn client_count(&self) -> usize {
         self.clients.len()
+    }
+
+    /// The icon cache, for drawing item and spell icons in `ui`.
+    pub fn icons(&mut self) -> &mut IconCache {
+        self.icons
     }
 
     /// Say something in the chat log without sending it to the server.

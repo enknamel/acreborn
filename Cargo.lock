@@ -74,6 +74,7 @@ name = "ac-plugin"
 version = "0.1.0"
 dependencies = [
  "ac-client",
+ "ac-formats",
  "ac-scene",
  "ac-world",
  "egui",

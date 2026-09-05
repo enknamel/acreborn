@@ -129,8 +129,9 @@ struct Cli {
     /// Camera override for --screenshot: x,y,z,yaw_deg,pitch_deg
     #[arg(long)]
     camera: Option<String>,
-    /// Offline --screenshot: fill the inventory and loot panels with sample
-    /// items so the icon overlay can be checked without a server.
+    /// Offline --screenshot: draw every panel plugin on sample data (real
+    /// icons and spells from the portal) so the overlay can be checked
+    /// without a server.
     #[arg(long, hide = true)]
     demo_ui: bool,
 }
@@ -154,9 +155,9 @@ fn clients_of(nets: &mut [Net]) -> Vec<&mut ac_client::Client> {
     nets.iter_mut().map(|n| &mut n.client).collect()
 }
 
-fn icon_loader(data_dir: PathBuf) -> ui::IconLoader {
+fn icon_loader(data_dir: PathBuf) -> ac_plugin::IconLoader {
     let assets: std::cell::OnceCell<Option<ac_scene::Assets>> = std::cell::OnceCell::new();
-    Box::new(move |id| {
+    std::rc::Rc::new(move |id| {
         let assets = assets
             .get_or_init(|| match ac_scene::Assets::open(&data_dir) {
                 Ok(a) => Some(a),
@@ -174,97 +175,6 @@ fn icon_loader(data_dir: PathBuf) -> ui::IconLoader {
             }
         }
     })
-}
-
-/// Spellbook rows for the given spell ids, sorted by level then name.
-/// Ids missing from the table are skipped.
-fn spell_rows(
-    table: &ac_formats::spell_table::SpellTable,
-    comps: &ac_formats::spell_components::SpellComponentTable,
-    ids: impl IntoIterator<Item = u32>,
-) -> Vec<ui::SpellRow> {
-    let mut rows: Vec<ui::SpellRow> = ids
-        .into_iter()
-        .filter_map(|id| {
-            let s = table.get(id)?;
-            Some(ui::SpellRow {
-                id,
-                name: s.name.clone(),
-                level: s.level(),
-                school: ac_formats::spell_table::school::short_name(s.school),
-                mana: s.base_mana,
-                self_targeted: s.is_self_targeted(),
-                icon: s.icon_id,
-                description: s.description.clone(),
-                words: comps.spell_words(s.formula()),
-            })
-        })
-        .collect();
-    rows.sort_by(|a, b| a.level.cmp(&b.level).then_with(|| a.name.cmp(&b.name)));
-    rows
-}
-
-/// Sample panels for `--demo-ui`: known 32x32 icons from the portal, and
-/// a spellbook of real spells from the spell table.
-fn demo_ui(ui: &mut ui::Ui, data_dir: &std::path::Path) {
-    let item = |guid: u32, name: &str, stack: u32, wielded: bool, icon: u32| ui::Item {
-        guid,
-        name: name.to_string(),
-        stack,
-        wielded,
-        icon,
-        icon_overlay: 0,
-        icon_underlay: 0,
-    };
-    ui.sheet = Some(ui::Sheet {
-        name: "Demo".into(),
-        level: 1,
-        vitals: Vec::new(),
-        total_xp: 0,
-        available_xp: 0,
-        skill_credits: 0,
-        skills: Vec::new(),
-    });
-    ui.items = vec![
-        item(1, "Demo item 0x06000FAA", 1, true, 0x0600_0FAA),
-        item(2, "Demo item 0x0600189E", 1, true, 0x0600_189E),
-        item(3, "Demo item 0x06001A8A", 1, false, 0x0600_1A8A),
-        item(4, "Demo item 0x06001FB7", 12, false, 0x0600_1FB7),
-        item(5, "Demo item 0x0600261A", 1, false, 0x0600_261A),
-        item(6, "Demo item 0x06002C0D", 1, false, 0x0600_2C0D),
-        item(7, "Demo item 0x06002F40", 3, false, 0x0600_2F40),
-        item(8, "Demo item 0x0600321E", 1, false, 0x0600_321E),
-    ];
-    ui.loot = Some((
-        "Demo corpse".into(),
-        vec![
-            item(9, "Loot 0x06002C0D", 1, false, 0x0600_2C0D),
-            item(10, "Loot 0x0600601C", 5, false, 0x0600_601C),
-            item(11, "Loot 0x06006A21", 1, false, 0x0600_6A21),
-            ui::Item {
-                icon_overlay: 0x0600_6A21,
-                ..item(12, "0x06001A8A + 0x06006A21", 1, false, 0x0600_1A8A)
-            },
-        ],
-    ));
-    ui.status_icon = ui::IconLayers {
-        underlay: 0,
-        icon: 0x0600_2F40,
-        overlay: 0,
-    };
-    ui.status += "  selected: Demo item";
-    match ac_scene::Assets::open(data_dir)
-        .and_then(|a| Ok((a.spell_table()?, a.spell_components()?)))
-    {
-        Ok((table, comps)) => {
-            // Strength Other/Self I, Heal Other/Self I, Infuse Mana Other I,
-            // Invulnerability Other I, Fire Protection Self I, Armor Self I,
-            // Acid Stream III, Shock Wave II, Mind Blossom.
-            ui.spells = spell_rows(&table, &comps, [1, 2, 5, 6, 9, 17, 20, 24, 60, 65, 2091]);
-        }
-        Err(e) => tracing::warn!("demo spellbook: {e}"),
-    }
-    ui.show_spells = true;
 }
 
 /// Live server connection state for `--connect`.
@@ -342,9 +252,6 @@ impl App {
     fn toggle_combat(&mut self) {
         if let Some(net) = self.nets.get_mut(self.active) {
             net.client.toggle_combat();
-            if let Some(ui) = &mut self.ui {
-                ui.combat = net.client.combat;
-            }
         }
     }
 
@@ -354,17 +261,12 @@ impl App {
             .is_some_and(|net| net.client.use_by_name(name))
     }
 
-    /// Everything the UI asked for this frame goes to the session as commands.
+    /// What the chat box submitted this frame: `/commands` go to the
+    /// plugins, everything else is said in the world. (The panels act on
+    /// the client themselves; they are plugins.)
     fn apply_ui_commands(&mut self) {
         let Some(ui) = self.ui.as_mut() else { return };
         let outgoing = std::mem::take(&mut ui.outgoing);
-        let buy = std::mem::take(&mut ui.vendor_buy);
-        let sell = std::mem::take(&mut ui.vendor_sell);
-        let close_vendor = std::mem::take(&mut ui.vendor_close);
-        let take = std::mem::take(&mut ui.loot_take);
-        let close_loot = std::mem::take(&mut ui.loot_close);
-        let activated = std::mem::take(&mut ui.activated);
-        let casts = std::mem::take(&mut ui.cast_requests);
         let active = self.active;
         if self.nets.is_empty() {
             return;
@@ -383,36 +285,43 @@ impl App {
                 net.client.say(&t);
             }
         }
-        let Some(net) = self.nets.get_mut(active) else {
-            return;
-        };
-        let c = &mut net.client;
-        for g in buy {
-            c.buy(g);
-        }
-        for g in sell {
-            c.sell(g);
-        }
-        if close_vendor {
-            c.close_vendor();
-        }
-        for g in take {
-            c.take(g);
-        }
-        if close_loot {
-            c.close_container();
-        }
-        for g in activated {
-            c.interact(g);
-        }
-        for sp in casts {
-            c.cast(sp);
-        }
         for r in requests {
             self.apply_requests(r);
         }
     }
-    /// Play a server Sound message through the object's sound table.
+
+    /// Run the egui pass for this frame: the plugins' panels (when there
+    /// are sessions, or in `--demo-ui`), then the host's status line and
+    /// chat. What the plugins asked for is applied afterwards.
+    fn run_overlay(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, w: u32, h: u32) {
+        let Some(ui) = self.ui.as_mut() else { return };
+        let plugins = &mut self.plugins;
+        let active = self.active;
+        let draw_plugins = !self.nets.is_empty() || self.cli.demo_ui;
+        let mut clients: Vec<&mut ac_client::Client> =
+            self.nets.iter_mut().map(|n| &mut n.client).collect();
+        let mut requests: Option<plugins::Requests> = None;
+        ui.begin(
+            self.window.as_deref(),
+            &mut |egui| {
+                if draw_plugins {
+                    let borrowed: Vec<&mut ac_client::Client> =
+                        clients.iter_mut().map(|c| &mut **c).collect();
+                    requests = Some(plugins.ui(borrowed, active, egui));
+                }
+            },
+            device,
+            queue,
+            w,
+            h,
+        );
+        if let Some(r) = requests {
+            for (text, kind) in r.chat {
+                ui.push_chat(text, kind);
+            }
+            self.pending_switch = r.activate;
+        }
+    }
 
     /// Left click in the world: select the object under the cursor and ask
     /// the server to appraise it; a second click on the same object within
@@ -485,25 +394,8 @@ impl App {
         }
     }
 
-    /// Double-click semantics: ground items are picked up, carried
-    /// wieldables are put on, worn items are taken off, everything else
-    /// is used.
-
-    /// Cast a spell on ourselves (untargeted), entering magic mode first.
-
-    /// Enter or leave melee combat mode.
-
-    /// Swing at a creature (medium height, half power) and keep swinging
-    /// after each AttackDone until it dies or combat mode ends.
-
-    /// Combat bookkeeping each tick: repeat attacks, drop dead targets.
-
-    /// Buy from / sell to the open vendor, as the UI asked.
-
-    /// Take items out of the open container / close it, as the UI asked.
-
-    /// Send Use for the nearest drawable object called `name` (test hook).
-
+    /// The status line: frame rate, where the character stands, what is
+    /// selected (with its icon), combat mode. The panels are plugins.
     fn refresh_status(&mut self) {
         let Some(ui) = &mut self.ui else { return };
         let mut s = format!("{:.0} fps", self.fps);
@@ -518,18 +410,14 @@ impl App {
                         p.local.z,
                         net.client.world.drawable().count()
                     );
-                    ui.status_icon = ui::IconLayers::default();
+                    ui.status_icon = ac_plugin::IconLayers::default();
                     if let Some(o) = net
                         .client
                         .selected
                         .and_then(|g| net.client.world.objects.get(&g))
                     {
                         s += &format!("  selected: {}", o.name);
-                        ui.status_icon = ui::IconLayers {
-                            underlay: o.icon_underlay,
-                            icon: o.icon_id,
-                            overlay: o.icon_overlay,
-                        };
+                        ui.status_icon = ac_plugin::IconLayers::of(o);
                     }
                     if net.client.combat {
                         s += "  [melee]";
@@ -545,178 +433,6 @@ impl App {
             );
         }
         ui.status = s;
-        let Some(net) = self.nets.get(self.active) else {
-            ui.sheet = None;
-            ui.blips.clear();
-            return;
-        };
-        let st = &net.client.world.stats;
-        let skill_table = net.client.assets.skill_table().ok();
-        ui.sheet = (!st.name.is_empty()).then(|| {
-            let mut skills: Vec<ui::SkillRow> = st
-                .skills
-                .iter()
-                .map(|sk| ui::SkillRow {
-                    name: ac_world::stats::skill_name(sk.id),
-                    value: st.skill_value(sk, skill_table.as_ref().and_then(|t| t.get(sk.id))),
-                    ranks: sk.ranks,
-                    advancement: sk.advancement,
-                    training: ac_world::stats::sac_name(sk.advancement),
-                })
-                .collect();
-            skills.sort_by(|a, b| b.advancement.cmp(&a.advancement).then(a.name.cmp(b.name)));
-            ui::Sheet {
-                name: st.name.clone(),
-                level: st.level,
-                vitals: (0..3)
-                    .map(|i| ui::VitalBar {
-                        name: ac_world::stats::VITAL_NAMES[i],
-                        current: st.vitals[i].current,
-                        max: st.vital_max(i),
-                    })
-                    .collect(),
-                total_xp: st.total_xp,
-                available_xp: st.available_xp,
-                skill_credits: st.skill_credits,
-                skills,
-            }
-        });
-        if ui.spells.len() != st.spells.len() {
-            ui.spells = match (
-                net.client.assets.spell_table(),
-                net.client.assets.spell_components(),
-            ) {
-                (Ok(table), Ok(comps)) => spell_rows(&table, &comps, st.spells.iter().copied()),
-                _ => Vec::new(),
-            };
-        }
-        ui.target = net
-            .client
-            .attack_target
-            .or(net.client.selected)
-            .and_then(|g| net.client.world.objects.get(&g))
-            .filter(|o| o.item_type & ac_world::item_type::CREATURE != 0)
-            .map(|o| (o.name.clone(), o.health.unwrap_or(1.0)));
-        ui.loot = net.client.world.open_container.as_ref().map(|(c, items)| {
-            let name = net
-                .client
-                .world
-                .objects
-                .get(c)
-                .map(|o| o.name.clone())
-                .unwrap_or_else(|| "Container".into());
-            let list = items
-                .iter()
-                .filter_map(|g| net.client.world.objects.get(g))
-                .map(|o| ui::Item {
-                    guid: o.guid,
-                    name: o.name.clone(),
-                    stack: o.stack_size,
-                    wielded: false,
-                    icon: o.icon_id,
-                    icon_overlay: o.icon_overlay,
-                    icon_underlay: o.icon_underlay,
-                })
-                .collect();
-            (name, list)
-        });
-        ui.vendor = net.client.world.open_vendor.as_ref().map(|v| {
-            let name = net
-                .client
-                .world
-                .objects
-                .get(&v.vendor)
-                .map(|o| o.name.clone())
-                .unwrap_or_else(|| "Vendor".into());
-            let stock = v
-                .items
-                .iter()
-                .map(|it| ui::TradeItem {
-                    guid: it.guid,
-                    name: it.desc.name.clone(),
-                    // ACE's "SellPrice" is the rate the vendor sells at.
-                    price: ((it.desc.value as f32 * v.sell_rate - 0.1).ceil().max(1.0)) as u32,
-                    icon: it.desc.icon_id,
-                    unlimited: it.stack == 0x00FF_FFFF,
-                })
-                .collect();
-            let selling = net
-                .client
-                .world
-                .inventory()
-                .filter(|o| o.value > 0 && o.item_type & ac_world::item_type::MONEY == 0)
-                .map(|o| ui::TradeItem {
-                    guid: o.guid,
-                    name: o.name.clone(),
-                    price: ((o.value as f32 * v.buy_rate + 0.1).floor().max(1.0)) as u32,
-                    icon: o.icon_id,
-                    unlimited: false,
-                })
-                .collect();
-            ui::Vendor {
-                name,
-                stock,
-                selling,
-            }
-        });
-        ui.items.clear();
-        for o in net.client.world.wielded() {
-            ui.items.push(ui::Item {
-                guid: o.guid,
-                name: o.name.clone(),
-                stack: o.stack_size,
-                wielded: true,
-                icon: o.icon_id,
-                icon_overlay: o.icon_overlay,
-                icon_underlay: o.icon_underlay,
-            });
-        }
-        for o in net.client.world.inventory() {
-            ui.items.push(ui::Item {
-                guid: o.guid,
-                name: o.name.clone(),
-                stack: o.stack_size,
-                wielded: false,
-                icon: o.icon_id,
-                icon_overlay: o.icon_overlay,
-                icon_underlay: o.icon_underlay,
-            });
-        }
-        ui.items
-            .sort_by(|a, b| b.wielded.cmp(&a.wielded).then(a.name.cmp(&b.name)));
-        ui.blips.clear();
-        let (me, heading) = match (&net.client.player, net.client.world.player()) {
-            (Some(p), _) => (ac_world::landblock_origin(p.cell) + p.local, p.heading),
-            (None, Some(o)) => match o.display.or(o.position) {
-                Some(pos) => (ac_world::landblock_origin(pos.cell) + pos.local, 0.0),
-                None => return,
-            },
-            _ => return,
-        };
-        let fwd = glam::Vec2::new(-heading.sin(), heading.cos());
-        let right = glam::Vec2::new(heading.cos(), heading.sin());
-        for o in net.client.world.drawable() {
-            if o.is_player {
-                continue;
-            }
-            let Some(pos) = o.display.or(o.position) else {
-                continue;
-            };
-            let d = ac_world::landblock_origin(pos.cell) + pos.local - me;
-            let d = glam::Vec2::new(d.x, d.y);
-            let kind = if o.object_desc_flags & ac_world::object_desc_flags::PLAYER != 0 {
-                ui::BlipKind::Player
-            } else if o.motion_table_id != 0 {
-                ui::BlipKind::Creature
-            } else {
-                ui::BlipKind::Other
-            };
-            ui.blips.push(ui::Blip {
-                x: d.dot(right),
-                y: d.dot(fwd),
-                kind,
-            });
-        }
     }
 
     fn start_connect(&mut self) -> Result<()> {
@@ -1167,7 +883,9 @@ impl ApplicationHandler for App {
         }
         let (w, h) = gpu.size();
         let mut ui = ui::Ui::new(gpu.device(), gpu.format(), Some(&window), w, h);
-        ui.set_icon_loader(icon_loader(self.cli.data_dir.clone()));
+        let icons = icon_loader(self.cli.data_dir.clone());
+        ui.set_icon_loader(icons.clone());
+        self.plugins.set_icon_loader(icons);
         self.ui = Some(ui);
         self.gpu = Some(gpu);
         self.window = Some(window);
@@ -1250,24 +968,6 @@ impl ApplicationHandler for App {
                     }
                     if code == KeyCode::KeyC && event.state == ElementState::Pressed {
                         self.toggle_combat();
-                        return;
-                    }
-                    if code == KeyCode::KeyI && event.state == ElementState::Pressed {
-                        if let Some(ui) = &mut self.ui {
-                            ui.show_inventory = !ui.show_inventory;
-                        }
-                        return;
-                    }
-                    if code == KeyCode::KeyK && event.state == ElementState::Pressed {
-                        if let Some(ui) = &mut self.ui {
-                            ui.show_skills = !ui.show_skills;
-                        }
-                        return;
-                    }
-                    if code == KeyCode::KeyP && event.state == ElementState::Pressed {
-                        if let Some(ui) = &mut self.ui {
-                            ui.show_spells = !ui.show_spells;
-                        }
                         return;
                     }
                     if code == KeyCode::Enter
@@ -1355,37 +1055,11 @@ impl ApplicationHandler for App {
                     self.fps * 0.95 + 0.05 / dt.max(1e-3)
                 };
                 self.refresh_status();
-                if let Some(g) = &mut self.gpu {
+                if let Some(mut g) = self.gpu.take() {
                     let vp = self.camera.view_proj(g.aspect());
                     let (w, h) = g.size();
+                    self.run_overlay(g.device(), g.queue(), w, h);
                     let mut ui = self.ui.as_mut();
-                    if let Some(ui) = ui.as_deref_mut() {
-                        let plugins = &mut self.plugins;
-                        let active = self.active;
-                        let mut clients: Vec<&mut ac_client::Client> =
-                            self.nets.iter_mut().map(|n| &mut n.client).collect();
-                        let mut requests: Option<plugins::Requests> = None;
-                        ui.begin(
-                            self.window.as_deref(),
-                            &mut |egui| {
-                                if !clients.is_empty() {
-                                    let borrowed: Vec<&mut ac_client::Client> =
-                                        clients.iter_mut().map(|c| &mut **c).collect();
-                                    requests = Some(plugins.ui(borrowed, active, egui));
-                                }
-                            },
-                            g.device(),
-                            g.queue(),
-                            w,
-                            h,
-                        );
-                        if let Some(r) = requests {
-                            for (text, kind) in r.chat {
-                                ui.push_chat(text, kind);
-                            }
-                            self.pending_switch = r.activate;
-                        }
-                    }
                     let mut paint = |d: &wgpu::Device,
                                      q: &wgpu::Queue,
                                      e: &mut wgpu::CommandEncoder,
@@ -1397,6 +1071,7 @@ impl ApplicationHandler for App {
                     if let Err(e) = g.render(vp, Vec3::new(0.4, 0.3, 1.0), Some(&mut paint)) {
                         tracing::error!("render: {e:#}");
                     }
+                    self.gpu = Some(g);
                 }
                 // Pace frames: wake up again when the next one is due.
                 if self.cli.fps > 0 {
@@ -1504,8 +1179,14 @@ fn main() -> Result<()> {
         app.load_scene(&mut gpu)?;
         let (w, h) = gpu.size();
         let mut ui = ui::Ui::new(gpu.device(), gpu.format(), None, w, h);
-        ui.set_icon_loader(icon_loader(app.cli.data_dir.clone()));
+        let icons = icon_loader(app.cli.data_dir.clone());
+        ui.set_icon_loader(icons.clone());
         app.ui = Some(ui);
+        if app.cli.demo_ui {
+            // Only the panels, on canned data: nothing else has a session.
+            app.plugins = plugins::demo(&app.cli.data_dir);
+        }
+        app.plugins.set_icon_loader(icons);
         if app.cli.connect.is_some() {
             // Pump the connection until the player is placed and the world
             // has settled, then render from the character's viewpoint.
@@ -1558,10 +1239,9 @@ fn main() -> Result<()> {
                             app.cli.snap_at = None;
                             app.refresh_status();
                             let (w, h) = gpu.size();
-                            if let Some(ui) = app.ui.as_mut() {
-                                ui.begin(None, &mut |_| {}, gpu.device(), gpu.queue(), w, h);
-                                ui.begin(None, &mut |_| {}, gpu.device(), gpu.queue(), w, h);
-                            }
+                            // egui's first frame only loads fonts and asks for a repaint.
+                            app.run_overlay(gpu.device(), gpu.queue(), w, h);
+                            app.run_overlay(gpu.device(), gpu.queue(), w, h);
                             let vp = app.camera.view_proj(gpu.aspect());
                             let mid = path.with_extension("mid.png");
                             let mut ui = app.ui.take();
@@ -1633,16 +1313,17 @@ fn main() -> Result<()> {
                         }
                     }
                     if let Some(want) = app.cli.sell.clone() {
-                        if let (Some(net), Some(ui)) = (app.nets.get(app.active), app.ui.as_mut()) {
+                        if let Some(net) = app.nets.get_mut(app.active) {
                             if net.client.world.open_vendor.is_some() {
-                                if let Some(o) = net
+                                let found = net
                                     .client
                                     .world
                                     .inventory()
                                     .find(|o| o.name.starts_with(&want))
-                                {
-                                    tracing::info!("selling {}", o.name);
-                                    ui.vendor_sell.push(o.guid);
+                                    .map(|o| (o.guid, o.name.clone()));
+                                if let Some((guid, name)) = found {
+                                    tracing::info!("selling {name}");
+                                    net.client.sell(guid);
                                 }
                                 app.cli.sell = None;
                                 bought_at = Some(Instant::now());
@@ -1650,7 +1331,7 @@ fn main() -> Result<()> {
                         }
                     }
                     if let Some(want) = app.cli.buy.clone() {
-                        if let (Some(net), Some(ui)) = (app.nets.get(app.active), app.ui.as_mut()) {
+                        if let Some(net) = app.nets.get_mut(app.active) {
                             if let Some(v) = &net.client.world.open_vendor {
                                 tracing::info!(
                                     "vendor stock: {}",
@@ -1664,11 +1345,14 @@ fn main() -> Result<()> {
                                         .collect::<Vec<_>>()
                                         .join(" | ")
                                 );
-                                if let Some(it) =
-                                    v.items.iter().find(|i| i.desc.name.starts_with(&want))
-                                {
-                                    tracing::info!("buying {}", it.desc.name);
-                                    ui.vendor_buy.push(it.guid);
+                                let found = v
+                                    .items
+                                    .iter()
+                                    .find(|i| i.desc.name.starts_with(&want))
+                                    .map(|i| (i.guid, i.desc.name.clone()));
+                                if let Some((guid, name)) = found {
+                                    tracing::info!("buying {name}");
+                                    net.client.buy(guid);
                                 }
                                 app.cli.buy = None;
                                 bought_at = Some(Instant::now());
@@ -1744,16 +1428,20 @@ fn main() -> Result<()> {
                         }
                     }
                     if loot_state == 2 && app.cli.loot.is_some() {
-                        if let (Some(ui), Some(net)) = (app.ui.as_mut(), app.nets.get(app.active)) {
-                            if let Some((_, items)) = &net.client.world.open_container {
-                                if !items.is_empty()
-                                    && ui.loot_take.is_empty()
-                                    && loot_at.elapsed() > Duration::from_secs(1)
-                                {
-                                    ui.loot_take.extend(items.iter().copied());
-                                    loot_state = 3;
-                                    loot_at = Instant::now();
+                        if let Some(net) = app.nets.get_mut(app.active) {
+                            let items: Vec<u32> = net
+                                .client
+                                .world
+                                .open_container
+                                .as_ref()
+                                .map(|(_, items)| items.clone())
+                                .unwrap_or_default();
+                            if !items.is_empty() && loot_at.elapsed() > Duration::from_secs(1) {
+                                for g in items {
+                                    net.client.take(g);
                                 }
+                                loot_state = 3;
+                                loot_at = Instant::now();
                             }
                         }
                         if loot_at.elapsed() > Duration::from_secs(8) {
@@ -1791,9 +1479,12 @@ fn main() -> Result<()> {
                             );
                         }
                         if app.cli.show_skills {
-                            if let Some(ui) = app.ui.as_mut() {
-                                ui.show_skills = true;
-                                ui.show_spells = true;
+                            // The panels are plugins: press their keys.
+                            for key in [egui::Key::K, egui::Key::P] {
+                                let active = app.active;
+                                let clients = clients_of(&mut app.nets);
+                                let r = app.plugins.key(clients, active, key, true);
+                                app.apply_requests(r);
                             }
                         }
                     }
@@ -1885,13 +1576,16 @@ fn main() -> Result<()> {
         }
         let vp = app.camera.view_proj(gpu.aspect());
         app.refresh_status();
-        let mut ui = app.ui.take().unwrap();
         if app.cli.demo_ui {
-            demo_ui(&mut ui, &app.cli.data_dir);
+            if let Some(ui) = app.ui.as_mut() {
+                ui.status_icon = ac_plugin::IconLayers::single(0x0600_2F40);
+                ui.status += "  selected: Demo item";
+            }
         }
         // egui's first frame only loads fonts and asks for a repaint.
-        ui.begin(None, &mut |_| {}, gpu.device(), gpu.queue(), w, h);
-        ui.begin(None, &mut |_| {}, gpu.device(), gpu.queue(), w, h);
+        app.run_overlay(gpu.device(), gpu.queue(), w, h);
+        app.run_overlay(gpu.device(), gpu.queue(), w, h);
+        let mut ui = app.ui.take().unwrap();
         let mut paint = |d: &wgpu::Device,
                          q: &wgpu::Queue,
                          e: &mut wgpu::CommandEncoder,

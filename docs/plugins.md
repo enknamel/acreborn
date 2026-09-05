@@ -7,7 +7,10 @@ method, draw egui panels, take keys, and handle `/commands`. Plugins in
 different sessions coordinate through the shared `Blackboard`.
 
 The crate re-exports what you need: `ac_plugin::{Client, Event, Ctx,
-Plugin, Blackboard, Message, Host, Requests, egui, serde_json, Value}`.
+Plugin, Blackboard, Message, Host, Requests, IconCache, IconLayers,
+IconLoader, egui, serde_json, Value}`. The client's own panels are plugins
+too (`ac_plugin::panels`, see below): read them as worked examples of a UI
+plugin, or replace them.
 
 ## The `Plugin` trait
 
@@ -60,6 +63,7 @@ pub struct Ctx<'a> {
     pub clients: Vec<&'a mut Client>, // every session, in order
     pub index: usize,                 // the session this callback is about
     pub board: &'a mut Blackboard,
+    pub icons: &'a mut IconCache,     // item and spell icons as egui textures
     pub dt: f32,                      // seconds since the last frame (0 in ui/key/command)
     pub now: Instant,
     pub chat: Vec<(String, u32)>,     // lines to add to the active chat log
@@ -68,11 +72,24 @@ pub struct Ctx<'a> {
 
 impl Ctx<'_> {
     pub fn client(&mut self) -> &mut Client;   // self.clients[self.index]
+    pub fn try_client(&mut self) -> Option<&mut Client>; // None when the host has no session (--demo-ui)
     pub fn client_count(&self) -> usize;
+    pub fn icons(&mut self) -> &mut IconCache;
     pub fn log(&mut self, text: impl Into<String>);            // chat line, kind 0 (system)
     pub fn post(&mut self, topic: impl Into<String>, value: impl Into<Value>); // bus, from this session
 }
 ```
+
+### Icons
+
+`cx.icons()` turns RenderSurface (0x06) ids into egui textures on first
+use and paints them: `cx.icons().draw(ui, IconLayers::of(object),
+egui::Sense::click())` draws an object's icon with its overlay and
+underlay as a 24-point square and returns the `Response`;
+`IconLayers::single(spell.icon_id)` for a spell. The decoder behind it is
+installed once by the host (`Host::set_icon_loader`, an `Rc<dyn Fn(u32)
+-> Option<Rgba>>` over `Assets::texture_rgba`); a host that never draws
+installs none and `draw` paints nothing.
 
 ### `Client` fields worth reading
 
@@ -179,10 +196,13 @@ pub struct Message { pub from: usize, pub topic: String, pub value: Value }
 
 ```rust
 pub mod autoheal;
-pub mod console;
+pub use ac_plugin::{console, panels};
 
 pub fn builtin() -> Host {
     let mut host = Host::new();
+    for p in panels::live() {          // vitals, radar, target, vendor, loot,
+        host.register(p);              // inventory, skills, spellbook
+    }
     host.register(Box::new(console::Console::default()));
     host.register(Box::new(autoheal::AutoHeal::default()));
     host
@@ -190,9 +210,35 @@ pub fn builtin() -> Host {
 ```
 
 Order matters for `key` and `command` (first to return `true` wins), so
-put plugins that claim generic keys last. Any binary that drives sessions
+put plugins that claim generic keys last; the panels go first so they draw
+under everything else and own I, K and P. Any binary that drives sessions
 can host plugins the same way: `Host::new()`, `register`, then
 `frame`/`ui`/`key`/`command`/`end_frame` (see `crates/ac-plugin/src/host.rs`).
+
+## The built-in panels
+
+`crates/ac-plugin/src/panels/` holds the client's own overlay, one plugin
+per file: `vitals`, `radar`, `target`, `inventory` (I), `loot`, `vendor`,
+`skills` (K), `spellbook` (P). Each has the same three parts, so any of
+them is a template for a UI plugin:
+
+* `view(&Client) -> View`: a plain struct of what to draw, built from the
+  session each frame (`world.stats`, `inventory()`, `open_container`,
+  `open_vendor`, the spell tables through `client.assets`);
+* `draw(&egui::Context, ..) -> actions`: the egui code, returning what was
+  clicked (guids to take or buy, spell ids to cast);
+* the `Plugin` impl: `ui` builds the view, draws it, and calls
+  `Client` (`interact`, `take`, `close_container`, `buy`, `sell`,
+  `close_vendor`, `cast`); `key` toggles the panel.
+
+A panel's data comes from a `Source<View>`: `Live` (the session) or
+`Demo(view)` (canned data whose actions are dropped). `Panel::demo()`
+constructors feed `acviewer --screenshot --demo-ui`, which registers
+`panels::demo(assets)` instead of `builtin()` and renders the overlay with
+no server; `Ctx::try_client()` is `None` there. To replace a panel,
+register your own plugin instead of it in `builtin()`; the skills panel
+publishes whether it is open on the blackboard (`panels::skills::OPEN_KEY`)
+so the spellbook can sit beside it, a small example of panels talking.
 
 ## Worked example: auto-heal
 
