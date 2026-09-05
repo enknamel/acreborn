@@ -2229,10 +2229,26 @@ fn main() -> Result<()> {
                     if let Some(want) = app.cli.cast.clone() {
                         if t > 4.0 + app.cli.walk + say_delay {
                             let id = app.net.as_ref().and_then(|n| {
-                                n.known_spells
+                                // Spellbook first (ids from PlayerDescription), then
+                                // scrolls learnt this session or still in the pack.
+                                let table = n.assets.spell_table().ok();
+                                n.world
+                                    .stats
+                                    .spells
                                     .iter()
-                                    .find(|(_, name)| name.starts_with(&want))
-                                    .map(|(id, _)| *id)
+                                    .copied()
+                                    .find(|id| {
+                                        table
+                                            .as_ref()
+                                            .and_then(|t| t.get(*id))
+                                            .is_some_and(|sp| sp.name.starts_with(&want))
+                                    })
+                                    .or_else(|| {
+                                        n.known_spells
+                                            .iter()
+                                            .find(|(_, name)| name.starts_with(&want))
+                                            .map(|(id, _)| *id)
+                                    })
                                     .or_else(|| {
                                         n.world
                                             .inventory()
@@ -2407,6 +2423,7 @@ fn main() -> Result<()> {
                         if app.cli.show_skills {
                             if let Some(ui) = app.ui.as_mut() {
                                 ui.show_skills = true;
+                                ui.show_spells = true;
                             }
                         }
                     }
