@@ -11,6 +11,7 @@ ac-formats = { path = "../../crates/ac-formats" }
 ac-scene = { path = "../../crates/ac-scene" }
 ac-net = { path = "../../crates/ac-net" }
 ac-world = { path = "../../crates/ac-world" }
+ac-audio = { path = "../../crates/ac-audio" }
 anyhow.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 tracing.workspace = true

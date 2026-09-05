@@ -118,6 +118,7 @@ dependencies = [
 name = "acviewer"
 version = "0.1.0"
 dependencies = [
+ "ac-audio",
  "ac-dat",
  "ac-formats",
  "ac-net",

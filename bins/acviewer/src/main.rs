@@ -80,6 +80,9 @@ struct Cli {
     /// with this name until it dies (or 90 s pass).
     #[arg(long)]
     attack: Option<String>,
+    /// Disable sound output.
+    #[arg(long)]
+    mute: bool,
     /// Connected headless mode: jump once after placement.
     #[arg(long)]
     jump: bool,
@@ -206,6 +209,11 @@ struct Net {
     attack_backoff: Duration,
     /// Name of the last creature we attacked (its corpse is what we loot).
     last_target_name: String,
+    /// Sound output, when a device could be opened and --mute is off.
+    audio: Option<ac_audio::Audio>,
+    sound_tables:
+        std::collections::HashMap<u32, Option<std::rc::Rc<ac_formats::sound_table::SoundTable>>>,
+    waves: std::collections::HashMap<u32, Option<std::rc::Rc<ac_formats::wave::Wave>>>,
     /// Items still to take from the open container, one at a time (the
     /// server refuses a second pickup while one is in progress).
     loot_queue: std::collections::VecDeque<u32>,
@@ -240,8 +248,75 @@ struct App {
 }
 
 impl App {
+    /// Play a server Sound message through the object's sound table.
+    fn play_sound(&mut self, body: &[u8]) {
+        use ac_net::messages::parse_sound;
+        let Ok((guid, kind, volume)) = parse_sound(body) else {
+            return;
+        };
+        let Some(net) = self.net.as_mut() else { return };
+        let (name, table_id) = match net.world.objects.get(&guid) {
+            Some(o) => (
+                o.name.clone(),
+                if o.sound_table_id != 0 {
+                    o.sound_table_id
+                } else if o.is_player
+                    || o.object_desc_flags & ac_world::object_desc_flags::PLAYER != 0
+                {
+                    0x2000_0001
+                } else {
+                    0
+                },
+            ),
+            None => return,
+        };
+        if table_id == 0 {
+            return;
+        }
+        let assets = &net.assets;
+        let table = net
+            .sound_tables
+            .entry(table_id)
+            .or_insert_with(|| {
+                assets
+                    .portal
+                    .read(table_id)
+                    .ok()
+                    .and_then(|b| ac_formats::sound_table::SoundTable::parse(table_id, &b).ok())
+                    .map(std::rc::Rc::new)
+            })
+            .clone();
+        let Some(table) = table else { return };
+        let Some(wave_id) = ac_audio::sound_for(&table, kind) else {
+            return;
+        };
+        let wave = net
+            .waves
+            .entry(wave_id)
+            .or_insert_with(|| {
+                assets
+                    .portal
+                    .read(wave_id)
+                    .ok()
+                    .and_then(|b| ac_formats::wave::Wave::parse(wave_id, &b).ok())
+                    .map(std::rc::Rc::new)
+            })
+            .clone();
+        let Some(wave) = wave else { return };
+        tracing::debug!("sound {kind:#x} from {name}: wave {wave_id:#010x} vol {volume:.2}");
+        if let Some(audio) = &net.audio {
+            if let Err(e) = audio.play(&wave, volume.clamp(0.0, 1.0)) {
+                tracing::debug!("play: {e}");
+            }
+        }
+    }
+
     fn chat_message(&mut self, op: u32, body: &[u8]) {
         use ac_net::messages::{event, opcode, ChatLine};
+        if op == opcode::SOUND {
+            self.play_sound(body);
+            return;
+        }
         let line = match op {
             opcode::HEAR_SPEECH => ChatLine::parse_hear_speech(body),
             opcode::HEAR_RANGED_SPEECH => ChatLine::parse_hear_ranged_speech(body),
@@ -900,6 +975,17 @@ impl App {
         let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
         socket.set_nonblocking(true)?;
         let assets = ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?;
+        let audio = if self.cli.mute || self.cli.screenshot.is_some() {
+            None
+        } else {
+            match ac_audio::Audio::new() {
+                Ok(a) => Some(a),
+                Err(e) => {
+                    tracing::warn!("audio disabled: {e}");
+                    None
+                }
+            }
+        };
         let now = Instant::now();
         let mut session = Session::new(
             Config {
@@ -949,6 +1035,9 @@ impl App {
             last_attack: Instant::now(),
             attack_backoff: Duration::from_millis(300),
             last_target_name: String::new(),
+            audio,
+            sound_tables: Default::default(),
+            waves: Default::default(),
             loot_queue: Default::default(),
             loot_inflight: None,
             selected: None,

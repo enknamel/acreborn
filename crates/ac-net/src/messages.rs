@@ -25,6 +25,7 @@ pub mod opcode {
     pub const SET_STACK_SIZE: u32 = 0x0197;
     pub const PUBLIC_UPDATE_INSTANCE_ID: u32 = 0x02DA;
     pub const PICKUP_EVENT: u32 = 0xF74A;
+    pub const SOUND: u32 = 0xF750;
     pub const OBJ_DESC_EVENT: u32 = 0xF625;
     pub const PUBLIC_UPDATE_PROPERTY_INT: u32 = 0x02CE;
     pub const PRIVATE_UPDATE_PROPERTY_INT: u32 = 0x02CD;
@@ -588,6 +589,12 @@ impl AttackNotice {
             critical,
         })
     }
+}
+
+/// Sound (0xF750): an object plays a sound-table entry: `(guid, sound type, volume)`.
+pub fn parse_sound(body: &[u8]) -> Result<(u32, u32, f32), Truncated> {
+    let mut r = Reader::new(body);
+    Ok((r.u32()?, r.u32()?, r.f32()?))
 }
 
 /// UpdateHealth (0x01C0): a creature's health as a fraction.

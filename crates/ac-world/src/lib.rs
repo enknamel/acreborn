@@ -72,6 +72,8 @@ pub struct WorldObject {
     /// Setup (0x02) id, or 0 when unknown.
     pub setup_id: u32,
     pub motion_table_id: u32,
+    /// SoundTable (0x20) id, or 0 when unknown.
+    pub sound_table_id: u32,
     pub scale: f32,
     /// Absent for objects carried by another object (inventory, wielded).
     pub position: Option<Position>,
@@ -219,6 +221,7 @@ impl World {
                         weenie_class_id: oc.weenie_class_id,
                         setup_id: oc.setup_id,
                         motion_table_id: oc.motion_table_id,
+                        sound_table_id: oc.sound_table_id,
                         scale: if oc.scale > 0.0 { oc.scale } else { 1.0 },
                         position: oc.position,
                         parent: oc.parent,
