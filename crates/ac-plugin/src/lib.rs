@@ -19,6 +19,7 @@ use std::time::Instant;
 pub mod console;
 pub mod host;
 pub mod icons;
+pub mod lobby;
 pub mod panels;
 pub mod party;
 

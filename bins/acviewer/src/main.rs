@@ -138,6 +138,14 @@ struct Cli {
     /// without a server.
     #[arg(long, hide = true)]
     demo_ui: bool,
+    /// Offline: the character select screen on three sample characters
+    /// (no server), for a look or a `--screenshot`.
+    #[arg(long)]
+    demo_select: bool,
+    /// Offline: the character creation screen on the real CharGen table
+    /// with the 3D preview (no server); `--press ArrowRight` steps it.
+    #[arg(long)]
+    demo_create: bool,
     /// Join the local cross-process bus so plugins here and in other
     /// acviewer/acbot processes share posts and values: HOST:PORT or PORT
     /// (default 127.0.0.1:9500, or $ACREBORN_BUS). The first process up
@@ -231,9 +239,110 @@ struct App {
     tables: std::collections::HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
     fx: world_fx::WorldFx,
     audio: Option<ac_audio::Audio>,
+    /// Character select and creation, between login and the world.
+    lobby: ac_plugin::lobby::Lobby,
+    /// The creation screen's 3D preview, while it is up.
+    preview: Option<Preview>,
+}
+
+/// The character model drawn beside the creation screen: the look it was
+/// built for, its appearance, and the turntable angle.
+struct Preview {
+    look: ac_scene::chargen::Look,
+    setup: u32,
+    app: ac_scene::model::Appearance,
+    /// Mesh cache key for this look (bumped per rebuild).
+    key: u64,
+    yaw: f32,
+    /// Instances were uploaded; cleared once when the screen closes.
+    drawn: bool,
 }
 
 impl App {
+    /// Where the creation screen's preview camera stands: in front of the
+    /// model at the origin (it faces -Y), shifted so the model sits to the
+    /// right of the creation window.
+    fn preview_camera(&mut self) {
+        self.camera.position = Vec3::new(-0.95, -3.1, 0.95);
+        self.camera.yaw = 0.0;
+        self.camera.pitch = 0.0;
+        self.camera.far = 500.0;
+    }
+
+    /// Keep the creation screen's 3D preview in step with the build: a
+    /// changed look is re-described (`ac_scene::chargen::describe`) and
+    /// re-uploaded; otherwise the model just turns on its turntable.
+    fn tick_lobby(&mut self, gpu: &mut gpu::Gpu, dt: f32) {
+        let build = self.lobby.preview().cloned();
+        let Some(build) = build else {
+            if self.preview.take().is_some_and(|p| p.drawn) {
+                gpu.set_player_instances(Vec::new());
+            }
+            return;
+        };
+        let Some(assets) = self.lobby.preview_assets() else {
+            return;
+        };
+        let look = build.look;
+        let stale = self.preview.as_ref().is_none_or(|p| p.look != look);
+        if stale {
+            let old = self.preview.as_ref().map(|p| p.key);
+            let (setup, app) = match ac_scene::chargen::describe(&assets, &look) {
+                Ok(desc) => (desc.setup_id, desc.appearance(&assets)),
+                Err(e) => {
+                    tracing::warn!("preview {look:?}: {e}");
+                    (0, ac_scene::model::Appearance::default())
+                }
+            };
+            if let Some(p) = &app.palette {
+                self.palettes.insert(app.palette_hash, p.clone());
+            }
+            if let Some(old) = old {
+                self.gpu_meshes.retain(|(_, k), _| *k != old);
+            }
+            let key = old
+                .map(|k| k.wrapping_add(1))
+                .unwrap_or(0xC4A7_0000_0000_0001);
+            let yaw = self
+                .preview
+                .as_ref()
+                .map(|p| p.yaw)
+                .unwrap_or(std::f32::consts::PI + 0.35);
+            self.preview = Some(Preview {
+                look,
+                setup,
+                app,
+                key,
+                yaw,
+                drawn: false,
+            });
+            self.preview_camera();
+        }
+        let Some(p) = self.preview.as_mut() else {
+            return;
+        };
+        if !self.looking {
+            p.yaw += dt * 0.35;
+        }
+        if p.setup == 0 {
+            return;
+        }
+        let t = glam::Mat4::from_rotation_z(p.yaw);
+        let instances = scene::instances_for(
+            &assets,
+            gpu,
+            &mut self.gpu_meshes,
+            &self.palettes,
+            p.setup,
+            t,
+            &p.app,
+            p.key,
+            None,
+        );
+        p.drawn = true;
+        gpu.set_player_instances(instances);
+    }
+
     /// Apply what plugins asked for (chat lines to the active log, a
     /// session switch).
     fn apply_requests(&mut self, r: plugins::Requests) {
@@ -306,6 +415,7 @@ impl App {
     fn run_overlay(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, w: u32, h: u32) {
         let Some(ui) = self.ui.as_mut() else { return };
         let plugins = &mut self.plugins;
+        let lobby = &mut self.lobby;
         let active = self.active;
         let draw_plugins = !self.nets.is_empty() || self.cli.demo_ui;
         let mut clients: Vec<&mut ac_client::Client> =
@@ -318,6 +428,9 @@ impl App {
                     let borrowed: Vec<&mut ac_client::Client> =
                         clients.iter_mut().map(|c| &mut **c).collect();
                     requests = Some(plugins.ui(borrowed, active, egui));
+                }
+                if lobby.visible() {
+                    lobby.ui(egui, clients.get_mut(active).map(|c| &mut **c));
                 }
             },
             device,
@@ -471,12 +584,15 @@ impl App {
                 }
             }
         };
+        // Headless runs enter with the first character as before; a window
+        // with no --character shows the select screen.
+        let auto_enter = self.cli.screenshot.is_some();
         let mut configs = vec![ac_client::Config {
             host: host.clone(),
             account,
             password,
             character: self.cli.character.clone(),
-            auto_enter: self.cli.screenshot.is_some(),
+            auto_enter,
         }];
         for spec in &self.cli.clients {
             let mut parts = spec.splitn(3, ':');
@@ -563,15 +679,30 @@ impl App {
                         self.camera.far = 3000.0;
                     }
                 }
+                ac_client::Event::CharacterCreateFailed(code) => {
+                    tracing::warn!(
+                        "character creation failed: {}",
+                        ac_client::creation::create_failure_message(*code)
+                    );
+                }
+                ac_client::Event::CharacterCreated { name, .. } => {
+                    tracing::info!("created {name}");
+                }
+                ac_client::Event::Characters(list) => {
+                    tracing::info!("{} characters; showing the select screen", list.len());
+                }
                 ac_client::Event::Connected
                 | ac_client::Event::Terminated(_)
                 | ac_client::Event::Refused(_)
                 | ac_client::Event::SpellLearned(_)
-                | ac_client::Event::SpellForgotten(_)
-                | ac_client::Event::Characters(_)
-                | ac_client::Event::CharacterCreated { .. }
-                | ac_client::Event::CharacterCreateFailed(_) => {}
+                | ac_client::Event::SpellForgotten(_) => {}
             }
+            if is_active {
+                self.lobby.on_event(ev);
+            }
+        }
+        if is_active {
+            self.lobby.tick(&net.client);
         }
         let _ = count;
         Some((frame, events))
@@ -768,9 +899,39 @@ impl App {
 
     fn load_scene(&mut self, gpu: &mut gpu::Gpu) -> Result<()> {
         if self.cli.connect.is_some() {
-            return self.start_connect();
+            self.start_connect()?;
+            // Daylight behind the lobby until the first landblock streams in.
+            if let Some(env) = self
+                .nets
+                .first()
+                .and_then(|n| n.client.assets.region().ok())
+                .and_then(|r| sky::Environment::from_region(&r, 0.5))
+            {
+                gpu.set_environment(env);
+            }
+            return Ok(());
         }
         let assets = ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?;
+        if self.cli.demo_select || self.cli.demo_create {
+            // The lobby with no server: daylight sky, no world; the creation
+            // screen's preview model is instanced by `tick_lobby`.
+            let assets = std::rc::Rc::new(assets);
+            self.lobby = if self.cli.demo_create {
+                ac_plugin::lobby::Lobby::demo_create(assets.clone())
+                    .map_err(|e| anyhow::anyhow!("{e:?}"))?
+            } else {
+                ac_plugin::lobby::Lobby::demo_select()
+            };
+            if let Some(env) = assets
+                .region()
+                .ok()
+                .and_then(|r| sky::Environment::from_region(&r, 0.5))
+            {
+                gpu.set_environment(env);
+            }
+            self.preview_camera();
+            return Ok(());
+        }
         let mut palettes = scene::Palettes::default();
         let built = if self.cli.model.is_some() || self.cli.chargen.is_some() {
             let model = match &self.cli.model {
@@ -954,6 +1115,18 @@ impl ApplicationHandler for App {
                     if typing {
                         return;
                     }
+                    if self.lobby.visible() {
+                        if let Some(key) = egui_key(code) {
+                            let active = self.active;
+                            let client = self.nets.get_mut(active).map(|n| &mut n.client);
+                            if self
+                                .lobby
+                                .key(key, event.state == ElementState::Pressed, client)
+                            {
+                                return;
+                            }
+                        }
+                    }
                     if let (Some(key), false) = (egui_key(code), self.nets.is_empty()) {
                         let active = self.active;
                         let clients = clients_of(&mut self.nets);
@@ -1038,6 +1211,11 @@ impl ApplicationHandler for App {
                     if let Some((lx, ly)) = self.last_cursor {
                         let dx = (position.x - lx) as f32;
                         let dy = (position.y - ly) as f32;
+                        if let Some(p) = self.preview.as_mut() {
+                            p.yaw += dx * 0.01;
+                            self.last_cursor = Some((position.x, position.y));
+                            return;
+                        }
                         match self
                             .nets
                             .get_mut(self.active)
@@ -1059,11 +1237,12 @@ impl ApplicationHandler for App {
                 let dt = (now - self.last_frame).as_secs_f32().min(0.1);
                 self.last_frame = now;
                 self.frame_dt = dt;
-                if self.nets.is_empty() {
+                if self.nets.is_empty() && !self.lobby.visible() {
                     self.update(dt);
                 }
                 if let Some(mut g) = self.gpu.take() {
                     self.tick_net(&mut g);
+                    self.tick_lobby(&mut g, dt);
                     self.gpu = Some(g);
                 }
                 self.fps = if self.fps == 0.0 {
@@ -1192,6 +1371,8 @@ fn main() -> Result<()> {
             tables: Default::default(),
             fx: Default::default(),
             audio: None,
+            lobby: Default::default(),
+            preview: None,
         };
         if let Some(bus) = app.cli.bus.clone() {
             plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
@@ -1601,6 +1782,19 @@ fn main() -> Result<()> {
                 std::thread::sleep(Duration::from_millis(1));
             }
         }
+        if app.lobby.visible() {
+            // `--press` drives the lobby screens (ArrowRight steps the
+            // creation screen); then the preview model is instanced.
+            for key in app
+                .cli
+                .press
+                .iter()
+                .filter_map(|k| egui::Key::from_name(k.trim()))
+            {
+                app.lobby.key(key, true, None);
+            }
+            app.tick_lobby(&mut gpu, 0.0);
+        }
         if let Some(c) = &app.cli.camera {
             let v: Vec<f32> = c
                 .split(',')
@@ -1671,6 +1865,8 @@ fn main() -> Result<()> {
         tables: Default::default(),
         fx: Default::default(),
         audio: None,
+        lobby: Default::default(),
+        preview: None,
     };
     if let Some(bus) = app.cli.bus.clone() {
         plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
