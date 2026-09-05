@@ -266,8 +266,6 @@ The magic panels follow `docs/game/mechanics.md` (section 1) and build on
   click selects, double-click or Cast casts (`cast`). Hovering shows
   `can_cast`'s verdict (no caster, missing components by name, mana); such
   spells are dimmed but still castable, the server has the last word.
-  `/bar` lists the tabs, `/bar N` shows tab N, `/bar add NAME [N]` and
-  `/bar remove NAME [N]` edit them by spell name (prefixes work).
 * **components** (O): `components()` grouped by kind with the count and an
   editable desired quantity 0..999 (`set_desired_component`), the foci
   carried per school (`has_focus`), and "Fill from vendor"

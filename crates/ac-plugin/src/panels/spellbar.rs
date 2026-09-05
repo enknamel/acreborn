@@ -125,58 +125,6 @@ pub fn spell_step(key: egui::Key, ctrl: bool) -> Option<Step> {
     })
 }
 
-/// A `/bar` command line.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BarCmd {
-    /// `/bar`: print the tabs.
-    Status,
-    /// `/bar N`: show tab N (0-based here, 1-based on the command line).
-    Show(usize),
-    /// `/bar add NAME [N]`.
-    Add(String, Option<usize>),
-    /// `/bar remove NAME [N]`.
-    Remove(String, Option<usize>),
-    Bad,
-}
-
-/// Split a trailing tab number (1..=8) off a spell name.
-fn split_tab(rest: &str) -> (String, Option<usize>) {
-    let rest = rest.trim();
-    if let Some((name, last)) = rest.rsplit_once(' ') {
-        if let Ok(n) = last.parse::<usize>() {
-            if (1..=SPELL_BARS).contains(&n) {
-                return (name.trim().to_string(), Some(n - 1));
-            }
-        }
-    }
-    (rest.to_string(), None)
-}
-
-/// Parse the arguments of `/bar`.
-pub fn parse_bar_args(args: &str) -> BarCmd {
-    let args = args.trim();
-    if args.is_empty() {
-        return BarCmd::Status;
-    }
-    if let Ok(n) = args.parse::<usize>() {
-        return if (1..=SPELL_BARS).contains(&n) {
-            BarCmd::Show(n - 1)
-        } else {
-            BarCmd::Bad
-        };
-    }
-    let (verb, rest) = args.split_once(' ').unwrap_or((args, ""));
-    let (name, tab) = split_tab(rest);
-    if name.is_empty() {
-        return BarCmd::Bad;
-    }
-    match verb.to_ascii_lowercase().as_str() {
-        "add" => BarCmd::Add(name, tab),
-        "remove" | "rm" | "del" => BarCmd::Remove(name, tab),
-        _ => BarCmd::Bad,
-    }
-}
-
 /// The spell called `query` among `names`: an exact (case-insensitive)
 /// match first, else the first whose name starts with it.
 pub fn resolve_spell(names: &[(u32, String)], query: &str) -> Option<u32> {
@@ -581,14 +529,6 @@ impl SpellBar {
             self.cast(cx, spell);
         }
     }
-
-    /// Known spells by name, for `/bar add|remove NAME`.
-    fn known_names(c: &Client) -> Vec<(u32, String)> {
-        c.known_spell_ids()
-            .into_iter()
-            .filter_map(|id| c.spell(id).map(|s| (id, s.name)))
-            .collect()
-    }
 }
 
 impl Plugin for SpellBar {
@@ -668,92 +608,6 @@ impl Plugin for SpellBar {
         }
         false
     }
-
-    fn command(&mut self, cx: &mut Ctx, name: &str, args: &str) -> bool {
-        if name != "bar" {
-            return false;
-        }
-        match parse_bar_args(args) {
-            BarCmd::Status => {
-                // Read the live bars: the cached view may lag a frame.
-                let bars: Vec<Vec<String>> = match cx.try_client() {
-                    Some(c) => c
-                        .spell_bars()
-                        .iter()
-                        .map(|b| {
-                            b.iter()
-                                .map(|&id| {
-                                    c.spell(id)
-                                        .map(|s| s.name)
-                                        .unwrap_or_else(|| format!("#{id}"))
-                                })
-                                .collect()
-                        })
-                        .collect(),
-                    None => self
-                        .view
-                        .bars
-                        .iter()
-                        .map(|b| b.iter().map(|s| s.name.clone()).collect())
-                        .collect(),
-                };
-                for (i, bar) in bars.iter().enumerate() {
-                    if bar.is_empty() && i != self.shown {
-                        continue;
-                    }
-                    let names: Vec<&str> = bar.iter().map(|s| s.as_str()).collect();
-                    cx.log(format!(
-                        "bar {}{}: {}",
-                        i + 1,
-                        if i == self.shown { " (shown)" } else { "" },
-                        if names.is_empty() {
-                            "(empty)".to_string()
-                        } else {
-                            names.join(", ")
-                        }
-                    ));
-                }
-            }
-            BarCmd::Show(tab) => {
-                self.show_tab(tab);
-                self.show = true;
-                cx.log(format!("spell bar: tab {}", tab + 1));
-            }
-            BarCmd::Add(query, tab) | BarCmd::Remove(query, tab)
-                if matches!(self.source, Source::Live) =>
-            {
-                let tab = tab.unwrap_or(self.shown);
-                let add = matches!(parse_bar_args(args), BarCmd::Add(..));
-                let Some(c) = cx.try_client() else {
-                    return true;
-                };
-                match resolve_spell(&Self::known_names(c), &query) {
-                    Some(id) => {
-                        let name = c.spell(id).map(|s| s.name).unwrap_or_default();
-                        if add {
-                            c.add_to_spell_bar(tab, usize::MAX, id);
-                        } else {
-                            c.remove_from_spell_bar(tab, id);
-                        }
-                        cx.log(format!(
-                            "spell bar: {} {name} {} tab {}",
-                            if add { "added" } else { "removed" },
-                            if add { "to" } else { "from" },
-                            tab + 1
-                        ));
-                    }
-                    None => cx.log(format!("spell bar: no known spell called {query}")),
-                }
-            }
-            BarCmd::Add(..) | BarCmd::Remove(..) => {
-                cx.log("spell bar: no session");
-            }
-            BarCmd::Bad => {
-                cx.log("usage: /bar | /bar N | /bar add NAME [N] | /bar remove NAME [N]");
-            }
-        }
-        true
-    }
 }
 
 #[cfg(test)]
@@ -793,27 +647,6 @@ mod tests {
         assert_eq!(spell_step(egui::Key::PageDown, true), Some(Step::Last));
         assert_eq!(spell_step(egui::Key::Delete, true), Some(Step::First));
         assert_eq!(spell_step(egui::Key::PageUp, false), None);
-    }
-
-    #[test]
-    fn bar_commands_parse() {
-        assert_eq!(parse_bar_args(""), BarCmd::Status);
-        assert_eq!(parse_bar_args("3"), BarCmd::Show(2));
-        assert_eq!(parse_bar_args("9"), BarCmd::Bad);
-        assert_eq!(
-            parse_bar_args("add Strength Self I"),
-            BarCmd::Add("Strength Self I".into(), None)
-        );
-        assert_eq!(
-            parse_bar_args("add Heal Self II 2"),
-            BarCmd::Add("Heal Self II".into(), Some(1))
-        );
-        assert_eq!(
-            parse_bar_args("remove Heal Self II"),
-            BarCmd::Remove("Heal Self II".into(), None)
-        );
-        assert_eq!(parse_bar_args("add"), BarCmd::Bad);
-        assert_eq!(parse_bar_args("frob x"), BarCmd::Bad);
     }
 
     #[test]
