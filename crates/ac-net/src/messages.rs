@@ -14,6 +14,9 @@ pub mod opcode {
     pub const OBJECT_CREATE: u32 = 0xF745;
     pub const PLAYER_CREATE: u32 = 0xF746;
     pub const OBJECT_DELETE: u32 = 0xF747;
+    /// Turbine chat (the General, Trade, LFG, Roleplay, society and
+    /// allegiance rooms), both ways; see `turbine`.
+    pub const TURBINE_CHAT: u32 = 0xF7DE;
     /// A carried item left our inventory (spent, given, dropped to the
     /// corpse): the guid; the object itself is not deleted.
     pub const INVENTORY_REMOVE_OBJECT: u32 = 0x0024;
@@ -399,6 +402,10 @@ pub mod event {
     pub const ALLEGIANCE_UPDATE_DONE: u32 = 0x01C8;
     pub const ALLEGIANCE_LOGIN_NOTIFICATION: u32 = 0x027A;
     pub const ALLEGIANCE_INFO_RESPONSE: u32 = 0x027C;
+    /// The Turbine chat rooms we are in: allegiance room (0 without
+    /// one), general, trade, lfg, roleplay, olthoi, society, three
+    /// society rooms; ten u32.
+    pub const SET_TURBINE_CHAT_CHANNELS: u32 = 0x0295;
     /// Salvage results: skill, skipped guids, (material, workmanship, units) list, bonus.
     pub const SALVAGE_OPERATIONS_RESULT: u32 = 0x02B4;
     /// A house sign was used: slumlord guid, then the profile.
@@ -607,6 +614,198 @@ impl SalvageResult {
             yields,
             bonus_percent,
         })
+    }
+}
+
+/// Turbine chat (message 0xF7DE): the rooms every player can join
+/// (General, Trade, LFG, Roleplay), the society rooms, and each
+/// allegiance's own room (its id is the allegiance's biota id, sent in
+/// SetTurbineChatChannels). A message is a "net blob": size, blob type
+/// (1 event = a line from the room, 3 request = ours going out, 5
+/// response = the server's ack), dispatch type, two (kind, id) pairs, a
+/// cookie, then a sized payload. See ACE `GameMessageTurbineChat` and
+/// `TurbineChatHandler`.
+pub mod turbine {
+    use super::ChatLine;
+    use crate::wire::{Reader, Truncated, Writer};
+
+    pub const ALLEGIANCE: u32 = 1;
+    pub const GENERAL: u32 = 2;
+    pub const TRADE: u32 = 3;
+    pub const LFG: u32 = 4;
+    pub const ROLEPLAY: u32 = 5;
+    pub const SOCIETY: u32 = 6;
+    pub const OLTHOI: u32 = 10;
+    /// The `ChatLine::kind` a room line is tagged with; `sender_id`
+    /// then holds the room id.
+    pub const KIND: u32 = 0x2000_0000;
+
+    const EVENT_BINARY: u32 = 1;
+    const REQUEST_BINARY: u32 = 3;
+    const SEND_TO_ROOM_BY_ID: u32 = 2;
+
+    /// The room's name; ids above Olthoi are allegiance rooms.
+    pub fn name(id: u32) -> &'static str {
+        match id {
+            ALLEGIANCE => "Allegiance",
+            GENERAL => "General",
+            TRADE => "Trade",
+            LFG => "LFG",
+            ROLEPLAY => "Roleplay",
+            SOCIETY | 7..=9 => "Society",
+            OLTHOI => "Olthoi",
+            _ => "Allegiance",
+        }
+    }
+
+    /// The room a `/g`, `/trade`, `/lfg`, `/rp` or `/a` prefix means
+    /// (`ALLEGIANCE` stands for "our allegiance's room").
+    pub fn from_prefix(p: &str) -> Option<u32> {
+        match p {
+            "g" | "general" => Some(GENERAL),
+            "tr" | "trade" => Some(TRADE),
+            "lfg" => Some(LFG),
+            "rp" | "roleplay" => Some(ROLEPLAY),
+            "a" | "allegiance" => Some(ALLEGIANCE),
+            _ => None,
+        }
+    }
+
+    /// The ChatType the server expects with a room id.
+    pub fn chat_type(room: u32) -> u32 {
+        match room {
+            GENERAL | TRADE | LFG | ROLEPLAY | OLTHOI => room,
+            SOCIETY..=9 => SOCIETY,
+            _ => ALLEGIANCE,
+        }
+    }
+
+    /// A counted UTF-16 string: a length byte (0x80 then the length
+    /// when it does not fit), then the code units.
+    fn read_wstring(r: &mut Reader) -> Result<String, Truncated> {
+        let mut n = r.u8()? as usize;
+        if n & 0x80 != 0 {
+            n = r.u8()? as usize;
+        }
+        let bytes = r.bytes(n * 2)?;
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        Ok(String::from_utf16_lossy(&units))
+    }
+
+    fn write_wstring(w: &mut Writer, s: &str) {
+        let units: Vec<u16> = s.encode_utf16().take(255).collect();
+        if units.len() < 128 {
+            w.u8(units.len() as u8);
+        } else {
+            w.u8(0x80).u8(units.len() as u8);
+        }
+        for u in units {
+            w.u16(u);
+        }
+    }
+
+    /// Decode a Turbine chat message body (after the 0xF7DE opcode).
+    /// `Ok(None)` for blobs that are not room lines (our own acks).
+    pub fn parse(body: &[u8]) -> Result<Option<ChatLine>, Truncated> {
+        let mut r = Reader::new(body);
+        let _size = r.u32()?;
+        let blob = r.u32()?;
+        let _dispatch = r.u32()?;
+        for _ in 0..5 {
+            r.u32()?;
+        }
+        let _payload_size = r.u32()?;
+        if blob != EVENT_BINARY {
+            return Ok(None);
+        }
+        let room = r.u32()?;
+        let sender = read_wstring(&mut r)?;
+        let text = read_wstring(&mut r)?;
+        let _extra = r.u32()?;
+        let _sender_guid = r.u32()?;
+        let _result = r.u32()?;
+        let _chat_type = r.u32()?;
+        Ok(Some(ChatLine {
+            text,
+            sender,
+            sender_id: room,
+            kind: KIND,
+        }))
+    }
+
+    /// Encode a line for a room (blob type request, dispatch "send to
+    /// room by id"): the whole 0xF7DE message including the opcode.
+    pub fn encode(room: u32, sender: u32, text: &str, context: u32) -> Vec<u8> {
+        let mut payload = Writer::new();
+        payload.u32(context).u32(2).u32(2).u32(room);
+        write_wstring(&mut payload, text);
+        payload.u32(0x0C).u32(sender).u32(0).u32(chat_type(room));
+        let payload = payload.finish();
+        let mut blob = Writer::new();
+        blob.u32(REQUEST_BINARY)
+            .u32(SEND_TO_ROOM_BY_ID)
+            .u32(1)
+            .u32(0)
+            .u32(0)
+            .u32(0)
+            .u32(0)
+            .u32(payload.len() as u32)
+            .bytes(&payload);
+        let blob = blob.finish();
+        let mut w = Writer::new();
+        w.u32(super::opcode::TURBINE_CHAT)
+            .u32(blob.len() as u32)
+            .bytes(&blob);
+        w.finish()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn room_line_round_trips() {
+            // An inbound line the way ACE writes it.
+            let mut payload = Writer::new();
+            payload.u32(GENERAL);
+            write_wstring(&mut payload, "+Admin");
+            write_wstring(&mut payload, "hello général");
+            payload.u32(0x0C).u32(0x5000_0002).u32(0).u32(GENERAL);
+            let payload = payload.finish();
+            let mut blob = Writer::new();
+            blob.u32(EVENT_BINARY)
+                .u32(1)
+                .u32(1)
+                .u32(0x000B_00B5)
+                .u32(1)
+                .u32(0x000B_00B5)
+                .u32(0)
+                .u32(payload.len() as u32)
+                .bytes(&payload);
+            let blob = blob.finish();
+            let mut w = Writer::new();
+            w.u32(blob.len() as u32).bytes(&blob);
+            let line = parse(&w.finish()).unwrap().unwrap();
+            assert_eq!(line.sender, "+Admin");
+            assert_eq!(line.text, "hello général");
+            assert_eq!((line.sender_id, line.kind), (GENERAL, KIND));
+            assert_eq!(name(line.sender_id), "General");
+
+            // Our own request has the opcode, the sizes and the room.
+            let msg = encode(TRADE, 0x5000_0001, "wts bow", 7);
+            let mut r = Reader::new(&msg);
+            assert_eq!(r.u32().unwrap(), super::super::opcode::TURBINE_CHAT);
+            let size = r.u32().unwrap() as usize;
+            assert_eq!(size, msg.len() - 8);
+            assert_eq!(r.u32().unwrap(), REQUEST_BINARY);
+            assert_eq!(r.u32().unwrap(), SEND_TO_ROOM_BY_ID);
+            assert!(parse(&msg[4..]).unwrap().is_none());
+            assert_eq!(from_prefix("g"), Some(GENERAL));
+            assert_eq!(chat_type(0x3300), ALLEGIANCE);
+        }
     }
 }
 

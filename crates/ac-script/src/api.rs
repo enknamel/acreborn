@@ -126,7 +126,9 @@ pub trait Api {
     fn house_storage(&mut self, name: &str, allow: bool);
     fn house_open(&mut self, open: bool);
     /// Say something on a group channel: "v" vassals, "p" patron, "m"
-    /// monarch, "c" co-vassals, "f" fellowship. False for an unknown channel.
+    /// monarch, "c" co-vassals, "f" fellowship; or a Turbine chat room:
+    /// "g"/"general", "trade", "lfg", "rp", "a"/"allegiance". False for
+    /// an unknown channel or an allegiance room we are not in.
     fn chat(&mut self, channel: &str, text: &str) -> bool;
     /// Open a secure trade with a player (guid); add an item; accept/decline/reset/close.
     fn trade_open(&mut self, player: i64);

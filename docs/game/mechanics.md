@@ -673,8 +673,22 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   Patron 0x2000, Monarch 0x4000, CoVassals 0x01000000, Fellow 0x800, which
   everyone on the channel, sender included, gets back as ChannelBroadcast
   0x0147 (channel, sender or "" for yourself, text); `/v`, `/p`, `/m`,
-  `/c`, `/f` in the chat box. Allegiance-wide chat is a Turbine chat room
-  (the profile's chat room id), not implemented.
+  `/c`, `/f` in the chat box.
+* **Turbine chat** (message 0xF7DE, not a game event) carries the rooms:
+  General 2, Trade 3, LFG 4, Roleplay 5, the society rooms 6..9, Olthoi
+  10, and each allegiance's own room whose id is the allegiance's biota
+  id (SetTurbineChatChannels 0x0295 lists the ten room ids at login and
+  after an oath; the "You have entered the General channel" lines are
+  WeenieErrorWithString). A message is a net blob: size, blob type (1 a
+  line from a room, 3 our request, 5 the server's ack), dispatch type,
+  (1, id, 1, id, 0), payload size, then for a room line the room id, the
+  sender and the text as counted UTF-16 strings, 0x0C, sender guid, 0,
+  chat type; for our request the context id, 2, 2, room id, text, 0x0C,
+  our guid, 0, chat type. The server relays a line to everyone whose
+  "listen to" option for that room is on, the sender included, and
+  answers the request with an ack blob. `/g`, `/trade`, `/lfg`, `/rp`
+  and `/a` in the chat box; lines show as "[General] Name: text".
+  Verified with two sessions on ACE in all three public rooms.
 * Verified on ACE with two acbot sessions: swear + confirmation, both
   profiles, naming, `/p` and `/v` chat both ways, break from the vassal.
 * **Commands**: the server (ACE `GameActionTalk`) treats only Talk lines

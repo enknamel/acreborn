@@ -79,7 +79,8 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # (1..9 cast its spells, Insert/PageUp cycle tabs, Delete/PageDown spells),
 # O the components panel, U the buffs, F the fellowship, L the allegiance
 # (swear to the selected player, break, name it; /v /p /m /c chat to
-# vassals, patron, monarch, co-vassals), H housing (your house, guests,
+# vassals, patron, monarch, co-vassals; /g /trade /lfg /rp /a for the
+# General, Trade, LFG, Roleplay and allegiance rooms), H housing (your house, guests,
 # recall; use a house sign to see its price and buy it), X the character
 # options; server
 # questions such as a fellowship invitation or an oath pop up with Yes/No;

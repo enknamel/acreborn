@@ -144,6 +144,11 @@ pub struct Client {
     pub selected: Option<u32>,
     /// The salvage window is open (an Ust was used); the panel closes it.
     pub salvage_open: bool,
+    /// Our allegiance's Turbine chat room (SetTurbineChatChannels), 0
+    /// without one.
+    pub allegiance_room: u32,
+    /// Context id of the next Turbine chat request.
+    turbine_context: u32,
     pub last_click: Option<(Instant, u32)>,
     pub player: Option<player::Player>,
     pub player_setup: u32,
@@ -227,6 +232,8 @@ impl Client {
             loot_inflight: None,
             selected: None,
             salvage_open: false,
+            allegiance_room: 0,
+            turbine_context: 1,
             last_click: None,
             player: None,
             player_setup: 0,
@@ -480,6 +487,11 @@ impl Client {
                                     tracing::debug!("use done, error {err:#x}");
                                     // The walk the server asked for is over either way.
                                     self.move_to = None;
+                                } else if ev == ac_net::messages::event::SET_TURBINE_CHAT_CHANNELS
+                                    && rest.len() >= 4
+                                {
+                                    self.allegiance_room =
+                                        u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
                                 } else {
                                     tracing::debug!("game event {ev:#06x} ({} bytes)", rest.len());
                                 }
@@ -736,6 +748,11 @@ impl Client {
             return;
         }
         let line = match op {
+            opcode::TURBINE_CHAT => match ac_net::messages::turbine::parse(body) {
+                Ok(Some(l)) => Ok(l),
+                Ok(None) => return,
+                Err(e) => Err(e),
+            },
             opcode::HEAR_SPEECH => ChatLine::parse_hear_speech(body),
             opcode::HEAR_RANGED_SPEECH => ChatLine::parse_hear_ranged_speech(body),
             opcode::SERVER_MESSAGE => ChatLine::parse_server_message(body),
@@ -916,6 +933,10 @@ impl Client {
             }
         };
         let text = match (op, line.sender.is_empty()) {
+            _ if line.kind == ac_net::messages::turbine::KIND => {
+                let room = ac_net::messages::turbine::name(line.sender_id);
+                format!("[{room}] {}: {}", line.sender, line.text)
+            }
             _ if line.kind == ac_net::messages::channel::KIND => {
                 let channel = ac_net::messages::channel::name(line.sender_id);
                 if line.sender.is_empty() {
@@ -1690,6 +1711,36 @@ impl Client {
         self.house_guest_list();
     }
 
+    /// Say something in a Turbine chat room (message 0xF7DE): General,
+    /// Trade, LFG, Roleplay, or `turbine::ALLEGIANCE` for our
+    /// allegiance's own room. Everyone in the room, us included, gets
+    /// the line back. False without an allegiance room to speak in.
+    pub fn turbine_say(&mut self, room: u32, text: &str) -> bool {
+        let text = text.trim();
+        if text.is_empty() {
+            return false;
+        }
+        let room = if room == ac_net::messages::turbine::ALLEGIANCE {
+            if self.allegiance_room == 0 {
+                self.events.push(Event::Chat {
+                    text: "You are not in an allegiance.".into(),
+                    kind: 0,
+                });
+                return false;
+            }
+            self.allegiance_room
+        } else {
+            room
+        };
+        let me = self.world.player_guid.unwrap_or(0);
+        let context = self.turbine_context;
+        self.turbine_context = (self.turbine_context % 0x70) + 1;
+        let msg = ac_net::messages::turbine::encode(room, me, text, context);
+        self.session
+            .send_message(ac_net::messages::queue::WEENIE, msg);
+        true
+    }
+
     /// Say something on a group channel (ChatChannel 0x0147): fellowship,
     /// vassals, patron, monarch or co-vassals (`ac_net::messages::channel`).
     /// Everyone on it, us included, hears it as a ChannelBroadcast.
@@ -1999,6 +2050,14 @@ impl Client {
             "emote" | "e" | "me" => {
                 w.string16(args);
                 self.session.send_action(action::EMOTE, &w.finish());
+            }
+            // `/g`, `/trade`, `/lfg`, `/rp`, `/a`: the Turbine chat rooms.
+            n if ac_net::messages::turbine::from_prefix(n).is_some() => {
+                if args.is_empty() {
+                    return false;
+                }
+                let room = ac_net::messages::turbine::from_prefix(n).unwrap_or(0);
+                return self.turbine_say(room, args);
             }
             // `/v`, `/p`, `/m`, `/c`, `/f`: vassals, patron, monarch,
             // co-vassals and fellowship group chat.

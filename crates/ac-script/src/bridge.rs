@@ -576,6 +576,9 @@ impl Api for CtxApi<'_, '_> {
     }
 
     fn chat(&mut self, channel: &str, text: &str) -> bool {
+        if let Some(room) = ac_net::messages::turbine::from_prefix(channel) {
+            return self.client().turbine_say(room, text);
+        }
         let Some(id) = ac_net::messages::channel::from_prefix(channel) else {
             return false;
         };
