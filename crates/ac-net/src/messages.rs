@@ -391,6 +391,11 @@ pub mod event {
     pub const FELLOWSHIP_UPDATE_FELLOW: u32 = 0x02C0;
     pub const CONFIRMATION_REQUEST: u32 = 0x0274;
     pub const CONFIRMATION_DONE: u32 = 0x0276;
+    pub const ALLEGIANCE_UPDATE_ABORTED: u32 = 0x0003;
+    pub const ALLEGIANCE_UPDATE: u32 = 0x0020;
+    pub const ALLEGIANCE_UPDATE_DONE: u32 = 0x01C8;
+    pub const ALLEGIANCE_LOGIN_NOTIFICATION: u32 = 0x027A;
+    pub const ALLEGIANCE_INFO_RESPONSE: u32 = 0x027C;
     pub const REGISTER_TRADE: u32 = 0x01FD;
     pub const OPEN_TRADE: u32 = 0x01FE;
     pub const CLOSE_TRADE: u32 = 0x01FF;
@@ -520,6 +525,65 @@ impl ChatLine {
             sender_id,
             kind,
         })
+    }
+
+    /// ChannelBroadcast event 0x0147: channel id, sender ("" for our
+    /// own line), text. The channel id is kept in `sender_id` and the
+    /// kind is `channel::KIND`.
+    pub fn parse_channel_broadcast(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let channel = r.u32()?;
+        let sender = r.string16()?;
+        let text = r.string16()?;
+        Ok(ChatLine {
+            text,
+            sender,
+            sender_id: channel,
+            kind: channel::KIND,
+        })
+    }
+}
+
+/// Group chat channel ids (ACE `Channel`), for ChatChannel 0x0147 both
+/// ways.
+pub mod channel {
+    pub const FELLOW: u32 = 0x0000_0800;
+    pub const VASSALS: u32 = 0x0000_1000;
+    pub const PATRON: u32 = 0x0000_2000;
+    pub const MONARCH: u32 = 0x0000_4000;
+    pub const CO_VASSALS: u32 = 0x0100_0000;
+    /// The `ChatLine::kind` a channel line is tagged with; not a
+    /// ChatMessageType, the line carries the channel id instead.
+    pub const KIND: u32 = 0x1000_0000;
+
+    pub fn name(id: u32) -> &'static str {
+        match id {
+            0x1 => "Abuse",
+            0x2 => "Admin",
+            0x4 => "Audit",
+            0x8 | 0x10 | 0x20 => "Advocate",
+            0x100 => "Debug",
+            0x200 => "Sentinel",
+            0x400 => "Help",
+            FELLOW => "Fellowship",
+            VASSALS => "Vassals",
+            PATRON => "Patron",
+            MONARCH => "Monarch",
+            CO_VASSALS => "Co-vassals",
+            _ => "Channel",
+        }
+    }
+
+    /// The channel a `/v`, `/p`, `/m`, `/c` or `/f` chat prefix means.
+    pub fn from_prefix(p: &str) -> Option<u32> {
+        match p {
+            "v" | "vassals" => Some(VASSALS),
+            "p" | "patron" => Some(PATRON),
+            "m" | "monarch" => Some(MONARCH),
+            "c" | "covassals" => Some(CO_VASSALS),
+            "f" | "fellow" => Some(FELLOW),
+            _ => None,
+        }
     }
 }
 
@@ -890,6 +954,18 @@ pub mod action {
     pub const FELLOWSHIP_RECRUIT: u32 = 0x00A5;
     pub const FELLOWSHIP_UPDATE_REQUEST: u32 = 0x00A6;
     pub const CONFIRMATION_RESPONSE: u32 = 0x0275;
+    pub const SWEAR_ALLEGIANCE: u32 = 0x001D;
+    pub const BREAK_ALLEGIANCE: u32 = 0x001E;
+    pub const ALLEGIANCE_UPDATE_REQUEST: u32 = 0x001F;
+    pub const QUERY_ALLEGIANCE_NAME: u32 = 0x0030;
+    pub const CLEAR_ALLEGIANCE_NAME: u32 = 0x0031;
+    pub const SET_ALLEGIANCE_NAME: u32 = 0x0033;
+    pub const ALLEGIANCE_INFO_REQUEST: u32 = 0x027B;
+    /// Group chat: channel id (see `channel`), text.
+    pub const CHAT_CHANNEL: u32 = 0x0147;
+    pub const SET_MOTD: u32 = 0x0254;
+    pub const QUERY_MOTD: u32 = 0x0255;
+    pub const CLEAR_MOTD: u32 = 0x0256;
     pub const OPEN_TRADE_NEGOTIATIONS: u32 = 0x01F6;
     pub const CLOSE_TRADE_NEGOTIATIONS: u32 = 0x01F7;
     pub const ADD_TO_TRADE: u32 = 0x01F8;

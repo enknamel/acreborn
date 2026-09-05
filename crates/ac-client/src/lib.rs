@@ -371,6 +371,7 @@ impl Client {
                         | ac_world::Applied::Vendor
                         | ac_world::Applied::Trade
                         | ac_world::Applied::Fellowship
+                        | ac_world::Applied::Allegiance
                         | ac_world::Applied::Confirmation
                         | ac_world::Applied::Inventory => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
@@ -515,6 +516,9 @@ impl Client {
                 self.player = Some(pl);
                 self.events.push(self::Event::Placed { cell: p.cell });
                 self.scene_block = Some(block);
+                if self.world.allegiance.is_none() {
+                    self.allegiance_update_request(false);
+                }
             }
         }
         self.world.tick(dt);
@@ -731,6 +735,9 @@ impl Client {
             opcode::EMOTE_TEXT => ChatLine::parse_emote_text(body),
             opcode::GAME_EVENT => match ac_net::messages::split_game_event(body) {
                 Some((_, _, event::TELL, rest)) => ChatLine::parse_tell(rest),
+                Some((_, _, event::CHANNEL_BROADCAST, rest)) => {
+                    ChatLine::parse_channel_broadcast(rest)
+                }
                 Some((_, _, event::IDENTIFY_OBJECT_RESPONSE, rest)) => {
                     self.appraisal(rest);
                     return;
@@ -891,6 +898,14 @@ impl Client {
             }
         };
         let text = match (op, line.sender.is_empty()) {
+            _ if line.kind == ac_net::messages::channel::KIND => {
+                let channel = ac_net::messages::channel::name(line.sender_id);
+                if line.sender.is_empty() {
+                    format!("[{channel}] You say, \"{}\"", line.text)
+                } else {
+                    format!("[{channel}] {} says, \"{}\"", line.sender, line.text)
+                }
+            }
             (_, true) => line.text.clone(),
             (opcode::EMOTE_TEXT, _) => format!("{} {}", line.sender, line.text),
             (opcode::GAME_EVENT, _) => format!("{} tells you, \"{}\"", line.sender, line.text),
@@ -1399,6 +1414,121 @@ impl Client {
             .retain(|c| !(c.kind == kind && c.context == context));
     }
 
+    /// Say something on a group channel (ChatChannel 0x0147): fellowship,
+    /// vassals, patron, monarch or co-vassals (`ac_net::messages::channel`).
+    /// Everyone on it, us included, hears it as a ChannelBroadcast.
+    pub fn chat_channel(&mut self, channel: u32, text: &str) {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(channel).string16(text);
+        self.session
+            .send_action(ac_net::messages::action::CHAT_CHANNEL, &w.finish());
+    }
+
+    /// Ask the server for our allegiance profile (AllegianceUpdateRequest
+    /// 0x001F); it answers with AllegianceUpdate. `panel` is what the
+    /// original client sent when its panel opened; ACE ignores it.
+    pub fn allegiance_update_request(&mut self, panel: bool) {
+        self.session.send_action(
+            ac_net::messages::action::ALLEGIANCE_UPDATE_REQUEST,
+            &u32::from(panel).to_le_bytes(),
+        );
+    }
+
+    /// Swear allegiance to a player in reach (SwearAllegiance 0x001D).
+    /// The server walks us over, asks the patron (a kind 1
+    /// confirmation) and, on yes, sends both an AllegianceUpdate. Refused
+    /// when we already have a patron, they ignore allegiance requests,
+    /// have 11 vassals, or are our own vassal.
+    pub fn swear_allegiance(&mut self, patron: u32) -> bool {
+        let Some(o) = self.world.objects.get(&patron) else {
+            return false;
+        };
+        if o.object_desc_flags & ac_world::object_desc_flags::PLAYER == 0
+            || Some(patron) == self.world.player_guid
+        {
+            return false;
+        }
+        tracing::info!("swear allegiance to {} ({patron:#010x})", o.name);
+        self.session.send_action(
+            ac_net::messages::action::SWEAR_ALLEGIANCE,
+            &patron.to_le_bytes(),
+        );
+        true
+    }
+
+    /// Break with our patron or one of our vassals (BreakAllegiance
+    /// 0x001E); they need not be online or in view.
+    pub fn break_allegiance(&mut self, member: u32) -> bool {
+        let known = self
+            .world
+            .allegiance
+            .as_ref()
+            .map(|a| {
+                a.patron.as_ref().map(|p| p.guid) == Some(member)
+                    || a.vassals.iter().any(|v| v.guid == member)
+            })
+            .unwrap_or(false);
+        if !known {
+            return false;
+        }
+        tracing::info!("break allegiance with {member:#010x}");
+        self.session.send_action(
+            ac_net::messages::action::BREAK_ALLEGIANCE,
+            &member.to_le_bytes(),
+        );
+        true
+    }
+
+    /// Ask for another member's profile by name (AllegianceInfoRequest
+    /// 0x027B; officers only). The answer lands in
+    /// `world.allegiance_info`.
+    pub fn allegiance_info_request(&mut self, name: &str) {
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(name.trim());
+        self.session.send_action(
+            ac_net::messages::action::ALLEGIANCE_INFO_REQUEST,
+            &w.finish(),
+        );
+    }
+
+    /// Name the allegiance (SetAllegianceName 0x0033, monarch only) or
+    /// clear the name with an empty string (ClearAllegianceName 0x0031).
+    /// The server answers in chat and re-sends the profile.
+    pub fn set_allegiance_name(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            self.session
+                .send_action(ac_net::messages::action::CLEAR_ALLEGIANCE_NAME, &[]);
+            return;
+        }
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(name);
+        self.session
+            .send_action(ac_net::messages::action::SET_ALLEGIANCE_NAME, &w.finish());
+        // The server only answers in chat; ask for the renamed profile.
+        self.allegiance_update_request(true);
+    }
+
+    /// Set (SetMotd 0x0254) or, with an empty string, clear (ClearMotd
+    /// 0x0256) the allegiance message of the day; officers only.
+    pub fn set_allegiance_motd(&mut self, motd: &str) {
+        let motd = motd.trim();
+        if motd.is_empty() {
+            self.session
+                .send_action(ac_net::messages::action::CLEAR_MOTD, &[]);
+            return;
+        }
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(motd);
+        self.session
+            .send_action(ac_net::messages::action::SET_MOTD, &w.finish());
+        self.allegiance_update_request(true);
+    }
+
     /// Apply a carried item to a target (UseWithTarget 0x0035): a healing
     /// kit on yourself or a fellow, a mana stone on an item, a key or
     /// lockpick on a chest or door. The server walks us into reach first.
@@ -1593,6 +1723,15 @@ impl Client {
             "emote" | "e" | "me" => {
                 w.string16(args);
                 self.session.send_action(action::EMOTE, &w.finish());
+            }
+            // `/v`, `/p`, `/m`, `/c`, `/f`: vassals, patron, monarch,
+            // co-vassals and fellowship group chat.
+            n if ac_net::messages::channel::from_prefix(n).is_some() => {
+                if args.is_empty() {
+                    return false;
+                }
+                let channel = ac_net::messages::channel::from_prefix(n).unwrap_or(0);
+                self.chat_channel(channel, args);
             }
             _ => {
                 // The server's own commands (@acehelp, @myquests, admin

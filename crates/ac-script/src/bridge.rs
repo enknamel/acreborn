@@ -76,7 +76,12 @@ fn object_map(o: &WorldObject, me: Option<[f32; 3]>, carried: bool) -> Map {
         "is_creature".into(),
         (o.item_type & item_type::CREATURE != 0).into(),
     );
-    map.insert("is_player".into(), o.is_player.into());
+    // A player character (ours is never listed by objects()), not
+    // `WorldObject::is_player`, which marks our own body.
+    map.insert(
+        "is_player".into(),
+        (o.object_desc_flags & object_desc_flags::PLAYER != 0).into(),
+    );
     map.insert(
         "is_corpse".into(),
         (o.object_desc_flags & object_desc_flags::CORPSE != 0).into(),
@@ -397,6 +402,63 @@ impl Api for CtxApi<'_, '_> {
 
     fn fellow_quit(&mut self, disband: bool) {
         self.client().fellowship_quit(disband);
+    }
+
+    fn swear(&mut self, patron: i64) -> bool {
+        self.client().swear_allegiance(patron as u32)
+    }
+
+    fn break_allegiance(&mut self, member: i64) -> bool {
+        self.client().break_allegiance(member as u32)
+    }
+
+    fn allegiance(&mut self) -> Dynamic {
+        let c = self.client();
+        let Some(a) = c.world.allegiance.as_ref().filter(|a| a.is_member()) else {
+            return Dynamic::UNIT;
+        };
+        let member = |x: &ac_world::allegiance::Member| {
+            let mut mm = Map::new();
+            mm.insert("guid".into(), int(x.guid));
+            mm.insert("name".into(), x.name.clone().into());
+            mm.insert("level".into(), int(x.level));
+            mm.insert("rank".into(), int(x.rank));
+            mm.insert("loyalty".into(), int(x.loyalty));
+            mm.insert("leadership".into(), int(x.leadership));
+            mm.insert("online".into(), x.online.into());
+            mm.insert("xp_cached".into(), int(x.xp_cached as i64));
+            mm.insert("xp_tithed".into(), int(x.xp_tithed as i64));
+            Dynamic::from_map(mm)
+        };
+        let opt = |x: Option<&ac_world::allegiance::Member>| x.map(member).unwrap_or(Dynamic::UNIT);
+        let mut m = Map::new();
+        m.insert("name".into(), a.name.clone().into());
+        m.insert("rank".into(), int(a.rank));
+        m.insert("total_members".into(), int(a.total_members));
+        m.insert("total_vassals".into(), int(a.total_vassals));
+        m.insert("motd".into(), a.motd.clone().into());
+        m.insert("monarch".into(), opt(a.monarch.as_ref()));
+        m.insert("patron".into(), opt(a.patron.as_ref()));
+        m.insert("me".into(), opt(a.me.as_ref()));
+        let vassals: Array = a.vassals.iter().map(member).collect();
+        m.insert("vassals".into(), vassals.into());
+        Dynamic::from_map(m)
+    }
+
+    fn allegiance_refresh(&mut self) {
+        self.client().allegiance_update_request(true);
+    }
+
+    fn allegiance_name(&mut self, name: &str) {
+        self.client().set_allegiance_name(name);
+    }
+
+    fn chat(&mut self, channel: &str, text: &str) -> bool {
+        let Some(id) = ac_net::messages::channel::from_prefix(channel) else {
+            return false;
+        };
+        self.client().chat_channel(id, text);
+        true
     }
 
     fn confirmations(&mut self) -> Array {

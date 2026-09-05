@@ -464,6 +464,20 @@ mod tests {
         fn fellowship(&mut self) -> Dynamic {
             Dynamic::UNIT
         }
+        fn swear(&mut self, _p: i64) -> bool {
+            false
+        }
+        fn break_allegiance(&mut self, _m: i64) -> bool {
+            false
+        }
+        fn allegiance(&mut self) -> Dynamic {
+            Dynamic::UNIT
+        }
+        fn allegiance_refresh(&mut self) {}
+        fn allegiance_name(&mut self, _n: &str) {}
+        fn chat(&mut self, _c: &str, _t: &str) -> bool {
+            false
+        }
         fn option(&mut self, _n: &str, _on: bool) -> bool {
             false
         }

@@ -94,6 +94,22 @@ pub trait Api {
     fn confirm(&mut self, yes: bool) -> bool;
     /// The fellowship as a map { name, leader, members: [{guid, name, level, health, ...}] } or unit.
     fn fellowship(&mut self) -> Dynamic;
+    /// Swear allegiance to a player in view (they answer a confirmation).
+    fn swear(&mut self, patron: i64) -> bool;
+    /// Break with your patron or one of your vassals.
+    fn break_allegiance(&mut self, member: i64) -> bool;
+    /// The allegiance as a map { name, rank, total_members, total_vassals,
+    /// motd, monarch, patron, me, vassals: [...] } (members are maps
+    /// { guid, name, level, rank, loyalty, leadership, online, xp_cached,
+    /// xp_tithed }) or unit when not in one.
+    fn allegiance(&mut self) -> Dynamic;
+    /// Ask the server for the profile again.
+    fn allegiance_refresh(&mut self);
+    /// Name the allegiance (monarch), "" clears it.
+    fn allegiance_name(&mut self, name: &str);
+    /// Say something on a group channel: "v" vassals, "p" patron, "m"
+    /// monarch, "c" co-vassals, "f" fellowship. False for an unknown channel.
+    fn chat(&mut self, channel: &str, text: &str) -> bool;
     /// Open a secure trade with a player (guid); add an item; accept/decline/reset/close.
     fn trade_open(&mut self, player: i64);
     fn trade_add(&mut self, item: i64) -> bool;
@@ -256,6 +272,18 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("confirmations", || with_api(|a| a.confirmations()));
     engine.register_fn("confirm", |y: bool| with_api(|a| a.confirm(y)));
     engine.register_fn("fellowship", || with_api(|a| a.fellowship()));
+    engine.register_fn("swear", |g: i64| with_api(|a| a.swear(g)));
+    engine.register_fn("break_allegiance", |g: i64| {
+        with_api(|a| a.break_allegiance(g))
+    });
+    engine.register_fn("allegiance", || with_api(|a| a.allegiance()));
+    engine.register_fn("allegiance_refresh", || {
+        with_api(|a| a.allegiance_refresh())
+    });
+    engine.register_fn("allegiance_name", |n: &str| {
+        with_api(|a| a.allegiance_name(n))
+    });
+    engine.register_fn("chat", |c: &str, t: &str| with_api(|a| a.chat(c, t)));
     engine.register_fn("trade_open", |g: i64| with_api(|a| a.trade_open(g)));
     engine.register_fn("trade_add", |g: i64| with_api(|a| a.trade_add(g)));
     engine.register_fn("trade_accept", || with_api(|a| a.trade_accept()));

@@ -25,6 +25,18 @@ pub fn kind_name(kind: u32) -> &'static str {
     }
 }
 
+/// The text to show: ACE sends only the other player's name for an
+/// allegiance oath (kind 1); the client wrote the sentence.
+pub fn question_text(q: &Question) -> String {
+    match q.kind {
+        1 => format!(
+            "{} wants to swear allegiance to you. Accept the oath?",
+            q.text
+        ),
+        _ => q.text.clone(),
+    }
+}
+
 pub fn view(c: &Client) -> Vec<Question> {
     c.world
         .confirmations
@@ -58,7 +70,7 @@ pub fn draw(egui: &egui::Context, questions: &[Question]) -> Vec<(u32, u32, bool
             .fixed_size(egui::vec2(360.0, 90.0))
             .show(egui, |ui| {
                 title(ui, kind_name(q.kind));
-                ui.label(egui::RichText::new(&q.text).color(egui::Color32::WHITE));
+                ui.label(egui::RichText::new(question_text(q)).color(egui::Color32::WHITE));
                 ui.horizontal(|ui| {
                     if ui.button("Yes").clicked() {
                         answers.push((q.kind, q.context, true));

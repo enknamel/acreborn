@@ -109,6 +109,7 @@ name = "ac-script"
 version = "0.1.0"
 dependencies = [
  "ac-client",
+ "ac-net",
  "ac-plugin",
  "ac-world",
  "rhai",

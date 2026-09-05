@@ -602,11 +602,47 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   FellowshipQuit (0x00A3: disband) / FellowshipDismiss (0x00A4: guid)
   echo as events with the guid; FellowshipDisband (0x02BF) ends it.
   Members are green radar blips (leader triangle up).
-* **Allegiance**: swear to a patron of equal or higher level
-  (SwearAllegiance 0x001D, BreakAllegiance 0x001E, AllegianceUpdateRequest
-  0x001F → AllegianceUpdate 0x0020); vassals pass XP up by Loyalty and the
-  patron's Leadership. Officers, names, motd and chat are separate
-  actions (0x0030..0x0042, 0x0254).
+* **Allegiance**: a tree of patrons and vassals under a monarch. Swear
+  by selecting a player and sending SwearAllegiance 0x001D (their guid):
+  the server walks you within 2 m, asks the patron with a kind 1
+  confirmation whose text is just your name, and on yes tells both sides
+  in chat ("Reborn has sworn Allegiance to you." / "+Admin has accepted
+  your oath of Allegiance!"), plays the kneel motion and sends both an
+  AllegianceUpdate 0x0020 then AllegianceUpdateDone 0x01C8. Refused when
+  you already have a patron ("You've already sworn allegiance."), the
+  patron ignores allegiance requests (character option 1), has 11
+  vassals, is banned/locked, or is your own vassal. BreakAllegiance 0x001E
+  (the patron's or a vassal's guid) drops the link from either side
+  ("You have broken your Allegiance to X!" / "X has broken their
+  Allegiance to you!").
+* The profile is only sent on request (AllegianceUpdateRequest 0x001F,
+  the client sends one once placed and when the panel opens): our rank,
+  member and vassal counts, then the hierarchy (officers hash table,
+  officer titles, broadcast counters, motd and who set it, chat room id,
+  bind point, name, lock, approved vassal) and member records for the
+  monarch, the patron if not the monarch, ourselves if not the monarch,
+  and our direct vassals, each with rank, level, loyalty, leadership,
+  online flag, XP generated/cached and a "may pass up" flag. The rest of
+  the tree is never sent. AllegianceInfoRequest 0x027B (a name; officers
+  only) answers with AllegianceInfoResponse 0x027C for that member;
+  AllegianceLoginNotification 0x027A flips a member's online flag.
+* **XP passup**: a vassal's earned XP (kills, quests; not admin grants)
+  generates 50%+ for the patron by Loyalty and the patron receives by
+  Leadership, but only when the patron's level was at least the vassal's
+  when the oath was sworn (`ExistedBeforeAllegianceXpChanges`; the record
+  shows it as the "no passup" flag). Rank is 1 + the vassal count ladder,
+  capped at 10.
+* Names and motd: SetAllegianceName 0x0033 / ClearAllegianceName 0x0031
+  (monarch: "Your allegiance name has been set.", no profile resent, so
+  the client asks for one), SetMotd 0x0254 / ClearMotd 0x0256 (officers).
+  Group chat is ChatChannel 0x0147 (channel id, text): Vassals 0x1000,
+  Patron 0x2000, Monarch 0x4000, CoVassals 0x01000000, Fellow 0x800, which
+  everyone on the channel, sender included, gets back as ChannelBroadcast
+  0x0147 (channel, sender or "" for yourself, text); `/v`, `/p`, `/m`,
+  `/c`, `/f` in the chat box. Allegiance-wide chat is a Turbine chat room
+  (the profile's chat room id), not implemented.
+* Verified on ACE with two acbot sessions: swear + confirmation, both
+  profiles, naming, `/p` and `/v` chat both ways, break from the vassal.
 * **Commands**: the server (ACE `GameActionTalk`) treats only Talk lines
   starting with `@` as commands (`@acehelp`, `@myquests`, admin commands;
   unknown ones answer "Unknown command: X"). Retail's `/` commands were

@@ -3,6 +3,7 @@
 //! `DeleteObject`) and keeps a table of objects with their model ids and
 //! positions.
 
+pub mod allegiance;
 pub mod motion;
 pub mod object;
 pub mod stats;
@@ -177,6 +178,12 @@ pub struct World {
     /// Questions the server asked (recruit into a fellowship, swear
     /// allegiance...), until answered with `confirm`.
     pub confirmations: Vec<Confirmation>,
+    /// Our allegiance as last described by AllegianceUpdate; `None`
+    /// until one arrives, `Some` with no members when we have none.
+    pub allegiance: Option<allegiance::Allegiance>,
+    /// Another player's allegiance profile (AllegianceInfoResponse to
+    /// an officer's request), keyed by that player's guid.
+    pub allegiance_info: Option<(u32, allegiance::Allegiance)>,
 }
 
 /// What `apply` did with a message, for logging.
@@ -206,6 +213,8 @@ pub enum Applied {
     Fellowship,
     /// A confirmation request arrived or was resolved.
     Confirmation,
+    /// The allegiance profile changed (ours, or one asked about).
+    Allegiance,
     /// An object's look changed (equipment).
     Appearance,
     /// A creature's health fraction changed.
@@ -580,6 +589,50 @@ impl World {
                         _ => Applied::Failed,
                     }
                 }
+                Some((_, _, event::ALLEGIANCE_UPDATE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    let me = self.player_guid.unwrap_or(0);
+                    match r
+                        .u32()
+                        .ok()
+                        .and_then(|rank| allegiance::parse_profile(&mut r, me, rank))
+                    {
+                        Some(a) => {
+                            self.allegiance = Some(a);
+                            Applied::Allegiance
+                        }
+                        None => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::ALLEGIANCE_INFO_RESPONSE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    match r
+                        .u32()
+                        .ok()
+                        .and_then(|who| Some((who, allegiance::parse_profile(&mut r, who, 0)?)))
+                    {
+                        Some(info) => {
+                            self.allegiance_info = Some(info);
+                            Applied::Allegiance
+                        }
+                        None => Applied::Failed,
+                    }
+                }
+                Some((_, _, event::ALLEGIANCE_LOGIN_NOTIFICATION, rest)) => {
+                    let mut r = Reader::new(rest);
+                    if let (Ok(who), Ok(on)) = (r.u32(), r.u32()) {
+                        if let Some(m) = self.allegiance.as_mut().and_then(|a| a.member_mut(who)) {
+                            m.online = on != 0;
+                        }
+                    }
+                    Applied::Allegiance
+                }
+                Some((
+                    _,
+                    _,
+                    event::ALLEGIANCE_UPDATE_DONE | event::ALLEGIANCE_UPDATE_ABORTED,
+                    _,
+                )) => Applied::Ignored,
                 Some((_, _, event::CONFIRMATION_DONE, rest)) => {
                     let mut r = Reader::new(rest);
                     if let (Ok(kind), Ok(context)) = (r.u32(), r.u32()) {

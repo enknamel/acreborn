@@ -228,8 +228,9 @@ can host plugins the same way: `Host::new()`, `register`, then
 `crates/ac-plugin/src/panels/` holds the client's own overlay, one plugin
 per file: `vitals`, `radar`, `target`, `inventory` (I), `loot`, `vendor`,
 `skills` (K), `spellbook` (P), `spellbar` (B), `components` (O), `buffs`
-(U). Each has the same three parts, so any of them is a template for a UI
-plugin:
+(U), `trade`, `fellowship` (F), `allegiance` (L), `confirm` (the server's
+Yes/No questions), `options` (X), `combat` (the height/power bar). Each
+has the same three parts, so any of them is a template for a UI plugin:
 
 * `view(&Client) -> View`: a plain struct of what to draw, built from the
   session each frame (`world.stats`, `inventory()`, `open_container`,

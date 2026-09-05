@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 ac-plugin = { path = "../ac-plugin" }
 ac-client = { path = "../ac-client" }
+ac-net = { path = "../ac-net" }
 ac-world = { path = "../ac-world" }
 # Single-threaded on purpose: the engine lives on the client's main thread
 # next to the sessions, so the `sync` feature (Send + Sync everything) is off.
