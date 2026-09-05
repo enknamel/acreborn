@@ -83,6 +83,11 @@ fn decode_json(kind: FileKind, id: u32, b: &[u8]) -> Result<serde_json::Value> {
         FileKind::PhysicsScriptTable => {
             serde_json::to_value(physics_script_table::PhysicsScriptTable::parse(id, b)?)?
         }
+        FileKind::SkillTable => serde_json::to_value(skill_table::SkillTable::parse(id, b)?)?,
+        FileKind::SpellTable => serde_json::to_value(spell_table::SpellTable::parse(id, b)?)?,
+        FileKind::SpellComponentTable => {
+            serde_json::to_value(spell_components::SpellComponentTable::parse(id, b)?)?
+        }
         other => bail!("no decoder for {other:?} yet"),
     };
     Ok(v)
