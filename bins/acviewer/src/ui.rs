@@ -32,6 +32,23 @@ pub struct SkillRow {
     pub training: &'static str,
 }
 
+/// One line of the spellbook panel.
+pub struct SpellRow {
+    pub id: u32,
+    pub name: String,
+    /// Spell level 1..=8 (from the spell's power).
+    pub level: u32,
+    pub school: &'static str,
+    pub mana: u32,
+    /// Only castable on ourselves; other spells need a selected target.
+    pub self_targeted: bool,
+    /// RenderSurface (0x06) id of the spell icon.
+    pub icon: u32,
+    /// Shown on hover: the spell's description and its incantation.
+    pub description: String,
+    pub words: String,
+}
+
 pub struct Sheet {
     pub name: String,
     pub level: i32,
@@ -202,6 +219,11 @@ pub struct Ui {
     pub show_inventory: bool,
     /// Skills panel (K).
     pub show_skills: bool,
+    /// Spellbook panel (P) contents: the spells we know.
+    pub spells: Vec<SpellRow>,
+    pub show_spells: bool,
+    /// Spells double-clicked in the spellbook; drained by the caller.
+    pub cast_requests: Vec<u32>,
     /// Selected/attacked creature: name and health fraction.
     pub target: Option<(String, f32)>,
     /// Open ground container: name and items.
@@ -266,6 +288,9 @@ impl Ui {
             activated: Vec::new(),
             show_inventory: true,
             show_skills: false,
+            spells: Vec::new(),
+            show_spells: false,
+            cast_requests: Vec::new(),
             target: None,
             loot: None,
             loot_take: Vec::new(),
@@ -771,6 +796,111 @@ impl Ui {
                                             ui.end_row();
                                         }
                                     });
+                            });
+                    });
+            }
+            if self.sheet.is_some() && self.show_spells {
+                // Sits beside the skills panel when both are open.
+                let x = if self.show_skills { 380.0 } else { 8.0 };
+                egui::Window::new("spellbook")
+                    .fade_in(false)
+                    .title_bar(false)
+                    .resizable(false)
+                    .frame(
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_black_alpha(170))
+                            .inner_margin(6),
+                    )
+                    .fixed_pos(egui::pos2(x, 132.0))
+                    .fixed_size(egui::vec2(380.0, 380.0))
+                    .show(ctx, |ui| {
+                        ui.set_min_size(egui::vec2(368.0, 368.0));
+                        ui.label(
+                            egui::RichText::new(format!("Spellbook ({})", self.spells.len()))
+                                .color(egui::Color32::WHITE)
+                                .strong(),
+                        );
+                        ui.label(
+                            egui::RichText::new("double-click to cast")
+                                .color(egui::Color32::from_gray(170))
+                                .small(),
+                        );
+                        ui.add_space(4.0);
+                        egui::ScrollArea::vertical()
+                            .max_height(330.0)
+                            .show(ui, |ui| {
+                                ui.set_min_width(360.0);
+                                if self.spells.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new("(no spells known)")
+                                            .color(egui::Color32::from_gray(170)),
+                                    );
+                                }
+                                let mut last_level = 0;
+                                for sp in &self.spells {
+                                    if sp.level != last_level {
+                                        ui.label(
+                                            egui::RichText::new(format!("Level {}", sp.level))
+                                                .color(egui::Color32::from_gray(170))
+                                                .small(),
+                                        );
+                                        last_level = sp.level;
+                                    }
+                                    let color = if sp.self_targeted {
+                                        egui::Color32::from_rgb(180, 230, 180)
+                                    } else {
+                                        egui::Color32::WHITE
+                                    };
+                                    let resp = ui
+                                        .horizontal(|ui| {
+                                            let icon = self.icons.draw(
+                                                ui,
+                                                IconLayers {
+                                                    underlay: 0,
+                                                    icon: sp.icon,
+                                                    overlay: 0,
+                                                },
+                                                egui::Sense::click(),
+                                            );
+                                            let text = ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(&sp.name).color(color),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            );
+                                            let detail = ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(format!(
+                                                        "{}  {} mana",
+                                                        sp.school, sp.mana
+                                                    ))
+                                                    .color(egui::Color32::from_gray(170))
+                                                    .small(),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            );
+                                            icon.union(text).union(detail)
+                                        })
+                                        .inner;
+                                    let resp = resp.on_hover_text(format!(
+                                        "{}\n{}\n{}",
+                                        sp.description,
+                                        sp.words,
+                                        if sp.self_targeted {
+                                            "self"
+                                        } else {
+                                            "needs a target"
+                                        }
+                                    ));
+                                    if resp.double_clicked() {
+                                        self.cast_requests.push(sp.id);
+                                    }
+                                    if resp.hovered() {
+                                        ui.output_mut(|o| {
+                                            o.cursor_icon = egui::CursorIcon::PointingHand
+                                        });
+                                    }
+                                }
                             });
                     });
             }

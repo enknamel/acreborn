@@ -28,7 +28,8 @@ use ac_dat::DatArchive;
 use ac_formats::{
     chargen::CharGen, environment::Environment, gfxobj::GfxObj, palette::Palette,
     palette_set::PaletteSet, region::Region, scene::Scene, setup::Setup, skill_table::SkillTable,
-    surface::Surface, surface_texture::SurfaceTexture, texture::Texture,
+    spell_components::SpellComponentTable, spell_table::SpellTable, surface::Surface,
+    surface_texture::SurfaceTexture, texture::Texture,
 };
 
 use crate::landblock::LandblockScene;
@@ -59,6 +60,8 @@ pub struct Assets {
     region: RefCell<Option<Rc<Region>>>,
     chargen: RefCell<Option<Rc<CharGen>>>,
     skill_table: RefCell<Option<Rc<SkillTable>>>,
+    spell_table: RefCell<Option<Rc<SpellTable>>>,
+    spell_components: RefCell<Option<Rc<SpellComponentTable>>>,
     gfxobjs: RefCell<HashMap<u32, Rc<GfxObj>>>,
     setups: RefCell<HashMap<u32, Rc<Setup>>>,
     surfaces: RefCell<HashMap<u32, Rc<Surface>>>,
@@ -101,6 +104,8 @@ impl Assets {
             region: RefCell::new(None),
             chargen: RefCell::new(None),
             skill_table: RefCell::new(None),
+            spell_table: RefCell::new(None),
+            spell_components: RefCell::new(None),
             gfxobjs: Default::default(),
             setups: Default::default(),
             surfaces: Default::default(),
@@ -190,6 +195,41 @@ impl Assets {
                 })?,
             );
         *self.skill_table.borrow_mut() = Some(t.clone());
+        Ok(t)
+    }
+
+    /// The spell table (0x0E00000E): names, schools, icons, formulas.
+    pub fn spell_table(&self) -> Result<Rc<SpellTable>> {
+        if let Some(t) = self.spell_table.borrow().as_ref() {
+            return Ok(t.clone());
+        }
+        let bytes = self.portal.read(SpellTable::ID)?;
+        let t =
+            Rc::new(
+                SpellTable::parse(SpellTable::ID, &bytes).map_err(|source| Error::Format {
+                    id: SpellTable::ID,
+                    source,
+                })?,
+            );
+        *self.spell_table.borrow_mut() = Some(t.clone());
+        Ok(t)
+    }
+
+    /// The spell component table (0x0E00000F): scarabs, herbs, tapers...
+    pub fn spell_components(&self) -> Result<Rc<SpellComponentTable>> {
+        if let Some(t) = self.spell_components.borrow().as_ref() {
+            return Ok(t.clone());
+        }
+        let bytes = self.portal.read(SpellComponentTable::ID)?;
+        let t = Rc::new(
+            SpellComponentTable::parse(SpellComponentTable::ID, &bytes).map_err(|source| {
+                Error::Format {
+                    id: SpellComponentTable::ID,
+                    source,
+                }
+            })?,
+        );
+        *self.spell_components.borrow_mut() = Some(t.clone());
         Ok(t)
     }
 
