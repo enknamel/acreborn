@@ -110,3 +110,43 @@ Three ACE behaviours that are not obvious from the protocol alone:
 Debugging: set the `Packets` logger to DEBUG in
 `reference/ace-run/Config/log4net.config` (picked up live) and read
 `/ace/Logs/ACE_Log.txt` in the container; `<<<` lines are inbound.
+
+## Gameplay facts verified against ACE (2026-09-05)
+
+- **Server-driven MoveTo.** Using or attacking something out of reach makes
+  ACE send a MovementEvent (0xF74C, type 6 MoveToObject / 7 MoveToPosition)
+  for our own guid and then poll `WithinUseRadius` against the position we
+  report. ACE does not move the player itself. Any MoveToState (0xF61C) we
+  send while `IsPlayerMovingTo` cancels that chain (ActionCancelled), so the
+  client must keep sending AutonomousPosition (0xF753) but hold MoveToState
+  until the server describes us idle again (a MovementEvent for our guid
+  with no target). Our own echoed motion states also arrive as
+  MovementEvents; they carry no target.
+- **Melee.** ChangeCombatMode (0x0053, u32 mode: 1 peace, 2 melee) switches
+  the stance, broadcast back as our MovementEvent style. TargetedMeleeAttack
+  (0x0008: target, attack height u32, power f32). Every swing sequence ends
+  with AttackDone (0x01A7) carrying WeenieError 0x36 ActionCancelled: that is
+  the normal end, not a failure. Blows arrive as AttackerNotification 0x01B1
+  / DefenderNotification 0x01B2 (string16 name, u32 damage type, f64 percent,
+  u32 damage, [u32 location], u32 critical, u64 conditions) and evasions as
+  0x01B3/0x01B4 (string16). UpdateHealth 0x01C0 (guid, f32) gives the target's
+  health fraction. Deaths: VictimNotification 0x01AC / KillerNotification
+  0x01AD (string16).
+- **Lifestone protection.** After a respawn the player cannot attack or be
+  attacked for a while; attacks are refused with WeenieError 0x0502 or
+  dispelled ("Your actions have dispelled the Lifestone's magic!").
+- **Loot.** Use on a corpse or chest opens it: ViewContents (0x0196: container
+  guid, count, [item guid, container type]) plus ObjectCreates for the items
+  with their container set. PutItemInContainer (0x0019: item, container,
+  placement) moves one item; the server refuses a second pickup while one is
+  in flight (WeenieError 0x1D YoureTooBusy and InventoryServerSaveFailed
+  0x00A0: item guid, error), so take items one at a time and wait for the
+  InventoryPutObjInContainer event (0x0022). NoLongerViewingContents (0x0195,
+  container guid) closes it.
+- **Jump.** Jump (0xF61B): f32 extent, f32x3 velocity in the character's
+  local frame, four u16 sequences, then a u32 object guid and u32 spell id
+  that ACE reads even though they are unused. Launch velocity: vz =
+  sqrt(19.6 * h), h from the jump skill and charge (see player.rs).
+- **Errors as text.** CommunicationTransientString 0x02EB (string16) carries
+  the "You cannot attack X" style messages; WeenieError 0x028A (u32) and
+  WeenieErrorWithString 0x028B (u32, string16) the coded ones.
