@@ -4,7 +4,11 @@
 //!
 //! This is a deliberately simple first cut, not the client's BSP/sphere
 //! physics: a character is a vertical capsule; walls (steep triangles)
-//! push it out horizontally, floors (flat triangles) set its height.
+//! push it out horizontally, floors (flat triangles) set its height,
+//! ceilings (down-facing triangles) cap it. Ledges no taller than the
+//! capsule's step-up height are walked over rather than pushed back, the
+//! way the client's `StepUp` transition retries a blocked move from
+//! `step_up_height` higher and then steps down onto the walkable plane.
 
 use std::collections::HashMap;
 
@@ -16,6 +20,57 @@ use crate::model::place;
 use crate::{Assets, Result};
 
 const GRID: f32 = 4.0;
+
+/// Gravity in world units (m/s²); the client's `PhysicsGlobals` uses -9.8.
+pub const GRAVITY: f32 = 9.8;
+
+/// The vertical capsule that stands in for a character, feet at its
+/// position. `step_up`/`step_down` mirror a setup's `step_up_height` and
+/// `step_down_height` (0.6 m and 1.5 m for the human setups).
+#[derive(Debug, Clone, Copy)]
+pub struct Capsule {
+    pub radius: f32,
+    pub height: f32,
+    /// Ledges up to this tall are climbed while walking.
+    pub step_up: f32,
+    /// Drops up to this deep are walked down without falling.
+    pub step_down: f32,
+}
+
+impl Default for Capsule {
+    fn default() -> Self {
+        Capsule {
+            radius: 0.4,
+            height: 1.7,
+            step_up: 0.6,
+            step_down: 1.5,
+        }
+    }
+}
+
+/// Result of one walking step through static geometry.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Walk {
+    /// Feet position after wall, step and ceiling handling.
+    pub pos: Vec3,
+    /// The floor we stand on (`z`, cell id) if one was within step range;
+    /// `None` means there is nothing under us and we should fall.
+    pub floor: Option<(f32, u32)>,
+    /// The capsule would not fit under a ceiling at the destination, so
+    /// `pos` is the start position.
+    pub blocked: bool,
+}
+
+/// Result of one vertical (falling or jumping) step.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Vertical {
+    /// Moved freely to this feet position.
+    Free(Vec3),
+    /// Landed on a floor: feet position and the floor's cell id.
+    Landed(Vec3, u32),
+    /// Head hit a ceiling: feet position pushed down to fit under it.
+    Ceiling(Vec3),
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Tri {
@@ -223,7 +278,17 @@ impl CollisionWorld {
     /// Push a capsule (feet at `p`, radius `r`, height `h`) out of steep
     /// triangles. Returns the corrected feet position.
     pub fn resolve(&self, p: Vec3, r: f32, h: f32) -> Vec3 {
+        self.resolve_above(p, r, h, 0.0)
+    }
+
+    /// Like `resolve`, but the part of the capsule below `p.z + skirt` is
+    /// ignored, so ledges no taller than `skirt` do not push back (the
+    /// floor snap then climbs them).
+    pub fn resolve_above(&self, p: Vec3, r: f32, h: f32, skirt: f32) -> Vec3 {
         let mut pos = p;
+        let hi = h - r;
+        let lo = (skirt + r).min(hi);
+        let heights = [lo, (lo + hi) * 0.5, hi];
         for _ in 0..3 {
             let mut moved = false;
             for t in self.nearby(pos, r + 0.5) {
@@ -231,8 +296,8 @@ impl CollisionWorld {
                     continue; // floor/ceiling
                 }
                 // Test the capsule at three heights against the triangle.
-                for frac in [0.25f32, 0.6, 0.95] {
-                    let c = pos + Vec3::new(0.0, 0.0, h * frac);
+                for dz in heights {
+                    let c = pos + Vec3::new(0.0, 0.0, dz);
                     let q = closest_point_on_tri(c, t);
                     let d = c - q;
                     let dist = d.length();
@@ -265,6 +330,85 @@ impl CollisionWorld {
             }
         }
         pos
+    }
+
+    /// Lowest ceiling above the feet position `p` within the capsule's
+    /// radius `r`: down-facing (or two-sided flat) triangles more than a
+    /// hand's breadth above the feet. Returns the ceiling's z.
+    pub fn ceiling_at(&self, p: Vec3, r: f32) -> Option<f32> {
+        let mut best: Option<f32> = None;
+        let min_z = p.z + 0.2;
+        for t in self.nearby(p, r) {
+            let facing_down = t.normal.z < -0.5 || (t.two_sided && t.normal.z > 0.5);
+            if !facing_down {
+                continue;
+            }
+            let z = if point_in_tri_xy(p, t) {
+                // Directly overhead: the plane's z at (p.x, p.y).
+                t.a.z - ((p.x - t.a.x) * t.normal.x + (p.y - t.a.y) * t.normal.y) / t.normal.z
+            } else {
+                // Off to the side: the triangle's closest point to the
+                // capsule axis, if within the radius.
+                let top = t.a.z.max(t.b.z).max(t.c.z).min(p.z + 100.0);
+                let q = closest_point_on_tri(Vec3::new(p.x, p.y, top), t);
+                if glam::Vec2::new(q.x - p.x, q.y - p.y).length() >= r {
+                    continue;
+                }
+                q.z
+            };
+            if z < min_z {
+                continue;
+            }
+            if best.map(|b| z < b).unwrap_or(true) {
+                best = Some(z);
+            }
+        }
+        best
+    }
+
+    /// One walking step of the capsule from `from` to `to` (same z):
+    /// walls push it out (ignoring ledges below `step_up`), the highest
+    /// floor within `step_up` above or `step_down` below sets the new z,
+    /// and a ceiling the capsule does not fit under blocks the move.
+    pub fn walk(&self, from: Vec3, to: Vec3, cap: &Capsule) -> Walk {
+        let pos = self.resolve_above(to, cap.radius, cap.height, cap.step_up);
+        let probe = Vec3::new(pos.x, pos.y, from.z);
+        let floor = self.floor_at(probe, cap.step_up, cap.step_down);
+        let feet = Vec3::new(pos.x, pos.y, floor.map(|(z, _)| z).unwrap_or(from.z));
+        if let Some(cz) = self.ceiling_at(feet, cap.radius) {
+            if cz - feet.z < cap.height {
+                return Walk {
+                    pos: from,
+                    floor: self.floor_at(from, cap.step_up, cap.step_down),
+                    blocked: true,
+                };
+            }
+        }
+        Walk {
+            pos: feet,
+            floor,
+            blocked: false,
+        }
+    }
+
+    /// Move the capsule vertically by `dz` (negative = falling): land on
+    /// the first floor crossed on the way down, or stop under the first
+    /// ceiling the head reaches on the way up.
+    pub fn vertical(&self, from: Vec3, dz: f32, cap: &Capsule) -> Vertical {
+        let to = from + Vec3::new(0.0, 0.0, dz);
+        if dz < 0.0 {
+            if let Some((z, cell)) = self.floor_at(from, 0.0, -dz) {
+                return Vertical::Landed(Vec3::new(from.x, from.y, z), cell);
+            }
+            Vertical::Free(to)
+        } else {
+            match self.ceiling_at(from, cap.radius) {
+                Some(cz) if cz - to.z < cap.height => {
+                    Vertical::Ceiling(Vec3::new(from.x, from.y, (cz - cap.height).max(from.z)))
+                }
+                _ => Vertical::Free(to),
+            }
+        }
     }
 }
 

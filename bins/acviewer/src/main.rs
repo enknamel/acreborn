@@ -1110,6 +1110,7 @@ impl App {
                 strafe: (self.keys.contains(&KeyCode::KeyD) as i8
                     - self.keys.contains(&KeyCode::KeyA) as i8) as f32,
                 run: !self.keys.contains(&KeyCode::ShiftLeft),
+                jump: false,
             };
             // Server-driven MoveTo (using something out of reach): run toward
             // the target until close enough, unless the user takes over.
