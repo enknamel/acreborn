@@ -214,7 +214,11 @@ Casting rules (ACE `Player_Magic`, matching retail):
 * Melee attacks charge toward the target first; too far and the attack
   aborts with "You have charged too far!".
 * Wire: TargetedMeleeAttack (0x0008: target, height, power),
-  TargetedMissileAttack (0x000A: target, height, accuracy), CancelAttack
+  TargetedMissileAttack (0x000A: target, height, accuracy; needs combat
+  mode 4 Missile, a wielded launcher and ammunition in the ammo slot,
+  otherwise the server answers with a weenie error; projectiles that
+  meet geometry report "Your missile attack hit the environment";
+  verified live), CancelAttack
   (0x01B7); results as AttackerNotification / DefenderNotification
   (0x01B1/0x01B2, damage, part hit, critical), Evasion notifications
   (0x01B3/0x01B4), AttackDone (0x01A7, always with error 0x36 on a normal

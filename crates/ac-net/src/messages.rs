@@ -882,6 +882,7 @@ pub mod action {
     pub const RECALL_ALLEGIANCE_HOMETOWN: u32 = 0x02AB;
     pub const DIE: u32 = 0x0279;
     pub const TARGETED_MELEE_ATTACK: u32 = 0x0008;
+    pub const TARGETED_MISSILE_ATTACK: u32 = 0x000A;
     pub const PUT_ITEM_IN_CONTAINER: u32 = 0x0019;
     pub const GET_AND_WIELD_ITEM: u32 = 0x001A;
     pub const DROP_ITEM: u32 = 0x001B;

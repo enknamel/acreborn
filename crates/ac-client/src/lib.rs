@@ -110,6 +110,12 @@ pub struct Client {
     pub combat: bool,
     /// Magic combat mode is on.
     pub magic: bool,
+    /// Combat mode is missile (a bow, crossbow or thrown weapon is wielded).
+    pub missile: bool,
+    /// Attack height: 1 high, 2 medium, 3 low.
+    pub attack_height: u32,
+    /// Power (melee) or accuracy (missile) bar, 0..=1.
+    pub attack_power: f32,
     /// Names of spells learnt from scrolls this session, for spells the
     /// SpellTable lacks; `world.stats.spells` is the spellbook itself.
     pub known_spells: std::collections::HashMap<u32, String>,
@@ -201,6 +207,9 @@ impl Client {
             steering: route::Steering::new(Instant::now()),
             combat: false,
             magic: false,
+            missile: false,
+            attack_height: 2,
+            attack_power: 0.5,
             known_spells: Default::default(),
             require_components: false,
             attack_target: None,
@@ -995,12 +1004,21 @@ impl Client {
             .get(&guid)
             .map(|o| o.name.clone())
             .unwrap_or_default();
-        tracing::info!("attack {name} ({guid:#010x})");
+        tracing::info!(
+            "attack {name} ({guid:#010x}){}",
+            if self.missile { " with a missile" } else { "" }
+        );
         self.last_target_name = name.clone();
         let mut w = ac_net::wire::Writer::new();
-        w.u32(guid).u32(2).f32(0.5);
-        self.session
-            .send_action(action::TARGETED_MELEE_ATTACK, &w.finish());
+        w.u32(guid)
+            .u32(self.attack_height)
+            .f32(self.attack_power.clamp(0.0, 1.0));
+        let opcode = if self.missile {
+            action::TARGETED_MISSILE_ATTACK
+        } else {
+            action::TARGETED_MELEE_ATTACK
+        };
+        self.session.send_action(opcode, &w.finish());
         self.attack_target = Some(guid);
         self.attack_pending = true;
         self.last_attack = Instant::now();
@@ -1017,6 +1035,15 @@ impl Client {
             .get(&target)
             .map(|o| o.health.is_none_or(|h| h > 0.0))
             .unwrap_or(false);
+        // Dead: the server drops us to peace mode and refuses attacks
+        // until we stand at the lifestone.
+        let dead = !self.world.stats.name.is_empty() && self.world.stats.vitals[0].current == 0;
+        if dead && self.combat {
+            tracing::info!("dead: leaving combat");
+            self.combat = false;
+            self.missile = false;
+            self.magic = false;
+        }
         if !alive || !self.combat {
             tracing::info!("attack target gone");
             self.attack_target = None;
@@ -1098,18 +1125,38 @@ impl Client {
         true
     }
 
+    /// The wielded bow, crossbow or thrown weapon, if any.
+    pub fn wielded_missile_weapon(&self) -> Option<u32> {
+        self.world
+            .wielded()
+            .find(|o| o.item_type & ac_world::item_type::MISSILE_WEAPON != 0)
+            .map(|o| o.guid)
+    }
+
+    /// Enter or leave combat. The stance follows the wielded weapon: a
+    /// missile weapon gives missile mode, anything else melee (fists
+    /// included). Casters need magic mode, see `cast`.
     pub fn toggle_combat(&mut self) {
         use ac_net::messages::{action, combat_mode};
         self.combat = !self.combat;
         self.magic = false;
-        let mode = if self.combat {
-            combat_mode::MELEE
-        } else {
+        self.missile = self.combat && self.wielded_missile_weapon().is_some();
+        let mode = if !self.combat {
             combat_mode::NON_COMBAT
+        } else if self.missile {
+            combat_mode::MISSILE
+        } else {
+            combat_mode::MELEE
         };
         tracing::info!(
             "combat mode {}",
-            if self.combat { "melee" } else { "peace" }
+            if !self.combat {
+                "peace"
+            } else if self.missile {
+                "missile"
+            } else {
+                "melee"
+            }
         );
         self.session
             .send_action(action::CHANGE_COMBAT_MODE, &mode.to_le_bytes());
