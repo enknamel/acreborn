@@ -74,6 +74,15 @@ fn decode_json(kind: FileKind, id: u32, b: &[u8]) -> Result<serde_json::Value> {
         FileKind::EnvCell => serde_json::to_value(landblock::EnvCell::parse(id, b)?)?,
         FileKind::Wave => serde_json::to_value(wave::Wave::parse(id, b)?)?,
         FileKind::SoundTable => serde_json::to_value(sound_table::SoundTable::parse(id, b)?)?,
+        FileKind::ParticleEmitter => {
+            serde_json::to_value(particle_emitter::ParticleEmitterInfo::parse(id, b)?)?
+        }
+        FileKind::PhysicsScript => {
+            serde_json::to_value(physics_script::PhysicsScript::parse(id, b)?)?
+        }
+        FileKind::PhysicsScriptTable => {
+            serde_json::to_value(physics_script_table::PhysicsScriptTable::parse(id, b)?)?
+        }
         other => bail!("no decoder for {other:?} yet"),
     };
     Ok(v)

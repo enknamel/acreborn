@@ -65,6 +65,54 @@ impl TerrainBlend {
     }
 }
 
+/// One particle billboard: a camera-facing quad `size` metres across
+/// centred at `position`, tinted and faded by `color`.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable, Debug, PartialEq)]
+pub struct ParticleInstance {
+    pub position: [f32; 3],
+    pub size: [f32; 2],
+    pub color: [f32; 4],
+}
+
+impl ParticleInstance {
+    const ATTRS: [wgpu::VertexAttribute; 3] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4];
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<ParticleInstance>() as u64,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &Self::ATTRS,
+        }
+    }
+}
+
+/// Particles sharing one sprite material and blend mode.
+pub struct ParticleDraw {
+    pub material: MaterialKey,
+    /// Add light over the scene (fire, glows) instead of covering it.
+    pub additive: bool,
+    pub instances: Vec<ParticleInstance>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct ParticleGlobals {
+    view_proj: [[f32; 4]; 4],
+    right: [f32; 4],
+    up: [f32; 4],
+    camera: [f32; 4],
+    fog_color: [f32; 4],
+    fog_params: [f32; 4],
+}
+
+struct ParticleBatch {
+    instance_buf: wgpu::Buffer,
+    count: u32,
+    bind_group: std::rc::Rc<wgpu::BindGroup>,
+    additive: bool,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Globals {
@@ -184,6 +232,12 @@ pub struct Gpu {
     translucent_pipeline: wgpu::RenderPipeline,
     water_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
+    particle_alpha_pipeline: wgpu::RenderPipeline,
+    particle_add_pipeline: wgpu::RenderPipeline,
+    particle_globals_buf: wgpu::Buffer,
+    particle_globals_bg: wgpu::BindGroup,
+    /// Billboards drawn after the water, replaced by `set_particles`.
+    particles: Vec<ParticleBatch>,
     environment: Environment,
     start: Instant,
     globals_buf: wgpu::Buffer,
@@ -490,6 +544,97 @@ impl Gpu {
             multiview_mask: None,
             cache: None,
         });
+        // Particles: their own small shader module and uniform (the
+        // billboard axes), sharing the material layout for sprites.
+        let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("particles"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("particles.wgsl").into()),
+        });
+        let particle_globals_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("particle globals"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("particles"),
+            bind_group_layouts: &[Some(&particle_globals_layout), Some(&material_layout)],
+            immediate_size: 0,
+        });
+        let make_particle_pipeline = |label, fs, blend| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&particle_layout),
+                vertex: wgpu::VertexState {
+                    module: &particle_shader,
+                    entry_point: Some("vs_particle"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(ParticleInstance::layout())],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(depth_state(false, wgpu::CompareFunction::Less)),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &particle_shader,
+                    entry_point: Some(fs),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: config.format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::COLOR,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let particle_alpha_pipeline = make_particle_pipeline(
+            "particles alpha",
+            "fs_particle_alpha",
+            wgpu::BlendState::ALPHA_BLENDING,
+        );
+        let particle_add_pipeline = make_particle_pipeline(
+            "particles additive",
+            "fs_particle_add",
+            wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            },
+        );
+        let particle_globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("particle globals"),
+            size: std::mem::size_of::<ParticleGlobals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let particle_globals_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("particle globals"),
+            layout: &particle_globals_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: particle_globals_buf.as_entire_binding(),
+            }],
+        });
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -554,6 +699,11 @@ impl Gpu {
             translucent_pipeline,
             water_pipeline,
             sky_pipeline,
+            particle_alpha_pipeline,
+            particle_add_pipeline,
+            particle_globals_buf,
+            particle_globals_bg,
+            particles: Vec::new(),
             environment: Environment::default(),
             start: Instant::now(),
             globals_buf,
@@ -804,6 +954,32 @@ impl Gpu {
     /// Replace the player's own instances.
     pub fn set_player_instances(&mut self, instances: Vec<Instance>) {
         self.player_instances = instances;
+    }
+
+    /// Replace the particle billboards drawn each frame (grouped by sprite
+    /// material and blend mode, e.g. by `particles::draws`). `materials`
+    /// decodes any sprite not yet in the material cache.
+    pub fn set_particles(
+        &mut self,
+        draws: Vec<ParticleDraw>,
+        mut materials: impl FnMut(MaterialKey) -> Option<Rgba>,
+    ) {
+        self.particles = draws
+            .into_iter()
+            .filter(|d| !d.instances.is_empty())
+            .map(|d| ParticleBatch {
+                instance_buf: self
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("particles"),
+                        contents: bytemuck::cast_slice(&d.instances),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    }),
+                count: d.instances.len() as u32,
+                bind_group: self.material(d.material, &mut materials),
+                additive: d.additive,
+            })
+            .collect();
     }
 
     /// Upload a model-space mesh once; instances reference it by `Rc`.
@@ -1188,6 +1364,21 @@ impl Gpu {
         };
         self.queue
             .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
+        if !self.particles.is_empty() {
+            // Billboard axes: where the near plane's x and y run in the world.
+            let right = (inv.project_point3(Vec3::X) - near).normalize_or_zero();
+            let up = (inv.project_point3(Vec3::Y) - near).normalize_or_zero();
+            let pg = ParticleGlobals {
+                view_proj: globals.view_proj,
+                right: v4(right, 0.0),
+                up: v4(up, 0.0),
+                camera: globals.camera,
+                fog_color: globals.fog_color,
+                fog_params: globals.fog_params,
+            };
+            self.queue
+                .write_buffer(&self.particle_globals_buf, 0, bytemuck::bytes_of(&pg));
+        }
         // Model matrices for this frame's instances (slot 0 stays identity).
         let count = self.dynamic_instances.len() + self.player_instances.len();
         let mut mats = Vec::with_capacity(MODEL_STRIDE as usize * count);
@@ -1288,6 +1479,21 @@ impl Gpu {
                         pass.set_vertex_buffer(0, sub.vertex_buf.slice(..));
                         pass.set_index_buffer(sub.index_buf.slice(..), wgpu::IndexFormat::Uint32);
                         pass.draw_indexed(0..sub.index_count, 0, 0..1);
+                    }
+                }
+            }
+            // Particles last: blended over everything, alpha then additive.
+            if !self.particles.is_empty() {
+                pass.set_bind_group(0, &self.particle_globals_bg, &[]);
+                for (pipeline, additive) in [
+                    (&self.particle_alpha_pipeline, false),
+                    (&self.particle_add_pipeline, true),
+                ] {
+                    pass.set_pipeline(pipeline);
+                    for b in self.particles.iter().filter(|b| b.additive == additive) {
+                        pass.set_bind_group(1, &*b.bind_group, &[]);
+                        pass.set_vertex_buffer(0, b.instance_buf.slice(..));
+                        pass.draw(0..6, 0..b.count);
                     }
                 }
             }
