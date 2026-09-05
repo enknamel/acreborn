@@ -11,8 +11,8 @@
 mod camera;
 mod gpu;
 mod particles;
-mod player;
 mod scene;
+use ac_client::player;
 mod sky;
 mod ui;
 mod water;
@@ -244,18 +244,7 @@ fn demo_ui(ui: &mut ui::Ui, data_dir: &std::path::Path) {
 
 /// Live server connection state for `--connect`.
 struct Net {
-    socket: std::net::UdpSocket,
-    primary: std::net::SocketAddr,
-    secondary: std::net::SocketAddr,
-    session: ac_net::session::Session,
-    world: ac_world::World,
-    assets: ac_scene::Assets,
-    characters: Vec<ac_net::messages::CharacterEntry>,
-    characters_known: bool,
-    ddd_done: bool,
-    enter_requested: bool,
-    /// Landblock the static scene is built around, once the player is placed.
-    scene_block: Option<u32>,
+    client: ac_client::Client,
     /// Landblocks currently uploaded to the GPU.
     loaded_blocks: std::collections::HashSet<u32>,
     /// Block id -> is a dungeon (learnt when the block is built).
@@ -263,41 +252,12 @@ struct Net {
     mesh_cache: std::collections::HashMap<u32, ac_scene::model::Mesh>,
     last_generation: u64,
     pickables: Vec<scene::Pickable>,
-    /// Server-requested MoveTo for our own character, until the server
-    /// reports us idle again.
-    move_to: Option<ac_world::object::MoveTarget>,
-    move_to_since: Instant,
-    /// Melee combat mode is on.
-    combat: bool,
-    /// Magic combat mode is on.
-    magic: bool,
-    /// Spells we know by name (learnt from scrolls this session).
-    known_spells: std::collections::HashMap<u32, String>,
-    /// Creature we keep swinging at until it dies or we stop.
-    attack_target: Option<u32>,
-    /// An attack was sent and AttackDone has not come back yet.
-    attack_pending: bool,
-    last_attack: Instant,
-    attack_backoff: Duration,
-    /// Name of the last creature we attacked (its corpse is what we loot).
-    last_target_name: String,
     /// Particle emitters of the loaded landblocks' static objects.
     fx: world_fx::WorldFx,
     /// Sound output, when a device could be opened and --mute is off.
     audio: Option<ac_audio::Audio>,
-    sound_tables:
-        std::collections::HashMap<u32, Option<std::rc::Rc<ac_formats::sound_table::SoundTable>>>,
-    waves: std::collections::HashMap<u32, Option<std::rc::Rc<ac_formats::wave::Wave>>>,
-    /// Items still to take from the open container, one at a time (the
-    /// server refuses a second pickup while one is in progress).
-    loot_queue: std::collections::VecDeque<u32>,
-    loot_inflight: Option<(u32, Instant)>,
-    selected: Option<u32>,
-    last_click: Option<(Instant, u32)>,
     gpu_meshes: scene::GpuMeshCache,
     palettes: scene::Palettes,
-    player: Option<player::Player>,
-    player_setup: u32,
     anims: std::collections::HashMap<u32, scene::ObjectAnim>,
     tables: std::collections::HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
     last_anim_refresh: Instant,
@@ -322,226 +282,102 @@ struct App {
 }
 
 impl App {
-    /// Play a server Sound message through the object's sound table.
-    fn play_sound(&mut self, body: &[u8]) {
-        use ac_net::messages::parse_sound;
-        let Ok((guid, kind, volume)) = parse_sound(body) else {
-            return;
-        };
-        let Some(net) = self.net.as_mut() else { return };
-        let (name, table_id) = match net.world.objects.get(&guid) {
-            Some(o) => (
-                o.name.clone(),
-                if o.sound_table_id != 0 {
-                    o.sound_table_id
-                } else if o.is_player
-                    || o.object_desc_flags & ac_world::object_desc_flags::PLAYER != 0
-                {
-                    0x2000_0001
-                } else {
-                    0
-                },
-            ),
-            None => return,
-        };
-        if table_id == 0 {
-            return;
+    /// Forward to the active session and surface what it reported.
+    fn chat_message(&mut self, op: u32, body: &[u8]) {
+        if let Some(net) = self.net.as_mut() {
+            net.client.chat_message(op, body);
         }
-        let assets = &net.assets;
-        let table = net
-            .sound_tables
-            .entry(table_id)
-            .or_insert_with(|| {
-                assets
-                    .portal
-                    .read(table_id)
-                    .ok()
-                    .and_then(|b| ac_formats::sound_table::SoundTable::parse(table_id, &b).ok())
-                    .map(std::rc::Rc::new)
-            })
-            .clone();
-        let Some(table) = table else { return };
-        let Some(wave_id) = ac_audio::sound_for(&table, kind) else {
-            return;
-        };
-        let wave = net
-            .waves
-            .entry(wave_id)
-            .or_insert_with(|| {
-                assets
-                    .portal
-                    .read(wave_id)
-                    .ok()
-                    .and_then(|b| ac_formats::wave::Wave::parse(wave_id, &b).ok())
-                    .map(std::rc::Rc::new)
-            })
-            .clone();
-        let Some(wave) = wave else { return };
-        tracing::debug!("sound {kind:#x} from {name}: wave {wave_id:#010x} vol {volume:.2}");
-        if let Some(audio) = &net.audio {
-            if let Err(e) = audio.play(&wave, volume.clamp(0.0, 1.0)) {
-                tracing::debug!("play: {e}");
+        self.drain_client_events();
+    }
+
+    /// Hand the session's events to the UI and the speakers.
+    fn drain_client_events(&mut self) {
+        let Some(net) = self.net.as_mut() else { return };
+        for ev in net.client.drain_events() {
+            match ev {
+                ac_client::Event::Chat { text, kind } => {
+                    tracing::info!("chat: {text}");
+                    if let Some(ui) = &mut self.ui {
+                        ui.push_chat(text, kind);
+                    }
+                }
+                ac_client::Event::Sound { wave, volume } => {
+                    if let Some(audio) = &net.audio {
+                        if let Err(e) = audio.play(&wave, volume) {
+                            tracing::debug!("play: {e}");
+                        }
+                    }
+                }
             }
         }
     }
 
-    fn chat_message(&mut self, op: u32, body: &[u8]) {
-        use ac_net::messages::{event, opcode, ChatLine};
-        if op == opcode::SOUND {
-            self.play_sound(body);
-            return;
-        }
-        let line = match op {
-            opcode::HEAR_SPEECH => ChatLine::parse_hear_speech(body),
-            opcode::HEAR_RANGED_SPEECH => ChatLine::parse_hear_ranged_speech(body),
-            opcode::SERVER_MESSAGE => ChatLine::parse_server_message(body),
-            opcode::EMOTE_TEXT => ChatLine::parse_emote_text(body),
-            opcode::GAME_EVENT => match ac_net::messages::split_game_event(body) {
-                Some((_, _, event::TELL, rest)) => ChatLine::parse_tell(rest),
-                Some((_, _, event::IDENTIFY_OBJECT_RESPONSE, rest)) => {
-                    self.appraisal(rest);
-                    return;
-                }
-                Some((_, _, event::ATTACK_DONE, rest)) => {
-                    let err = rest
-                        .get(..4)
-                        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                        .unwrap_or(0);
-                    if let Some(net) = self.net.as_mut() {
-                        net.attack_pending = false;
-                        // ACE always reports ActionCancelled (0x36) here: it
-                        // just means the swing sequence ended.
-                        tracing::debug!("attack done ({err:#x})");
-                        net.attack_backoff = Duration::from_millis(300);
-                    }
-                    return;
-                }
-                Some((_, _, event::ATTACKER_NOTIFICATION, rest)) => {
-                    match ac_net::messages::AttackNotice::parse_attacker(rest) {
-                        Ok(n) => Ok(ChatLine {
-                            text: format!(
-                                "You {} {} for {} points{}.",
-                                if n.critical { "critically hit" } else { "hit" },
-                                n.name,
-                                n.damage,
-                                if n.percent >= 0.999 {
-                                    ", killing it"
-                                } else {
-                                    ""
-                                }
-                            ),
-                            sender: String::new(),
-                            sender_id: 0,
-                            kind: 5,
-                        }),
-                        Err(e) => Err(e),
-                    }
-                }
-                Some((_, _, event::DEFENDER_NOTIFICATION, rest)) => {
-                    match ac_net::messages::AttackNotice::parse_defender(rest) {
-                        Ok(n) => Ok(ChatLine {
-                            text: format!(
-                                "{} {} you for {} points.",
-                                n.name,
-                                if n.critical {
-                                    "critically hits"
-                                } else {
-                                    "hits"
-                                },
-                                n.damage
-                            ),
-                            sender: String::new(),
-                            sender_id: 0,
-                            kind: 6,
-                        }),
-                        Err(e) => Err(e),
-                    }
-                }
-                Some((_, _, event::EVASION_ATTACKER_NOTIFICATION, rest)) => {
-                    match ac_net::wire::Reader::new(rest).string16() {
-                        Ok(n) => Ok(ChatLine {
-                            text: format!("{n} evades your attack."),
-                            sender: String::new(),
-                            sender_id: 0,
-                            kind: 5,
-                        }),
-                        Err(e) => Err(e),
-                    }
-                }
-                Some((_, _, event::EVASION_DEFENDER_NOTIFICATION, rest)) => {
-                    match ac_net::wire::Reader::new(rest).string16() {
-                        Ok(n) => Ok(ChatLine {
-                            text: format!("You evade {n}'s attack."),
-                            sender: String::new(),
-                            sender_id: 0,
-                            kind: 6,
-                        }),
-                        Err(e) => Err(e),
-                    }
-                }
-                Some((_, _, event::VICTIM_NOTIFICATION | event::KILLER_NOTIFICATION, rest)) => {
-                    match ac_net::wire::Reader::new(rest).string16() {
-                        Ok(t) => Ok(ChatLine {
-                            text: t,
-                            sender: String::new(),
-                            sender_id: 0,
-                            kind: 0,
-                        }),
-                        Err(e) => Err(e),
-                    }
-                }
-                Some((_, _, event::TRANSIENT_STRING, rest)) => {
-                    match ac_net::wire::Reader::new(rest).string16() {
-                        Ok(t) => Ok(ChatLine {
-                            text: t,
-                            sender: String::new(),
-                            sender_id: 0,
-                            kind: 7,
-                        }),
-                        Err(e) => Err(e),
-                    }
-                }
-                Some((_, _, event::WEENIE_ERROR, rest)) => {
-                    let code = rest
-                        .get(..4)
-                        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-                        .unwrap_or(0);
-                    tracing::info!("weenie error {code:#x}");
-                    return;
-                }
-                Some((_, _, event::POPUP_STRING, rest)) => {
-                    match ac_net::wire::Reader::new(rest).string16() {
-                        Ok(t) => Ok(ChatLine {
-                            text: t,
-                            sender: String::new(),
-                            sender_id: 0,
-                            kind: 0,
-                        }),
-                        Err(e) => Err(e),
-                    }
-                }
-                _ => return,
-            },
-            _ => return,
-        };
-        let line = match line {
-            Ok(l) => l,
-            Err(e) => {
-                tracing::warn!("chat message {op:#06x}: {e}");
-                return;
-            }
-        };
-        let text = match (op, line.sender.is_empty()) {
-            (_, true) => line.text.clone(),
-            (opcode::EMOTE_TEXT, _) => format!("{} {}", line.sender, line.text),
-            (opcode::GAME_EVENT, _) => format!("{} tells you, \"{}\"", line.sender, line.text),
-            _ => format!("{} says, \"{}\"", line.sender, line.text),
-        };
-        tracing::info!("chat: {text}");
-        if let Some(ui) = &mut self.ui {
-            ui.push_chat(text, line.kind);
+    fn interact(&mut self, guid: u32) {
+        if let Some(net) = self.net.as_mut() {
+            net.client.interact(guid);
         }
     }
+
+    fn cast(&mut self, spell: u32) {
+        if let Some(net) = self.net.as_mut() {
+            net.client.cast(spell);
+        }
+    }
+
+    fn toggle_combat(&mut self) {
+        if let Some(net) = self.net.as_mut() {
+            net.client.toggle_combat();
+            if let Some(ui) = &mut self.ui {
+                ui.combat = net.client.combat;
+            }
+        }
+    }
+
+    fn use_by_name(&mut self, name: &str) -> bool {
+        self.net
+            .as_mut()
+            .is_some_and(|net| net.client.use_by_name(name))
+    }
+
+    /// Everything the UI asked for this frame goes to the session as commands.
+    fn apply_ui_commands(&mut self) {
+        let Some(ui) = self.ui.as_mut() else { return };
+        let outgoing = std::mem::take(&mut ui.outgoing);
+        let buy = std::mem::take(&mut ui.vendor_buy);
+        let sell = std::mem::take(&mut ui.vendor_sell);
+        let close_vendor = std::mem::take(&mut ui.vendor_close);
+        let take = std::mem::take(&mut ui.loot_take);
+        let close_loot = std::mem::take(&mut ui.loot_close);
+        let activated = std::mem::take(&mut ui.activated);
+        let casts = std::mem::take(&mut ui.cast_requests);
+        let Some(net) = self.net.as_mut() else { return };
+        let c = &mut net.client;
+        for t in outgoing {
+            c.say(&t);
+        }
+        for g in buy {
+            c.buy(g);
+        }
+        for g in sell {
+            c.sell(g);
+        }
+        if close_vendor {
+            c.close_vendor();
+        }
+        for g in take {
+            c.take(g);
+        }
+        if close_loot {
+            c.close_container();
+        }
+        for g in activated {
+            c.interact(g);
+        }
+        for sp in casts {
+            c.cast(sp);
+        }
+    }
+    /// Play a server Sound message through the object's sound table.
 
     /// Left click in the world: select the object under the cursor and ask
     /// the server to appraise it; a second click on the same object within
@@ -564,7 +400,8 @@ impl App {
             if let Some(t) = p.hit(near, dir) {
                 tracing::trace!(
                     "hit {} at t={t:.2} (center {:?} r {:.2})",
-                    net.world
+                    net.client
+                        .world
                         .objects
                         .get(&p.guid)
                         .map(|o| o.name.as_str())
@@ -578,33 +415,35 @@ impl App {
             }
         }
         // A wall in front of the hit hides it.
-        if let (Some((t, _)), Some(pl)) = (best, net.player.as_mut()) {
-            let assets = &net.assets;
+        if let (Some((t, _)), Some(pl)) = (best, net.client.player.as_mut()) {
+            let assets = &net.client.assets;
             if pl.first_wall(assets, near, near + dir * t).is_some() {
                 tracing::debug!("click blocked by static geometry");
                 best = None;
             }
         }
         let Some((_, guid)) = best else {
-            net.selected = None;
+            net.client.selected = None;
             return;
         };
         let now = Instant::now();
-        let again = matches!(net.last_click, Some((t, g)) if g == guid && now - t < Duration::from_millis(500));
-        net.last_click = Some((now, guid));
-        net.selected = Some(guid);
+        let again = matches!(net.client.last_click, Some((t, g)) if g == guid && now - t < Duration::from_millis(500));
+        net.client.last_click = Some((now, guid));
+        net.client.selected = Some(guid);
         let name = net
+            .client
             .world
             .objects
             .get(&guid)
             .map(|o| o.name.clone())
             .unwrap_or_default();
         if again {
-            net.last_click = None;
+            net.client.last_click = None;
             self.interact(guid);
         } else {
             tracing::info!("select {name} ({guid:#010x})");
-            net.session
+            net.client
+                .session
                 .send_action(action::IDENTIFY_OBJECT, &guid.to_le_bytes());
         }
     }
@@ -612,316 +451,27 @@ impl App {
     /// Double-click semantics: ground items are picked up, carried
     /// wieldables are put on, worn items are taken off, everything else
     /// is used.
-    fn interact(&mut self, guid: u32) {
-        use ac_net::messages::action;
-        use ac_world::{item_type, object_desc_flags};
-        let Some(net) = self.net.as_mut() else { return };
-        let me = net.world.player_guid;
-        let Some(o) = net.world.objects.get(&guid) else {
-            return;
-        };
-        let stuck = o.object_desc_flags
-            & (object_desc_flags::STUCK
-                | object_desc_flags::PLAYER
-                | object_desc_flags::DOOR
-                | object_desc_flags::VENDOR
-                | object_desc_flags::PORTAL
-                | object_desc_flags::CORPSE)
-            != 0
-            || o.item_type & item_type::CREATURE != 0;
-        let carried = me.is_some() && (o.container == me || o.wielder == me);
-        let name = o.name.clone();
-        let attackable = o.object_desc_flags & object_desc_flags::ATTACKABLE != 0
-            && o.object_desc_flags & object_desc_flags::PLAYER == 0
-            && o.item_type & item_type::CREATURE != 0;
-        let mut w = ac_net::wire::Writer::new();
-        if net.combat && attackable {
-            self.attack(guid);
-            return;
-        }
-        if carried && o.spell_id != 0 {
-            if let Some(spell) = name.strip_prefix("Scroll of ") {
-                net.known_spells.insert(o.spell_id, spell.to_string());
-            }
-        }
-        if carried && o.wielder != me && o.item_type & item_type::WIELDABLE != 0 {
-            tracing::info!("wield {name} ({guid:#010x}) at {:#x}", o.valid_locations);
-            w.u32(guid).u32(o.valid_locations);
-            net.session
-                .send_action(action::GET_AND_WIELD_ITEM, &w.finish());
-        } else if carried && o.wielder == me {
-            tracing::info!("take off {name} ({guid:#010x})");
-            w.u32(guid).u32(me.unwrap_or(0)).u32(0);
-            net.session
-                .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
-        } else if !carried && !stuck && o.position.is_some() {
-            tracing::info!("pick up {name} ({guid:#010x})");
-            w.u32(guid).u32(me.unwrap_or(0)).u32(0);
-            net.session
-                .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
-        } else {
-            tracing::info!("use {name} ({guid:#010x})");
-            net.session.send_action(action::USE, &guid.to_le_bytes());
-        }
-    }
 
     /// Cast a spell on ourselves (untargeted), entering magic mode first.
-    fn cast(&mut self, spell: u32) {
-        use ac_net::messages::{action, combat_mode};
-        let Some(net) = self.net.as_mut() else { return };
-        if !net.magic {
-            net.session.send_action(
-                action::CHANGE_COMBAT_MODE,
-                &combat_mode::MAGIC.to_le_bytes(),
-            );
-            net.magic = true;
-            net.combat = false;
-        }
-        let table = net.assets.spell_table().ok();
-        let entry = table.as_ref().and_then(|t| t.get(spell));
-        let name = entry
-            .map(|sp| sp.name.clone())
-            .or_else(|| net.known_spells.get(&spell).cloned())
-            .unwrap_or_default();
-        // Spells that need a target go to the selected creature (or
-        // ourselves when nothing is selected); the rest are self casts.
-        let needs_target = entry
-            .map(|sp| sp.needs_target())
-            .unwrap_or_else(|| name.contains("Other"));
-        let target = if needs_target {
-            net.selected.or(net.world.player_guid)
-        } else {
-            None
-        };
-        match target {
-            Some(t) => {
-                tracing::info!("cast {name} ({spell}) on {t:#010x}");
-                net.session.send_action(
-                    action::CAST_TARGETED_SPELL,
-                    &ac_net::messages::cast_targeted(t, spell),
-                );
-            }
-            None => {
-                tracing::info!("cast {name} ({spell})");
-                net.session
-                    .send_action(action::CAST_UNTARGETED_SPELL, &spell.to_le_bytes());
-            }
-        }
-    }
 
     /// Enter or leave melee combat mode.
-    fn toggle_combat(&mut self) {
-        use ac_net::messages::{action, combat_mode};
-        let Some(net) = self.net.as_mut() else { return };
-        net.combat = !net.combat;
-        net.magic = false;
-        let mode = if net.combat {
-            combat_mode::MELEE
-        } else {
-            combat_mode::NON_COMBAT
-        };
-        tracing::info!("combat mode {}", if net.combat { "melee" } else { "peace" });
-        net.session
-            .send_action(action::CHANGE_COMBAT_MODE, &mode.to_le_bytes());
-        if !net.combat {
-            net.attack_target = None;
-            net.attack_pending = false;
-        }
-        if let Some(ui) = &mut self.ui {
-            ui.combat = net.combat;
-        }
-    }
 
     /// Swing at a creature (medium height, half power) and keep swinging
     /// after each AttackDone until it dies or combat mode ends.
-    fn attack(&mut self, guid: u32) {
-        use ac_net::messages::action;
-        let Some(net) = self.net.as_mut() else { return };
-        if !net.combat {
-            return;
-        }
-        let name = net
-            .world
-            .objects
-            .get(&guid)
-            .map(|o| o.name.clone())
-            .unwrap_or_default();
-        tracing::info!("attack {name} ({guid:#010x})");
-        net.last_target_name = name.clone();
-        let mut w = ac_net::wire::Writer::new();
-        w.u32(guid).u32(2).f32(0.5);
-        net.session
-            .send_action(action::TARGETED_MELEE_ATTACK, &w.finish());
-        net.attack_target = Some(guid);
-        net.attack_pending = true;
-        net.last_attack = Instant::now();
-        net.selected = Some(guid);
-    }
 
     /// Combat bookkeeping each tick: repeat attacks, drop dead targets.
-    fn tick_combat(&mut self) {
-        let Some(net) = self.net.as_mut() else { return };
-        let Some(target) = net.attack_target else {
-            return;
-        };
-        let alive = net
-            .world
-            .objects
-            .get(&target)
-            .map(|o| o.health.is_none_or(|h| h > 0.0))
-            .unwrap_or(false);
-        if !alive || !net.combat {
-            tracing::info!("attack target gone");
-            net.attack_target = None;
-            net.attack_pending = false;
-            return;
-        }
-        // Re-sending while the server walks us to the target would cancel
-        // that walk, so wait for it; back off after a refused attack.
-        if !net.attack_pending
-            && net.move_to.is_none()
-            && net.last_attack.elapsed() > net.attack_backoff
-        {
-            self.attack(target);
-        }
-    }
 
     /// Buy from / sell to the open vendor, as the UI asked.
-    fn tick_vendor(&mut self) {
-        use ac_net::messages::{action, trade};
-        let (buy, sell, close) = match self.ui.as_mut() {
-            Some(ui) => (
-                std::mem::take(&mut ui.vendor_buy),
-                std::mem::take(&mut ui.vendor_sell),
-                std::mem::take(&mut ui.vendor_close),
-            ),
-            None => return,
-        };
-        let Some(net) = self.net.as_mut() else { return };
-        let Some(vendor) = net.world.open_vendor.as_ref().map(|v| v.vendor) else {
-            return;
-        };
-        for guid in buy {
-            tracing::info!("buy {guid:#010x} from {vendor:#010x}");
-            net.session
-                .send_action(action::BUY, &trade(vendor, &[(guid, 1)]));
-        }
-        for guid in sell {
-            let amount = net
-                .world
-                .objects
-                .get(&guid)
-                .map(|o| o.stack_size.max(1) as i32)
-                .unwrap_or(1);
-            tracing::info!("sell {guid:#010x} to {vendor:#010x}");
-            net.session
-                .send_action(action::SELL, &trade(vendor, &[(guid, amount)]));
-        }
-        if close {
-            net.world.open_vendor = None;
-        }
-    }
 
     /// Take items out of the open container / close it, as the UI asked.
-    fn tick_loot(&mut self) {
-        use ac_net::messages::action;
-        let (take, close) = match self.ui.as_mut() {
-            Some(ui) => (
-                std::mem::take(&mut ui.loot_take),
-                std::mem::take(&mut ui.loot_close),
-            ),
-            None => return,
-        };
-        let Some(net) = self.net.as_mut() else { return };
-        let me = net.world.player_guid.unwrap_or(0);
-        for guid in take {
-            if !net.loot_queue.contains(&guid) && net.loot_inflight.map(|(g, _)| g) != Some(guid) {
-                net.loot_queue.push_back(guid);
-            }
-        }
-        // The in-flight pickup is done once the item is ours, gone, or stale.
-        if let Some((guid, since)) = net.loot_inflight {
-            let landed = net
-                .world
-                .objects
-                .get(&guid)
-                .is_none_or(|o| o.container == Some(me) || o.wielder == Some(me));
-            if landed || since.elapsed() > Duration::from_secs(4) {
-                net.loot_inflight = None;
-            }
-        }
-        if net.loot_inflight.is_none() {
-            if let Some(guid) = net.loot_queue.pop_front() {
-                let name = net
-                    .world
-                    .objects
-                    .get(&guid)
-                    .map(|o| o.name.clone())
-                    .unwrap_or_default();
-                tracing::info!("take {name} ({guid:#010x})");
-                let mut w = ac_net::wire::Writer::new();
-                w.u32(guid).u32(me).u32(0);
-                net.session
-                    .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
-                net.loot_inflight = Some((guid, Instant::now()));
-            }
-        }
-        if close {
-            if let Some((c, _)) = net.world.open_container.take() {
-                net.session
-                    .send_action(action::NO_LONGER_VIEWING_CONTENTS, &c.to_le_bytes());
-            }
-        }
-    }
 
     /// Send Use for the nearest drawable object called `name` (test hook).
-    fn use_by_name(&mut self, name: &str) -> bool {
-        let Some(net) = self.net.as_mut() else {
-            return false;
-        };
-        let me = net.player.as_ref().map(|p| p.world_position());
-        let my_guid = net.world.player_guid;
-        let mut best: Option<(f32, u32)> = None;
-        for o in net.world.objects.values() {
-            if !o.name.starts_with(name) {
-                continue;
-            }
-            // Carried items count as distance zero, so they win over the floor;
-            // exact names beat prefix matches.
-            let carried = my_guid.is_some() && (o.container == my_guid || o.wielder == my_guid);
-            let exact = if o.name == name { 0.0 } else { 1000.0 };
-            let d = exact
-                + if carried {
-                    0.0
-                } else {
-                    let Some(p) = o.display.or(o.position) else {
-                        continue;
-                    };
-                    me.map(|m| (ac_world::landblock_origin(p.cell) + p.local).distance(m))
-                        .unwrap_or(0.0)
-                };
-            if best.map(|(bd, _)| d < bd).unwrap_or(true) {
-                best = Some((d, o.guid));
-            }
-        }
-        match best {
-            Some((_, guid)) => {
-                net.selected = Some(guid);
-                self.interact(guid);
-                true
-            }
-            None => {
-                tracing::debug!("no object named {name:?} in view yet");
-                false
-            }
-        }
-    }
 
     fn refresh_status(&mut self) {
         let Some(ui) = &mut self.ui else { return };
         let mut s = format!("{:.0} fps", self.fps);
         if let Some(net) = &self.net {
-            match net.world.player().and_then(|o| o.position) {
+            match net.client.world.player().and_then(|o| o.position) {
                 Some(p) => {
                     s += &format!(
                         "  cell {:#010x}  x {:.1} y {:.1} z {:.1}  objects {}",
@@ -929,10 +479,14 @@ impl App {
                         p.local.x,
                         p.local.y,
                         p.local.z,
-                        net.world.drawable().count()
+                        net.client.world.drawable().count()
                     );
                     ui.status_icon = ui::IconLayers::default();
-                    if let Some(o) = net.selected.and_then(|g| net.world.objects.get(&g)) {
+                    if let Some(o) = net
+                        .client
+                        .selected
+                        .and_then(|g| net.client.world.objects.get(&g))
+                    {
                         s += &format!("  selected: {}", o.name);
                         ui.status_icon = ui::IconLayers {
                             underlay: o.icon_underlay,
@@ -940,7 +494,7 @@ impl App {
                             overlay: o.icon_overlay,
                         };
                     }
-                    if net.combat {
+                    if net.client.combat {
                         s += "  [melee]";
                     }
                 }
@@ -959,8 +513,8 @@ impl App {
             ui.blips.clear();
             return;
         };
-        let st = &net.world.stats;
-        let skill_table = net.assets.skill_table().ok();
+        let st = &net.client.world.stats;
+        let skill_table = net.client.assets.skill_table().ok();
         ui.sheet = (!st.name.is_empty()).then(|| {
             let mut skills: Vec<ui::SkillRow> = st
                 .skills
@@ -991,19 +545,24 @@ impl App {
             }
         });
         if ui.spells.len() != st.spells.len() {
-            ui.spells = match (net.assets.spell_table(), net.assets.spell_components()) {
+            ui.spells = match (
+                net.client.assets.spell_table(),
+                net.client.assets.spell_components(),
+            ) {
                 (Ok(table), Ok(comps)) => spell_rows(&table, &comps, st.spells.iter().copied()),
                 _ => Vec::new(),
             };
         }
         ui.target = net
+            .client
             .attack_target
-            .or(net.selected)
-            .and_then(|g| net.world.objects.get(&g))
+            .or(net.client.selected)
+            .and_then(|g| net.client.world.objects.get(&g))
             .filter(|o| o.item_type & ac_world::item_type::CREATURE != 0)
             .map(|o| (o.name.clone(), o.health.unwrap_or(1.0)));
-        ui.loot = net.world.open_container.as_ref().map(|(c, items)| {
+        ui.loot = net.client.world.open_container.as_ref().map(|(c, items)| {
             let name = net
+                .client
                 .world
                 .objects
                 .get(c)
@@ -1011,7 +570,7 @@ impl App {
                 .unwrap_or_else(|| "Container".into());
             let list = items
                 .iter()
-                .filter_map(|g| net.world.objects.get(g))
+                .filter_map(|g| net.client.world.objects.get(g))
                 .map(|o| ui::Item {
                     guid: o.guid,
                     name: o.name.clone(),
@@ -1024,8 +583,9 @@ impl App {
                 .collect();
             (name, list)
         });
-        ui.vendor = net.world.open_vendor.as_ref().map(|v| {
+        ui.vendor = net.client.world.open_vendor.as_ref().map(|v| {
             let name = net
+                .client
                 .world
                 .objects
                 .get(&v.vendor)
@@ -1044,6 +604,7 @@ impl App {
                 })
                 .collect();
             let selling = net
+                .client
                 .world
                 .inventory()
                 .filter(|o| o.value > 0 && o.item_type & ac_world::item_type::MONEY == 0)
@@ -1062,7 +623,7 @@ impl App {
             }
         });
         ui.items.clear();
-        for o in net.world.wielded() {
+        for o in net.client.world.wielded() {
             ui.items.push(ui::Item {
                 guid: o.guid,
                 name: o.name.clone(),
@@ -1073,7 +634,7 @@ impl App {
                 icon_underlay: o.icon_underlay,
             });
         }
-        for o in net.world.inventory() {
+        for o in net.client.world.inventory() {
             ui.items.push(ui::Item {
                 guid: o.guid,
                 name: o.name.clone(),
@@ -1087,7 +648,7 @@ impl App {
         ui.items
             .sort_by(|a, b| b.wielded.cmp(&a.wielded).then(a.name.cmp(&b.name)));
         ui.blips.clear();
-        let (me, heading) = match (&net.player, net.world.player()) {
+        let (me, heading) = match (&net.client.player, net.client.world.player()) {
             (Some(p), _) => (ac_world::landblock_origin(p.cell) + p.local, p.heading),
             (None, Some(o)) => match o.display.or(o.position) {
                 Some(pos) => (ac_world::landblock_origin(pos.cell) + pos.local, 0.0),
@@ -1097,7 +658,7 @@ impl App {
         };
         let fwd = glam::Vec2::new(-heading.sin(), heading.cos());
         let right = glam::Vec2::new(heading.cos(), heading.sin());
-        for o in net.world.drawable() {
+        for o in net.client.world.drawable() {
             if o.is_player {
                 continue;
             }
@@ -1118,59 +679,6 @@ impl App {
                 y: d.dot(fwd),
                 kind,
             });
-        }
-    }
-
-    fn appraisal(&mut self, body: &[u8]) {
-        use ac_net::messages::Appraisal;
-        let a = match Appraisal::parse(body) {
-            Ok(a) => a,
-            Err(e) => {
-                tracing::warn!("appraisal: {e}");
-                return;
-            }
-        };
-        let name = self
-            .net
-            .as_ref()
-            .and_then(|n| n.world.objects.get(&a.guid))
-            .map(|o| o.name.clone())
-            .unwrap_or_else(|| format!("{:#010x}", a.guid));
-        let mut lines = vec![name.clone()];
-        for key in [
-            Appraisal::STRING_SHORT_DESC,
-            Appraisal::STRING_LONG_DESC,
-            Appraisal::STRING_USE,
-        ] {
-            if let Some(t) = a.string(key) {
-                if !t.is_empty() {
-                    lines.push(t.to_string());
-                }
-            }
-        }
-        if !a.success {
-            lines.push("(appraisal failed)".into());
-        }
-        tracing::info!(
-            "appraise {name}: {} properties",
-            a.ints.len() + a.strings.len()
-        );
-        if let Some(ui) = &mut self.ui {
-            for l in lines {
-                ui.push_chat(l, 1);
-            }
-        }
-    }
-
-    fn send_chat(&mut self) {
-        let Some(ui) = &mut self.ui else { return };
-        let lines = std::mem::take(&mut ui.outgoing);
-        let Some(net) = self.net.as_mut() else { return };
-        for t in lines {
-            let mut w = ac_net::wire::Writer::new();
-            w.string16(&t);
-            net.session
-                .send_action(ac_net::messages::action::TALK, &w.finish());
         }
     }
 
@@ -1196,7 +704,9 @@ impl App {
         let secondary = std::net::SocketAddr::new(primary.ip(), primary.port() + 1);
         let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
         socket.set_nonblocking(true)?;
-        let assets = ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?;
+        let assets = std::rc::Rc::new(
+            ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?,
+        );
         let audio = if self.cli.mute || self.cli.screenshot.is_some() {
             None
         } else {
@@ -1233,44 +743,47 @@ impl App {
         session.login(now);
         tracing::info!("connecting to {primary}");
         self.net = Some(Net {
-            socket,
-            primary,
-            secondary,
-            session,
-            world: ac_world::World::default(),
-            assets,
-            characters: Vec::new(),
-            characters_known: false,
-            ddd_done: false,
-            enter_requested: false,
-            scene_block: None,
+            client: ac_client::Client {
+                socket,
+                primary,
+                secondary,
+                session,
+                world: ac_world::World::default(),
+                assets,
+                characters: Vec::new(),
+                characters_known: false,
+                ddd_done: false,
+                enter_requested: false,
+                scene_block: None,
+                move_to: None,
+                move_to_since: Instant::now(),
+                combat: false,
+                magic: false,
+                known_spells: Default::default(),
+                attack_target: None,
+                attack_pending: false,
+                last_attack: Instant::now(),
+                attack_backoff: Duration::from_millis(300),
+                last_target_name: String::new(),
+                sound_tables: Default::default(),
+                waves: Default::default(),
+                loot_queue: Default::default(),
+                loot_inflight: None,
+                selected: None,
+                last_click: None,
+                player: None,
+                player_setup: 0,
+                events: Vec::new(),
+            },
             loaded_blocks: Default::default(),
             dungeon: Default::default(),
             mesh_cache: Default::default(),
             last_generation: 0,
             pickables: Vec::new(),
-            move_to: None,
-            move_to_since: Instant::now(),
-            combat: false,
-            magic: false,
-            known_spells: Default::default(),
-            attack_target: None,
-            attack_pending: false,
-            last_attack: Instant::now(),
-            attack_backoff: Duration::from_millis(300),
-            last_target_name: String::new(),
             fx: Default::default(),
             audio,
-            sound_tables: Default::default(),
-            waves: Default::default(),
-            loot_queue: Default::default(),
-            loot_inflight: None,
-            selected: None,
-            last_click: None,
             gpu_meshes: Default::default(),
             palettes: Default::default(),
-            player: None,
-            player_setup: 0,
             anims: Default::default(),
             tables: Default::default(),
             last_anim_refresh: Instant::now(),
@@ -1285,33 +798,34 @@ impl App {
         let Some(net) = self.net.as_mut() else { return };
         let now = Instant::now();
         let mut chat_pending: Vec<(u32, Vec<u8>)> = Vec::new();
-        for (port, dg) in net.session.outgoing() {
+        for (port, dg) in net.client.session.outgoing() {
             let to = if port == Port::Primary {
-                net.primary
+                net.client.primary
             } else {
-                net.secondary
+                net.client.secondary
             };
-            let _ = net.socket.send_to(&dg, to);
+            let _ = net.client.socket.send_to(&dg, to);
         }
         let mut buf = [0u8; 2048];
         loop {
-            match net.socket.recv_from(&mut buf) {
-                Ok((n, _)) => net.session.receive(&buf[..n], now),
+            match net.client.socket.recv_from(&mut buf) {
+                Ok((n, _)) => net.client.session.receive(&buf[..n], now),
                 Err(_) => break,
             }
         }
-        net.session.poll(now);
-        for ev in net.session.events() {
+        net.client.session.poll(now);
+        for ev in net.client.session.events() {
             match ev {
                 Event::Connected { client_id } => {
                     tracing::info!("connected, client id {client_id}")
                 }
                 Event::Terminated(why) => tracing::warn!("terminated: {why}"),
                 Event::Message(msg) => {
-                    match net.world.apply(&msg) {
+                    match net.client.world.apply(&msg) {
                         ac_world::Applied::PlayerSet => {
                             // The server ignores our positions until we say we landed.
-                            net.session
+                            net.client
+                                .session
                                 .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
                             continue;
                         }
@@ -1320,23 +834,24 @@ impl App {
                             // A MoveTo aimed at us is ours to carry out; a plain
                             // motion state for us means the server is done
                             // walking us (or echoed our own state).
-                            let stance = net.world.player().map(|o| o.motion.style);
-                            let target = net.world.player_mut().and_then(|o| o.target.take());
+                            let stance = net.client.world.player().map(|o| o.motion.style);
+                            let target =
+                                net.client.world.player_mut().and_then(|o| o.target.take());
                             match target {
                                 Some(t) => {
-                                    if net.move_to.is_none() {
+                                    if net.client.move_to.is_none() {
                                         tracing::debug!("server move-to {t:?}");
-                                        net.move_to_since = Instant::now();
+                                        net.client.move_to_since = Instant::now();
                                     }
-                                    net.move_to = Some(t);
+                                    net.client.move_to = Some(t);
                                 }
                                 None => {
-                                    if net.move_to.take().is_some() {
+                                    if net.client.move_to.take().is_some() {
                                         tracing::debug!("server move-to finished");
                                         // Take the server's idea of where we ended up.
                                         if let (Some(pl), Some(p)) = (
-                                            net.player.as_mut(),
-                                            net.world.player().and_then(|o| o.position),
+                                            net.client.player.as_mut(),
+                                            net.client.world.player().and_then(|o| o.position),
                                         ) {
                                             pl.cell = p.cell;
                                             pl.local = p.local;
@@ -1346,16 +861,16 @@ impl App {
                                 }
                             }
                             // Our stance follows the server (combat mode changes).
-                            if let (Some(st), Some(pl)) = (stance, net.player.as_mut()) {
+                            if let (Some(st), Some(pl)) = (stance, net.client.player.as_mut()) {
                                 if st != 0 {
-                                    pl.set_stance(&net.assets, 0x8000_0000 | st as u32);
+                                    pl.set_stance(&net.client.assets, 0x8000_0000 | st as u32);
                                 }
                             }
                             continue;
                         }
                         ac_world::Applied::Appearance => {
                             // Our own look changed: redraw the character.
-                            if let Some(pl) = net.player.as_mut() {
+                            if let Some(pl) = net.client.player.as_mut() {
                                 pl.dirty = true;
                             }
                             continue;
@@ -1382,30 +897,34 @@ impl App {
                                     "characters: {:?}",
                                     cl.characters.iter().map(|c| &c.name).collect::<Vec<_>>()
                                 );
-                                net.characters = cl.characters;
-                                net.characters_known = true;
+                                net.client.characters = cl.characters;
+                                net.client.characters_known = true;
                             }
                         }
-                        opcode::DDD_END_DDD => net.ddd_done = true,
+                        opcode::DDD_END_DDD => net.client.ddd_done = true,
                         _ => {}
                     }
                     let Some((op, _)) = messages::split(&msg) else {
                         continue;
                     };
                     match op {
-                        _ if net.ddd_done && net.characters_known && !net.enter_requested => {
+                        _ if net.client.ddd_done
+                            && net.client.characters_known
+                            && !net.client.enter_requested =>
+                        {
                             let pick = match &self.cli.character {
                                 Some(name) => net
+                                    .client
                                     .characters
                                     .iter()
                                     .find(|c| c.name.eq_ignore_ascii_case(name)),
-                                None => net.characters.first(),
+                                None => net.client.characters.first(),
                             };
                             match pick {
                                 Some(c) => {
                                     tracing::info!("entering world as {}", c.name);
-                                    net.session.send_message(queue::UI, messages::enter_world_request());
-                                    net.enter_requested = true;
+                                    net.client.session.send_message(queue::UI, messages::enter_world_request());
+                                    net.client.enter_requested = true;
                                 }
                                 None => tracing::error!("no character on this account; create one with acclient --create first"),
                             }
@@ -1413,14 +932,16 @@ impl App {
                         opcode::CHARACTER_ENTER_WORLD_SERVER_READY => {
                             let pick = match &self.cli.character {
                                 Some(name) => net
+                                    .client
                                     .characters
                                     .iter()
                                     .find(|c| c.name.eq_ignore_ascii_case(name)),
-                                None => net.characters.first(),
+                                None => net.client.characters.first(),
                             };
                             if let Some(c) = pick {
                                 let account = self.cli.account.clone().unwrap_or_default();
-                                net.session
+                                net.client
+                                    .session
                                     .send_message(queue::UI, messages::enter_world(c.id, &account));
                             }
                         }
@@ -1428,14 +949,15 @@ impl App {
                             // After a server teleport, take the new position and
                             // tell the server we landed.
                             if let (Some(pl), Some(p)) = (
-                                net.player.as_mut(),
-                                net.world.player().and_then(|o| o.position),
+                                net.client.player.as_mut(),
+                                net.client.world.player().and_then(|o| o.position),
                             ) {
                                 pl.cell = p.cell;
                                 pl.local = p.local;
                                 pl.dirty = true;
                             }
-                            net.session
+                            net.client
+                                .session
                                 .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
                         }
                         opcode::CHARACTER_ERROR | opcode::ACCOUNT_BOOT => {
@@ -1451,8 +973,8 @@ impl App {
                                     tracing::warn!(
                                         "inventory action failed for {item:#010x}, error {err:#x}"
                                     );
-                                    if net.loot_inflight.map(|(g, _)| g) == Some(item) {
-                                        net.loot_inflight = None;
+                                    if net.client.loot_inflight.map(|(g, _)| g) == Some(item) {
+                                        net.client.loot_inflight = None;
                                     }
                                 } else if ev == ac_net::messages::event::USE_DONE && rest.len() >= 4
                                 {
@@ -1460,7 +982,7 @@ impl App {
                                         u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
                                     tracing::debug!("use done, error {err:#x}");
                                     // The walk the server asked for is over either way.
-                                    net.move_to = None;
+                                    net.client.move_to = None;
                                 } else {
                                     tracing::debug!("game event {ev:#06x} ({} bytes)", rest.len());
                                 }
@@ -1474,58 +996,45 @@ impl App {
         for (op, body) in chat_pending {
             self.chat_message(op, &body);
         }
-        self.send_chat();
-        self.tick_combat();
-        self.tick_loot();
-        self.tick_vendor();
-        let activated: Vec<u32> = self
-            .ui
-            .as_mut()
-            .map(|u| std::mem::take(&mut u.activated))
-            .unwrap_or_default();
-        for guid in activated {
-            self.interact(guid);
-        }
-        let casts: Vec<u32> = self
-            .ui
-            .as_mut()
-            .map(|u| std::mem::take(&mut u.cast_requests))
-            .unwrap_or_default();
-        for spell in casts {
-            self.cast(spell);
+        self.apply_ui_commands();
+        if let Some(net) = self.net.as_mut() {
+            net.client.tick_combat();
+            net.client.tick_loot();
         }
         let Some(net) = self.net.as_mut() else { return };
         // Build the static scene once the player is placed.
-        if net.scene_block.is_none() {
-            if let Some(p) = net.world.player().and_then(|o| o.position) {
+        if net.client.scene_block.is_none() {
+            if let Some(p) = net.client.world.player().and_then(|o| o.position) {
                 let block = p.landblock();
                 tracing::info!(
                     "player at cell {:#010x} local {:?}; loading landblocks",
                     p.cell,
                     p.local
                 );
-                net.player_setup = net
+                net.client.player_setup = net
+                    .client
                     .world
                     .player()
                     .map(|o| o.setup_id)
                     .unwrap_or(0x0200_0001);
-                let mut pl = player::Player::new(&net.assets, p.cell, p.local, p.rotation);
+                let mut pl = player::Player::new(&net.client.assets, p.cell, p.local, p.rotation);
                 let table_id = net
+                    .client
                     .world
                     .player()
                     .map(|o| o.motion_table_id)
                     .filter(|&t| t != 0)
                     .unwrap_or(0x0900_0001);
-                pl.set_motion_table(&net.assets, net.player_setup, table_id);
-                net.player = Some(pl);
+                pl.set_motion_table(&net.client.assets, net.client.player_setup, table_id);
+                net.client.player = Some(pl);
                 self.camera.pitch = -0.15;
                 self.camera.far = 3000.0;
-                net.scene_block = Some(block);
+                net.client.scene_block = Some(block);
             }
         }
         // Stream landblocks around the character: the block we stand in
         // first, then its neighbours (outdoors only), one per frame.
-        if let Some(center) = net.player.as_ref().map(|p| p.landblock()) {
+        if let Some(center) = net.client.player.as_ref().map(|p| p.landblock()) {
             let mut wanted = vec![center];
             if net.dungeon.get(&center) == Some(&false) {
                 let cx = ac_scene::lbid::block_x(center);
@@ -1541,10 +1050,10 @@ impl App {
             }
             if let Some(&id) = wanted.iter().find(|id| !net.loaded_blocks.contains(id)) {
                 let t0 = Instant::now();
-                match scene::build_landblock(&net.assets, id, &mut net.mesh_cache) {
+                match scene::build_landblock(&net.client.assets, id, &mut net.mesh_cache) {
                     Ok(built) => {
                         net.dungeon.insert(id, built.is_dungeon);
-                        let assets = &net.assets;
+                        let assets = &net.client.assets;
                         let palettes = &net.palettes;
                         gpu.add_block(id, built.batches, |k| {
                             scene::material_image(assets, k, palettes)
@@ -1590,27 +1099,27 @@ impl App {
                 tracing::info!("landblock {id:#010x} unloaded");
             }
         }
-        net.world.tick(self.frame_dt);
+        net.client.world.tick(self.frame_dt);
         if !net.fx.is_empty() {
-            net.fx.update(&net.assets, self.frame_dt);
+            net.fx.update(&net.client.assets, self.frame_dt);
             let quads = net.fx.quads();
-            let assets = &net.assets;
+            let assets = &net.client.assets;
             let palettes = &net.palettes;
             gpu.set_particles(particles::draws(&quads, self.camera.position), |k| {
                 scene::material_image(assets, k, palettes)
             });
         }
-        let changed = net.world.generation != net.last_generation;
+        let changed = net.client.world.generation != net.last_generation;
         let animate = scene::any_animated(&net.anims)
             && net.last_anim_refresh.elapsed() > Duration::from_millis(66);
-        if net.scene_block.is_some() && (changed || animate) {
-            net.last_generation = net.world.generation;
+        if net.client.scene_block.is_some() && (changed || animate) {
+            net.last_generation = net.client.world.generation;
             let dt = net.last_anim_refresh.elapsed().as_secs_f32().min(0.2);
             net.last_anim_refresh = Instant::now();
             let (instances, picks) = scene::object_instances(
-                &net.assets,
+                &net.client.assets,
                 gpu,
-                &net.world,
+                &net.client.world,
                 &mut net.gpu_meshes,
                 &mut net.palettes,
                 &mut net.anims,
@@ -1621,7 +1130,7 @@ impl App {
             gpu.set_dynamic_instances(instances);
         }
         // Player movement, camera, and reporting.
-        if let Some(pl) = net.player.as_mut() {
+        if let Some(pl) = net.client.player.as_mut() {
             let mut input = player::Input {
                 forward: (self.keys.contains(&KeyCode::KeyW) as i8
                     - self.keys.contains(&KeyCode::KeyS) as i8) as f32,
@@ -1633,9 +1142,10 @@ impl App {
             // Server-driven MoveTo (using something out of reach): run toward
             // the target until close enough, unless the user takes over.
             let manual = input.forward != 0.0 || input.strafe != 0.0;
-            if let Some(t) = net.move_to {
+            if let Some(t) = net.client.move_to {
                 let goal = match t {
                     ac_world::object::MoveTarget::Object(g) => net
+                        .client
                         .world
                         .objects
                         .get(&g)
@@ -1664,46 +1174,46 @@ impl App {
             }
             let now = Instant::now();
             let dt = self.frame_dt;
-            pl.update(&net.assets, &input, dt);
+            pl.update(&net.client.assets, &input, dt);
             if let Some(j) = pl.last_jump.take() {
                 tracing::info!("jump power {:.2} velocity {:?}", j.power, j.velocity);
-                net.session.send_action(
+                net.client.session.send_action(
                     ac_net::messages::action::JUMP,
                     &ac_net::messages::jump(j.power, j.velocity.to_array(), 1),
                 );
             }
             // One-shot motions the server broadcast for us (attacks, emotes).
             let mut cmds = Vec::new();
-            if let Some(o) = net.world.player_mut() {
+            if let Some(o) = net.client.world.player_mut() {
                 while let Some(c) = o.commands.pop() {
                     cmds.push(c);
                 }
             }
             for c in cmds {
-                pl.play_command(&net.assets, c.command as u32, c.speed);
+                pl.play_command(&net.client.assets, c.command as u32, c.speed);
             }
-            let pose = pl.animate(&net.assets, &input, dt);
+            let pose = pl.animate(&net.client.assets, &input, dt);
             if pose.is_some() {
                 pl.dirty = true;
             }
-            let quiet =
-                net.move_to.is_some() && net.move_to_since.elapsed() < Duration::from_secs(12);
-            if !quiet && net.move_to.is_some() {
+            let quiet = net.client.move_to.is_some()
+                && net.client.move_to_since.elapsed() < Duration::from_secs(12);
+            if !quiet && net.client.move_to.is_some() {
                 tracing::debug!("server move-to timed out");
-                net.move_to = None;
+                net.client.move_to = None;
             }
-            pl.report(&mut net.session, &input, now, quiet);
+            pl.report(&mut net.client.session, &input, now, quiet);
             // Third-person camera behind the character.
             let pos = pl.world_position();
             let fwd = pl.forward();
             let (sp, cp) = self.camera.pitch.sin_cos();
             let back = Vec3::new(-fwd.x * cp, -fwd.y * cp, -sp) * 4.0;
             let head = pos + Vec3::new(0.0, 0.0, 1.6);
-            self.camera.position = pl.clamp_camera(&net.assets, head, head + back);
+            self.camera.position = pl.clamp_camera(&net.client.assets, head, head + back);
             self.camera.yaw = pl.heading;
             if pl.dirty {
                 pl.dirty = false;
-                if let Some(o) = net.world.player_mut() {
+                if let Some(o) = net.client.world.player_mut() {
                     o.position = Some(ac_world::Position {
                         cell: pl.cell,
                         local: pl.local,
@@ -1711,20 +1221,21 @@ impl App {
                     });
                 }
                 let t = glam::Mat4::from_rotation_translation(pl.rotation(), pos);
-                let (app, key) = match net.world.player() {
-                    Some(o) => scene::appearance_of(&net.assets, o, &mut net.palettes),
+                let (app, key) = match net.client.world.player() {
+                    Some(o) => scene::appearance_of(&net.client.assets, o, &mut net.palettes),
                     None => (ac_scene::model::Appearance::default(), 0),
                 };
                 let light = net
+                    .client
                     .world
                     .player()
-                    .and_then(|o| scene::object_light(&net.assets, o));
+                    .and_then(|o| scene::object_light(&net.client.assets, o));
                 let instances = scene::instances_lit(
-                    &net.assets,
+                    &net.client.assets,
                     gpu,
                     &mut net.gpu_meshes,
                     &net.palettes,
-                    net.player_setup,
+                    net.client.player_setup,
                     t,
                     &app,
                     key,
@@ -1895,14 +1406,14 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => {
                 if let Some(net) = self.net.as_mut() {
-                    net.session.disconnect(Instant::now());
-                    for (port, dg) in net.session.outgoing() {
+                    net.client.session.disconnect(Instant::now());
+                    for (port, dg) in net.client.session.outgoing() {
                         let to = if port == ac_net::session::Port::Primary {
-                            net.primary
+                            net.client.primary
                         } else {
-                            net.secondary
+                            net.client.secondary
                         };
-                        let _ = net.socket.send_to(&dg, to);
+                        let _ = net.client.socket.send_to(&dg, to);
                     }
                 }
                 event_loop.exit()
@@ -1957,14 +1468,14 @@ impl ApplicationHandler for App {
                     }
                     if code == KeyCode::Escape {
                         if let Some(net) = self.net.as_mut() {
-                            net.session.disconnect(Instant::now());
-                            for (port, dg) in net.session.outgoing() {
+                            net.client.session.disconnect(Instant::now());
+                            for (port, dg) in net.client.session.outgoing() {
                                 let to = if port == ac_net::session::Port::Primary {
-                                    net.primary
+                                    net.client.primary
                                 } else {
-                                    net.secondary
+                                    net.client.secondary
                                 };
-                                let _ = net.socket.send_to(&dg, to);
+                                let _ = net.client.socket.send_to(&dg, to);
                             }
                         }
                         event_loop.exit();
@@ -2004,7 +1515,7 @@ impl ApplicationHandler for App {
                     if let Some((lx, ly)) = self.last_cursor {
                         let dx = (position.x - lx) as f32;
                         let dy = (position.y - ly) as f32;
-                        match self.net.as_mut().and_then(|n| n.player.as_mut()) {
+                        match self.net.as_mut().and_then(|n| n.client.player.as_mut()) {
                             Some(pl) => {
                                 pl.turn(-dx * 0.003);
                                 self.camera.pitch =
@@ -2179,7 +1690,7 @@ fn main() -> Result<()> {
                 let placed = app
                     .net
                     .as_ref()
-                    .map(|n| n.scene_block.is_some())
+                    .map(|n| n.client.scene_block.is_some())
                     .unwrap_or(false);
                 if placed {
                     let started = *settled_at.get_or_insert_with(Instant::now);
@@ -2231,8 +1742,9 @@ fn main() -> Result<()> {
                             let id = app.net.as_ref().and_then(|n| {
                                 // Spellbook first (ids from PlayerDescription), then
                                 // scrolls learnt this session or still in the pack.
-                                let table = n.assets.spell_table().ok();
-                                n.world
+                                let table = n.client.assets.spell_table().ok();
+                                n.client
+                                    .world
                                     .stats
                                     .spells
                                     .iter()
@@ -2244,13 +1756,15 @@ fn main() -> Result<()> {
                                             .is_some_and(|sp| sp.name.starts_with(&want))
                                     })
                                     .or_else(|| {
-                                        n.known_spells
+                                        n.client
+                                            .known_spells
                                             .iter()
                                             .find(|(_, name)| name.starts_with(&want))
                                             .map(|(id, _)| *id)
                                     })
                                     .or_else(|| {
-                                        n.world
+                                        n.client
+                                            .world
                                             .inventory()
                                             .find(|o| {
                                                 o.spell_id != 0
@@ -2270,9 +1784,12 @@ fn main() -> Result<()> {
                     }
                     if let Some(want) = app.cli.sell.clone() {
                         if let (Some(net), Some(ui)) = (app.net.as_ref(), app.ui.as_mut()) {
-                            if net.world.open_vendor.is_some() {
-                                if let Some(o) =
-                                    net.world.inventory().find(|o| o.name.starts_with(&want))
+                            if net.client.world.open_vendor.is_some() {
+                                if let Some(o) = net
+                                    .client
+                                    .world
+                                    .inventory()
+                                    .find(|o| o.name.starts_with(&want))
                                 {
                                     tracing::info!("selling {}", o.name);
                                     ui.vendor_sell.push(o.guid);
@@ -2284,7 +1801,7 @@ fn main() -> Result<()> {
                     }
                     if let Some(want) = app.cli.buy.clone() {
                         if let (Some(net), Some(ui)) = (app.net.as_ref(), app.ui.as_mut()) {
-                            if let Some(v) = &net.world.open_vendor {
+                            if let Some(v) = &net.client.world.open_vendor {
                                 tracing::info!(
                                     "vendor stock: {}",
                                     v.items
@@ -2322,7 +1839,7 @@ fn main() -> Result<()> {
                             }
                         }
                         if let Some(name) = app.cli.attack.clone() {
-                            if !app.net.as_ref().is_some_and(|n| n.combat) {
+                            if !app.net.as_ref().is_some_and(|n| n.client.combat) {
                                 app.toggle_combat();
                             }
                             if app.use_by_name(&name) || t > 60.0 + say_delay {
@@ -2333,7 +1850,9 @@ fn main() -> Result<()> {
                     }
                     // Attack phase: wait for the target to die, then loot.
                     let fighting = attack_started.is_some_and(|s| {
-                        app.net.as_ref().is_some_and(|n| n.attack_target.is_some())
+                        app.net
+                            .as_ref()
+                            .is_some_and(|n| n.client.attack_target.is_some())
                             && s.elapsed() < Duration::from_secs(90)
                     });
                     let loot_only = app.cli.attack.is_none()
@@ -2347,7 +1866,7 @@ fn main() -> Result<()> {
                     }
                     if loot_state == 1 && loot_at.elapsed() > Duration::from_secs(2) {
                         if let Some(name) = app.cli.loot.clone() {
-                            if app.net.as_ref().is_some_and(|n| n.combat) {
+                            if app.net.as_ref().is_some_and(|n| n.client.combat) {
                                 app.toggle_combat();
                             }
                             let corpse = if name.is_empty() {
@@ -2355,7 +1874,7 @@ fn main() -> Result<()> {
                                     "Corpse of {}",
                                     app.net
                                         .as_ref()
-                                        .map(|n| n.last_target_name.clone())
+                                        .map(|n| n.client.last_target_name.clone())
                                         .unwrap_or_default()
                                 )
                             } else {
@@ -2376,7 +1895,7 @@ fn main() -> Result<()> {
                     }
                     if loot_state == 2 && app.cli.loot.is_some() {
                         if let (Some(ui), Some(net)) = (app.ui.as_mut(), app.net.as_ref()) {
-                            if let Some((_, items)) = &net.world.open_container {
+                            if let Some((_, items)) = &net.client.world.open_container {
                                 if !items.is_empty()
                                     && ui.loot_take.is_empty()
                                     && loot_at.elapsed() > Duration::from_secs(1)
@@ -2398,7 +1917,8 @@ fn main() -> Result<()> {
                             .net
                             .as_ref()
                             .map(|n| {
-                                n.world
+                                n.client
+                                    .world
                                     .drawable()
                                     .map(|o| format!("{} {:#x}", o.name, o.object_desc_flags))
                                     .collect()
@@ -2407,7 +1927,7 @@ fn main() -> Result<()> {
                         names.sort();
                         tracing::debug!("objects in view: {}", names.join(" | "));
                         if let Some(n) = app.net.as_ref() {
-                            let st = &n.world.stats;
+                            let st = &n.client.world.stats;
                             tracing::info!(
                                 "sheet: level {} xp {} avail {} credits {}; {} skills, {} spells, {} inventory guids, {} wielded guids",
                                 st.level,
@@ -2462,10 +1982,9 @@ fn main() -> Result<()> {
                     // Capture while still walking so the walk pose is visible,
                     // or after a short settle when not walking.
                     let pending = app.cli.attack.is_some() || app.cli.use_name.is_some();
-                    let looting = app
-                        .net
-                        .as_ref()
-                        .is_some_and(|n| !n.loot_queue.is_empty() || n.loot_inflight.is_some());
+                    let looting = app.net.as_ref().is_some_and(|n| {
+                        !n.client.loot_queue.is_empty() || n.client.loot_inflight.is_some()
+                    });
                     let done = if pending
                         || looting
                         || (app.cli.buy.is_some()
@@ -2524,14 +2043,14 @@ fn main() -> Result<()> {
         gpu.render_to_png(vp, Vec3::new(0.4, 0.3, 1.0), &path, Some(&mut paint))?;
         tracing::info!("wrote {}", path.display());
         if let Some(net) = app.net.as_mut() {
-            net.session.disconnect(Instant::now());
-            for (port, dg) in net.session.outgoing() {
+            net.client.session.disconnect(Instant::now());
+            for (port, dg) in net.client.session.outgoing() {
                 let to = if port == ac_net::session::Port::Primary {
-                    net.primary
+                    net.client.primary
                 } else {
-                    net.secondary
+                    net.client.secondary
                 };
-                let _ = net.socket.send_to(&dg, to);
+                let _ = net.client.socket.send_to(&dg, to);
             }
         }
         return Ok(());

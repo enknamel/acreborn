@@ -29,6 +29,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-client"
+version = "0.1.0"
+dependencies = [
+ "ac-formats",
+ "ac-net",
+ "ac-scene",
+ "ac-world",
+ "glam 0.30.10",
+ "tracing",
+]
+
+[[package]]
 name = "ac-dat"
 version = "0.1.0"
 dependencies = [
@@ -120,6 +132,7 @@ name = "acviewer"
 version = "0.1.0"
 dependencies = [
  "ac-audio",
+ "ac-client",
  "ac-dat",
  "ac-formats",
  "ac-net",

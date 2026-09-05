@@ -13,7 +13,6 @@
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
-use ac_formats::sound_table::{SoundEntry, SoundTable};
 use ac_formats::wave::{Wave, WaveFormat};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundSettings};
 use kira::sound::FromFileError;
@@ -149,53 +148,14 @@ fn pcm_frames(wave: &Wave) -> Result<Vec<Frame>> {
         .collect())
 }
 
-/// Pick a candidate for `sound_type` from `table`, rolling `roll` (in
-/// `0.0..1.0`) against each entry's probability in turn; the last entry is
-/// the fallback when none hits.
-pub fn pick_entry(table: &SoundTable, sound_type: u32, roll: f32) -> Option<&SoundEntry> {
-    let data = table.get(sound_type)?;
-    data.entries
-        .iter()
-        .find(|e| roll < e.probability)
-        .or(data.entries.last())
-}
-
-/// The wave to play for `sound_type`, chosen by probability with a fresh
-/// random roll. `None` when the table has no entry for the type.
-pub fn sound_for(table: &SoundTable, sound_type: u32) -> Option<u32> {
-    pick_entry(table, sound_type, random_unit()).map(|e| e.wave_id)
-}
-
-/// Uniform in `[0, 1)` without pulling in a RNG crate: a splitmix64 step
-/// over a thread-local seed taken from the clock.
-fn random_unit() -> f32 {
-    use std::cell::Cell;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    thread_local! {
-        static STATE: Cell<u64> = Cell::new(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos() as u64)
-                .unwrap_or(0x9E37_79B9_7F4A_7C15),
-        );
-    }
-    STATE.with(|s| {
-        let x = s.get().wrapping_add(0x9E37_79B9_7F4A_7C15);
-        s.set(x);
-        let mut z = x;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^= z >> 31;
-        (z >> 40) as f32 / (1u64 << 24) as f32
-    })
-}
+pub use ac_formats::sound_table::{pick_entry, sound_for};
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ac_formats::sound_table::SoundData;
 
-    fn table(entries: &[(u32, f32)]) -> SoundTable {
+    fn table(entries: &[(u32, f32)]) -> ac_formats::sound_table::SoundTable {
         SoundTable {
             id: 0x2000_0001,
             unknown: 0,
