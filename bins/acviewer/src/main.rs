@@ -918,7 +918,8 @@ impl App {
                 .map(|it| ui::TradeItem {
                     guid: it.guid,
                     name: it.desc.name.clone(),
-                    price: (it.desc.value as f32 * v.buy_rate).ceil() as u32,
+                    // ACE's "SellPrice" is the rate the vendor sells at.
+                    price: ((it.desc.value as f32 * v.sell_rate - 0.1).ceil().max(1.0)) as u32,
                     icon: it.desc.icon_id,
                     unlimited: it.stack == 0x00FF_FFFF,
                 })
@@ -926,11 +927,11 @@ impl App {
             let selling = net
                 .world
                 .inventory()
-                .filter(|o| o.value > 0)
+                .filter(|o| o.value > 0 && o.item_type & ac_world::item_type::MONEY == 0)
                 .map(|o| ui::TradeItem {
                     guid: o.guid,
                     name: o.name.clone(),
-                    price: (o.value as f32 * v.sell_rate).floor() as u32,
+                    price: ((o.value as f32 * v.buy_rate + 0.1).floor().max(1.0)) as u32,
                     icon: o.icon_id,
                     unlimited: false,
                 })
@@ -2055,7 +2056,7 @@ fn main() -> Result<()> {
                                         .map(|i| format!(
                                             "{} ({}p)",
                                             i.desc.name,
-                                            (i.desc.value as f32 * v.buy_rate).ceil()
+                                            (i.desc.value as f32 * v.sell_rate).ceil()
                                         ))
                                         .collect::<Vec<_>>()
                                         .join(" | ")

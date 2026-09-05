@@ -57,6 +57,7 @@ pub mod item_type {
     pub const CLOTHING: u32 = 0x4;
     pub const JEWELRY: u32 = 0x8;
     pub const CREATURE: u32 = 0x10;
+    pub const MONEY: u32 = 0x40;
     pub const MISSILE_WEAPON: u32 = 0x100;
     pub const CONTAINER: u32 = 0x200;
     pub const CASTER: u32 = 0x8000;

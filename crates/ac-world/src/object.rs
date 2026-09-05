@@ -428,7 +428,8 @@ pub struct ApproachVendor {
     pub min_value: u32,
     pub max_value: u32,
     pub magical: bool,
-    /// Price multipliers applied to an item's value.
+    /// Price multipliers applied to an item's value: `buy_rate` is what the
+    /// vendor pays when buying from us, `sell_rate` what it charges.
     pub buy_rate: f32,
     pub sell_rate: f32,
     pub alt_currency: u32,
