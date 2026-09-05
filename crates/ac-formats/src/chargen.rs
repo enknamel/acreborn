@@ -45,7 +45,8 @@ pub struct TemplateCg {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ObjDesc {
     pub palette_id: u32,
-    /// (sub palette id, offset, num colors)
+    /// (sub palette id, offset, num colors), both in colors (the file stores
+    /// them in units of 8; a zero length means the whole 2048-color palette).
     pub sub_palettes: Vec<(u32, u32, u32)>,
     /// (part index, old texture, new texture)
     pub texture_changes: Vec<(u8, u32, u32)>,
@@ -69,7 +70,7 @@ impl ObjDesc {
             let id = r.data_id_of_type(0x0400_0000)?;
             let offset = r.u8()? as u32 * 8;
             let n = r.u8()? as u32;
-            Ok((id, offset, if n == 0 { 256 } else { n }))
+            Ok((id, offset, if n == 0 { 256 * 8 } else { n * 8 }))
         })?;
         let texture_changes = r.fixed(n_tex, &mut |r: &mut Reader| {
             Ok((

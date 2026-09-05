@@ -240,13 +240,16 @@ pub fn build_landblocks(assets: &Assets, center_id: u32, radius: u32) -> Result<
     })
 }
 
-pub fn build_model(assets: &Assets, model_id: u32) -> Result<Built> {
+/// One model at the origin, dressed with an appearance (part swaps, texture
+/// swaps and a composed palette); the palette must be registered in the
+/// `Palettes` passed to `material_image`.
+pub fn build_model_with(assets: &Assets, model_id: u32, app: &model::Appearance) -> Result<Built> {
     let mut batches = HashMap::new();
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
-    for part in model::place(assets, model_id, Mat4::IDENTITY)? {
+    for part in model::place_with(assets, model_id, Mat4::IDENTITY, app)? {
         let g = assets.gfxobj(part.gfxobj_id)?;
-        let mesh = model::build_mesh(assets, &g)?;
+        let mesh = model::build_mesh_with(assets, &g, part.part_index, app)?;
         for sub in &mesh.submeshes {
             for v in &sub.vertices {
                 let p = part.transform.transform_point3(v.position);

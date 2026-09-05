@@ -33,7 +33,12 @@ impl Appearance {
     }
 
     /// Build from wire ObjDesc data. Sub-palette offset and length are in
-    /// units of 8 colors (0 length = 256).
+    /// units of 8 colors (0 length = the whole 2048-color palette).
+    ///
+    /// Later entries replace earlier ones for the same part (part swaps) or
+    /// the same part and old texture (texture swaps), as the client's
+    /// `ObjDesc::AddAnimPartChange` / `AddTextureMapChange` do: a server
+    /// lists the base body first and clothing after it.
     pub fn from_obj_desc(
         assets: &Assets,
         palette_id: u32,
@@ -46,7 +51,9 @@ impl Appearance {
             a.part_swaps.insert(idx, id);
         }
         for &(idx, old, new) in texture_changes {
-            a.texture_swaps.entry(idx).or_default().push((old, new));
+            let swaps = a.texture_swaps.entry(idx).or_default();
+            swaps.retain(|(o, _)| *o != old);
+            swaps.push((old, new));
         }
         if palette_id != 0 || !sub_palettes.is_empty() {
             let mut colors: Vec<u32> = if palette_id != 0 {
@@ -63,7 +70,7 @@ impl Appearance {
             let mut hash: u64 = 0xcbf2_9ce4_8422_2325 ^ palette_id as u64;
             for &(sub_id, off, len) in sub_palettes {
                 let offset = off as usize * 8;
-                let count = if len == 0 { 256 } else { len as usize * 8 };
+                let count = if len == 0 { 2048 } else { len as usize * 8 };
                 if let Ok(sp) = assets.palette(sub_id) {
                     for j in 0..count {
                         if let (Some(dst), Some(src)) =
