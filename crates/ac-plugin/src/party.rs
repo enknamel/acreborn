@@ -464,8 +464,8 @@ impl Plugin for Party {
         egui::Window::new("Party")
             .default_width(420.0)
             .default_pos(egui::pos2(
-                w - 440.0,
-                2.0 * crate::panels::radar::RADIUS + 48.0,
+                w - 720.0,
+                2.0 * crate::panels::radar::RADIUS + 40.0,
             ))
             .show(egui, |ui| {
                 ui.horizontal(|ui| {
