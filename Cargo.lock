@@ -155,9 +155,11 @@ dependencies = [
 name = "acclient"
 version = "0.1.0"
 dependencies = [
+ "ac-client",
  "ac-dat",
  "ac-formats",
  "ac-net",
+ "ac-scene",
  "ac-world",
  "anyhow",
  "clap",

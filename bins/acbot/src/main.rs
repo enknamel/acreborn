@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use clap::Parser;
 
+use ac_client::creation::{self, CharacterBuild};
 use ac_client::{Client, Config, Event};
 use ac_plugin::console::Console;
 use ac_plugin::Host;
@@ -28,10 +29,10 @@ struct Cli {
     #[arg(long, env = "AC_DATA_DIR")]
     data_dir: PathBuf,
     /// Server login address: HOST or HOST:PORT (port 9000 when omitted).
-    #[arg(long)]
-    connect: String,
+    #[arg(long, required_unless_present = "show_rules")]
+    connect: Option<String>,
     /// A session to run: ACCOUNT:PASSWORD[:CHARACTER]. Repeat for more.
-    #[arg(long = "client", required = true)]
+    #[arg(long = "client", required_unless_present = "show_rules")]
     clients: Vec<String>,
     /// Ticks per second for every session.
     #[arg(long, default_value_t = 20)]
@@ -50,6 +51,30 @@ struct Cli {
     /// Print chat lines, prefixed with the account.
     #[arg(long)]
     log_chat: bool,
+    /// For every session without a character of this name: create one
+    /// from the CharGen table (see --heritage, --gender, --template,
+    /// --start-area) and enter the world with it.
+    #[arg(long)]
+    create: Option<String>,
+    /// Heritage for --create: a name (aluvian, gharu, sho, viamontian,
+    /// ...) or id 1..=13. Default Aluvian.
+    #[arg(long)]
+    heritage: Option<String>,
+    /// Sex for --create: m or f. Default m.
+    #[arg(long)]
+    gender: Option<String>,
+    /// Template for --create: a name (adventurer, bow, swash, life, war,
+    /// wayfarer, soldier) or index. Default the first (Adventurer).
+    #[arg(long)]
+    template: Option<String>,
+    /// Starting town for --create: holtburg, shoushi, yaraq or sanamar.
+    /// Default the heritage's home town.
+    #[arg(long)]
+    start_area: Option<String>,
+    /// Print the creation rules for --heritage (credits, skill costs,
+    /// templates, towns) and exit without connecting.
+    #[arg(long)]
+    show_rules: bool,
     /// Join the local cross-process bus so plugins here and in other
     /// acbot/acviewer processes share posts and values: HOST:PORT or PORT
     /// (default 127.0.0.1:9500, or $ACREBORN_BUS). The first process up
@@ -150,6 +175,8 @@ struct Session {
     placed_at: Option<Instant>,
     /// Terminated or refused: the connection is gone.
     ended: bool,
+    /// A --create was sent for this session.
+    created: bool,
 }
 
 impl Session {
@@ -198,6 +225,19 @@ fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     anyhow::ensure!(cli.tick_hz > 0, "--tick-hz must be at least 1");
+    if cli.show_rules {
+        let assets = ac_scene::Assets::open(&cli.data_dir).context("opening DAT archives")?;
+        let cg = assets.chargen().context("reading the CharGen table")?;
+        let heritage = match &cli.heritage {
+            Some(h) => ac_scene::chargen::heritage_id(&cg, h)
+                .with_context(|| format!("unknown heritage {h:?}"))?,
+            None => creation::HERITAGE_ALUVIAN,
+        };
+        let rules = creation::rules(&assets, heritage).map_err(|e| anyhow::anyhow!("{e}"))?;
+        print!("{}", rules.summary());
+        return Ok(());
+    }
+    let connect = cli.connect.clone().context("--connect is required")?;
     let specs: Vec<ClientSpec> = cli
         .clients
         .iter()
@@ -215,19 +255,24 @@ fn main() -> Result<()> {
     for spec in specs {
         let client = Client::connect(
             Config {
-                host: cli.connect.clone(),
+                host: connect.clone(),
                 account: spec.account.clone(),
                 password: spec.password,
-                character: spec.character,
+                // A --create name is the character to enter with; when
+                // the account lacks it the list comes back as an event
+                // and we create it.
+                character: spec.character.or_else(|| cli.create.clone()),
+                auto_enter: true,
             },
             assets.clone(),
         )
-        .with_context(|| format!("connecting {} to {}", spec.account, cli.connect))?;
+        .with_context(|| format!("connecting {} to {}", spec.account, connect))?;
         sessions.push(Session {
             client,
             schedule: Schedule::new(lines.clone(), 1.0),
             placed_at: None,
             ended: false,
+            created: false,
         });
     }
 
@@ -253,7 +298,7 @@ fn main() -> Result<()> {
     println!(
         "acbot: {} session(s) to {}, {} Hz ({} ms per tick), {} scripted line(s), {}",
         sessions.len(),
-        cli.connect,
+        connect,
         cli.tick_hz,
         period.as_millis(),
         lines.len(),
@@ -307,6 +352,65 @@ fn main() -> Result<()> {
                     }
                     Event::Refused(op) => {
                         println!("[{account}] refused (opcode {op:#06X})");
+                        sessions[i].ended = true;
+                    }
+                    Event::Characters(list) => {
+                        let names: Vec<&str> = list.iter().map(|c| c.name.as_str()).collect();
+                        println!("[{account}] characters: {names:?}");
+                        let wanted = cli
+                            .create
+                            .as_deref()
+                            .filter(|n| !list.iter().any(|c| c.name.eq_ignore_ascii_case(n)));
+                        match wanted {
+                            Some(name) if !sessions[i].created => {
+                                sessions[i].created = true;
+                                let built = CharacterBuild::from_options(
+                                    &assets,
+                                    name,
+                                    cli.heritage.as_deref(),
+                                    cli.gender.as_deref(),
+                                    cli.template.as_deref(),
+                                    cli.start_area.as_deref(),
+                                );
+                                match built {
+                                    Ok((build, rules)) => {
+                                        println!(
+                                            "[{account}] creating {name}: {} {}, template {}, {} attribute points, {} of {} credits, start area {}",
+                                            rules.heritage_name,
+                                            if build.look.gender == 2 { "female" } else { "male" },
+                                            rules.templates.get(build.template).map(String::as_str).unwrap_or("?"),
+                                            build.attribute_points_used(),
+                                            build.credits_used(&rules),
+                                            rules.skill_credits,
+                                            build.start_area
+                                        );
+                                        if let Err(e) = sessions[i].client.create_character(&build)
+                                        {
+                                            println!("[{account}] cannot create {name}: {e}");
+                                            sessions[i].ended = true;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("[{account}] cannot create {name}: {e}");
+                                        sessions[i].ended = true;
+                                    }
+                                }
+                            }
+                            Some(_) => {}
+                            None => {
+                                println!("[{account}] no character to enter the world with (use --create NAME)");
+                                sessions[i].ended = true;
+                            }
+                        }
+                    }
+                    Event::CharacterCreated { id, name } => {
+                        println!("[{account}] created {name} ({id:#010x}); entering the world");
+                    }
+                    Event::CharacterCreateFailed(code) => {
+                        println!(
+                            "[{account}] character creation failed: {} (code {code})",
+                            creation::create_failure_message(*code)
+                        );
                         sessions[i].ended = true;
                     }
                     Event::Sound { .. } | Event::SpellLearned(_) | Event::SpellForgotten(_) => {}

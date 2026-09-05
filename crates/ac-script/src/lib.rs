@@ -84,6 +84,25 @@ pub fn event_map(ev: &Event) -> Map {
             m.insert("spell".into(), Dynamic::from_int(*spell as i64));
             "spell_forgotten"
         }
+        Event::Characters(list) => {
+            let names: rhai::Array = list.iter().map(|c| c.name.clone().into()).collect();
+            m.insert("names".into(), names.into());
+            m.insert("count".into(), Dynamic::from_int(list.len() as i64));
+            "characters"
+        }
+        Event::CharacterCreated { id, name } => {
+            m.insert("guid".into(), Dynamic::from_int(*id as i64));
+            m.insert("name".into(), name.clone().into());
+            "character_created"
+        }
+        Event::CharacterCreateFailed(code) => {
+            m.insert("code".into(), Dynamic::from_int(*code as i64));
+            m.insert(
+                "message".into(),
+                ac_client::creation::create_failure_message(*code).into(),
+            );
+            "character_create_failed"
+        }
     };
     m.insert("kind".into(), kind.into());
     m

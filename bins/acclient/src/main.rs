@@ -2,11 +2,14 @@
 //! every message the server sends. Rendering comes later.
 //!
 //!   acclient -h 127.0.0.1 -a account -v password [--character NAME] [--duration 30]
+//!   acclient ... --create NAME [--heritage sho --gender f --template bow --start-area yaraq]
+//!   acclient --show-rules [--heritage NAME] --data-dir DIR
 
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use ac_client::creation::{self, CharacterBuild};
 use ac_net::messages::{self, opcode, queue, DatIteration};
 use ac_net::session::{Config, Event, Port, Session, State};
 use anyhow::{Context, Result};
@@ -24,17 +27,47 @@ struct Cli {
     /// Server login port (the +1 port is derived)
     #[arg(short = 'p', long, default_value_t = 9000)]
     port: u16,
-    #[arg(short = 'a', long)]
+    #[arg(
+        short = 'a',
+        long,
+        required_unless_present = "show_rules",
+        default_value = ""
+    )]
     account: String,
-    #[arg(short = 'v', long)]
+    #[arg(
+        short = 'v',
+        long,
+        required_unless_present = "show_rules",
+        default_value = ""
+    )]
     password: String,
     /// Character name to enter the world with (default: first in the list)
     #[arg(long)]
     character: Option<String>,
-    /// Create a character with this name if the account has none (Aluvian,
-    /// first template, Holtburg). Needs --data-dir for the CharGen table.
+    /// Create a character with this name when the account has none of
+    /// that name (see --heritage, --gender, --template, --start-area),
+    /// then enter the world with it. Needs --data-dir for the CharGen table.
     #[arg(long)]
     create: Option<String>,
+    /// Heritage for --create: a name (aluvian, gharu, sho, viamontian,
+    /// ...) or id 1..=13. Default Aluvian.
+    #[arg(long)]
+    heritage: Option<String>,
+    /// Sex for --create: m or f. Default m.
+    #[arg(long)]
+    gender: Option<String>,
+    /// Template for --create: a name (adventurer, bow, swash, life, war,
+    /// wayfarer, soldier) or index. Default the first (Adventurer).
+    #[arg(long)]
+    template: Option<String>,
+    /// Starting town for --create: holtburg, shoushi, yaraq or sanamar.
+    /// Default the heritage's home town.
+    #[arg(long)]
+    start_area: Option<String>,
+    /// Print the creation rules for --heritage (credits, skill costs,
+    /// templates, towns) and exit without connecting.
+    #[arg(long)]
+    show_rules: bool,
     /// Send this chat line 2 s after entering the world (e.g. "@telepoi holtburg")
     #[arg(long)]
     say: Option<String>,
@@ -76,86 +109,44 @@ fn dat_iterations(dir: Option<&PathBuf>) -> Vec<DatIteration> {
     v
 }
 
-/// Build a valid CharacterCreate from the CharGen table: given heritage,
-/// male, the named (or first) template, default appearance, Holtburg.
+/// Build a valid CharacterCreate through `ac_client::creation`: the
+/// --heritage / --gender / --template / --start-area choices (Aluvian,
+/// male, the first template and the home town when absent), default
+/// appearance, validated against the heritage's rules.
 fn build_character(
-    data_dir: &PathBuf,
-    account: &str,
+    assets: &ac_scene::Assets,
+    cli: &Cli,
     name: &str,
-    heritage: u32,
+    slot: u32,
 ) -> Result<messages::CharacterCreate> {
-    use ac_formats::chargen::CharGen;
-    let dat = ac_dat::DatArchive::open(data_dir.join("client_portal.dat"))?;
-    let cg = CharGen::parse(CharGen::ID, &dat.read(CharGen::ID)?)?;
-    let (_, hg) = cg
-        .heritage_groups
-        .iter()
-        .find(|(id, _)| *id == heritage)
-        .context("heritage not in CharGen")?;
-    let tmpl = hg.templates.first().context("heritage has no templates")?;
-    // Skill advancement per skill id: templates list trained ("normal") and
-    // specialized ("primary") skills; other heritage skills are untrained.
-    let mut skills = vec![0u32; 55];
-    for s in &hg.skills {
-        if (s.skill as usize) < skills.len() {
-            skills[s.skill as usize] = 1;
-        }
-    }
-    for &s in &tmpl.normal_skills {
-        skills[s as usize] = 2;
-    }
-    for &s in &tmpl.primary_skills {
-        skills[s as usize] = 3;
-    }
-    let start_area = cg
-        .starter_areas
-        .iter()
-        .position(|a| a.name == "Holtburg")
-        .unwrap_or(0) as u32;
-    let (_, sex) = hg
-        .genders
-        .iter()
-        .find(|(g, _)| *g == 1)
-        .context("no male option")?;
+    let (build, rules) = CharacterBuild::from_options(
+        assets,
+        name,
+        cli.heritage.as_deref(),
+        cli.gender.as_deref(),
+        cli.template.as_deref(),
+        cli.start_area.as_deref(),
+    )
+    .map_err(anyhow::Error::msg)?;
+    build
+        .validate(&rules)
+        .map_err(|e| anyhow::anyhow!("{name:?} is not a valid character: {e}"))?;
     tracing::info!(
-        "creating {name}: {} {} template {:?} (str {} end {} coo {} qui {} foc {} self {}), start area {}",
-        hg.name,
-        sex.name,
-        tmpl.name,
-        tmpl.strength,
-        tmpl.endurance,
-        tmpl.coordination,
-        tmpl.quickness,
-        tmpl.focus,
-        tmpl.self_,
-        start_area
+        "creating {name}: {} {} template {:?} (str {} end {} coo {} qui {} foc {} self {}), {} of {} credits, start area {}",
+        rules.heritage_name,
+        if build.look.gender == 2 { "female" } else { "male" },
+        rules.templates.get(build.template).map(String::as_str).unwrap_or("?"),
+        build.attributes[0],
+        build.attributes[1],
+        build.attributes[2],
+        build.attributes[3],
+        build.attributes[4],
+        build.attributes[5],
+        build.credits_used(&rules),
+        rules.skill_credits,
+        build.start_area
     );
-    Ok(messages::CharacterCreate {
-        account: account.to_string(),
-        name: name.to_string(),
-        heritage,
-        gender: 1,
-        appearance: messages::Appearance {
-            headgear_style: u32::MAX,
-            skin_hue: 0.5,
-            hair_hue: 0.5,
-            headgear_hue: 0.5,
-            shirt_hue: 0.5,
-            pants_hue: 0.5,
-            footwear_hue: 0.5,
-            ..Default::default()
-        },
-        template: 0,
-        strength: tmpl.strength,
-        endurance: tmpl.endurance,
-        coordination: tmpl.coordination,
-        quickness: tmpl.quickness,
-        focus: tmpl.focus,
-        self_: tmpl.self_,
-        slot: 0,
-        skills,
-        start_area,
-    })
+    Ok(build.to_message(&cli.account, slot))
 }
 
 fn describe(msg: &[u8]) -> String {
@@ -255,14 +246,27 @@ fn main() -> Result<()> {
         )
         .init();
     let cli = Cli::parse();
+    if cli.show_rules {
+        let dir = cli
+            .data_dir
+            .as_ref()
+            .context("--show-rules needs --data-dir")?;
+        let assets = ac_scene::Assets::open(dir).context("opening DAT archives")?;
+        let cg = assets.chargen().context("reading the CharGen table")?;
+        let heritage = match &cli.heritage {
+            Some(h) => ac_scene::chargen::heritage_id(&cg, h)
+                .with_context(|| format!("unknown heritage {h:?}"))?,
+            None => creation::HERITAGE_ALUVIAN,
+        };
+        let rules = creation::rules(&assets, heritage).map_err(|e| anyhow::anyhow!("{e}"))?;
+        print!("{}", rules.summary());
+        return Ok(());
+    }
+    // The character to enter with: --character, else the one --create names.
+    let wanted: Option<String> = cli.character.clone().or_else(|| cli.create.clone());
     let primary: SocketAddr = format!("{}:{}", cli.host, cli.port).parse().or_else(|_| {
-        std::net::ToSocketAddrs::to_socket_addrs(&(cli.host.as_str(), cli.port)).and_then(
-            |mut a| {
-                a.next()
-                    .context("resolve")
-                    .map_err(|e| std::io::Error::other(e))
-            },
-        )
+        std::net::ToSocketAddrs::to_socket_addrs(&(cli.host.as_str(), cli.port))
+            .and_then(|mut a| a.next().context("resolve").map_err(std::io::Error::other))
     })?;
     let secondary = SocketAddr::new(primary.ip(), primary.port() + 1);
     let socket = UdpSocket::bind("0.0.0.0:0").context("bind")?;
@@ -400,7 +404,8 @@ fn main() -> Result<()> {
                                     enter_requested = true;
                                 } else {
                                     tracing::error!(
-                                        "character creation failed with code {}",
+                                        "character creation failed: {} (code {})",
+                                        creation::create_failure_message(r.response),
                                         r.response
                                     );
                                     return Ok(());
@@ -417,16 +422,27 @@ fn main() -> Result<()> {
                     if ddd_done && characters_known && !enter_requested {
                         ddd_done = false;
                         {
-                            if characters.is_empty() {
-                                if let (Some(name), Some(dir)) = (&cli.create, &cli.data_dir) {
-                                    let cc = build_character(dir, &cli.account, name, 1)?;
+                            if let Some(name) = &cli.create {
+                                if !characters.iter().any(|c| c.name.eq_ignore_ascii_case(name)) {
+                                    let dir = cli
+                                        .data_dir
+                                        .as_ref()
+                                        .context("--create needs --data-dir")?;
+                                    let assets = ac_scene::Assets::open(dir)
+                                        .context("opening DAT archives")?;
+                                    let cc = build_character(
+                                        &assets,
+                                        &cli,
+                                        name,
+                                        characters.len() as u32,
+                                    )?;
                                     tracing::info!("-> CharacterCreate {name:?}");
                                     session.send_message(queue::UI, cc.encode());
                                     continue;
                                 }
                             }
                             if !enter_requested {
-                                let pick = match &cli.character {
+                                let pick = match &wanted {
                                     Some(name) => characters
                                         .iter()
                                         .find(|c| c.name.eq_ignore_ascii_case(name)),
@@ -434,11 +450,20 @@ fn main() -> Result<()> {
                                 };
                                 match pick {
                                     Some(c) => {
-                                        tracing::info!("-> CharacterEnterWorldRequest for {} ({:#010x})", c.name, c.id);
-                                        session.send_message(queue::UI, messages::enter_world_request());
+                                        tracing::info!(
+                                            "-> CharacterEnterWorldRequest for {} ({:#010x})",
+                                            c.name,
+                                            c.id
+                                        );
+                                        session.send_message(
+                                            queue::UI,
+                                            messages::enter_world_request(),
+                                        );
                                         enter_requested = true;
                                     }
-                                    None => tracing::warn!("no character to enter the world with (create one in the retail client first)"),
+                                    None => tracing::warn!(
+                                        "no character to enter the world with (use --create NAME)"
+                                    ),
                                 }
                             }
                         }
@@ -446,24 +471,19 @@ fn main() -> Result<()> {
                     let Some((op, _body)) = messages::split(&msg) else {
                         continue;
                     };
-                    match op {
-                        opcode::CHARACTER_ENTER_WORLD_SERVER_READY => {
-                            let pick = match &cli.character {
-                                Some(name) => characters
-                                    .iter()
-                                    .find(|c| c.name.eq_ignore_ascii_case(name)),
-                                None => characters.first(),
-                            };
-                            if let Some(c) = pick {
-                                tracing::info!("-> CharacterEnterWorld {}", c.name);
-                                session.send_message(
-                                    queue::UI,
-                                    messages::enter_world(c.id, &cli.account),
-                                );
-                                entered_at = Some(Instant::now());
-                            }
+                    if op == opcode::CHARACTER_ENTER_WORLD_SERVER_READY {
+                        let pick = match &wanted {
+                            Some(name) => characters
+                                .iter()
+                                .find(|c| c.name.eq_ignore_ascii_case(name)),
+                            None => characters.first(),
+                        };
+                        if let Some(c) = pick {
+                            tracing::info!("-> CharacterEnterWorld {}", c.name);
+                            session
+                                .send_message(queue::UI, messages::enter_world(c.id, &cli.account));
+                            entered_at = Some(Instant::now());
                         }
-                        _ => {}
                     }
                 }
             }

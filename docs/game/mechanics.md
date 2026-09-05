@@ -256,6 +256,218 @@ Casting rules (ACE `Player_Magic`, matching retail):
   (damage, damage resist, crit...) come from augmentations, aetheria,
   trinkets and masteries.
 
+### Character creation and selection
+
+Sources: ACE `ACE.Server/Factories/PlayerFactory.cs` (`Create`,
+`ValidateAttributeCredits`, the skill loop, starter gear and spells,
+masteries and innate augmentations), `WorldObjects/Player_Skills.cs`
+(`TrainSkill`, `SpecializeSkill`, `UntrainSkill`, `AlwaysTrained`,
+`AugSpecSkills`), `ACE.Entity/CharacterCreateInfo.cs` (wire layout),
+`Network/Handlers/CharacterHandler.cs` (create, enter, delete and restore
+handlers and their response codes),
+`Network/Enum/CharacterGenerationVerificationResponse.cs`,
+`Network/Enum/CharacterError.cs`, `ACE.Server/starterGear.json`, and the
+CharGen (0x0E000002) and SkillTable (0x0E000004) DATs
+(`ACE.DatLoader/FileTypes/{CharGen,SkillTable}.cs`).
+
+**Choices.** A heritage (ACE `HeritageGroup`: 1 Aluvian, 2 Gharu'ndim, 3
+Sho, 4 Viamontian, 5 Shadowbound ("Umbraen" in the DAT), 6 Gearknight, 7
+Tumerok, 8 Lugian, 9 Empyrean, 10 Penumbraen, 11 Undead, 12 Olthoi, 13
+Olthoi Acid), a sex (1 male, 2 female), an appearance (hair style, hair
+colour and shade, eyes, eye colour, nose, mouth, skin shade; headgear,
+shirt, pants and footwear style, colour and hue, headgear style
+0xFFFFFFFF meaning none), a template, six attributes, an advancement
+class for each of 55 skill slots, and a starting town.
+
+**Attributes.** Strength, Endurance, Coordination, Quickness, Focus and
+Self are each 10..=100 and their sum may not exceed the heritage's
+attribute credits: 330 for every playable heritage (Olthoi 60). A 6 x 100
+build is refused; 100/100/100/10/10/10 is exactly the budget, as are the
+built-in templates. Vitals follow the attributes (above).
+
+**Skills.** The SkillTable lists 38 skills; the message carries 55 slots
+(slot = skill id). Slots the table lacks (0..=5, 8..=13, 17, 25, 26, 42,
+53: the retired weapon skills and never-implemented ones) stay 0. Each
+slot is an ACE `SkillAdvancementClass`: 0 inactive (the server leaves the
+skill as the player weenie has it), 1 untrained (free; usable at the
+formula value only when the table's `min_level` is 1), 2 trained, 3
+specialized. The budget is 52 skill credits (Olthoi 68). Training costs
+the table's `trained_cost`; specializing costs `specialized_cost -
+trained_cost` more (the table's second number is the total: Melee Defense
+10/20 is "train 10, specialize 10 more"; ACE
+`SkillBase.UpgradeCostFromTrainedToSpecialized`). The heritage's CharGen
+`skills` list replaces both numbers (`normal_cost` to train,
+`primary_cost` extra to specialize); at end of retail the only override
+is Arcane Lore 0/2 for every heritage. Costs (train / specialize extra):
+
+| skill | id | cost | skill | id | cost |
+|---|---|---|---|---|---|
+| Melee Defense | 6 | 10 / 10 | Missile Defense | 7 | 6 / 4 |
+| Arcane Lore | 14 | 0 / 2 (override; table 4 / 2) | Magic Defense | 15 | 0 / 12 |
+| Mana Conversion | 16 | 6 / 6 | Item Tinkering | 18 | 2 / no |
+| Assess Person | 19 | 2 / 2 | Deception | 20 | 4 / 2 |
+| Healing | 21 | 6 / 4 | Jump | 22 | 0 / 4 |
+| Lockpick | 23 | 6 / 4 | Run | 24 | 0 / 4 |
+| Assess Creature | 27 | 4 / 2 | Weapon Tinkering | 28 | 4 / no |
+| Armor Tinkering | 29 | 4 / no | Magic Item Tinkering | 30 | 4 / no |
+| Creature Enchantment | 31 | 8 / 8 | Item Enchantment | 32 | 8 / 8 |
+| Life Magic | 33 | 12 / 8 | War Magic | 34 | 16 / 12 |
+| Leadership | 35 | 4 / 2 | Loyalty | 36 | 0 / 2 |
+| Fletching | 37 | 4 / 4 | Alchemy | 38 | 6 / 6 |
+| Cooking | 39 | 4 / 4 | Salvaging | 40 | 0 / no |
+| Two Handed Combat | 41 | 8 / 8 | Void Magic | 43 | 16 / 12 |
+| Heavy Weapons | 44 | 6 / 6 | Light Weapons | 45 | 4 / 4 |
+| Finesse Weapons | 46 | 4 / 4 | Missile Weapons | 47 | 6 / 6 |
+| Shield | 48 | 2 / 2 | Dual Wield | 49 | 2 / 2 |
+| Recklessness | 50 | 4 / 2 | Sneak Attack | 51 | 4 / 2 |
+| Dirty Fighting | 52 | 2 / 2 | Summoning | 54 | 8 / 4 |
+
+* **Always trained** (ACE `AlwaysTrained`; `trained_cost` 0 in the table):
+  Arcane Lore, Magic Defense, Jump, Run, Loyalty, Salvaging. They are sent
+  Trained (2) at no cost and can still be specialized at their extra cost
+  (Salvaging excepted). ACE never adds them at login, so a client that
+  sent them untrained would get an untrained Run.
+* **Cannot be specialized at creation** ("no" above: an extra of 999,
+  ACE `AugSpecSkills`): Salvaging and the four tinkering skills; those are
+  specialized later by augmentation.
+* **Need training to be used** (`min_level` 2): Mana Conversion, Healing,
+  Lockpick, the five magic schools, Fletching, Alchemy, Cooking,
+  Recklessness, Sneak Attack, Dirty Fighting, Summoning. The rest work
+  untrained at their formula value.
+* ACE checks skills one by one in id order: `TrainSkill` refuses a cost
+  above the credits left (and a skill already Trained), `SpecializeSkill`
+  refuses a skill not Trained; any refusal, or an attribute out of
+  bounds, answers Corrupt (5). A slot count other than 55 boots the
+  session ("your client is not the correct version"). Skills trained at
+  creation start with a bonus of 5 ranks (526 xp); specialized ones start
+  at 0 ranks with the +10 specialization bonus.
+
+**Templates** (CharGen, per heritage; the index goes on the wire and
+names the starting title). The same seven for all eleven playable
+heritages, each spending exactly 330 points and 52 credits:
+
+| template | Str/End/Coo/Qui/Foc/Self | trained | specialized |
+|---|---|---|---|
+| Adventurer | 10/10/10/10/10/10 | (the blank sheet) | |
+| Bow Hunter | 40/30/100/100/50/10 | Item Enchantment, Shield | Missile Weapons, Finesse Weapons, Arcane Lore, Melee Defense |
+| Swashbuckler | 100/40/100/50/20/20 | Item Enchantment, Healing | Arcane Lore, Melee Defense, Heavy Weapons, Dual Wield |
+| Life Caster | 40/50/10/30/100/100 | War Magic, Creature Enchantment, Mana Conversion | Arcane Lore, Life Magic |
+| War Mage | 50/40/10/30/100/100 | Life Magic | Mana Conversion, War Magic |
+| Wayfarer | 30/30/100/100/60/10 | Melee Defense, Lockpick, Healing, Missile Weapons, Item Enchantment | Finesse Weapons, Dirty Fighting, Dual Wield |
+| Soldier | 100/60/100/50/10/10 | Missile Weapons, Healing | Heavy Weapons, Shield, Melee Defense, Dirty Fighting |
+
+Olthoi has one template ("Ripper"), Olthoi Acid one ("Adventurer"), both
+all 10s with no skills.
+
+**Starting towns.** CharGen `starter_areas`: 0 Holtburg, 1 Shoushi, 2
+Yaraq, 3 Sanamar, 4 OlthoiLair. Each heritage lists its home
+(`primary_start_areas`) and the other three it may pick: Aluvian,
+Shadowbound, Tumerok, Lugian, Empyrean, Penumbraen and Undead are from
+Holtburg; Gharu'ndim and Gearknight from Yaraq; Sho from Shoushi;
+Viamontian from Sanamar; the Olthoi only from their lair. ACE puts the
+new character at the area's first location (the training academy), sets
+the lifestone (`Sanctuary`) there, disables recalls until the academy is
+left, and sets the `Instantiation` fallback to the town's "Free Ride"
+spell destination (3815 Holtburg, 3813 Shoushi, 3814 Yaraq, 3535
+Sanamar).
+
+**Starter gear and spells** (ACE `starterGear.json`, granted for every
+skill that is trained or specialized; heritage entries add to the common
+list). Through the always-trained Jump everyone gets 10,000 pyreals (one
+stack), a Sack, a Calling Stone, a Pathwarden Token, Bread, Ust and a
+heritage "Letter From Home" (Gearknights also a Core Plating Integrator
+and Deintegrator). Healing: Handy Healing Kit. Lockpick: Crude Lockpick.
+Fletching: three bundles of arrowheads and one each of arrowshafts,
+atlatl dart shafts and quarrelshafts (30 each). Alchemy: Mortar and
+Pestle, three Azurite. Cooking: 6 Flour, 6 Water. Two Handed Combat:
+Training Spadone. Shield: Round Shield. Summoning: Mud Golem Essence.
+Heavy / Light / Finesse Weapons: one heritage training weapon each (e.g.
+Aluvian Dirk / Dagger / Knife, Sho Cestus / Knuckles / Handwraps,
+Gharu'ndim Stick / Staff / Bastone, Viamontian Ken / Broad Sword / Short
+Sword). Missile Weapons: a Training Shortbow and 250 arrows (Aluvian,
+Sho, Empyrean), Training Atlatl and 250 darts (Gharu'ndim, Tumerok,
+Lugian, Undead) or Light Training Crossbow and 250 quarrels (Viamontian,
+Shadowbound, Gearknight, Penumbraen). A trained Dual Wield doubles every
+melee weapon granted. Each magic school trained gives a Training Wand,
+the school's Foci (Enchantment, Artifice, Verdancy, Strife, Shadow), 5
+Lead Scarabs, 25 Prismatic Tapers and its level I spells: trained gets
+the common ones, specialized also the `specializedOnly` ones. Creature
+Enchantment: Focus Self, Invulnerability Self/Other (+ Mana Conversion
+Mastery Self, Willpower Self). Item Enchantment: Aura of Blood Drinker
+Self, Bludgeon Bane, Aura of Swift Killer Self, Impenetrability (+ Aura
+of Defender Self, Blade Bane). Life Magic: Armor Self/Other, Heal
+Self/Other, Imperil Other (+ Drain Health Other, Harm Other). War Magic:
+Flame, Force and Frost Bolt, Shock Wave (+ Acid Stream, Lightning Bolt,
+Whirling Blade). Void Magic: Destructive Curse, Corrosion, Corruption,
+Nether Bolt (+ Weakening Curse, Nether Streak, Nether Arc, Festering
+Curse). Every heritage also gets a melee and a ranged weapon mastery
+(Aluvian dagger/bow, Gharu'ndim staff/magic, Sho unarmed/bow, Viamontian
+sword/crossbow, ...) and one innate augmentation (Jack of All Trades for
+the four original heritages).
+
+**Olthoi.** For heritages 12 and 13 (ACE `IsOlthoiPlayer`) the server
+skips clothing, template, attributes, skills, starter gear and spells
+entirely: the character is the `olthoiplayer` / `olthoiacidplayer`
+weenie with its own stats, spawns in the lair with no Free Ride, gets no
+lifestone and no recall lock. With the server's `olthoi_play_disabled`
+setting a create answers Pending (2) and an enter answers CharacterError
+0x14.
+
+**Names.** ACE checks only the taboo table (NameBanned, 4), the creature
+name list when `creature_name_check` is on (also 4) and uniqueness
+(NameInUse, 3); it has no length or character rule. The retail client
+allowed letters, spaces, hyphens and apostrophes; acreborn's
+`creation::valid_name` requires 3..=32 of those with single separators
+between letters. Lists show a "+" before the names of admin accounts.
+
+**Wire.** All on the UI queue (9), before the world is entered:
+
+* CharacterCreate 0xF656: account string16, u32 1, heritage, gender; the
+  appearance as 14 u32 (eyes, nose, mouth, hair colour, eye colour, hair
+  style, headgear style, headgear colour, shirt style, shirt colour, pants
+  style, pants colour, footwear style, footwear colour) then 6 f64 hues
+  (skin, hair, headgear, shirt, pants, footwear); i32 template; 6 u32
+  attributes (Str, End, Coo, Qui, Foc, Self); u32 slot; u32 class id 0;
+  u32 55 and 55 u32 advancement classes; name string16; u32 start area;
+  u32 isAdmin; u32 isSentinel.
+* CharacterCreateResponse 0xF643: u32 code, and on Ok the guid, the name
+  string16 and a u32 0. Codes (ACE `CharacterGenerationVerificationResponse`):
+  1 Ok, 2 Pending, 3 NameInUse, 4 NameBanned, 5 Corrupt, 6 DatabaseDown, 7
+  AdminPrivilegeDenied. After Ok the client enters the world the normal way
+  (0xF7C8 CharacterEnterWorldRequest, 0xF7DF ServerReady, 0xF657
+  CharacterEnterWorld with guid and account).
+* CharacterList 0xF658: u32 0, count, per character guid, name string16
+  and u32 seconds until deleted (0, or >0 while a deletion is pending),
+  u32 0, u32 slot count (`max_chars_per_account`, 11), account string16,
+  u32 use Turbine chat, u32 has Throne of Destiny (1). Sent after login
+  and again after a delete.
+* CharacterDelete 0xF655: account string16, u32 slot (index in the last
+  list). The server echoes an empty 0xF655 and a fresh CharacterList; the
+  character is kept for `char_delete_time` (3600 s by default) and then
+  purged. Failures are CharacterError 6 (Delete) or 0x15 (world closed).
+* CharacterRestore 0xF7D9: u32 guid. Answered by a 0xF643 with (1, guid,
+  name, u32 seconds greyed out), or 3 NameInUse if the name was taken
+  meanwhile, 5 Corrupt if the save failed, or CharacterError 0xF when the
+  deletion already went through.
+* CharacterError 0xF659: u32 code (ACE `CharacterError`): 1 Logon, 3
+  AccountLogin, 4 and 8 ServerCrash, 5 Logoff, 6 Delete, 9
+  AccountInvalid, 0xA AccountDoesntExist, 0xB EnterGameGeneric, 0xC
+  StressAccount, 0xD CharacterInWorld, 0xE PlayerAccountMissing, 0xF
+  CharacterNotOwned (also for a character pending deletion), 0x10
+  CharacterInWorldServer, 0x11 OldCharacter (back to the select screen),
+  0x12 CorruptCharacter, 0x13 StartServerDown, 0x14
+  CouldntPlaceCharacter, 0x15 LogonServerFull (world closed, or shutting
+  down), 0x17 CharacterLocked, 0x18 SubscriptionExpired.
+
+In acreborn: `ac_client::creation` (`rules`, `Rules`, `CharacterBuild`,
+`valid_name`, `create_failure_message`), `Client::{create_character,
+enter_world, delete_character, restore_character}`, the events
+`Characters`, `CharacterCreated` and `CharacterCreateFailed`, and
+`Config::auto_enter` (off, with no character named, the client shows the
+list instead of entering). Headless: `acclient --create NAME` and `acbot
+--create NAME` with `--heritage`, `--gender`, `--template`,
+`--start-area`; `--show-rules` prints a heritage's credits and costs.
+
 ## 4. Death and corpses
 
 * On death the character resurrects at the last **lifestone attuned**

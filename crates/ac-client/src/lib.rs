@@ -34,6 +34,23 @@ pub enum Event {
     SpellLearned(u32),
     /// A spell left the spellbook (MagicRemoveSpell).
     SpellForgotten(u32),
+    /// The account's characters, when the client is not entering the
+    /// world by itself (`Config::auto_enter` off and no `character`
+    /// named, or the named one is missing). Re-emitted whenever the
+    /// server refreshes the list (after a delete, entries pending
+    /// deletion carry `seconds_until_deleted > 0`) and after a restore.
+    Characters(Vec<ac_net::messages::CharacterEntry>),
+    /// The server accepted a `create_character`; the client enters the
+    /// world with it.
+    CharacterCreated {
+        id: u32,
+        name: String,
+    },
+    /// The server refused a `create_character` (or a
+    /// `restore_character`, which is answered by the same message) with
+    /// an ACE `CharacterGenerationVerificationResponse` code; see
+    /// `creation::create_failure_message`.
+    CharacterCreateFailed(u32),
 }
 
 /// How to reach the server and who to be.
@@ -45,6 +62,12 @@ pub struct Config {
     pub password: String,
     /// Character to enter with; the first on the account when None.
     pub character: Option<String>,
+    /// Enter the world as soon as the character list arrives (with
+    /// `character`, or the first one). Off, and with no `character`
+    /// named, the client emits `Event::Characters` instead and waits for
+    /// `enter_world` / `create_character`. A named `character` always
+    /// auto-enters.
+    pub auto_enter: bool,
 }
 
 /// What the character did this frame, for whoever draws it.
@@ -67,7 +90,12 @@ pub struct Client {
     pub characters: Vec<ac_net::messages::CharacterEntry>,
     pub characters_known: bool,
     pub ddd_done: bool,
+    /// CharacterEnterWorldRequest was sent (see `entering`).
     pub enter_requested: bool,
+    /// Character we are entering (or will, once the handshake is done).
+    pub entering: Option<u32>,
+    /// A create or restore whose CharacterCreateResponse is still to come.
+    pub pending_create: Option<creation::Pending>,
     /// Landblock the static scene is built around, once the player is placed.
     pub scene_block: Option<u32>,
     /// Server-requested MoveTo for our own character, until the server
@@ -164,6 +192,8 @@ impl Client {
             characters_known: false,
             ddd_done: false,
             enter_requested: false,
+            entering: None,
+            pending_create: None,
             scene_block: None,
             move_to: None,
             move_to_since: Instant::now(),
@@ -346,44 +376,39 @@ impl Client {
                                 );
                                 self.characters = cl.characters;
                                 self.characters_known = true;
+                                self.lobby_ready();
                             }
                         }
-                        opcode::DDD_END_DDD => self.ddd_done = true,
+                        opcode::DDD_END_DDD => {
+                            self.ddd_done = true;
+                            self.lobby_ready();
+                        }
+                        opcode::CHARACTER_CREATE_RESPONSE => {
+                            match messages::CharacterCreateResponse::parse(body) {
+                                Ok(r) => self.create_response(r),
+                                Err(e) => tracing::warn!("CharacterCreateResponse: {e}"),
+                            }
+                        }
+                        opcode::CHARACTER_DELETE => {
+                            // Acknowledged; the refreshed list follows.
+                            tracing::info!("character deletion acknowledged");
+                        }
                         _ => {}
                     }
                     let Some((op, _)) = messages::split(&msg) else {
                         continue;
                     };
                     match op {
-                        _ if self.ddd_done && self.characters_known && !self.enter_requested => {
-                            let pick = match &self.config.character {
-                                Some(name) => self
-                                    .characters
-                                    .iter()
-                                    .find(|c| c.name.eq_ignore_ascii_case(name)),
-                                None => self.characters.first(),
-                            };
-                            match pick {
-                                Some(c) => {
-                                    tracing::info!("entering world as {}", c.name);
-                                    self.session.send_message(queue::UI, messages::enter_world_request());
-                                    self.enter_requested = true;
-                                }
-                                None => tracing::error!("no character on this account; create one with acclient --create first"),
-                            }
-                        }
                         opcode::CHARACTER_ENTER_WORLD_SERVER_READY => {
-                            let pick = match &self.config.character {
-                                Some(name) => self
-                                    .characters
-                                    .iter()
-                                    .find(|c| c.name.eq_ignore_ascii_case(name)),
-                                None => self.characters.first(),
-                            };
-                            if let Some(c) = pick {
+                            let id = self
+                                .entering
+                                .or_else(|| self.pick_character().map(|c| c.id));
+                            if let Some(id) = id {
                                 let account = self.config.account.clone();
                                 self.session
-                                    .send_message(queue::UI, messages::enter_world(c.id, &account));
+                                    .send_message(queue::UI, messages::enter_world(id, &account));
+                            } else {
+                                tracing::warn!("server ready but no character to enter with");
                             }
                         }
                         opcode::PLAYER_TELEPORT => {
@@ -401,7 +426,18 @@ impl Client {
                                 .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
                         }
                         opcode::CHARACTER_ERROR | opcode::ACCOUNT_BOOT => {
-                            tracing::error!("server refused: {}", op);
+                            let code = body
+                                .get(..4)
+                                .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                                .unwrap_or(0);
+                            tracing::error!("server refused: {op:#06x} (code {code:#x})");
+                            // A refused enter (not owned, still in world,
+                            // pending deletion) may be retried with another
+                            // character.
+                            if op == opcode::CHARACTER_ERROR && self.scene_block.is_none() {
+                                self.enter_requested = false;
+                                self.entering = None;
+                            }
                             self.events.push(self::Event::Refused(op));
                         }
                         opcode::GAME_EVENT => {
@@ -468,6 +504,59 @@ impl Client {
         }
         self.world.tick(dt);
         self.tick_player(input.unwrap_or_default(), dt, now)
+    }
+
+    /// The character `Config::character` names (case-insensitive), or the
+    /// first on the account.
+    fn pick_character(&self) -> Option<&ac_net::messages::CharacterEntry> {
+        match &self.config.character {
+            Some(name) => self
+                .characters
+                .iter()
+                .find(|c| c.name.eq_ignore_ascii_case(name)),
+            None => self.characters.first(),
+        }
+    }
+
+    /// Once the DDD exchange is done and the character list is known:
+    /// send a held `enter_world`, enter with the configured (or first)
+    /// character when auto-entering, or hand the list to the driver and
+    /// wait. Runs again on every refreshed list.
+    fn lobby_ready(&mut self) {
+        if !(self.ddd_done && self.characters_known) {
+            return;
+        }
+        if self.enter_requested {
+            return;
+        }
+        if self.entering.is_some() {
+            self.send_enter_request();
+            return;
+        }
+        let auto = self.config.auto_enter || self.config.character.is_some();
+        let pick = if auto {
+            self.pick_character().map(|c| c.id)
+        } else {
+            None
+        };
+        match pick {
+            Some(id) => self.enter_world(id),
+            None => {
+                if auto {
+                    match &self.config.character {
+                        Some(name) => tracing::error!(
+                            "no character named {name:?} on this account (have {:?})",
+                            self.characters.iter().map(|c| &c.name).collect::<Vec<_>>()
+                        ),
+                        None => tracing::error!(
+                            "no character on this account; create one (acclient/acbot --create)"
+                        ),
+                    }
+                }
+                self.events
+                    .push(self::Event::Characters(self.characters.clone()));
+            }
+        }
     }
 
     fn tick_player(&mut self, input: player::Input, dt: f32, now: Instant) -> PlayerFrame {

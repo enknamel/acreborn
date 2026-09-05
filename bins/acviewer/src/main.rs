@@ -476,6 +476,7 @@ impl App {
             account,
             password,
             character: self.cli.character.clone(),
+            auto_enter: self.cli.screenshot.is_some(),
         }];
         for spec in &self.cli.clients {
             let mut parts = spec.splitn(3, ':');
@@ -487,6 +488,7 @@ impl App {
                 account: a.to_string(),
                 password: p.to_string(),
                 character: parts.next().map(str::to_string),
+                auto_enter: true,
             });
         }
         self.audio = audio;
@@ -565,7 +567,10 @@ impl App {
                 | ac_client::Event::Terminated(_)
                 | ac_client::Event::Refused(_)
                 | ac_client::Event::SpellLearned(_)
-                | ac_client::Event::SpellForgotten(_) => {}
+                | ac_client::Event::SpellForgotten(_)
+                | ac_client::Event::Characters(_)
+                | ac_client::Event::CharacterCreated { .. }
+                | ac_client::Event::CharacterCreateFailed(_) => {}
             }
         }
         let _ = count;

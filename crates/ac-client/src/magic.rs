@@ -516,6 +516,7 @@ mod tests {
                 account: "acreborn".into(),
                 password: "x".into(),
                 character: None,
+                auto_enter: true,
             },
             assets,
         )

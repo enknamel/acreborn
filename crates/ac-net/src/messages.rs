@@ -112,6 +112,24 @@ pub fn enter_world(character_id: u32, account: &str) -> Vec<u8> {
     w.finish()
 }
 
+/// Message body for CharacterDelete (0xF655): the account and the
+/// character's slot (its index in the last CharacterList). ACE marks the
+/// character for deletion, echoes 0xF655 and sends a fresh CharacterList.
+pub fn character_delete(account: &str, slot: u32) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u32(opcode::CHARACTER_DELETE).string16(account).u32(slot);
+    w.finish()
+}
+
+/// Message body for CharacterRestore (0xF7D9): the character id. ACE
+/// answers with a CharacterCreateResponse-shaped 0xF643 (1, id, name,
+/// seconds greyed out) or a failure code (name in use, corrupt).
+pub fn character_restore(character_id: u32) -> Vec<u8> {
+    let mut w = Writer::new();
+    w.u32(opcode::CHARACTER_RESTORE).u32(character_id);
+    w.finish()
+}
+
 /// One archive's iteration state for the DDD interrogation response.
 #[derive(Debug, Clone, Copy)]
 pub struct DatIteration {
@@ -796,6 +814,31 @@ mod tests {
         assert_eq!(pwlen, r.remaining().len());
         assert_eq!(r.u8().unwrap(), 2);
         assert_eq!(r.bytes(2).unwrap(), b"pw");
+    }
+
+    #[test]
+    fn delete_and_restore_bodies() {
+        let d = character_delete("acct", 2);
+        let mut r = Reader::new(&d);
+        assert_eq!(r.u32().unwrap(), opcode::CHARACTER_DELETE);
+        assert_eq!(r.string16().unwrap(), "acct");
+        assert_eq!(r.u32().unwrap(), 2);
+        assert!(r.remaining().is_empty());
+        let rs = character_restore(0x5000_0001);
+        assert_eq!(rs, [0xD9, 0xF7, 0, 0, 1, 0, 0, 0x50]);
+    }
+
+    #[test]
+    fn create_response_ok_and_failure() {
+        let mut w = Writer::new();
+        w.u32(1).u32(0x5000_0002).string16("Bob").u32(0);
+        let r = CharacterCreateResponse::parse(&w.buf).unwrap();
+        assert_eq!(
+            (r.response, r.guid, r.name.as_str()),
+            (1, 0x5000_0002, "Bob")
+        );
+        let r = CharacterCreateResponse::parse(&3u32.to_le_bytes()).unwrap();
+        assert_eq!((r.response, r.guid, r.name.as_str()), (3, 0, ""));
     }
 
     #[test]
