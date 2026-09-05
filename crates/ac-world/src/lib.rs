@@ -83,6 +83,9 @@ pub struct WorldObject {
     pub object_desc_flags: u32,
     pub item_type: u32,
     pub icon_id: u32,
+    /// RenderSurface drawn over / under the icon, 0 when none.
+    pub icon_overlay: u32,
+    pub icon_underlay: u32,
     pub stack_size: u32,
     /// Container holding this item (a pack, or a creature's inventory).
     pub container: Option<u32>,
@@ -224,6 +227,8 @@ impl World {
                         object_desc_flags: oc.object_desc_flags,
                         item_type: oc.item_type,
                         icon_id: oc.icon_id,
+                        icon_overlay: oc.icon_overlay,
+                        icon_underlay: oc.icon_underlay,
                         stack_size: oc.stack_size,
                         container: oc.container,
                         wielder: oc.wielder,

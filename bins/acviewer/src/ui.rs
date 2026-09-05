@@ -1,6 +1,9 @@
 //! egui overlay: chat log with an input line, and a status line.
 
+use std::collections::HashMap;
 use std::sync::Arc;
+
+use ac_formats::texture::Rgba;
 
 use egui_wgpu::ScreenDescriptor;
 use winit::window::Window;
@@ -43,6 +46,92 @@ pub struct Item {
     pub name: String,
     pub stack: u32,
     pub wielded: bool,
+    /// RenderSurface (0x06) ids: the icon, and what is drawn over and under
+    /// it. 0 = none.
+    pub icon: u32,
+    pub icon_overlay: u32,
+    pub icon_underlay: u32,
+}
+
+impl Item {
+    fn layers(&self) -> IconLayers {
+        IconLayers {
+            underlay: self.icon_underlay,
+            icon: self.icon,
+            overlay: self.icon_overlay,
+        }
+    }
+}
+
+/// The layers of an object's icon, bottom to top; 0 = layer absent.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct IconLayers {
+    pub underlay: u32,
+    pub icon: u32,
+    pub overlay: u32,
+}
+
+impl IconLayers {
+    pub fn is_empty(&self) -> bool {
+        self.underlay == 0 && self.icon == 0 && self.overlay == 0
+    }
+}
+
+/// Decodes a RenderSurface id to RGBA; installed by the app so this module
+/// stays free of DAT code.
+pub type IconLoader = Box<dyn Fn(u32) -> Option<Rgba>>;
+
+/// Icon id -> egui texture, loaded on first use through the [`IconLoader`].
+/// Ids the loader could not decode are remembered so they are asked once.
+#[derive(Default)]
+struct IconCache {
+    loader: Option<IconLoader>,
+    textures: HashMap<u32, Option<egui::TextureHandle>>,
+}
+
+/// Side of a drawn icon in points.
+const ICON_SIZE: f32 = 24.0;
+
+impl IconCache {
+    fn texture(&mut self, ctx: &egui::Context, id: u32) -> Option<egui::TextureId> {
+        if id == 0 {
+            return None;
+        }
+        if !self.textures.contains_key(&id) {
+            let handle = self.loader.as_ref().and_then(|load| load(id)).map(|img| {
+                let image = egui::ColorImage::from_rgba_unmultiplied(
+                    [img.width as usize, img.height as usize],
+                    &img.pixels,
+                );
+                ctx.load_texture(
+                    format!("icon-{id:#010x}"),
+                    image,
+                    egui::TextureOptions::LINEAR,
+                )
+            });
+            self.textures.insert(id, handle);
+        }
+        self.textures.get(&id)?.as_ref().map(|h| h.id())
+    }
+
+    /// Allocate an `ICON_SIZE` square and paint the layers into it.
+    fn draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        layers: IconLayers,
+        sense: egui::Sense,
+    ) -> egui::Response {
+        let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(ICON_SIZE), sense);
+        if ui.is_rect_visible(rect) {
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            for id in [layers.underlay, layers.icon, layers.overlay] {
+                if let Some(tex) = self.texture(ui.ctx(), id) {
+                    ui.painter().image(tex, rect, uv, egui::Color32::WHITE);
+                }
+            }
+        }
+        resp
+    }
 }
 
 pub struct Ui {
@@ -56,6 +145,8 @@ pub struct Ui {
     /// Set when the user submits a chat line; drained by the caller.
     pub outgoing: Vec<String>,
     pub status: String,
+    /// Icon of the selected object, drawn after the status text.
+    pub status_icon: IconLayers,
     pub sheet: Option<Sheet>,
     /// Inventory panel contents.
     pub items: Vec<Item>,
@@ -64,8 +155,8 @@ pub struct Ui {
     pub show_inventory: bool,
     /// Selected/attacked creature: name and health fraction.
     pub target: Option<(String, f32)>,
-    /// Open ground container: name and items (guid, name).
-    pub loot: Option<(String, Vec<(u32, String)>)>,
+    /// Open ground container: name and items.
+    pub loot: Option<(String, Vec<Item>)>,
     /// Loot items double-clicked or "take all"; drained by the caller.
     pub loot_take: Vec<u32>,
     pub loot_close: bool,
@@ -76,6 +167,7 @@ pub struct Ui {
     frames: Vec<egui::ClippedPrimitive>,
     free: Vec<egui::TextureId>,
     screen: ScreenDescriptor,
+    icons: IconCache,
 }
 
 impl Ui {
@@ -113,6 +205,7 @@ impl Ui {
             chat_focus: false,
             outgoing: Vec::new(),
             status: String::new(),
+            status_icon: IconLayers::default(),
             sheet: None,
             items: Vec::new(),
             activated: Vec::new(),
@@ -130,7 +223,15 @@ impl Ui {
                 size_in_pixels: [width.max(1), height.max(1)],
                 pixels_per_point: 1.0,
             },
+            icons: IconCache::default(),
         }
+    }
+
+    /// Install the callback that decodes icon RenderSurfaces to RGBA.
+    /// Icons are loaded lazily the first time they are drawn.
+    pub fn set_icon_loader(&mut self, loader: IconLoader) {
+        self.icons.loader = Some(loader);
+        self.icons.textures.clear();
     }
 
     /// Feed a window event. Returns true if egui consumed it.
@@ -182,11 +283,16 @@ impl Ui {
                 .fade_in(false)
                 .fixed_pos(egui::pos2(8.0, 8.0))
                 .show(ctx, |ui| {
-                    ui.label(
-                        egui::RichText::new(&self.status)
-                            .color(egui::Color32::WHITE)
-                            .background_color(egui::Color32::from_black_alpha(140)),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(&self.status)
+                                .color(egui::Color32::WHITE)
+                                .background_color(egui::Color32::from_black_alpha(140)),
+                        );
+                        if !self.status_icon.is_empty() {
+                            self.icons.draw(ui, self.status_icon, egui::Sense::hover());
+                        }
+                    });
                 });
             let w = width as f32 / ppp;
             let h = height as f32 / ppp;
@@ -345,21 +451,37 @@ impl Ui {
                                             .color(egui::Color32::from_gray(170)),
                                     );
                                 }
-                                for (guid, item) in items {
-                                    let resp = ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(item).color(egui::Color32::WHITE),
-                                        )
-                                        .sense(egui::Sense::click()),
-                                    );
+                                for it in items {
+                                    let label = if it.stack > 1 {
+                                        format!("{} ({})", it.name, it.stack)
+                                    } else {
+                                        it.name.clone()
+                                    };
+                                    let resp = ui
+                                        .horizontal(|ui| {
+                                            let icon = self.icons.draw(
+                                                ui,
+                                                it.layers(),
+                                                egui::Sense::click(),
+                                            );
+                                            let text = ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(label)
+                                                        .color(egui::Color32::WHITE),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            );
+                                            icon.union(text)
+                                        })
+                                        .inner;
                                     if resp.double_clicked() {
-                                        self.loot_take.push(*guid);
+                                        self.loot_take.push(it.guid);
                                     }
                                 }
                             });
                         ui.horizontal(|ui| {
                             if ui.button("Take all").clicked() {
-                                self.loot_take.extend(items.iter().map(|(g, _)| *g));
+                                self.loot_take.extend(items.iter().map(|i| i.guid));
                             }
                             if ui.button("Close").clicked() {
                                 self.loot_close = true;
@@ -423,10 +545,22 @@ impl Ui {
                                     } else {
                                         egui::Color32::WHITE
                                     };
-                                    let resp = ui.add(
-                                        egui::Label::new(egui::RichText::new(label).color(color))
-                                            .sense(egui::Sense::click()),
-                                    );
+                                    let resp = ui
+                                        .horizontal(|ui| {
+                                            let icon = self.icons.draw(
+                                                ui,
+                                                it.layers(),
+                                                egui::Sense::click(),
+                                            );
+                                            let text = ui.add(
+                                                egui::Label::new(
+                                                    egui::RichText::new(label).color(color),
+                                                )
+                                                .sense(egui::Sense::click()),
+                                            );
+                                            icon.union(text)
+                                        })
+                                        .inner;
                                     if resp.double_clicked() {
                                         self.activated.push(it.guid);
                                     }

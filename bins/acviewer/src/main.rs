@@ -87,6 +87,81 @@ struct Cli {
     /// Camera override for --screenshot: x,y,z,yaw_deg,pitch_deg
     #[arg(long)]
     camera: Option<String>,
+    /// Offline --screenshot: fill the inventory and loot panels with sample
+    /// items so the icon overlay can be checked without a server.
+    #[arg(long, hide = true)]
+    demo_ui: bool,
+}
+
+/// An icon loader for the egui overlay: decodes RenderSurfaces (0x06) from
+/// the portal on demand. The archives are opened on the first icon so a
+/// viewer that never draws one pays nothing.
+fn icon_loader(data_dir: PathBuf) -> ui::IconLoader {
+    let assets: std::cell::OnceCell<Option<ac_scene::Assets>> = std::cell::OnceCell::new();
+    Box::new(move |id| {
+        let assets = assets
+            .get_or_init(|| match ac_scene::Assets::open(&data_dir) {
+                Ok(a) => Some(a),
+                Err(e) => {
+                    tracing::warn!("icons: opening DAT archives: {e}");
+                    None
+                }
+            })
+            .as_ref()?;
+        match assets.texture_rgba(id, None) {
+            Ok(img) => Some(img),
+            Err(e) => {
+                tracing::debug!("icon {id:#010x}: {e}");
+                None
+            }
+        }
+    })
+}
+
+/// Sample panels for `--demo-ui`: known 32x32 icons from the portal.
+fn demo_ui(ui: &mut ui::Ui) {
+    let item = |guid: u32, name: &str, stack: u32, wielded: bool, icon: u32| ui::Item {
+        guid,
+        name: name.to_string(),
+        stack,
+        wielded,
+        icon,
+        icon_overlay: 0,
+        icon_underlay: 0,
+    };
+    ui.sheet = Some(ui::Sheet {
+        name: "Demo".into(),
+        level: 1,
+        vitals: Vec::new(),
+    });
+    ui.items = vec![
+        item(1, "Demo item 0x06000FAA", 1, true, 0x0600_0FAA),
+        item(2, "Demo item 0x0600189E", 1, true, 0x0600_189E),
+        item(3, "Demo item 0x06001A8A", 1, false, 0x0600_1A8A),
+        item(4, "Demo item 0x06001FB7", 12, false, 0x0600_1FB7),
+        item(5, "Demo item 0x0600261A", 1, false, 0x0600_261A),
+        item(6, "Demo item 0x06002C0D", 1, false, 0x0600_2C0D),
+        item(7, "Demo item 0x06002F40", 3, false, 0x0600_2F40),
+        item(8, "Demo item 0x0600321E", 1, false, 0x0600_321E),
+    ];
+    ui.loot = Some((
+        "Demo corpse".into(),
+        vec![
+            item(9, "Loot 0x06002C0D", 1, false, 0x0600_2C0D),
+            item(10, "Loot 0x0600601C", 5, false, 0x0600_601C),
+            item(11, "Loot 0x06006A21", 1, false, 0x0600_6A21),
+            ui::Item {
+                icon_overlay: 0x0600_6A21,
+                ..item(12, "0x06001A8A + 0x06006A21", 1, false, 0x0600_1A8A)
+            },
+        ],
+    ));
+    ui.status_icon = ui::IconLayers {
+        underlay: 0,
+        icon: 0x0600_2F40,
+        overlay: 0,
+    };
+    ui.status += "  selected: Demo item";
 }
 
 /// Live server connection state for `--connect`.
@@ -572,8 +647,14 @@ impl App {
                         p.local.z,
                         net.world.drawable().count()
                     );
+                    ui.status_icon = ui::IconLayers::default();
                     if let Some(o) = net.selected.and_then(|g| net.world.objects.get(&g)) {
                         s += &format!("  selected: {}", o.name);
+                        ui.status_icon = ui::IconLayers {
+                            underlay: o.icon_underlay,
+                            icon: o.icon_id,
+                            overlay: o.icon_overlay,
+                        };
                     }
                     if net.combat {
                         s += "  [melee]";
@@ -621,7 +702,16 @@ impl App {
                 .unwrap_or_else(|| "Container".into());
             let list = items
                 .iter()
-                .filter_map(|g| net.world.objects.get(g).map(|o| (*g, o.name.clone())))
+                .filter_map(|g| net.world.objects.get(g))
+                .map(|o| ui::Item {
+                    guid: o.guid,
+                    name: o.name.clone(),
+                    stack: o.stack_size,
+                    wielded: false,
+                    icon: o.icon_id,
+                    icon_overlay: o.icon_overlay,
+                    icon_underlay: o.icon_underlay,
+                })
                 .collect();
             (name, list)
         });
@@ -632,6 +722,9 @@ impl App {
                 name: o.name.clone(),
                 stack: o.stack_size,
                 wielded: true,
+                icon: o.icon_id,
+                icon_overlay: o.icon_overlay,
+                icon_underlay: o.icon_underlay,
             });
         }
         for o in net.world.inventory() {
@@ -640,6 +733,9 @@ impl App {
                 name: o.name.clone(),
                 stack: o.stack_size,
                 wielded: false,
+                icon: o.icon_id,
+                icon_overlay: o.icon_overlay,
+                icon_underlay: o.icon_underlay,
             });
         }
         ui.items
@@ -1338,7 +1434,9 @@ impl ApplicationHandler for App {
             return;
         }
         let (w, h) = gpu.size();
-        self.ui = Some(ui::Ui::new(gpu.device(), gpu.format(), Some(&window), w, h));
+        let mut ui = ui::Ui::new(gpu.device(), gpu.format(), Some(&window), w, h);
+        ui.set_icon_loader(icon_loader(self.cli.data_dir.clone()));
+        self.ui = Some(ui);
         self.gpu = Some(gpu);
         self.window = Some(window);
         self.last_frame = Instant::now();
@@ -1590,7 +1688,9 @@ fn main() -> Result<()> {
         };
         app.load_scene(&mut gpu)?;
         let (w, h) = gpu.size();
-        app.ui = Some(ui::Ui::new(gpu.device(), gpu.format(), None, w, h));
+        let mut ui = ui::Ui::new(gpu.device(), gpu.format(), None, w, h);
+        ui.set_icon_loader(icon_loader(app.cli.data_dir.clone()));
+        app.ui = Some(ui);
         if app.cli.connect.is_some() {
             // Pump the connection until the player is placed and the world
             // has settled, then render from the character's viewpoint.
@@ -1787,6 +1887,9 @@ fn main() -> Result<()> {
         let vp = app.camera.view_proj(gpu.aspect());
         app.refresh_status();
         let mut ui = app.ui.take().unwrap();
+        if app.cli.demo_ui {
+            demo_ui(&mut ui);
+        }
         // egui's first frame only loads fonts and asks for a repaint.
         ui.begin(None, gpu.device(), gpu.queue(), w, h);
         ui.begin(None, gpu.device(), gpu.queue(), w, h);
