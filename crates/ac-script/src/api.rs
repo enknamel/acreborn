@@ -1,0 +1,245 @@
+//! The script-facing API: the [`Api`] trait the host implements over
+//! `ac_plugin::Ctx` (and tests implement with a recorder), and the Rhai
+//! functions that forward to it.
+//!
+//! # Why a thread-local pointer
+//!
+//! Rhai native functions are `'static` closures: they cannot capture the
+//! `&mut Ctx` a plugin callback receives, which lives only for that call.
+//! Building a fresh engine (and re-registering every function) per call
+//! would work but costs milliseconds per frame per session. So instead,
+//! for the duration of each script call, [`Bound`] stores a raw pointer to
+//! the current `Api` in a thread-local, and every registered function
+//! reaches it through [`with_api`]. That accessor is the only place the
+//! pointer is dereferenced, and it is safe to call at any time:
+//!
+//! * outside a bound call the pointer is `None` and the script gets an
+//!   error instead of a dangling dereference (`Bound`'s `Drop` clears it
+//!   before the borrow it was made from ends, and `Bound` carries that
+//!   borrow's lifetime, so the host cannot touch the `Api` while scripts
+//!   can);
+//! * a `BUSY` flag rejects re-entrant access, so two `&mut dyn Api` never
+//!   coexist. Functions that call back into the script (`with_session`)
+//!   release the borrow before they do;
+//! * the engine is single-threaded (`sync` off) and the pointer is
+//!   thread-local, so no other thread can observe it.
+
+use std::cell::Cell;
+use std::marker::PhantomData;
+use std::ptr::NonNull;
+
+use ac_plugin::Message;
+use rhai::serde::{from_dynamic, to_dynamic};
+use rhai::{Array, Dynamic, Engine, EvalAltResult, FnPtr, Map, NativeCallContext};
+use serde_json::Value;
+
+pub type ScriptResult<T> = Result<T, Box<EvalAltResult>>;
+
+/// Everything a script can see and do. Session indices are zero-based;
+/// every action applies to the *current* session, which starts as the
+/// session the callback is about and can be changed temporarily with
+/// `set_session` (what the script's `with_session(i, || ...)` does).
+pub trait Api {
+    // ---- reads ----
+    /// Summary of the current session's character (see `session`).
+    fn me(&mut self) -> Map;
+    /// Objects in view, nearest first: `guid, name, distance, is_creature,
+    /// is_player, is_corpse, health, x, y, z, cell`.
+    fn objects(&mut self) -> Array;
+    /// Items in the pack (same shape as `objects`, distance 0).
+    fn inventory(&mut self) -> Array;
+    /// Items in the open ground container (a corpse or chest), if any.
+    fn container(&mut self) -> Array;
+    fn session_count(&mut self) -> i64;
+    /// Summary of session `i`: `session, guid, name, level, health,
+    /// health_max, stamina, stamina_max, mana, mana_max, x, y, z, cell,
+    /// combat, magic, target, target_name, selected, placed`.
+    fn session(&mut self, i: i64) -> Option<Map>;
+    fn current_session(&mut self) -> i64;
+    /// Make `i` the current session; false (and no change) when out of range.
+    fn set_session(&mut self, i: i64) -> bool;
+
+    // ---- actions on the current session ----
+    fn use_name(&mut self, name: &str) -> bool;
+    fn use_guid(&mut self, guid: i64) -> bool;
+    fn attack(&mut self, name: &str) -> bool;
+    fn attack_guid(&mut self, guid: i64) -> bool;
+    fn cast(&mut self, name: &str) -> bool;
+    fn say(&mut self, text: &str);
+    /// Open a corpse (`""` = the corpse of the last attack target).
+    fn loot(&mut self, name: &str) -> bool;
+    /// Queue an item of the open container to be picked up.
+    fn take(&mut self, guid: i64) -> bool;
+    /// Queue everything in the open container; returns how many.
+    fn take_all(&mut self) -> i64;
+    fn close_container(&mut self);
+    fn buy(&mut self, name: &str) -> bool;
+    fn sell(&mut self, name: &str) -> bool;
+    fn combat(&mut self, on: bool);
+    fn select(&mut self, guid: i64);
+    fn log(&mut self, text: &str);
+    fn post(&mut self, topic: &str, value: Value);
+    fn messages(&mut self, topic: &str) -> Vec<Message>;
+    fn board_get(&mut self, key: &str) -> Option<Value>;
+    fn board_set(&mut self, key: &str, value: Value);
+    /// Ask the host to make session `i` the active (drawn, steered) one.
+    fn switch(&mut self, i: i64);
+}
+
+thread_local! {
+    static CURRENT: Cell<Option<NonNull<dyn Api>>> = const { Cell::new(None) };
+    static BUSY: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Makes an `Api` reachable from scripts for as long as it lives.
+pub struct Bound<'a> {
+    previous: Option<NonNull<dyn Api>>,
+    _borrow: PhantomData<&'a mut ()>,
+}
+
+impl<'a> Bound<'a> {
+    pub fn new(api: &'a mut (dyn Api + 'a)) -> Self {
+        let ptr: NonNull<dyn Api + 'a> = NonNull::from(api);
+        // SAFETY: only the lifetime bound is erased. The pointer is never
+        // dereferenced after this guard drops (`Drop` restores the previous
+        // value), the guard borrows `api` for 'a, and `with_api` is the
+        // sole reader, on this thread only.
+        let ptr: NonNull<dyn Api + 'static> = unsafe { std::mem::transmute(ptr) };
+        let previous = CURRENT.with(|c| c.replace(Some(ptr)));
+        Bound {
+            previous,
+            _borrow: PhantomData,
+        }
+    }
+}
+
+impl Drop for Bound<'_> {
+    fn drop(&mut self) {
+        CURRENT.with(|c| c.set(self.previous));
+    }
+}
+
+/// Run `f` against the bound `Api`. A script error when nothing is bound
+/// or when an API call is already in progress.
+pub fn with_api<R>(f: impl FnOnce(&mut dyn Api) -> R) -> ScriptResult<R> {
+    let Some(ptr) = CURRENT.with(|c| c.get()) else {
+        return Err("the client API is only available inside a script callback".into());
+    };
+    if BUSY.replace(true) {
+        return Err("re-entrant client API call".into());
+    }
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            BUSY.set(false);
+        }
+    }
+    let _reset = Reset;
+    // SAFETY: a live `Bound` set the pointer on this thread and holds the
+    // exclusive borrow it came from; BUSY guarantees this is the only
+    // reference derived from it right now.
+    Ok(f(unsafe { &mut *ptr.as_ptr() }))
+}
+
+fn to_value(d: Dynamic) -> ScriptResult<Value> {
+    from_dynamic::<Value>(&d)
+}
+
+fn from_value(v: Value) -> Dynamic {
+    to_dynamic(&v).unwrap_or(Dynamic::UNIT)
+}
+
+fn message_map(m: &Message) -> Map {
+    let mut map = Map::new();
+    map.insert("from".into(), Dynamic::from(m.from as i64));
+    map.insert("topic".into(), m.topic.clone().into());
+    map.insert("value".into(), from_value(m.value.clone()));
+    map
+}
+
+/// Register every script-visible function on `engine`.
+pub fn register(engine: &mut Engine) {
+    engine.on_print(|s| {
+        let _ = with_api(|a| a.log(s));
+    });
+    engine.on_debug(|s, src, pos| {
+        let line = match src {
+            Some(src) => format!("{src} @ {pos:?}: {s}"),
+            None => format!("{pos:?}: {s}"),
+        };
+        let _ = with_api(|a| a.log(&line));
+    });
+
+    // reads
+    engine.register_fn("me", || with_api(|a| a.me()));
+    engine.register_fn("objects", || with_api(|a| a.objects()));
+    engine.register_fn("inventory", || with_api(|a| a.inventory()));
+    engine.register_fn("container", || with_api(|a| a.container()));
+    engine.register_fn("sessions", || with_api(|a| a.session_count()));
+    engine.register_fn("session_index", || with_api(|a| a.current_session()));
+    engine.register_fn("session", |i: i64| -> ScriptResult<Dynamic> {
+        Ok(match with_api(|a| a.session(i))? {
+            Some(m) => Dynamic::from_map(m),
+            None => Dynamic::UNIT,
+        })
+    });
+
+    // actions
+    engine.register_fn("use_name", |n: &str| with_api(|a| a.use_name(n)));
+    engine.register_fn("use_guid", |g: i64| with_api(|a| a.use_guid(g)));
+    engine.register_fn("attack", |n: &str| with_api(|a| a.attack(n)));
+    engine.register_fn("attack", |g: i64| with_api(|a| a.attack_guid(g)));
+    engine.register_fn("cast", |n: &str| with_api(|a| a.cast(n)));
+    engine.register_fn("say", |t: &str| with_api(|a| a.say(t)));
+    engine.register_fn("loot", || with_api(|a| a.loot("")));
+    engine.register_fn("loot", |n: &str| with_api(|a| a.loot(n)));
+    engine.register_fn("take", |g: i64| with_api(|a| a.take(g)));
+    engine.register_fn("take_all", || with_api(|a| a.take_all()));
+    engine.register_fn("close_container", || with_api(|a| a.close_container()));
+    engine.register_fn("buy", |n: &str| with_api(|a| a.buy(n)));
+    engine.register_fn("sell", |n: &str| with_api(|a| a.sell(n)));
+    engine.register_fn("combat", |on: bool| with_api(|a| a.combat(on)));
+    engine.register_fn("select", |g: i64| with_api(|a| a.select(g)));
+    engine.register_fn("log", |t: &str| with_api(|a| a.log(t)));
+    engine.register_fn("log", |d: Dynamic| with_api(|a| a.log(&d.to_string())));
+    engine.register_fn("switch", |i: i64| with_api(|a| a.switch(i)));
+
+    // blackboard and bus
+    engine.register_fn("post", |topic: &str, v: Dynamic| -> ScriptResult<()> {
+        let v = to_value(v)?;
+        with_api(|a| a.post(topic, v))
+    });
+    engine.register_fn("messages", |topic: &str| -> ScriptResult<Array> {
+        let msgs = with_api(|a| a.messages(topic))?;
+        Ok(msgs
+            .iter()
+            .map(|m| Dynamic::from_map(message_map(m)))
+            .collect())
+    });
+    engine.register_fn("board_get", |key: &str| -> ScriptResult<Dynamic> {
+        Ok(with_api(|a| a.board_get(key))?.map_or(Dynamic::UNIT, from_value))
+    });
+    engine.register_fn("board_set", |key: &str, v: Dynamic| -> ScriptResult<()> {
+        let v = to_value(v)?;
+        with_api(|a| a.board_set(key, v))
+    });
+
+    // `with_session(i, || ...)`: run the closure with session `i` current,
+    // then restore. The borrow is released before the closure runs so the
+    // closure's own API calls are not re-entrant.
+    engine.register_fn(
+        "with_session",
+        |ctx: NativeCallContext, i: i64, f: FnPtr| -> ScriptResult<Dynamic> {
+            let previous = with_api(|a| {
+                let previous = a.current_session();
+                a.set_session(i).then_some(previous)
+            })?;
+            let Some(previous) = previous else {
+                return Err(format!("with_session: no session {i}").into());
+            };
+            let result = f.call_within_context(&ctx, ());
+            with_api(|a| a.set_session(previous))?;
+            result
+        },
+    );
+}

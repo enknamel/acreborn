@@ -9,5 +9,8 @@ pub fn builtin() -> Host {
     let mut host = Host::new();
     host.register(Box::new(console::Console::default()));
     host.register(Box::new(party::Party::default()));
+    host.register(Box::new(ac_script::ScriptPlugin::new(
+        ac_script::default_dir(),
+    )));
     host
 }
