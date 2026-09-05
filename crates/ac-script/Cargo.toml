@@ -1,0 +1,16 @@
+[package]
+name = "ac-script"
+description = "Rhai scripting plugin: extend the client with scripts, no recompiling"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-plugin = { path = "../ac-plugin" }
+ac-client = { path = "../ac-client" }
+ac-world = { path = "../ac-world" }
+# Single-threaded on purpose: the engine lives on the client's main thread
+# next to the sessions, so the `sync` feature (Send + Sync everything) is off.
+rhai = { version = "1", features = ["serde"] }
+serde_json.workspace = true
+tracing.workspace = true

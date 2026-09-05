@@ -118,6 +118,21 @@ pack); using a scroll learns its spell.
 Game data and the original executable are not distributed with this
 repository and are gitignored.
 
+## Scripting
+
+The viewer runs every `*.rhai` file in `~/.acreborn/scripts` (or
+`$ACREBORN_SCRIPTS`) through an embedded [Rhai](https://rhai.rs) engine
+and reloads a file when it changes, so the client can be extended without
+recompiling. A script defines `on_event(ev)`, `tick(dt)`,
+`command(name, args)` and/or `key(name, pressed)`, and calls into the game
+with the same verbs as the console: `me()`, `objects()`, `attack(name)`,
+`cast(spell)`, `loot()`, `say(text)`, `post(topic, value)` /
+`messages(topic)` for talking to other sessions, `with_session(i, || ...)`
+to act as another one. `/scripts` lists what is loaded; script errors go
+to the chat log and never stop the client. Examples and the full API are
+in [`scripts/examples/`](scripts/examples/README.md); the plugin is
+`crates/ac-script`.
+
 ## License
 
 Dual-licensed under MIT or Apache-2.0, at your option. Game data, the
