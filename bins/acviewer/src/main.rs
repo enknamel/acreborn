@@ -270,21 +270,9 @@ fn demo_ui(ui: &mut ui::Ui, data_dir: &std::path::Path) {
 /// Live server connection state for `--connect`.
 struct Net {
     client: ac_client::Client,
-    /// Landblocks currently uploaded to the GPU.
-    loaded_blocks: std::collections::HashSet<u32>,
-    /// Block id -> is a dungeon (learnt when the block is built).
-    dungeon: std::collections::HashMap<u32, bool>,
-    mesh_cache: std::collections::HashMap<u32, ac_scene::model::Mesh>,
     last_generation: u64,
     pickables: Vec<scene::Pickable>,
-    /// Particle emitters of the loaded landblocks' static objects.
-    fx: world_fx::WorldFx,
-    /// Sound output, when a device could be opened and --mute is off.
-    audio: Option<ac_audio::Audio>,
-    gpu_meshes: scene::GpuMeshCache,
-    palettes: scene::Palettes,
     anims: std::collections::HashMap<u32, scene::ObjectAnim>,
-    tables: std::collections::HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
     last_anim_refresh: Instant,
 }
 
@@ -311,6 +299,18 @@ struct App {
     pending_switch: Option<usize>,
     /// When the next frame may start (frame rate cap).
     next_frame: Instant,
+    /// Landblocks currently uploaded to the GPU (the active session's area).
+    loaded_blocks: std::collections::HashSet<u32>,
+    /// Block id -> is a dungeon (learnt when the block is built).
+    dungeon: std::collections::HashMap<u32, bool>,
+    /// Caches shared by every session: decoded meshes, GPU meshes, palettes,
+    /// motion tables, block particle emitters, and the sound device.
+    mesh_cache: std::collections::HashMap<u32, ac_scene::model::Mesh>,
+    gpu_meshes: scene::GpuMeshCache,
+    palettes: scene::Palettes,
+    tables: std::collections::HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
+    fx: world_fx::WorldFx,
+    audio: Option<ac_audio::Audio>,
 }
 
 impl App {
@@ -763,21 +763,14 @@ impl App {
                 character: parts.next().map(str::to_string),
             });
         }
+        self.audio = audio;
         for cfg in configs {
             let client = ac_client::Client::connect(cfg, assets.clone())?;
             self.nets.push(Net {
                 client,
-                loaded_blocks: Default::default(),
-                dungeon: Default::default(),
-                mesh_cache: Default::default(),
                 last_generation: 0,
                 pickables: Vec::new(),
-                fx: Default::default(),
-                audio: audio.clone(),
-                gpu_meshes: Default::default(),
-                palettes: Default::default(),
                 anims: Default::default(),
-                tables: Default::default(),
                 last_anim_refresh: Instant::now(),
             });
         }
@@ -829,7 +822,7 @@ impl App {
                 }
                 ac_client::Event::Sound { wave, volume } => {
                     if is_active {
-                        if let Some(audio) = &net.audio {
+                        if let Some(audio) = &self.audio {
                             if let Err(e) = audio.play(wave, *volume) {
                                 tracing::debug!("play: {e}");
                             }
@@ -911,7 +904,7 @@ impl App {
         // first, then its neighbours (outdoors only), one per frame.
         if let Some(center) = net.client.player.as_ref().map(|p| p.landblock()) {
             let mut wanted = vec![center];
-            if net.dungeon.get(&center) == Some(&false) {
+            if self.dungeon.get(&center) == Some(&false) {
                 let cx = ac_scene::lbid::block_x(center);
                 let cy = ac_scene::lbid::block_y(center);
                 for bx in cx.saturating_sub(1)..=(cx + 1).min(255) {
@@ -923,17 +916,17 @@ impl App {
                     }
                 }
             }
-            if let Some(&id) = wanted.iter().find(|id| !net.loaded_blocks.contains(id)) {
+            if let Some(&id) = wanted.iter().find(|id| !self.loaded_blocks.contains(id)) {
                 let t0 = Instant::now();
-                match scene::build_landblock(&net.client.assets, id, &mut net.mesh_cache) {
+                match scene::build_landblock(&net.client.assets, id, &mut self.mesh_cache) {
                     Ok(built) => {
-                        net.dungeon.insert(id, built.is_dungeon);
+                        self.dungeon.insert(id, built.is_dungeon);
                         let assets = &net.client.assets;
-                        let palettes = &net.palettes;
+                        let palettes = &self.palettes;
                         gpu.add_block(id, built.batches, |k| {
                             scene::material_image(assets, k, palettes)
                         });
-                        net.fx.load_block(assets, id);
+                        self.fx.load_block(assets, id);
                         if id == center {
                             // Daylight sky and fog outdoors; dungeons get a
                             // black sky and no fog.
@@ -956,12 +949,12 @@ impl App {
                     }
                     Err(e) => {
                         tracing::warn!("landblock {id:#010x}: {e}");
-                        net.dungeon.insert(id, false);
+                        self.dungeon.insert(id, false);
                     }
                 }
-                net.loaded_blocks.insert(id);
+                self.loaded_blocks.insert(id);
             }
-            let stale: Vec<u32> = net
+            let stale: Vec<u32> = self
                 .loaded_blocks
                 .iter()
                 .copied()
@@ -969,16 +962,16 @@ impl App {
                 .collect();
             for id in stale {
                 gpu.remove_block(id);
-                net.fx.unload_block(id);
-                net.loaded_blocks.remove(&id);
+                self.fx.unload_block(id);
+                self.loaded_blocks.remove(&id);
                 tracing::info!("landblock {id:#010x} unloaded");
             }
         }
-        if !net.fx.is_empty() {
-            net.fx.update(&net.client.assets, self.frame_dt);
-            let quads = net.fx.quads();
+        if !self.fx.is_empty() {
+            self.fx.update(&net.client.assets, self.frame_dt);
+            let quads = self.fx.quads();
             let assets = &net.client.assets;
-            let palettes = &net.palettes;
+            let palettes = &self.palettes;
             gpu.set_particles(particles::draws(&quads, self.camera.position), |k| {
                 scene::material_image(assets, k, palettes)
             });
@@ -994,10 +987,10 @@ impl App {
                 &net.client.assets,
                 gpu,
                 &net.client.world,
-                &mut net.gpu_meshes,
-                &mut net.palettes,
+                &mut self.gpu_meshes,
+                &mut self.palettes,
                 &mut net.anims,
-                &mut net.tables,
+                &mut self.tables,
                 dt,
             );
             net.pickables = picks;
@@ -1015,7 +1008,7 @@ impl App {
             if frame.dirty {
                 let t = glam::Mat4::from_rotation_translation(pl.rotation(), pos);
                 let (app, key) = match net.client.world.player() {
-                    Some(o) => scene::appearance_of(&net.client.assets, o, &mut net.palettes),
+                    Some(o) => scene::appearance_of(&net.client.assets, o, &mut self.palettes),
                     None => (ac_scene::model::Appearance::default(), 0),
                 };
                 let light = net
@@ -1026,8 +1019,8 @@ impl App {
                 let instances = scene::instances_lit(
                     &net.client.assets,
                     gpu,
-                    &mut net.gpu_meshes,
-                    &net.palettes,
+                    &mut self.gpu_meshes,
+                    &self.palettes,
                     net.client.player_setup,
                     t,
                     &app,
@@ -1499,6 +1492,14 @@ fn main() -> Result<()> {
             plugins: plugins::builtin(),
             pending_switch: None,
             next_frame: Instant::now(),
+            loaded_blocks: Default::default(),
+            dungeon: Default::default(),
+            mesh_cache: Default::default(),
+            gpu_meshes: Default::default(),
+            palettes: Default::default(),
+            tables: Default::default(),
+            fx: Default::default(),
+            audio: None,
         };
         app.load_scene(&mut gpu)?;
         let (w, h) = gpu.size();
@@ -1823,7 +1824,7 @@ fn main() -> Result<()> {
                             "{ticks} ticks/s; {} gpu meshes, {} materials, {} instances",
                             app.nets
                                 .get(app.active)
-                                .map(|n| n.gpu_meshes.len())
+                                .map(|_| app.gpu_meshes.len())
                                 .unwrap_or(0),
                             gpu.material_count(),
                             gpu.instance_count()
@@ -1931,6 +1932,14 @@ fn main() -> Result<()> {
         plugins: plugins::builtin(),
         pending_switch: None,
         next_frame: Instant::now(),
+        loaded_blocks: Default::default(),
+        dungeon: Default::default(),
+        mesh_cache: Default::default(),
+        gpu_meshes: Default::default(),
+        palettes: Default::default(),
+        tables: Default::default(),
+        fx: Default::default(),
+        audio: None,
     };
     event_loop.run_app(&mut app)?;
     Ok(())
