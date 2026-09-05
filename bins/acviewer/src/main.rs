@@ -1532,11 +1532,17 @@ fn main() -> Result<()> {
             let mut loot_state = 0u8;
             let mut loot_at = Instant::now();
             let mut listed = false;
+            let mut last_flush = Instant::now();
             loop {
                 app.tick_net(&mut gpu);
-                // No frames are presented headlessly, so recycle GPU
-                // staging buffers here or they pile up for the final poll.
-                let _ = gpu.device().poll(wgpu::PollType::Poll);
+                // No frames are presented headlessly, so flush uploads and
+                // recycle dropped buffers here (a poll alone frees nothing:
+                // uploads wait for a submit) or they pile up until the
+                // final screenshot.
+                if last_flush.elapsed() >= Duration::from_millis(100) {
+                    gpu.flush();
+                    last_flush = Instant::now();
+                }
                 let placed = app
                     .nets
                     .get(app.active)
@@ -1821,13 +1827,16 @@ fn main() -> Result<()> {
                     ticks += 1;
                     if ticks_since.elapsed() >= Duration::from_secs(1) {
                         tracing::info!(
-                            "{ticks} ticks/s; {} gpu meshes, {} materials, {} instances",
+                            "{ticks} ticks/s; {} gpu meshes, {} materials ({} MB textures), {} instances, {} buffers ({} MB) created",
                             app.nets
                                 .get(app.active)
                                 .map(|_| app.gpu_meshes.len())
                                 .unwrap_or(0),
                             gpu.material_count(),
-                            gpu.instance_count()
+                            gpu.texture_bytes() >> 20,
+                            gpu.instance_count(),
+                            gpu.buffer_stats().0,
+                            gpu.buffer_stats().1 >> 20
                         );
                         ticks = 0;
                         ticks_since = Instant::now();

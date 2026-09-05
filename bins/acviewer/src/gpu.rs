@@ -264,6 +264,10 @@ pub struct Gpu {
     sampler: wgpu::Sampler,
     /// Clamp-to-edge, for the per-cell alpha maps.
     sampler_clamp: wgpu::Sampler,
+    texture_bytes: std::cell::Cell<u64>,
+    /// Vertex/index buffers created so far (count, bytes); a proxy for
+    /// graphics memory, which on Metal is paid per allocation.
+    buffer_stats: std::cell::Cell<(u64, u64)>,
     batches: Vec<DrawBatch>,
     /// Streamed landblocks, keyed by block id.
     blocks: HashMap<u32, Vec<DrawBatch>>,
@@ -320,6 +324,16 @@ impl Gpu {
     /// Device without a window, for `render_to_png`.
     pub fn headless(width: u32, height: u32) -> Result<Self> {
         Self::create(None, width, height)
+    }
+
+    /// Push pending uploads to the GPU and free dropped resources. A
+    /// window does this every frame by presenting; headless sessions must
+    /// call it themselves, or every buffer created since the last submit
+    /// (particles are re-uploaded each tick) stays alive with its staging
+    /// copy until the final screenshot.
+    pub fn flush(&self) {
+        self.queue.submit(std::iter::empty());
+        let _ = self.device.poll(wgpu::PollType::Poll);
     }
 
     fn create(window: Option<Arc<Window>>, width: u32, height: u32) -> Result<Self> {
@@ -731,6 +745,8 @@ impl Gpu {
             terrain_layout,
             sampler,
             sampler_clamp,
+            texture_bytes: std::cell::Cell::new(0),
+            buffer_stats: Default::default(),
             batches: Vec::new(),
             blocks: HashMap::new(),
             materials: Default::default(),
@@ -799,7 +815,30 @@ impl Gpu {
     }
 
     /// Upload a material's texture (with a full mip chain) and return its bind group.
+    /// Bytes of texture memory uploaded so far (all mip levels).
+    pub fn texture_bytes(&self) -> u64 {
+        self.texture_bytes.get()
+    }
+
+    /// (count, bytes) of vertex/index buffers created so far.
+    pub fn buffer_stats(&self) -> (u64, u64) {
+        self.buffer_stats.get()
+    }
+
+    fn make_buffer(&self, contents: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
+        let (n, b) = self.buffer_stats.get();
+        self.buffer_stats.set((n + 1, b + contents.len() as u64));
+        self.device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents,
+                usage,
+            })
+    }
+
     fn make_material(&self, img: &Rgba) -> wgpu::BindGroup {
+        self.texture_bytes
+            .set(self.texture_bytes.get() + (img.width as u64 * img.height as u64 * 4 * 4 / 3));
         let texture = self.make_texture(img.width, img.height, 1);
         self.upload_layer(&texture, 0, img);
         let view = texture.create_view(&Default::default());
@@ -1057,20 +1096,12 @@ impl Gpu {
                     color: [1.0, 1.0, 1.0, alpha],
                 })
                 .collect();
-            let vertex_buf = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: bytemuck::cast_slice(&verts),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-            let index_buf = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: bytemuck::cast_slice(&sub.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
+            let vertex_buf =
+                self.make_buffer(bytemuck::cast_slice(&verts), wgpu::BufferUsages::VERTEX);
+            let index_buf = self.make_buffer(
+                bytemuck::cast_slice(&sub.indices),
+                wgpu::BufferUsages::INDEX,
+            );
             subs.push(GpuSub {
                 vertex_buf,
                 index_buf,
@@ -1176,27 +1207,14 @@ impl Gpu {
             let tm = Instant::now();
             let bind_group = self.material(key, &mut materials);
             t_materials += tm.elapsed();
-            let vertex_buf = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: bytemuck::cast_slice(&b.vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-            let index_buf = self
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: bytemuck::cast_slice(&b.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
+            let vertex_buf = self.make_buffer(
+                bytemuck::cast_slice(&b.vertices),
+                wgpu::BufferUsages::VERTEX,
+            );
+            let index_buf =
+                self.make_buffer(bytemuck::cast_slice(&b.indices), wgpu::BufferUsages::INDEX);
             let blend_buf = b.is_terrain().then(|| {
-                self.device
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: None,
-                        contents: bytemuck::cast_slice(&b.blend),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    })
+                self.make_buffer(bytemuck::cast_slice(&b.blend), wgpu::BufferUsages::VERTEX)
             });
             let kind = match key {
                 MaterialKey::Water(_) => DrawKind::Water,
