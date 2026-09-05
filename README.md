@@ -81,6 +81,8 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # options; server questions such as a fellowship invitation pop up with Yes/No). C toggles combat in the stance of
 # the wielded weapon (a bow, crossbow or atlatl with ammunition in the
 # ammo slot gives missile mode; anything else melee):
+# the combat bar then shows the attack height and the power/accuracy
+# slider (Insert/PageUp step power, Delete/PageDown height) and auto-repeat;
 # double-click another player (in peace mode) to open a secure trade: drag
 # items into your offer, Accept on both sides swaps them;
 # double-click a creature to attack it until it dies; double-click its corpse
