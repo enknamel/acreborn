@@ -53,6 +53,10 @@ pub enum Event {
     Terminated(String),
     Refused(u32),                       // CharacterError / AccountBoot opcode
     Placed { cell: u32 },               // the character stands in the world
+    SpellLearned(u32), SpellForgotten(u32),
+    Characters(Vec<CharacterEntry>),    // the account's list, when not auto-entering
+    CharacterCreated { id: u32, name: String },
+    CharacterCreateFailed(u32),         // ACE verification code (creation::create_failure_message)
 }
 ```
 
@@ -276,6 +280,50 @@ The magic panels follow `docs/game/mechanics.md` (section 1) and build on
   `start_time` as the non-positive seconds the spell has already run, so
   the panel anchors each value to the local clock when it first sees it
   and needs no server time base.
+
+## Character select and creation
+
+`crates/ac-plugin/src/lobby/` is the screen between login and the world,
+built the same way as the panels (`view` / `draw` / state, a demo mode with
+no session) and driven by `ac_client::creation`:
+
+* **select** (`lobby::select`): `view(&Client)` lists `client.characters`
+  (name, "deleting in Xs" for one pending deletion); `draw` returns
+  `SelectAction::{Enter, Delete, Restore, New}` and `key` handles Up/Down,
+  Enter (the highlighted character; it also confirms a pending delete) and
+  Escape. `Lobby` turns them into `client.enter_world(id)`,
+  `delete_character(id)` (after a Yes/No strip), `restore_character(id)`
+  and opens the creation screen.
+* **create** (`lobby::create`): `CreateState` owns a `CharacterBuild` plus
+  its `Rules` and the `CharGen` table, and walks `Step::{Heritage,
+  Appearance, Attributes, Skills, Finish}` (`next`/`prev`; Left/Right or
+  PageUp/PageDown). Heritage hides the Olthoi groups unless "Show all";
+  appearance steps through the sex's hair, eye, nose, mouth and clothing
+  option lists; attributes show `attribute_points_left` (red when
+  negative, `points_color`) with -10/-1/drag/+1/+10; skills are grouped
+  Specialized / Trained / Untrained / Unusable (`group_skills`) with each
+  skill's train and specialize cost and Specialize / Train / Untrain / Drop
+  buttons that call `build.set_skill` (refusals become the message line);
+  the finish pane has the name (`valid_name` feedback), the starting town
+  and a summary. Create is enabled while `build.validate(&rules)` passes
+  (the first error is shown otherwise) and calls
+  `client.create_character(&build)`; `Event::CharacterCreateFailed` puts
+  the server's reason on the screen, `Event::CharacterCreated` returns to
+  the list while the client enters the world.
+* `Lobby` (`lobby::Lobby`) holds both screens, follows the events
+  (`Characters` opens the list, `Placed` hides everything) and implements
+  `Plugin`, but acviewer owns it directly rather than registering it: the
+  viewer reads `Lobby::preview()` (the build being edited) every frame and
+  draws the model beside the creation window with the `--chargen` path
+  (`ac_scene::chargen::describe` → `instances_for` →
+  `set_player_instances`), turning slowly or by right-drag. Clothing is
+  sent but not previewed.
+
+`acviewer --demo-select` and `--demo-create` show the two screens with no
+server (three sample characters; the real CharGen table and the 3D
+preview). With `--screenshot out.png` they render one frame headlessly, and
+`--press ArrowRight,ArrowRight` first steps the creation screen to the
+pane you want to see.
 
 ## Worked example: auto-heal
 

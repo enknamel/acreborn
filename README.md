@@ -76,6 +76,16 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # melee combat:
 # double-click a creature to attack it until it dies; double-click its corpse
 # to loot (Take all / Close). Space jumps. Sounds play unless --mute.
+# Character select and creation: without --character the window shows the
+# account's characters after login (Up/Down highlight, Enter enters; Delete
+# asks first and the server keeps the character for a while with Restore
+# beside it; New character opens the creation screen). Creation walks five
+# panes (Left/Right or PageUp/PageDown: heritage and sex, appearance with a
+# turntable preview of the model, right-drag turns it, template and
+# attributes, skills with the credits left, name and starting town) and
+# Create sends it when the rules pass; Escape returns to the list.
+# Offline: --demo-select and --demo-create show both screens with no server
+# (--press ArrowRight steps the creation panes; add --screenshot out.png).
 # Chat lines starting with / are plugin commands (/help lists them: /use,
 # /attack, /cast, /loot, /buy, /sell, /combat, /peace, /who, /switch N).
 cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
