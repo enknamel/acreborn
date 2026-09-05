@@ -481,6 +481,26 @@ mod tests {
             false
         }
         fn allegiance_name(&mut self, _n: &str) {}
+        fn house_profile(&mut self) -> Dynamic {
+            Dynamic::UNIT
+        }
+        fn house(&mut self) -> Dynamic {
+            Dynamic::UNIT
+        }
+        fn house_query(&mut self) {}
+        fn buy_house(&mut self) -> bool {
+            false
+        }
+        fn rent_house(&mut self) -> bool {
+            false
+        }
+        fn abandon_house(&mut self) {}
+        fn house_guests(&mut self) -> Dynamic {
+            Dynamic::UNIT
+        }
+        fn house_guest(&mut self, _n: &str, _add: bool) {}
+        fn house_storage(&mut self, _n: &str, _on: bool) {}
+        fn house_open(&mut self, _on: bool) {}
         fn chat(&mut self, _c: &str, _t: &str) -> bool {
             false
         }

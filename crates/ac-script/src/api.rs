@@ -111,6 +111,20 @@ pub trait Api {
     fn salvage(&mut self, items: Array) -> bool;
     /// Name the allegiance (monarch), "" clears it.
     fn allegiance_name(&mut self, name: &str);
+    /// The house sign last used, as a map { slumlord, owner, owner_name, kind, min_level, buy: [{name, wcid, needed, paid}], rent: [...] } or unit.
+    fn house_profile(&mut self) -> Dynamic;
+    /// Our house as a map { kind, cell, rent_paid, rent: [...] }, unit when we own none (or the server has not said).
+    fn house(&mut self) -> Dynamic;
+    fn house_query(&mut self);
+    /// Buy / pay rent at the sign last used, with the pack's items; false when short.
+    fn buy_house(&mut self) -> bool;
+    fn rent_house(&mut self) -> bool;
+    fn abandon_house(&mut self);
+    /// Guest list as maps { guid, name, storage } plus flags; unit until requested.
+    fn house_guests(&mut self) -> Dynamic;
+    fn house_guest(&mut self, name: &str, add: bool);
+    fn house_storage(&mut self, name: &str, allow: bool);
+    fn house_open(&mut self, open: bool);
     /// Say something on a group channel: "v" vassals, "p" patron, "m"
     /// monarch, "c" co-vassals, "f" fellowship. False for an unknown channel.
     fn chat(&mut self, channel: &str, text: &str) -> bool;
@@ -289,6 +303,20 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("allegiance_name", |n: &str| {
         with_api(|a| a.allegiance_name(n))
     });
+    engine.register_fn("house_profile", || with_api(|a| a.house_profile()));
+    engine.register_fn("house", || with_api(|a| a.house()));
+    engine.register_fn("house_query", || with_api(|a| a.house_query()));
+    engine.register_fn("buy_house", || with_api(|a| a.buy_house()));
+    engine.register_fn("rent_house", || with_api(|a| a.rent_house()));
+    engine.register_fn("abandon_house", || with_api(|a| a.abandon_house()));
+    engine.register_fn("house_guests", || with_api(|a| a.house_guests()));
+    engine.register_fn("house_guest", |n: &str, add: bool| {
+        with_api(|a| a.house_guest(n, add))
+    });
+    engine.register_fn("house_storage", |n: &str, on: bool| {
+        with_api(|a| a.house_storage(n, on))
+    });
+    engine.register_fn("house_open", |on: bool| with_api(|a| a.house_open(on)));
     engine.register_fn("chat", |c: &str, t: &str| with_api(|a| a.chat(c, t)));
     engine.register_fn("trade_open", |g: i64| with_api(|a| a.trade_open(g)));
     engine.register_fn("trade_add", |g: i64| with_api(|a| a.trade_add(g)));

@@ -401,6 +401,20 @@ pub mod event {
     pub const ALLEGIANCE_INFO_RESPONSE: u32 = 0x027C;
     /// Salvage results: skill, skipped guids, (material, workmanship, units) list, bonus.
     pub const SALVAGE_OPERATIONS_RESULT: u32 = 0x02B4;
+    /// A house sign was used: slumlord guid, then the profile.
+    pub const HOUSE_PROFILE: u32 = 0x021D;
+    /// Our own house (answer to HouseQuery when we own one).
+    pub const HOUSE_DATA: u32 = 0x0225;
+    /// Answer to HouseQuery without a house: a WeenieError (0 = none).
+    pub const HOUSE_STATUS: u32 = 0x0226;
+    pub const UPDATE_RENT_TIME: u32 = 0x0227;
+    pub const UPDATE_RENT_PAYMENT: u32 = 0x0228;
+    /// Who may enter a house we are near: sequence, house guid, record.
+    pub const HOUSE_UPDATE_RESTRICTIONS: u32 = 0x0248;
+    /// Our house's access records (guest list), on request.
+    pub const UPDATE_HAR: u32 = 0x0257;
+    pub const HOUSE_TRANSACTION: u32 = 0x0259;
+    pub const AVAILABLE_HOUSES: u32 = 0x0271;
     pub const REGISTER_TRADE: u32 = 0x01FD;
     pub const OPEN_TRADE: u32 = 0x01FE;
     pub const CLOSE_TRADE: u32 = 0x01FF;
@@ -1021,6 +1035,26 @@ pub mod action {
     /// Salvage with an Ust: tool guid, count, item guids (ACE names it
     /// after the retail client's "create tinkering tool" verb).
     pub const CREATE_TINKERING_TOOL: u32 = 0x027D;
+    /// Housing (see docs/game/mechanics.md, section 9).
+    pub const BUY_HOUSE: u32 = 0x021C;
+    pub const HOUSE_QUERY: u32 = 0x021E;
+    pub const ABANDON_HOUSE: u32 = 0x021F;
+    pub const RENT_HOUSE: u32 = 0x0221;
+    pub const ADD_PERMANENT_GUEST: u32 = 0x0245;
+    pub const REMOVE_PERMANENT_GUEST: u32 = 0x0246;
+    pub const SET_OPEN_HOUSE_STATUS: u32 = 0x0247;
+    pub const CHANGE_STORAGE_PERMISSION: u32 = 0x0249;
+    pub const BOOT_SPECIFIC_HOUSE_GUEST: u32 = 0x024A;
+    pub const REMOVE_ALL_STORAGE_PERMISSION: u32 = 0x024C;
+    pub const REQUEST_FULL_GUEST_LIST: u32 = 0x024D;
+    pub const QUERY_LORD: u32 = 0x0258;
+    pub const ADD_ALL_STORAGE_PERMISSION: u32 = 0x025C;
+    pub const REMOVE_ALL_PERMANENT_GUESTS: u32 = 0x025E;
+    pub const BOOT_EVERYONE: u32 = 0x025F;
+    pub const SET_HOOKS_VISIBILITY: u32 = 0x0266;
+    pub const MODIFY_ALLEGIANCE_GUEST_PERMISSION: u32 = 0x0267;
+    pub const MODIFY_ALLEGIANCE_STORAGE_PERMISSION: u32 = 0x0268;
+    pub const LIST_AVAILABLE_HOUSES: u32 = 0x0270;
     pub const OPEN_TRADE_NEGOTIATIONS: u32 = 0x01F6;
     pub const CLOSE_TRADE_NEGOTIATIONS: u32 = 0x01F7;
     pub const ADD_TO_TRADE: u32 = 0x01F8;

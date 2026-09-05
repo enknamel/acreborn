@@ -721,14 +721,53 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   mansion recall for monarch-owned villas and mansions) and "portal
   storms" (moved out of crowded areas; status icons 0x02C9..0x02CC).
 
-## 9. Housing (brief)
+## 9. Housing
 
-Apartments (level 20, 100k pyreals + Writ of Refuge), cottages, villas
-(level 35) and mansions (rank 6 monarch) with hooks for items and storage
-chests; bought and rented at the covenant crystal (BuyHouse 0x021C,
-RentHouse 0x0221, HouseQuery 0x021E, guest and storage permissions
-0x0245..0x024D; events HouseProfile, HouseData, HouseStatus,
-UpdateRentTime, UpdateRentPayment, HouseUpdateRestrictions 0x021D..0x0248).
+* Apartments (level 20; 100,000 pyreals + a Writ of Refuge, maintenance
+  10,000 pyreals a period), cottages (level 20; the cheap ones 300,000
+  pyreals + Writ of Refuge + Iron Heart, maintenance 30,000), villas
+  (level 35) and mansions (rank 6 monarch), with hooks for items and
+  storage chests. The sign in front (ACE `SlumLord`, named after the
+  house type) is what you use: Use on it answers HouseProfile 0x021D
+  (slumlord guid; dwelling id, owner guid and name, bitmask 1 active /
+  2 requires monarch, min/max level and allegiance rank (-1 none),
+  maintenance-free flag, type 1 cottage 2 villa 3 mansion 4 apartment,
+  then the buy list and the rent list of (needed, paid, wcid, name,
+  plural)).
+* BuyHouse 0x021C (slumlord guid, count, item guids) pays with the
+  listed stacks (larger stacks are split, the rest stays); the server
+  checks level, monarch/rank, the 15-day account age (apartments exempt)
+  and the 30-day cooldown since the last purchase, then says
+  "Congratulations!  You now own this dwelling." and sends HouseData
+  0x0225 (buy and rent timestamps, type, maintenance-free, buy and rent
+  lists, position). HouseQuery 0x021E asks for it again; without a house
+  the answer is HouseStatus 0x0226. RentHouse 0x0221 (same shape as buy)
+  pays maintenance toward the outstanding amounts, from anyone, at a
+  sign in the same landblock; UpdateRentTime 0x0227 / UpdateRentPayment
+  0x0228 follow. AbandonHouse 0x021F ("You abandon your house!") boots
+  everyone and answers HouseStatus.
+* Guests: AddPermanentGuest 0x0245 / RemovePermanentGuest 0x0246 (name),
+  ChangeStoragePermission 0x0249 (name, flag), SetOpenHouseStatus 0x0247
+  (flag), ModifyAllegianceGuestPermission 0x0267 / StoragePermission
+  0x0268 (flag), BootSpecificHouseGuest 0x024A (name), BootEveryone
+  0x025F, RemoveAllPermanentGuests 0x025E, RemoveAllStoragePermission
+  0x024C; the server answers each in chat ("Reborn has been added to
+  your guest list.", "Your house is now open to the public.") and
+  RequestFullGuestList 0x024D returns UpdateHAR 0x0257 (version
+  0x10000002, bitmask 1 open / 2 allegiance / 4 allegiance storage,
+  monarch guid, guest hash table of guid, storage flag, name, then the
+  roommate guids). House objects carry a RestrictionDB in their
+  WeenieDesc (flag 0x4000000: version, open, monarch, hash table of
+  guid to permission), re-sent to nearby players as
+  HouseUpdateRestrictions 0x0248 when it changes.
+* `/house` (TeleToHouse 0x0262) recalls to the house, `/mansion`
+  (0x0278) to the allegiance's; both refused while the Training Academy
+  recall lock is set.
+* Verified on ACE: the admin bought a Holtburg apartment at its sign
+  (5 pyreal stacks and the writ consumed), read the house data, added
+  Reborn as a guest with storage, opened the house, saw the sign show
+  the owner and the paid price, and abandoned it. Rent payment was not
+  exercised (the cooldown blocks a second purchase).
 
 ## 10. Options and UI state the server keeps
 

@@ -4,6 +4,7 @@
 //! positions.
 
 pub mod allegiance;
+pub mod housing;
 pub mod material;
 pub mod motion;
 pub mod object;
@@ -192,6 +193,15 @@ pub struct World {
     /// Another player's allegiance profile (AllegianceInfoResponse to
     /// an officer's request), keyed by that player's guid.
     pub allegiance_info: Option<(u32, allegiance::Allegiance)>,
+    /// The house sign we last used (HouseProfile), and a counter bumped
+    /// each time one arrives (the panel opens on a new one).
+    pub house_profile: Option<housing::HouseProfile>,
+    pub house_profile_seq: u64,
+    /// Our own house (HouseData); `Some(None)` once the server said we
+    /// have none, `None` until it answered a HouseQuery at all.
+    pub house: Option<Option<housing::HouseData>>,
+    /// Our house's guest list (UpdateHAR), on request.
+    pub house_access: Option<housing::HouseAccess>,
 }
 
 /// What `apply` did with a message, for logging.
@@ -223,6 +233,8 @@ pub enum Applied {
     Confirmation,
     /// The allegiance profile changed (ours, or one asked about).
     Allegiance,
+    /// A house profile, our house data or its guest list arrived.
+    House,
     /// An object's look changed (equipment).
     Appearance,
     /// A creature's health fraction changed.
@@ -653,6 +665,49 @@ impl World {
                     event::ALLEGIANCE_UPDATE_DONE | event::ALLEGIANCE_UPDATE_ABORTED,
                     _,
                 )) => Applied::Ignored,
+                Some((_, _, event::HOUSE_PROFILE, rest)) => match housing::parse_profile(rest) {
+                    Some(p) => {
+                        self.house_profile = Some(p);
+                        self.house_profile_seq += 1;
+                        Applied::House
+                    }
+                    None => Applied::Failed,
+                },
+                Some((_, _, event::HOUSE_DATA, rest)) => match housing::parse_data(rest) {
+                    Some(d) => {
+                        self.house = Some(Some(d));
+                        Applied::House
+                    }
+                    None => Applied::Failed,
+                },
+                Some((_, _, event::HOUSE_STATUS, _)) => {
+                    // The answer to HouseQuery without a house.
+                    self.house = Some(None);
+                    self.house_access = None;
+                    Applied::House
+                }
+                Some((_, _, event::UPDATE_HAR, rest)) => match housing::parse_access(rest) {
+                    Some(a) => {
+                        self.house_access = Some(a);
+                        Applied::House
+                    }
+                    None => Applied::Failed,
+                },
+                Some((_, _, event::UPDATE_RENT_TIME, rest)) => {
+                    if let (Ok(t), Some(Some(h))) = (Reader::new(rest).u32(), self.house.as_mut()) {
+                        h.rent_time = t;
+                    }
+                    Applied::House
+                }
+                Some((_, _, event::UPDATE_RENT_PAYMENT, rest)) => {
+                    let mut r = Reader::new(rest);
+                    if let (Some(rent), Some(Some(h))) =
+                        (housing::read_payments_pub(&mut r), self.house.as_mut())
+                    {
+                        h.rent = rent;
+                    }
+                    Applied::House
+                }
                 Some((_, _, event::CONFIRMATION_DONE, rest)) => {
                     let mut r = Reader::new(rest);
                     if let (Ok(kind), Ok(context)) = (r.u32(), r.u32()) {

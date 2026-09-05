@@ -375,6 +375,7 @@ impl Client {
                         | ac_world::Applied::Trade
                         | ac_world::Applied::Fellowship
                         | ac_world::Applied::Allegiance
+                        | ac_world::Applied::House
                         | ac_world::Applied::Confirmation
                         | ac_world::Applied::Inventory => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
@@ -521,6 +522,9 @@ impl Client {
                 self.scene_block = Some(block);
                 if self.world.allegiance.is_none() {
                     self.allegiance_update_request(false);
+                }
+                if self.world.house.is_none() {
+                    self.house_query();
                 }
             }
         }
@@ -1493,6 +1497,197 @@ impl Client {
         self.session
             .send_action(ac_net::messages::action::CREATE_TINKERING_TOOL, &w.finish());
         true
+    }
+
+    /// Ask the server about our house (HouseQuery 0x021E): HouseData
+    /// when we own one, HouseStatus when not.
+    pub fn house_query(&mut self) {
+        self.session
+            .send_action(ac_net::messages::action::HOUSE_QUERY, &[]);
+    }
+
+    /// The carried items that cover a payment list, largest stacks
+    /// first: guids of stacks of each wanted weenie until the
+    /// outstanding amount is covered. `None` when something is short.
+    pub fn payment_items(&self, payments: &[ac_world::housing::Payment]) -> Option<Vec<u32>> {
+        let me = self.world.player_guid;
+        let mut out = Vec::new();
+        for p in payments {
+            let mut need = p.outstanding();
+            if need == 0 {
+                continue;
+            }
+            let mut stacks: Vec<&ac_world::WorldObject> = self
+                .world
+                .inventory()
+                .filter(|o| o.weenie_class_id == p.wcid && o.wielder != me)
+                .collect();
+            stacks.sort_by(|a, b| b.stack_size.cmp(&a.stack_size));
+            for o in stacks {
+                if need == 0 {
+                    break;
+                }
+                out.push(o.guid);
+                need = need.saturating_sub(o.stack_size.max(1));
+            }
+            if need > 0 {
+                return None;
+            }
+        }
+        Some(out)
+    }
+
+    /// Buy the house whose sign we last used (BuyHouse 0x021C: slumlord,
+    /// item guid list), paying with what the pack holds. False when the
+    /// profile is missing, the house is owned, or an item is short; the
+    /// server answers "Congratulations!  You now own this dwelling." and
+    /// the house data, or a refusal in chat.
+    pub fn buy_house(&mut self) -> bool {
+        let Some(p) = self.world.house_profile.clone() else {
+            return false;
+        };
+        if p.owner != 0 {
+            return false;
+        }
+        let Some(items) = self.payment_items(&p.buy) else {
+            tracing::info!("buy house: missing purchase items");
+            return false;
+        };
+        tracing::info!(
+            "buy house at {:#010x} with {} items",
+            p.slumlord,
+            items.len()
+        );
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(p.slumlord).u32(items.len() as u32);
+        for g in &items {
+            w.u32(*g);
+        }
+        self.session
+            .send_action(ac_net::messages::action::BUY_HOUSE, &w.finish());
+        true
+    }
+
+    /// Pay the maintenance of the house whose sign we last used
+    /// (RentHouse 0x0221), with what the pack holds toward what is still
+    /// outstanding. Anyone may pay; the sign must be in the landblock.
+    pub fn rent_house(&mut self) -> bool {
+        let Some(p) = self.world.house_profile.clone() else {
+            return false;
+        };
+        let Some(items) = self.payment_items(&p.rent) else {
+            tracing::info!("rent house: missing items");
+            return false;
+        };
+        if items.is_empty() {
+            return false;
+        }
+        tracing::info!(
+            "pay rent at {:#010x} with {} items",
+            p.slumlord,
+            items.len()
+        );
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(p.slumlord).u32(items.len() as u32);
+        for g in &items {
+            w.u32(*g);
+        }
+        self.session
+            .send_action(ac_net::messages::action::RENT_HOUSE, &w.finish());
+        true
+    }
+
+    /// Give the house up (AbandonHouse 0x021F); the server boots
+    /// everyone, clears the guest list and answers HouseStatus.
+    pub fn abandon_house(&mut self) {
+        self.session
+            .send_action(ac_net::messages::action::ABANDON_HOUSE, &[]);
+    }
+
+    /// Ask for our house's guest list (RequestFullGuestList 0x024D);
+    /// it lands in `world.house_access`.
+    pub fn house_guest_list(&mut self) {
+        self.session
+            .send_action(ac_net::messages::action::REQUEST_FULL_GUEST_LIST, &[]);
+    }
+
+    /// Add or remove a guest by name (AddPermanentGuest 0x0245 /
+    /// RemovePermanentGuest 0x0246); the server confirms in chat, and
+    /// the guest list is asked for again.
+    pub fn house_guest(&mut self, name: &str, add: bool) {
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(name.trim());
+        let op = if add {
+            ac_net::messages::action::ADD_PERMANENT_GUEST
+        } else {
+            ac_net::messages::action::REMOVE_PERMANENT_GUEST
+        };
+        self.session.send_action(op, &w.finish());
+        self.house_guest_list();
+    }
+
+    /// Let a guest use the storage chests, or not (ChangeStoragePermission
+    /// 0x0249: name, flag).
+    pub fn house_storage(&mut self, name: &str, allow: bool) {
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(name.trim()).u32(u32::from(allow));
+        self.session.send_action(
+            ac_net::messages::action::CHANGE_STORAGE_PERMISSION,
+            &w.finish(),
+        );
+        self.house_guest_list();
+    }
+
+    /// Open the house to everyone, or make it private (SetOpenHouseStatus
+    /// 0x0247).
+    pub fn house_open(&mut self, open: bool) {
+        self.session.send_action(
+            ac_net::messages::action::SET_OPEN_HOUSE_STATUS,
+            &u32::from(open).to_le_bytes(),
+        );
+        self.house_guest_list();
+    }
+
+    /// Give or take the allegiance's access to the house, or to its
+    /// storage (ModifyAllegianceGuestPermission 0x0267 /
+    /// ModifyAllegianceStoragePermission 0x0268).
+    pub fn house_allegiance(&mut self, storage: bool, add: bool) {
+        let op = if storage {
+            ac_net::messages::action::MODIFY_ALLEGIANCE_STORAGE_PERMISSION
+        } else {
+            ac_net::messages::action::MODIFY_ALLEGIANCE_GUEST_PERMISSION
+        };
+        self.session.send_action(op, &u32::from(add).to_le_bytes());
+        self.house_guest_list();
+    }
+
+    /// Throw a visitor out by name (BootSpecificHouseGuest 0x024A), or
+    /// everyone with an empty name (BootEveryone 0x025F).
+    pub fn house_boot(&mut self, name: &str) {
+        let name = name.trim();
+        if name.is_empty() {
+            self.session
+                .send_action(ac_net::messages::action::BOOT_EVERYONE, &[]);
+            return;
+        }
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(name);
+        self.session.send_action(
+            ac_net::messages::action::BOOT_SPECIFIC_HOUSE_GUEST,
+            &w.finish(),
+        );
+    }
+
+    /// Clear the guest list (RemoveAllPermanentGuests 0x025E) or every
+    /// storage permission (RemoveAllStoragePermission 0x024C).
+    pub fn house_clear(&mut self, storage_only: bool) {
+        let op = if storage_only {
+            ac_net::messages::action::REMOVE_ALL_STORAGE_PERMISSION
+        } else {
+            ac_net::messages::action::REMOVE_ALL_PERMANENT_GUESTS
+        };
+        self.session.send_action(op, &[]);
+        self.house_guest_list();
     }
 
     /// Say something on a group channel (ChatChannel 0x0147): fellowship,

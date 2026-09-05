@@ -61,6 +61,19 @@ fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
     (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
 }
 
+fn payments(list: &[ac_world::housing::Payment]) -> Array {
+    list.iter()
+        .map(|p| {
+            let mut m = Map::new();
+            m.insert("name".into(), p.name.clone().into());
+            m.insert("wcid".into(), int(p.wcid));
+            m.insert("needed".into(), int(p.needed));
+            m.insert("paid".into(), int(p.paid));
+            Dynamic::from_map(m)
+        })
+        .collect()
+}
+
 fn object_map(o: &WorldObject, me: Option<[f32; 3]>, carried: bool) -> Map {
     let pos = o.world_pos().map(|p| [p.x, p.y, p.z]);
     let dist = match (pos, me) {
@@ -420,6 +433,87 @@ impl Api for CtxApi<'_, '_> {
 
     fn break_allegiance(&mut self, member: i64) -> bool {
         self.client().break_allegiance(member as u32)
+    }
+
+    fn house_profile(&mut self) -> Dynamic {
+        let c = self.client();
+        let Some(p) = c.world.house_profile.as_ref() else {
+            return Dynamic::UNIT;
+        };
+        let mut m = Map::new();
+        m.insert("slumlord".into(), int(p.slumlord));
+        m.insert("owner".into(), int(p.owner));
+        m.insert("owner_name".into(), p.owner_name.clone().into());
+        m.insert("kind".into(), ac_world::housing::kind_name(p.kind).into());
+        m.insert("min_level".into(), int(p.min_level));
+        m.insert("buy".into(), payments(&p.buy).into());
+        m.insert("rent".into(), payments(&p.rent).into());
+        Dynamic::from_map(m)
+    }
+
+    fn house(&mut self) -> Dynamic {
+        let c = self.client();
+        let Some(Some(h)) = c.world.house.as_ref() else {
+            return Dynamic::UNIT;
+        };
+        let mut m = Map::new();
+        m.insert("kind".into(), ac_world::housing::kind_name(h.kind).into());
+        m.insert("cell".into(), int(h.position.map(|p| p.cell).unwrap_or(0)));
+        m.insert("rent_paid".into(), h.rent_paid().into());
+        m.insert("rent".into(), payments(&h.rent).into());
+        Dynamic::from_map(m)
+    }
+
+    fn house_query(&mut self) {
+        self.client().house_query();
+    }
+
+    fn buy_house(&mut self) -> bool {
+        self.client().buy_house()
+    }
+
+    fn rent_house(&mut self) -> bool {
+        self.client().rent_house()
+    }
+
+    fn abandon_house(&mut self) {
+        self.client().abandon_house();
+    }
+
+    fn house_guests(&mut self) -> Dynamic {
+        let c = self.client();
+        let Some(a) = c.world.house_access.as_ref() else {
+            return Dynamic::UNIT;
+        };
+        let mut m = Map::new();
+        m.insert("open".into(), a.open.into());
+        m.insert("allegiance_guests".into(), a.allegiance_guests.into());
+        m.insert("allegiance_storage".into(), a.allegiance_storage.into());
+        let guests: Array = a
+            .guests
+            .iter()
+            .map(|g| {
+                let mut gm = Map::new();
+                gm.insert("guid".into(), int(g.guid));
+                gm.insert("name".into(), g.name.clone().into());
+                gm.insert("storage".into(), g.storage.into());
+                Dynamic::from_map(gm)
+            })
+            .collect();
+        m.insert("guests".into(), guests.into());
+        Dynamic::from_map(m)
+    }
+
+    fn house_guest(&mut self, name: &str, add: bool) {
+        self.client().house_guest(name, add);
+    }
+
+    fn house_storage(&mut self, name: &str, allow: bool) {
+        self.client().house_storage(name, allow);
+    }
+
+    fn house_open(&mut self, open: bool) {
+        self.client().house_open(open);
     }
 
     fn allegiance(&mut self) -> Dynamic {

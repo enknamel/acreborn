@@ -384,7 +384,17 @@ impl WeenieDesc {
             r.u32()?;
         }
         if weenie_flags & HOUSE_RESTRICTIONS != 0 {
-            return Err(Error::Unsupported("house restrictions"));
+            // RestrictionDB (a house's door/storage): version, open flag,
+            // monarch guid, then a PackableHashTable of (guid, permission).
+            let _version = r.u32()?;
+            let _open = r.u32()?;
+            let _monarch = r.u32()?;
+            let n = r.u16()?;
+            let _buckets = r.u16()?;
+            for _ in 0..n {
+                r.u32()?;
+                r.u32()?;
+            }
         }
         if weenie_flags & HOOK_ITEM_TYPES != 0 {
             r.u32()?;
