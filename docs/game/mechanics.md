@@ -498,6 +498,17 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
 * **Burden**: capacity = Strength × 150 units at 100%. Over 100% Run,
   Jump, Melee and Missile Defense drop 10% per 10% over; at 200% no
   jumping and walking drains stamina; 300% is the hard cap.
+* Moving items: DropItem (0x001B: item) puts a carried item on the
+  ground in front of the character (the server answers with
+  InventoryPutObjectIn3D and creates the object); PutItemInContainer
+  (0x0019: item, container, placement) moves it into the main pack (the
+  player's own guid), a carried side pack, or a chest the player is
+  looking into (a closed or locked chest answers WeenieError 0x03EE "The
+  container is closed"; corpses refuse); GiveObjectRequest (0x00CD:
+  target, item, amount) hands it to an NPC (which answers with an emote
+  or refuses with InventoryServerSaveFailed) or a player ("You give X 50
+  Iron Scarabs" / "X gives you 50 Iron Scarabs"; the receiver must allow
+  gifts in their character options and be within reach).
 * Picking up: `R` on an object, `F` moves the selected item into the
   preferred pack (the last opened pack, or the main pack). Stacks merge
   automatically; splitting uses a slider or amount box on the selected

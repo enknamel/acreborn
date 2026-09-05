@@ -1,7 +1,7 @@
 //! Loot: the corpse or chest we are looking into, mid screen. Double-click
 //! an item to take it, "Take all" for everything, "Close" to stop looking.
 
-use super::{item_row, title, window, Item, Source};
+use super::{item_row, title, window, Item, ItemDrag, Source};
 use crate::icons::IconCache;
 use crate::{egui, Client, Ctx, Plugin};
 
@@ -17,6 +17,8 @@ pub struct LootView {
 pub struct Actions {
     pub take: Vec<u32>,
     pub close: bool,
+    /// Carried items dragged onto the window: put into the container.
+    pub store: Vec<u32>,
 }
 
 /// The open container, if any. Items the server has not described yet
@@ -72,6 +74,16 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &LootView) -> Action
             if ui.button("Close").clicked() {
                 actions.close = true;
             }
+            let (r, _) =
+                ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new().inner_margin(2), |ui| {
+                    ui.label(
+                        egui::RichText::new("drop items here to store")
+                            .color(egui::Color32::from_gray(170)),
+                    );
+                });
+            if let Some(p) = r.response.dnd_release_payload::<ItemDrag>() {
+                actions.store.push(p.0);
+            }
         });
     });
     actions
@@ -117,6 +129,11 @@ impl Plugin for Loot {
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             for g in actions.take {
                 c.take(g);
+            }
+            if let Some(container) = c.world.open_container.as_ref().map(|(g, _)| *g) {
+                for item in actions.store {
+                    c.put_in_container(item, container);
+                }
             }
             if actions.close {
                 c.close_container();

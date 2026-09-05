@@ -421,6 +421,7 @@ impl App {
         let mut clients: Vec<&mut ac_client::Client> =
             self.nets.iter_mut().map(|n| &mut n.client).collect();
         let mut requests: Option<plugins::Requests> = None;
+        let mut world_drop: Option<(u32, f64, f64)> = None;
         ui.hud_hidden = lobby.visible();
         ui.begin(
             self.window.as_deref(),
@@ -432,6 +433,17 @@ impl App {
                 }
                 if lobby.visible() {
                     lobby.ui(egui, clients.get_mut(active).map(|c| &mut **c));
+                }
+                // A carried item released over the world (no panel under
+                // the pointer): give it to the creature there, else drop it.
+                if let Some(p) = egui::DragAndDrop::payload::<ac_plugin::panels::ItemDrag>(egui) {
+                    let released = egui.input(|i| i.pointer.any_released());
+                    if released && !egui.is_pointer_over_egui() {
+                        if let Some(pos) = egui.input(|i| i.pointer.latest_pos()) {
+                            let ppp = egui.pixels_per_point();
+                            world_drop = Some((p.0, (pos.x * ppp) as f64, (pos.y * ppp) as f64));
+                        }
+                    }
                 }
             },
             device,
@@ -445,13 +457,42 @@ impl App {
             }
             self.pending_switch = r.activate;
         }
+        if let Some((item, px, py)) = world_drop {
+            self.world_drop(item, px, py, (w, h));
+        }
+    }
+
+    /// Finish a drag that ended over the 3D view: hand the item to the
+    /// NPC or player under the pointer, otherwise drop it on the ground.
+    fn world_drop(&mut self, item: u32, px: f64, py: f64, size: (u32, u32)) {
+        use ac_world::{item_type, object_desc_flags};
+        let target = self.pick(px, py, size);
+        let Some(net) = self.nets.get_mut(self.active) else {
+            return;
+        };
+        let c = &mut net.client;
+        let receiver = target.filter(|g| {
+            c.world.objects.get(g).is_some_and(|o| {
+                o.item_type & item_type::CREATURE != 0
+                    && (o.object_desc_flags & object_desc_flags::PLAYER != 0
+                        || o.object_desc_flags & object_desc_flags::ATTACKABLE == 0)
+            })
+        });
+        match receiver {
+            Some(t) => {
+                c.give(t, item, None);
+            }
+            None => {
+                c.drop_item(item);
+            }
+        }
     }
 
     /// Left click in the world: select the object under the cursor and ask
     /// the server to appraise it; a second click on the same object within
     /// half a second uses it (opens doors, talks to NPCs, picks up items).
-    fn click(&mut self, px: f64, py: f64, (w, h): (u32, u32)) {
-        use ac_net::messages::action;
+    /// The object under a window pixel, unless a wall hides it.
+    fn pick(&mut self, px: f64, py: f64, (w, h): (u32, u32)) -> Option<u32> {
         let ndc = glam::Vec3::new(
             (2.0 * px as f32 / w.max(1) as f32) - 1.0,
             1.0 - (2.0 * py as f32 / h.max(1) as f32),
@@ -462,9 +503,7 @@ impl App {
         let near = inv.project_point3(ndc);
         let far = inv.project_point3(ndc.with_z(1.0));
         let dir = (far - near).normalize_or_zero();
-        let Some(net) = self.nets.get_mut(self.active) else {
-            return;
-        };
+        let net = self.nets.get_mut(self.active)?;
         let mut best: Option<(f32, u32)> = None;
         for p in &net.pickables {
             if let Some(t) = p.hit(near, dir) {
@@ -492,7 +531,16 @@ impl App {
                 best = None;
             }
         }
-        let Some((_, guid)) = best else {
+        best.map(|(_, g)| g)
+    }
+
+    fn click(&mut self, px: f64, py: f64, (w, h): (u32, u32)) {
+        use ac_net::messages::action;
+        let picked = self.pick(px, py, (w, h));
+        let Some(net) = self.nets.get_mut(self.active) else {
+            return;
+        };
+        let Some(guid) = picked else {
             net.client.selected = None;
             return;
         };

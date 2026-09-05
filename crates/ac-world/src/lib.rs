@@ -208,8 +208,23 @@ impl World {
         self.objects.get_mut(&self.player_guid?)
     }
 
-    /// Items in the player's own inventory (top-level pack contents).
+    /// Items the player carries: the main pack's contents and everything
+    /// inside carried side packs (an item's `container` then names the
+    /// pack, whose own `container` is the player).
     pub fn inventory(&self) -> impl Iterator<Item = &WorldObject> {
+        let me = self.player_guid;
+        self.objects.values().filter(move |o| {
+            me.is_some()
+                && o.container.is_some()
+                && (o.container == me
+                    || o.container
+                        .and_then(|c| self.objects.get(&c))
+                        .is_some_and(|c| c.container == me))
+        })
+    }
+
+    /// Items directly in the main pack (not inside side packs).
+    pub fn main_pack(&self) -> impl Iterator<Item = &WorldObject> {
         let me = self.player_guid;
         self.objects
             .values()
@@ -232,6 +247,12 @@ impl World {
             opcode::OBJECT_CREATE => match ObjectCreate::parse(body) {
                 Ok(oc) => {
                     let is_player = self.player_guid == Some(oc.guid);
+                    if oc.object_desc_flags & object_desc_flags::PLAYER != 0 {
+                        tracing::debug!(
+                            "player object {} ({:#010x}): position {:?} setup {:#010x} no_draw {} parent {:?}",
+                            oc.name, oc.guid, oc.position.map(|p| p.cell), oc.setup_id, oc.no_draw, oc.parent
+                        );
+                    }
                     let obj = WorldObject {
                         guid: oc.guid,
                         name: oc.name,
@@ -333,6 +354,30 @@ impl World {
                     Applied::Failed
                 }
             },
+            // SetState (0xF74B): guid, physics state, two sequences. A
+            // player logs in hidden and is shown this way; NoDraw and
+            // Hidden objects stay off the scene.
+            opcode::SET_STATE => {
+                let mut r = Reader::new(body);
+                match (r.u32(), r.u32()) {
+                    (Ok(guid), Ok(state)) => {
+                        let Some(o) = self.objects.get_mut(&guid) else {
+                            return Applied::Ignored;
+                        };
+                        let hidden = state
+                            & (object::PHYSICS_STATE_NO_DRAW | object::PHYSICS_STATE_HIDDEN)
+                            != 0;
+                        if o.no_draw != hidden {
+                            o.no_draw = hidden;
+                            self.generation += 1;
+                            Applied::Created
+                        } else {
+                            Applied::Ignored
+                        }
+                    }
+                    _ => Applied::Failed,
+                }
+            }
             opcode::MOVEMENT_EVENT => match MovementEvent::parse(body) {
                 Ok(ev) => {
                     let Some(o) = self.objects.get_mut(&ev.guid) else {

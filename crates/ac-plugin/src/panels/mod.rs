@@ -87,8 +87,17 @@ pub struct Item {
     pub name: String,
     pub stack: u32,
     pub wielded: bool,
+    /// A side pack: other items can be dropped into it.
+    pub container: bool,
     pub icon: IconLayers,
 }
+
+/// A carried item being dragged (egui drag-and-drop payload). Drop it on
+/// a pack row or the "Pack" header to move it, on the target bar to give
+/// it to the selected creature, on the loot window to put it in the open
+/// chest, or on the world to drop it (over an NPC or player: give).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemDrag(pub u32);
 
 impl Item {
     pub fn of(o: &ac_world::WorldObject, wielded: bool) -> Self {
@@ -97,6 +106,7 @@ impl Item {
             name: o.name.clone(),
             stack: o.stack_size,
             wielded,
+            container: o.item_type & ac_world::item_type::CONTAINER != 0,
             icon: IconLayers::of(o),
         }
     }
@@ -168,14 +178,17 @@ pub fn item_row(
 ) -> egui::Response {
     let resp = ui
         .horizontal(|ui| {
-            let icon = icons.draw(ui, item.icon, egui::Sense::click());
+            let icon = icons.draw(ui, item.icon, egui::Sense::click_and_drag());
             let text = ui.add(
                 egui::Label::new(egui::RichText::new(item.label()).color(color))
-                    .sense(egui::Sense::click()),
+                    .sense(egui::Sense::click_and_drag()),
             );
             icon.union(text)
         })
         .inner;
+    if resp.drag_started() {
+        resp.dnd_set_drag_payload(ItemDrag(item.guid));
+    }
     if resp.hovered() {
         ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
     }

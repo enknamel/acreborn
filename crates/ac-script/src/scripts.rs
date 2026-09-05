@@ -435,6 +435,15 @@ mod tests {
             self.record(format!("take #{guid}"));
             true
         }
+        fn drop_item(&mut self, _guid: i64) -> bool {
+            false
+        }
+        fn give(&mut self, _t: i64, _i: i64, _n: i64) -> bool {
+            false
+        }
+        fn put_in(&mut self, _i: i64, _c: i64) -> bool {
+            false
+        }
         fn take_all(&mut self) -> i64 {
             self.record("take_all");
             0

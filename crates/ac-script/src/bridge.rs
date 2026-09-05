@@ -294,6 +294,25 @@ impl Api for CtxApi<'_, '_> {
         held
     }
 
+    fn drop_item(&mut self, g: i64) -> bool {
+        self.client().drop_item(g as u32)
+    }
+
+    fn give(&mut self, target: i64, item: i64, amount: i64) -> bool {
+        let amount = (amount > 0).then_some(amount as u32);
+        self.client().give(target as u32, item as u32, amount)
+    }
+
+    fn put_in(&mut self, item: i64, container: i64) -> bool {
+        let c = self.client();
+        let container = if container == 0 {
+            c.world.player_guid.unwrap_or(0)
+        } else {
+            container as u32
+        };
+        c.put_in_container(item as u32, container)
+    }
+
     fn take_all(&mut self) -> i64 {
         let c = self.client();
         let items: Vec<u32> = c

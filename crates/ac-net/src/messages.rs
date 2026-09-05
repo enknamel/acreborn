@@ -15,6 +15,7 @@ pub mod opcode {
     pub const PLAYER_CREATE: u32 = 0xF746;
     pub const OBJECT_DELETE: u32 = 0xF747;
     pub const UPDATE_POSITION: u32 = 0xF748;
+    pub const SET_STATE: u32 = 0xF74B;
     pub const PLAYER_TELEPORT: u32 = 0xF751;
     pub const MOVEMENT_EVENT: u32 = 0xF74C;
     pub const GAME_EVENT: u32 = 0xF7B0;
@@ -876,6 +877,7 @@ pub mod action {
     pub const SELL: u32 = 0x0060;
     pub const NO_LONGER_VIEWING_CONTENTS: u32 = 0x0195;
     pub const IDENTIFY_OBJECT: u32 = 0x00C8;
+    pub const GIVE_OBJECT_REQUEST: u32 = 0x00CD;
     pub const REMOVE_SPELL: u32 = 0x01A8;
     pub const ADD_SPELL_FAVORITE: u32 = 0x01E3;
     pub const REMOVE_SPELL_FAVORITE: u32 = 0x01E4;

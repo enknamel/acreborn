@@ -1196,6 +1196,80 @@ impl Client {
         }
     }
 
+    /// Drop a carried item on the ground in front of the character
+    /// (DropItem 0x001B). The server answers with InventoryPutObjectIn3D
+    /// and creates the object in the world.
+    pub fn drop_item(&mut self, guid: u32) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let Some(o) = self.world.objects.get(&guid) else {
+            return false;
+        };
+        if me.is_none() || (o.container != me && o.wielder != me) {
+            return false;
+        }
+        tracing::info!("drop {} ({guid:#010x})", o.name);
+        self.session
+            .send_action(action::DROP_ITEM, &guid.to_le_bytes());
+        true
+    }
+
+    /// Move a carried item into a container (PutItemInContainer 0x0019):
+    /// our own guid for the main pack, a carried side pack, or the ground
+    /// container we are looking into (a chest; corpses refuse).
+    pub fn put_in_container(&mut self, item: u32, container: u32) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let Some(o) = self.world.objects.get(&item) else {
+            return false;
+        };
+        if me.is_none() || (o.container != me && o.wielder != me) || item == container {
+            return false;
+        }
+        let name = o.name.clone();
+        let target = self
+            .world
+            .objects
+            .get(&container)
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| "pack".into());
+        tracing::info!("put {name} ({item:#010x}) in {target} ({container:#010x})");
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(item).u32(container).u32(0);
+        self.session
+            .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
+        true
+    }
+
+    /// Hand a carried item (or `amount` of a stack; the whole stack when
+    /// None) to an NPC or another player (GiveObjectRequest 0x00CD). The
+    /// target must be in reach; NPCs answer with an emote, players must
+    /// allow gifts in their options.
+    pub fn give(&mut self, target: u32, item: u32, amount: Option<u32>) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let Some(o) = self.world.objects.get(&item) else {
+            return false;
+        };
+        if me.is_none() || (o.container != me && o.wielder != me) || Some(target) == me {
+            return false;
+        }
+        let amount = amount.unwrap_or(o.stack_size.max(1)).max(1);
+        let name = o.name.clone();
+        let who = self
+            .world
+            .objects
+            .get(&target)
+            .map(|t| t.name.clone())
+            .unwrap_or_default();
+        tracing::info!("give {amount} x {name} ({item:#010x}) to {who} ({target:#010x})");
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(target).u32(item).u32(amount);
+        self.session
+            .send_action(action::GIVE_OBJECT_REQUEST, &w.finish());
+        true
+    }
+
     /// Stop looking into the open ground container.
     pub fn close_container(&mut self) {
         use ac_net::messages::action;
