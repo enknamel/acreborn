@@ -1,0 +1,12 @@
+[package]
+name = "ac-plugin"
+description = "The plugin interface of the acreborn client: read the game, act in it, draw UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-client = { path = "../ac-client" }
+ac-world = { path = "../ac-world" }
+ac-scene = { path = "../ac-scene" }
+egui = "0.36"

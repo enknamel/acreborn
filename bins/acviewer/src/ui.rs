@@ -338,6 +338,7 @@ impl Ui {
     pub fn begin(
         &mut self,
         window: Option<&Window>,
+        extra: &mut dyn FnMut(&egui::Context),
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         width: u32,
@@ -364,6 +365,7 @@ impl Ui {
         let mut submit: Option<String> = None;
         let mut want_focus = false;
         let mut full = self.ctx.run_ui(raw, |ctx| {
+            extra(ctx);
             egui::Area::new(egui::Id::new("status"))
                 .fade_in(false)
                 .fixed_pos(egui::pos2(8.0, 8.0))

@@ -13,6 +13,7 @@ ac-net = { path = "../../crates/ac-net" }
 ac-world = { path = "../../crates/ac-world" }
 ac-audio = { path = "../../crates/ac-audio" }
 ac-client = { path = "../../crates/ac-client" }
+ac-plugin = { path = "../../crates/ac-plugin" }
 anyhow.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 tracing.workspace = true

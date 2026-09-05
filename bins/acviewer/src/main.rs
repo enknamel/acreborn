@@ -13,6 +13,7 @@ mod gpu;
 mod particles;
 mod scene;
 use ac_client::player;
+mod plugins;
 mod sky;
 mod ui;
 mod water;
@@ -129,6 +130,17 @@ struct Cli {
 /// An icon loader for the egui overlay: decodes RenderSurfaces (0x06) from
 /// the portal on demand. The archives are opened on the first icon so a
 /// viewer that never draws one pays nothing.
+/// winit key code -> egui key by name (`KeyA` -> `A`, `Digit1` -> `1`,
+/// `ArrowUp`, `F1`, `Space`...), for plugins' key hooks.
+fn egui_key(code: KeyCode) -> Option<egui::Key> {
+    let name = format!("{code:?}");
+    let name = name
+        .strip_prefix("Key")
+        .or_else(|| name.strip_prefix("Digit"))
+        .unwrap_or(&name);
+    egui::Key::from_name(name)
+}
+
 fn icon_loader(data_dir: PathBuf) -> ui::IconLoader {
     let assets: std::cell::OnceCell<Option<ac_scene::Assets>> = std::cell::OnceCell::new();
     Box::new(move |id| {
@@ -279,23 +291,28 @@ struct App {
     last_frame: Instant,
     ui: Option<ui::Ui>,
     fps: f32,
+    plugins: plugins::Host,
 }
 
 impl App {
-    /// Hand the session's events to the UI and the speakers.
-    fn drain_client_events(&mut self) {
-        let Some(net) = self.net.as_mut() else { return };
-        for ev in net.client.drain_events() {
+    /// Hand the session's events to the UI and the speakers, then to the
+    /// plugins.
+    fn drain_client_events(&mut self) -> Vec<ac_client::Event> {
+        let Some(net) = self.net.as_mut() else {
+            return Vec::new();
+        };
+        let events = net.client.drain_events();
+        for ev in &events {
             match ev {
                 ac_client::Event::Chat { text, kind } => {
                     tracing::info!("chat: {text}");
                     if let Some(ui) = &mut self.ui {
-                        ui.push_chat(text, kind);
+                        ui.push_chat(text.clone(), *kind);
                     }
                 }
                 ac_client::Event::Sound { wave, volume } => {
                     if let Some(audio) = &net.audio {
-                        if let Err(e) = audio.play(&wave, volume) {
+                        if let Err(e) = audio.play(wave, *volume) {
                             tracing::debug!("play: {e}");
                         }
                     }
@@ -309,6 +326,7 @@ impl App {
                 | ac_client::Event::Refused(_) => {}
             }
         }
+        events
     }
 
     fn interact(&mut self, guid: u32) {
@@ -350,10 +368,19 @@ impl App {
         let activated = std::mem::take(&mut ui.activated);
         let casts = std::mem::take(&mut ui.cast_requests);
         let Some(net) = self.net.as_mut() else { return };
-        let c = &mut net.client;
+        let mut chat = Vec::new();
         for t in outgoing {
-            c.say(&t);
+            if t.starts_with('/') {
+                let (_, lines, _) = self.plugins.command(&mut net.client, 0, 1, &t);
+                for (l, _) in &lines {
+                    tracing::info!("{t} -> {l}");
+                }
+                chat.extend(lines);
+            } else {
+                net.client.say(&t);
+            }
         }
+        let c = &mut net.client;
         for g in buy {
             c.buy(g);
         }
@@ -374,6 +401,11 @@ impl App {
         }
         for sp in casts {
             c.cast(sp);
+        }
+        if let Some(ui) = &mut self.ui {
+            for (text, kind) in chat {
+                ui.push_chat(text, kind);
+            }
         }
     }
     /// Play a server Sound message through the object's sound table.
@@ -749,7 +781,17 @@ impl App {
         self.apply_ui_commands();
         let Some(net) = self.net.as_mut() else { return };
         let frame = net.client.tick(input, self.frame_dt, now);
-        self.drain_client_events();
+        let events = self.drain_client_events();
+        if let Some(net) = self.net.as_mut() {
+            let (chat, _activate) =
+                self.plugins
+                    .frame(&mut net.client, &events, 0, 1, self.frame_dt, now);
+            if let Some(ui) = &mut self.ui {
+                for (text, kind) in chat {
+                    ui.push_chat(text, kind);
+                }
+            }
+        }
         let Some(net) = self.net.as_mut() else { return };
         // Stream landblocks around the character: the block we stand in
         // first, then its neighbours (outdoors only), one per frame.
@@ -1057,6 +1099,23 @@ impl ApplicationHandler for App {
                     if typing {
                         return;
                     }
+                    if let (Some(key), Some(net)) = (egui_key(code), self.net.as_mut()) {
+                        let (used, chat, _) = self.plugins.key(
+                            &mut net.client,
+                            0,
+                            1,
+                            key,
+                            event.state == ElementState::Pressed,
+                        );
+                        if let Some(ui) = &mut self.ui {
+                            for (text, kind) in chat {
+                                ui.push_chat(text, kind);
+                            }
+                        }
+                        if used {
+                            return;
+                        }
+                    }
                     if code == KeyCode::Space
                         && event.state == ElementState::Pressed
                         && self.net.is_some()
@@ -1171,7 +1230,27 @@ impl ApplicationHandler for App {
                     let (w, h) = g.size();
                     let mut ui = self.ui.as_mut();
                     if let Some(ui) = ui.as_deref_mut() {
-                        ui.begin(self.window.as_deref(), g.device(), g.queue(), w, h);
+                        let plugins = &mut self.plugins;
+                        let mut net = self.net.as_mut();
+                        let mut chat = Vec::new();
+                        let mut activate = None;
+                        ui.begin(
+                            self.window.as_deref(),
+                            &mut |egui| {
+                                if let Some(net) = net.as_deref_mut() {
+                                    let (lines, act) = plugins.ui(&mut net.client, 0, 1, egui);
+                                    chat.extend(lines);
+                                    activate = activate.or(act);
+                                }
+                            },
+                            g.device(),
+                            g.queue(),
+                            w,
+                            h,
+                        );
+                        for (text, kind) in chat {
+                            ui.push_chat(text, kind);
+                        }
                     }
                     let mut paint = |d: &wgpu::Device,
                                      q: &wgpu::Queue,
@@ -1271,6 +1350,7 @@ fn main() -> Result<()> {
             last_frame: Instant::now(),
             ui: None,
             fps: 0.0,
+            plugins: plugins::Host::builtin(),
         };
         app.load_scene(&mut gpu)?;
         let (w, h) = gpu.size();
@@ -1330,8 +1410,8 @@ fn main() -> Result<()> {
                             app.refresh_status();
                             let (w, h) = gpu.size();
                             if let Some(ui) = app.ui.as_mut() {
-                                ui.begin(None, gpu.device(), gpu.queue(), w, h);
-                                ui.begin(None, gpu.device(), gpu.queue(), w, h);
+                                ui.begin(None, &mut |_| {}, gpu.device(), gpu.queue(), w, h);
+                                ui.begin(None, &mut |_| {}, gpu.device(), gpu.queue(), w, h);
                             }
                             let vp = app.camera.view_proj(gpu.aspect());
                             let mid = path.with_extension("mid.png");
@@ -1602,7 +1682,10 @@ fn main() -> Result<()> {
                     }
                     // Capture while still walking so the walk pose is visible,
                     // or after a short settle when not walking.
-                    let pending = app.cli.attack.is_some() || app.cli.use_name.is_some();
+                    let pending = app.cli.attack.is_some()
+                        || app.cli.use_name.is_some()
+                        || said < app.cli.say.len()
+                        || (!app.cli.say.is_empty() && t < say_delay + 2.0);
                     let looting = app.net.as_ref().is_some_and(|n| {
                         !n.client.loot_queue.is_empty() || n.client.loot_inflight.is_some()
                     });
@@ -1655,8 +1738,8 @@ fn main() -> Result<()> {
             demo_ui(&mut ui, &app.cli.data_dir);
         }
         // egui's first frame only loads fonts and asks for a repaint.
-        ui.begin(None, gpu.device(), gpu.queue(), w, h);
-        ui.begin(None, gpu.device(), gpu.queue(), w, h);
+        ui.begin(None, &mut |_| {}, gpu.device(), gpu.queue(), w, h);
+        ui.begin(None, &mut |_| {}, gpu.device(), gpu.queue(), w, h);
         let mut paint = |d: &wgpu::Device,
                          q: &wgpu::Queue,
                          e: &mut wgpu::CommandEncoder,
@@ -1693,6 +1776,7 @@ fn main() -> Result<()> {
         last_frame: Instant::now(),
         ui: None,
         fps: 0.0,
+        plugins: plugins::Host::builtin(),
     };
     event_loop.run_app(&mut app)?;
     Ok(())

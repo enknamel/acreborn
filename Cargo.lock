@@ -70,6 +70,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-plugin"
+version = "0.1.0"
+dependencies = [
+ "ac-client",
+ "ac-scene",
+ "ac-world",
+ "egui",
+]
+
+[[package]]
 name = "ac-scene"
 version = "0.1.0"
 dependencies = [
@@ -136,6 +146,7 @@ dependencies = [
  "ac-dat",
  "ac-formats",
  "ac-net",
+ "ac-plugin",
  "ac-scene",
  "ac-world",
  "anyhow",
