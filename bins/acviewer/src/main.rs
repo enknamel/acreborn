@@ -96,6 +96,10 @@ struct Cli {
     /// Disable sound output.
     #[arg(long)]
     mute: bool,
+    /// Frame rate cap for the window (0 = uncapped). Lower it when running
+    /// many clients on one machine.
+    #[arg(long, default_value_t = 60)]
+    fps: u32,
     /// Connected headless mode: open the skills panel in the screenshot.
     #[arg(long)]
     show_skills: bool,
@@ -305,6 +309,8 @@ struct App {
     plugins: plugins::Host,
     /// A session switch a plugin asked for during the UI pass.
     pending_switch: Option<usize>,
+    /// When the next frame may start (frame rate cap).
+    next_frame: Instant,
 }
 
 impl App {
@@ -1175,6 +1181,19 @@ impl ApplicationHandler for App {
         self.last_frame = Instant::now();
     }
 
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.cli.fps == 0 {
+            return;
+        }
+        if Instant::now() >= self.next_frame {
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
+        }
+    }
+
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         if let (Some(ui), Some(w)) = (&mut self.ui, &self.window) {
             if !matches!(event, WindowEvent::RedrawRequested) && ui.on_event(w, &event) {
@@ -1386,7 +1405,11 @@ impl ApplicationHandler for App {
                         tracing::error!("render: {e:#}");
                     }
                 }
-                if let Some(w) = &self.window {
+                // Pace frames: wake up again when the next one is due.
+                if self.cli.fps > 0 {
+                    self.next_frame = now + Duration::from_secs_f32(1.0 / self.cli.fps as f32);
+                    event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
+                } else if let Some(w) = &self.window {
                     w.request_redraw();
                 }
             }
@@ -1475,6 +1498,7 @@ fn main() -> Result<()> {
             fps: 0.0,
             plugins: plugins::builtin(),
             pending_switch: None,
+            next_frame: Instant::now(),
         };
         app.load_scene(&mut gpu)?;
         let (w, h) = gpu.size();
@@ -1906,6 +1930,7 @@ fn main() -> Result<()> {
         fps: 0.0,
         plugins: plugins::builtin(),
         pending_switch: None,
+        next_frame: Instant::now(),
     };
     event_loop.run_app(&mut app)?;
     Ok(())
