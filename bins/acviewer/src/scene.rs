@@ -1,7 +1,8 @@
 //! Build GPU batches from ac-scene output.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
+use ac_scene::anim::{motion, AnimPlayer};
 use ac_scene::{landblock, model, texmerge, Assets, CELLS_PER_BLOCK, CELL_SIZE, VERTS_PER_SIDE};
 use anyhow::Result;
 use glam::{Mat4, Vec3};
@@ -399,8 +400,6 @@ pub fn appearance_of(
     (app, key)
 }
 
-/// Batches for the objects a server has placed (players, NPCs, items).
-/// Animation state for a server object: the cycle for its current motion.
 /// A world-space bounding sphere of one drawn part, for mouse picking.
 pub struct Pickable {
     pub guid: u32,
@@ -480,58 +479,164 @@ fn ray_triangle(o: Vec3, d: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
     (t >= 0.0).then_some(t)
 }
 
-impl Pickable {}
-
+/// Animation state for a server object: the looping cycle for its current
+/// motion, plus any one-shots (attacks, emotes, a door swinging) playing
+/// over it.
 pub struct ObjectAnim {
-    pub player: Option<ac_scene::anim::AnimPlayer>,
+    /// The looping cycle (idle, walk, run, a door held open).
+    pub player: Option<AnimPlayer>,
+    /// One-shots waiting to play, in order; the front one is playing and
+    /// overrides the cycle's pose until it finishes.
+    pub oneshots: VecDeque<AnimPlayer>,
     pub n_parts: usize,
     /// Forward motion command the current cycle was chosen for.
     pub motion: u32,
+    /// Stance (wire low 16 bits) the cycle was chosen for.
+    pub style: u16,
+    /// Serial of the newest queued command already turned into a one-shot.
+    pub played: u64,
 }
 
-/// Look up (and cache) the idle cycle for an object's motion table.
+/// Most one-shots waiting behind the playing one; older ones are dropped
+/// so a burst of motion changes cannot lag the object for seconds.
+const MAX_PENDING_ONESHOTS: usize = 4;
+
+impl ObjectAnim {
+    fn push_oneshot(&mut self, p: AnimPlayer) {
+        self.oneshots.push_back(p);
+        while self.oneshots.len() > MAX_PENDING_ONESHOTS + 1 {
+            self.oneshots.remove(1);
+        }
+    }
+
+    /// Advance by `dt` and return the pose to draw, if animated. A
+    /// finished one-shot holds its last frame for one more tick before the
+    /// next one (or the cycle) takes over.
+    pub fn pose(&mut self, dt: f32) -> Option<Vec<Mat4>> {
+        // The cycle keeps time underneath so movement resumes in phase.
+        if let Some(p) = self.player.as_mut() {
+            p.advance(dt);
+        }
+        while self.oneshots.front().is_some_and(|p| p.finished()) {
+            self.oneshots.pop_front();
+        }
+        if let Some(front) = self.oneshots.front_mut() {
+            front.advance(dt);
+            return Some(front.part_transforms(self.n_parts));
+        }
+        let n = self.n_parts;
+        self.player.as_ref().map(|p| p.part_transforms(n))
+    }
+}
+
+/// Cached MotionTables by id (None when the table failed to load).
+pub type MotionTables = HashMap<u32, Option<ac_formats::motion_table::MotionTable>>;
+
+/// The stance and looping motion an object's movement state resolves to
+/// in its table: Ready (or nothing) means the stance's default motion.
+fn resolve_motion(t: &ac_formats::motion_table::MotionTable, m: &ac_world::Motion) -> (u32, u32) {
+    let style = if m.style != 0 && t.default_motion(motion::stance_of(m.style)).is_some() {
+        motion::stance_of(m.style)
+    } else {
+        t.default_style
+    };
+    let idle = t.default_motion(style).unwrap_or(motion::READY);
+    // Movement events carry only the low 16 bits of a command.
+    let forward = if m.forward & 0xFFFF == motion::READY & 0xFFFF || m.forward == 0 {
+        idle
+    } else {
+        m.forward
+    };
+    (style, forward)
+}
+
+/// Build the animation state for an object's current motion. `prev` is the
+/// state it replaces: its one-shots carry over, and the change from its
+/// motion to the new one plays the table's transition link first (a door
+/// opening, a creature going from standing to running) when there is one.
 pub fn object_anim(
     assets: &Assets,
     o: &ac_world::WorldObject,
-    tables: &mut HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
+    tables: &mut MotionTables,
+    prev: Option<ObjectAnim>,
 ) -> ObjectAnim {
-    use ac_scene::anim::{motion, AnimPlayer};
     let n_parts = assets.setup(o.setup_id).map(|s| s.parts.len()).unwrap_or(0);
     let wanted = o.motion.forward;
+    let mut anim = ObjectAnim {
+        player: None,
+        oneshots: VecDeque::new(),
+        n_parts,
+        motion: wanted,
+        style: o.motion.style,
+        played: prev.as_ref().map(|p| p.played).unwrap_or(0),
+    };
     if o.motion_table_id == 0 {
-        return ObjectAnim {
-            player: None,
-            n_parts,
-            motion: wanted,
-        };
+        return anim;
     }
     let table = tables
         .entry(o.motion_table_id)
         .or_insert_with(|| ac_scene::anim::motion_table(assets, o.motion_table_id).ok());
-    let player = table.as_ref().and_then(|t| {
-        let style = t.default_style;
-        // Ready plays the table's default motion for its style (idle).
-        // Movement events carry only the low 16 bits of a command.
-        let m = if wanted & 0xFFFF == motion::READY & 0xFFFF || wanted == 0 {
-            t.default_motion(style).unwrap_or(motion::READY)
-        } else {
-            wanted
-        };
-        AnimPlayer::cycle(assets, t, style, m).or_else(|| {
-            let idle = t.default_motion(style).unwrap_or(motion::READY);
-            AnimPlayer::cycle(assets, t, style, idle)
-        })
+    let Some(t) = table.as_ref() else { return anim };
+    let (style, forward) = resolve_motion(t, &o.motion);
+    anim.player = AnimPlayer::cycle(assets, t, style, forward).or_else(|| {
+        let idle = t.default_motion(style).unwrap_or(motion::READY);
+        AnimPlayer::cycle(assets, t, style, idle)
     });
-    ObjectAnim {
-        player,
-        n_parts,
-        motion: wanted,
+    if let Some(mut prev) = prev {
+        anim.oneshots.append(&mut prev.oneshots);
+        if prev.style == o.motion.style && prev.motion != wanted {
+            let (_, from) = resolve_motion(
+                t,
+                &ac_world::Motion {
+                    forward: prev.motion,
+                    ..o.motion
+                },
+            );
+            if let Some(mut link) = AnimPlayer::link(assets, t, style, from, forward) {
+                link.speed = o.motion.forward_speed.abs().max(0.1);
+                anim.push_oneshot(link);
+            }
+        }
+    }
+    anim
+}
+
+/// Turn commands the server queued on `o` since `anim` last looked into
+/// one-shot players (attacks, emotes) over the current stance and motion.
+pub fn queue_commands(
+    assets: &Assets,
+    o: &ac_world::WorldObject,
+    tables: &MotionTables,
+    anim: &mut ObjectAnim,
+) {
+    let table = tables.get(&o.motion_table_id).and_then(|t| t.as_ref());
+    for c in o.commands.since(anim.played) {
+        anim.played = c.serial;
+        let Some(t) = table else { continue };
+        let (style, current) = resolve_motion(t, &o.motion);
+        let idle = t.default_motion(style).unwrap_or(motion::READY);
+        let link = AnimPlayer::link(assets, t, style, current, c.command as u32)
+            .or_else(|| AnimPlayer::link(assets, t, style, idle, c.command as u32));
+        match link {
+            Some(mut p) => {
+                p.speed = c.speed.abs().max(0.1);
+                anim.push_oneshot(p);
+            }
+            None => tracing::debug!(
+                "{:#010x}: no animation for command {:#06x} in table {:#010x}",
+                o.guid,
+                c.command,
+                o.motion_table_id
+            ),
+        }
     }
 }
 
 /// True if any drawable object has an animation, so batches need refreshing.
 pub fn any_animated(anims: &HashMap<u32, ObjectAnim>) -> bool {
-    anims.values().any(|a| a.player.is_some())
+    anims
+        .values()
+        .any(|a| a.player.is_some() || !a.oneshots.is_empty())
 }
 
 /// GPU meshes cached by (GfxObj id, appearance key).
@@ -591,7 +696,7 @@ pub fn object_instances(
     meshes: &mut GpuMeshCache,
     palettes: &mut Palettes,
     anims: &mut HashMap<u32, ObjectAnim>,
-    tables: &mut HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
+    tables: &mut MotionTables,
     dt: f32,
 ) -> (Vec<crate::gpu::Instance>, Vec<Pickable>) {
     let mut out = Vec::new();
@@ -601,16 +706,15 @@ pub fn object_instances(
         let (app, key) = appearance_of(assets, o, palettes);
         let stale = anims
             .get(&o.guid)
-            .map(|a| a.motion != o.motion.forward)
+            .map(|a| a.motion != o.motion.forward || a.style != o.motion.style)
             .unwrap_or(true);
         if stale {
-            anims.insert(o.guid, object_anim(assets, o, tables));
+            let prev = anims.remove(&o.guid);
+            anims.insert(o.guid, object_anim(assets, o, tables, prev));
         }
         let anim = anims.get_mut(&o.guid).unwrap();
-        let pose = anim.player.as_mut().map(|p| {
-            p.advance(dt);
-            p.part_transforms(anim.n_parts)
-        });
+        queue_commands(assets, o, tables, anim);
+        let pose = anim.pose(dt);
         let inst = instances_for(
             assets,
             gpu,
