@@ -21,10 +21,41 @@ pub struct VitalBar {
     pub max: u32,
 }
 
+/// One line of the skills panel.
+pub struct SkillRow {
+    pub name: &'static str,
+    /// Current skill value (attribute base + creation bonus + ranks).
+    pub value: u32,
+    pub ranks: u16,
+    /// Advancement class: 0 inactive, 1 untrained, 2 trained, 3 specialized.
+    pub advancement: u32,
+    pub training: &'static str,
+}
+
 pub struct Sheet {
     pub name: String,
     pub level: i32,
     pub vitals: Vec<VitalBar>,
+    pub total_xp: i64,
+    pub available_xp: i64,
+    pub skill_credits: i32,
+    pub skills: Vec<SkillRow>,
+}
+
+/// `1234567` -> `1,234,567`.
+fn thousands(n: i64) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
+    if n < 0 {
+        out.push('-');
+    }
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -153,6 +184,8 @@ pub struct Ui {
     /// Items double-clicked in the panel; drained by the caller.
     pub activated: Vec<u32>,
     pub show_inventory: bool,
+    /// Skills panel (K).
+    pub show_skills: bool,
     /// Selected/attacked creature: name and health fraction.
     pub target: Option<(String, f32)>,
     /// Open ground container: name and items.
@@ -210,6 +243,7 @@ impl Ui {
             items: Vec::new(),
             activated: Vec::new(),
             show_inventory: true,
+            show_skills: false,
             target: None,
             loot: None,
             loot_take: Vec::new(),
@@ -570,6 +604,73 @@ impl Ui {
                                         });
                                     }
                                 }
+                            });
+                    });
+            }
+            if let (Some(sheet), true) = (&self.sheet, self.show_skills) {
+                egui::Window::new("skills")
+                    .fade_in(false)
+                    .title_bar(false)
+                    .resizable(false)
+                    .frame(
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_black_alpha(170))
+                            .inner_margin(6),
+                    )
+                    .fixed_pos(egui::pos2(8.0, 132.0))
+                    .fixed_size(egui::vec2(360.0, 380.0))
+                    .show(ctx, |ui| {
+                        ui.set_min_size(egui::vec2(348.0, 368.0));
+                        ui.label(
+                            egui::RichText::new(format!("{}  level {}", sheet.name, sheet.level))
+                                .color(egui::Color32::WHITE)
+                                .strong(),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "XP {}   unassigned {}   skill credits {}",
+                                thousands(sheet.total_xp),
+                                thousands(sheet.available_xp),
+                                sheet.skill_credits
+                            ))
+                            .color(egui::Color32::from_gray(200))
+                            .small(),
+                        );
+                        ui.add_space(4.0);
+                        egui::ScrollArea::vertical()
+                            .max_height(320.0)
+                            .show(ui, |ui| {
+                                ui.set_min_width(340.0);
+                                egui::Grid::new("skills_grid")
+                                    .num_columns(4)
+                                    .spacing([14.0, 2.0])
+                                    .show(ui, |ui| {
+                                        let dim = egui::Color32::from_gray(170);
+                                        for h in ["Skill", "Value", "Ranks", "Training"] {
+                                            ui.label(egui::RichText::new(h).color(dim).small());
+                                        }
+                                        ui.end_row();
+                                        for s in &sheet.skills {
+                                            let color = match s.advancement {
+                                                3 => egui::Color32::from_rgb(255, 215, 120),
+                                                2 => egui::Color32::WHITE,
+                                                1 => egui::Color32::from_gray(160),
+                                                _ => egui::Color32::from_gray(110),
+                                            };
+                                            ui.label(egui::RichText::new(s.name).color(color));
+                                            ui.label(
+                                                egui::RichText::new(s.value.to_string())
+                                                    .color(color)
+                                                    .strong(),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(s.ranks.to_string())
+                                                    .color(color),
+                                            );
+                                            ui.label(egui::RichText::new(s.training).color(color));
+                                            ui.end_row();
+                                        }
+                                    });
                             });
                     });
             }
