@@ -626,12 +626,23 @@ impl App {
             net.magic = true;
             net.combat = false;
         }
-        tracing::info!(
-            "cast {} ({spell})",
-            net.known_spells.get(&spell).cloned().unwrap_or_default()
-        );
-        net.session
-            .send_action(action::CAST_UNTARGETED_SPELL, &spell.to_le_bytes());
+        let name = net.known_spells.get(&spell).cloned().unwrap_or_default();
+        // "Other" spells go to the selected creature; the rest are self casts.
+        let target = net.selected.filter(|_| name.contains("Other"));
+        match target {
+            Some(t) => {
+                tracing::info!("cast {name} ({spell}) on {t:#010x}");
+                net.session.send_action(
+                    action::CAST_TARGETED_SPELL,
+                    &ac_net::messages::cast_targeted(t, spell),
+                );
+            }
+            None => {
+                tracing::info!("cast {name} ({spell})");
+                net.session
+                    .send_action(action::CAST_UNTARGETED_SPELL, &spell.to_le_bytes());
+            }
+        }
     }
 
     /// Enter or leave melee combat mode.
