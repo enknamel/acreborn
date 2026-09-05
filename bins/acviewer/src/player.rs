@@ -1,6 +1,7 @@
 //! Third-person player controller for the connected viewer: moves the
-//! character with WASD, follows terrain outdoors, tracks the cell id, and
-//! reports movement to the server.
+//! character with WASD, follows floors and terrain, steps up and down
+//! ledges, falls under gravity, jumps, tracks the cell id, and reports
+//! movement to the server.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -9,6 +10,7 @@ use ac_formats::landblock::CellLandblock;
 use ac_net::messages::{self, action, motion, RawMotion, WirePosition};
 use ac_net::session::Session;
 use ac_scene::anim::AnimPlayer;
+use ac_scene::collision::{Capsule, CollisionWorld, Vertical, GRAVITY};
 use ac_scene::scenery::TerrainSampler;
 use ac_scene::Assets;
 use glam::{Quat, Vec3};
@@ -17,12 +19,33 @@ pub struct Input {
     pub forward: f32,
     pub strafe: f32,
     pub run: bool,
+    /// Edge: true on the frame a jump is requested (full power).
+    pub jump: bool,
 }
+
+/// The launch of a jump, for the Jump game action (0xF61B).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Jump {
+    /// Charge, 0..=1.
+    pub power: f32,
+    /// Launch velocity in the character's local frame (forward = +Y,
+    /// up = +Z), as the JumpPack carries it.
+    pub velocity: Vec3,
+}
+
+/// `MotionCommand::Falling`, the airborne cycle.
+const FALLING: u32 = 0x4000_0015;
 
 struct Block {
     lb: CellLandblock,
     /// Static collision geometry, built on first use.
-    collision: Option<ac_scene::collision::CollisionWorld>,
+    collision: Option<CollisionWorld>,
+}
+
+/// Landblock id (`xxyy0000`) containing a world position.
+fn block_of(w: Vec3) -> u32 {
+    (((w.x / 192.0).floor().clamp(0.0, 255.0) as u32) << 24)
+        | (((w.y / 192.0).floor().clamp(0.0, 255.0) as u32) << 16)
 }
 
 pub struct Player {
@@ -45,6 +68,20 @@ pub struct Player {
     pub anim: Option<AnimPlayer>,
     current_motion: u32,
     pub n_parts: usize,
+    capsule: Capsule,
+    /// Vertical speed while airborne (m/s, up positive).
+    vz: f32,
+    airborne: bool,
+    /// World-space horizontal velocity while airborne: the client keeps
+    /// the take-off velocity, so nothing steers in the air.
+    air_velocity: Vec3,
+    /// Horizontal velocity of the last grounded frame.
+    ground_velocity: Vec3,
+    /// Jump skill used for the launch velocity (see `jump`).
+    pub jump_skill: u32,
+    /// The most recent take-off, left for the main loop to report; take it
+    /// with `Option::take`.
+    pub last_jump: Option<Jump>,
 }
 
 impl Player {
@@ -72,13 +109,58 @@ impl Player {
             anim: None,
             current_motion: 0,
             n_parts: 0,
+            capsule: Capsule::default(),
+            vz: 0.0,
+            airborne: false,
+            air_velocity: Vec3::ZERO,
+            ground_velocity: Vec3::ZERO,
+            jump_skill: 100,
+            last_jump: None,
         }
+    }
+
+    pub fn is_airborne(&self) -> bool {
+        self.airborne
+    }
+
+    /// Take off: the launch speed follows the client's jump formula
+    /// (`GetJumpHeight`, then `v = sqrt(2 g h)`): height =
+    /// `burden_mod * (skill / (skill + 1300) * 22.2 + 0.05) * power`, at
+    /// least 0.35 m, with no burden here. The current walking velocity is
+    /// carried into the air. Returns false if already airborne.
+    pub fn jump(&mut self, power: f32) -> bool {
+        if self.airborne {
+            return false;
+        }
+        let power = power.clamp(0.0, 1.0);
+        let skill = self.jump_skill as f32;
+        let height = ((skill / (skill + 1300.0) * 22.2 + 0.05) * power).max(0.35);
+        self.vz = (2.0 * GRAVITY * height).sqrt();
+        self.airborne = true;
+        self.air_velocity = self.ground_velocity;
+        let world = self.air_velocity + Vec3::new(0.0, 0.0, self.vz);
+        self.last_jump = Some(Jump {
+            power,
+            velocity: self.rotation().inverse() * world,
+        });
+        self.moving = true;
+        self.dirty = true;
+        true
     }
 
     /// Attach the character's motion table and start idling. Walk and run
     /// speeds come from the table's cycle velocities.
     pub fn set_motion_table(&mut self, assets: &Assets, setup_id: u32, table_id: u32) {
         self.n_parts = assets.setup(setup_id).map(|s| s.parts.len()).unwrap_or(0);
+        if let Ok(setup) = assets.setup(setup_id) {
+            // Step heights come from the setup (0.6 / 1.5 m for humans).
+            if setup.step_up_height > 0.0 {
+                self.capsule.step_up = setup.step_up_height;
+            }
+            if setup.step_down_height > 0.0 {
+                self.capsule.step_down = setup.step_down_height;
+            }
+        }
         if let Ok(t) = ac_scene::anim::motion_table(assets, table_id) {
             if let Some(w) = t.cycle(self.stance, motion::WALK_FORWARD) {
                 if w.velocity.length() > 0.1 {
@@ -120,7 +202,9 @@ impl Player {
 
     /// Advance the animation and pick idle/walk/run from the input.
     pub fn animate(&mut self, assets: &Assets, input: &Input, dt: f32) -> Option<Vec<glam::Mat4>> {
-        let m = if input.forward > 0.0 {
+        let m = if self.is_airborne() {
+            FALLING
+        } else if input.forward > 0.0 {
             if input.run {
                 motion::RUN_FORWARD
             } else {
@@ -179,17 +263,13 @@ impl Player {
 
     /// Collision world for a landblock, built from the assembled scene on
     /// first use (this loads the block's models once, ~0.5 s).
-    fn collision(
-        &mut self,
-        assets: &Assets,
-        block_id: u32,
-    ) -> Option<&ac_scene::collision::CollisionWorld> {
+    fn collision(&mut self, assets: &Assets, block_id: u32) -> Option<&CollisionWorld> {
         let block_id = block_id & 0xFFFF_0000;
         self.block(assets, block_id)?;
         let b = self.blocks.get_mut(&block_id)?;
         if b.collision.is_none() {
             let scene = ac_scene::landblock::load(assets, block_id).ok()?;
-            b.collision = ac_scene::collision::CollisionWorld::from_scene(assets, &scene).ok();
+            b.collision = CollisionWorld::from_scene(assets, &scene).ok();
         }
         b.collision.as_ref()
     }
@@ -197,10 +277,6 @@ impl Player {
     /// Fraction along `from`..`to` where static geometry first blocks the
     /// segment, if it does.
     pub fn first_wall(&mut self, assets: &Assets, from: Vec3, to: Vec3) -> Option<f32> {
-        let block_of = |w: Vec3| {
-            (((w.x / 192.0).floor().clamp(0.0, 255.0) as u32) << 24)
-                | (((w.y / 192.0).floor().clamp(0.0, 255.0) as u32) << 16)
-        };
         let mut blocks = vec![block_of(from)];
         if block_of(to) != blocks[0] {
             blocks.push(block_of(to));
@@ -228,6 +304,27 @@ impl Player {
         }
     }
 
+    /// Terrain height under a world position, if the landblock loads.
+    fn terrain_at(&mut self, assets: &Assets, world: Vec3) -> Option<f32> {
+        let blk = block_of(world);
+        let local = world - ac_world::landblock_origin(blk);
+        let height_table = self.height_table.clone();
+        self.block(assets, blk)
+            .and_then(|b| TerrainSampler::new(&b.lb, &height_table).height_at(local))
+    }
+
+    /// Stand at `world` on the floor/terrain described by `floor`
+    /// (cell id 0 = outdoors), updating `cell` and `local`.
+    fn place(&mut self, world: Vec3, cell: u32) {
+        if cell != 0 {
+            self.cell = cell;
+        } else {
+            let blk = block_of(world);
+            self.cell = ac_world::outdoor_cell(blk, world - ac_world::landblock_origin(blk));
+        }
+        self.local = world - ac_world::landblock_origin(self.cell);
+    }
+
     /// Apply one frame of input. Returns true if the position changed.
     pub fn update(&mut self, assets: &Assets, input: &Input, dt: f32) -> bool {
         let speed = if input.run {
@@ -237,74 +334,173 @@ impl Player {
         };
         let fwd = self.forward();
         let right = fwd.cross(Vec3::Z).normalize_or(Vec3::X);
-        let mut delta = fwd * input.forward + right * input.strafe;
-        if delta.length_squared() < 1e-6 {
+        let dir = fwd * input.forward + right * input.strafe;
+        let steering = dir.length_squared() >= 1e-6;
+        if !self.airborne {
+            self.ground_velocity = if steering {
+                dir.normalize() * speed
+            } else {
+                Vec3::ZERO
+            };
+            if input.jump {
+                self.jump(1.0);
+            }
+        }
+        if !self.airborne && !steering {
             self.moving = false;
             return false;
         }
-        delta = delta.normalize() * speed * dt;
-        let mut world = self.world_position() + delta;
-        // Crossing a landblock boundary moves us to the neighbour block.
-        let bx = (world.x / 192.0).floor().clamp(0.0, 255.0) as u32;
-        let by = (world.y / 192.0).floor().clamp(0.0, 255.0) as u32;
-        let new_block = (bx << 24) | (by << 16);
-        // Walls: push the capsule out of steep collision triangles in the
-        // block we're moving into (and the one we're leaving, at a boundary).
-        let cur_block = self.landblock();
-        for blk in [new_block, cur_block] {
-            if let Some(c) = self.collision(assets, blk) {
-                world = c.resolve(world, 0.4, 1.7);
-            }
+        let old = self.world_position();
+        let vel = if self.airborne {
+            self.air_velocity
+        } else {
+            self.ground_velocity
+        };
+        let target = old + vel * dt;
+        // Static geometry of the block we're moving into and the one we're
+        // leaving, at a boundary.
+        let mut blocks = vec![block_of(target)];
+        if self.landblock() != blocks[0] {
+            blocks.push(self.landblock());
         }
-        // Floors: the highest walkable triangle under us decides height and,
-        // indoors, the cell. Otherwise outdoor terrain sets the height.
-        let probe = world + Vec3::new(0.0, 0.0, 0.5);
-        let floor = [new_block, cur_block]
-            .into_iter()
-            .filter_map(|blk| {
-                self.collision(assets, blk)
-                    .and_then(|c| c.floor_at(probe, 1.0, 3.0))
-            })
-            .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        let block_x = |w: Vec3| ((w.x / 192.0).floor().clamp(0.0, 255.0) as u32) << 24;
-        let block_y = |w: Vec3| ((w.y / 192.0).floor().clamp(0.0, 255.0) as u32) << 16;
-        match floor {
-            Some((z, cell)) if cell != 0 => {
-                // Standing on an interior cell's floor: that cell owns us.
-                world.z = z;
-                self.cell = cell;
-                self.local = world - ac_world::landblock_origin(cell);
-            }
-            Some((z, _)) if !self.is_indoors() || z > world.z - 0.5 => {
-                // An outdoor floor (dock, bridge, building step): stand on it
-                // if it is at least as high as the terrain.
-                let blk = block_x(world) | block_y(world);
-                let local = world - ac_world::landblock_origin(blk);
-                let height_table = self.height_table.clone();
-                let terrain = self
-                    .block(assets, blk)
-                    .and_then(|b| TerrainSampler::new(&b.lb, &height_table).height_at(local));
-                world.z = terrain.map(|t| t.max(z)).unwrap_or(z);
-                self.local = world - ac_world::landblock_origin(blk);
-                self.cell = ac_world::outdoor_cell(blk, self.local);
-            }
-            _ if self.is_indoors() => {
-                // No floor found: stay in the current cell at the same height.
-                let block_id = self.landblock();
-                self.local = world - ac_world::landblock_origin(block_id);
-            }
-            _ => {
-                let blk = block_x(world) | block_y(world);
-                let local = world - ac_world::landblock_origin(blk);
-                let height_table = self.height_table.clone();
-                if let Some(b) = self.block(assets, blk) {
-                    let sampler = TerrainSampler::new(&b.lb, &height_table);
-                    if let Some(z) = sampler.height_at(local) {
-                        world.z = z;
+        let cap = self.capsule;
+        let indoors = self.is_indoors();
+        let mut world = target;
+        if !self.airborne {
+            // Walking: walls push, ledges up to step_up are climbed, drops
+            // up to step_down are walked down, ceilings block.
+            let mut floor: Option<(f32, u32)> = None;
+            let mut blocked = false;
+            for &blk in &blocks {
+                if let Some(c) = self.collision(assets, blk) {
+                    let from = Vec3::new(world.x, world.y, old.z);
+                    let w = c.walk(from, world, &cap);
+                    if w.blocked {
+                        blocked = true;
+                        break;
+                    }
+                    world.x = w.pos.x;
+                    world.y = w.pos.y;
+                    if let Some(f) = w.floor {
+                        if floor.map(|(z, _)| f.0 > z).unwrap_or(true) {
+                            floor = Some(f);
+                        }
                     }
                 }
-                self.local = Vec3::new(local.x, local.y, world.z);
-                self.cell = ac_world::outdoor_cell(blk, self.local);
+            }
+            if blocked {
+                world = old;
+                floor = Some((old.z, self.cell));
+                if !indoors {
+                    floor = Some((old.z, 0));
+                }
+            }
+            match floor {
+                Some((z, cell)) if cell != 0 => {
+                    // Standing on an interior cell's floor: that cell owns us.
+                    world.z = z;
+                    self.place(world, cell);
+                }
+                Some((z, _)) if !indoors || z > old.z - 0.5 => {
+                    // An outdoor floor (dock, bridge, building step): stand on
+                    // it if it is at least as high as the terrain.
+                    let terrain = self.terrain_at(assets, world);
+                    world.z = terrain.map(|t| t.max(z)).unwrap_or(z);
+                    self.place(world, 0);
+                }
+                _ if indoors => {
+                    // Nothing within step range in the interior: fall if
+                    // there is a floor somewhere below, else stay put (bad
+                    // collision data).
+                    let deep = blocks
+                        .iter()
+                        .filter_map(|&blk| {
+                            self.collision(assets, blk)
+                                .and_then(|c| c.floor_at(world, cap.step_up, 200.0))
+                        })
+                        .next();
+                    if deep.is_some() {
+                        self.airborne = true;
+                        self.vz = 0.0;
+                        self.air_velocity = self.ground_velocity;
+                    } else {
+                        world.z = old.z;
+                    }
+                    self.local = world - ac_world::landblock_origin(self.landblock());
+                }
+                _ => {
+                    // Outdoors on bare terrain: follow it, unless it drops
+                    // away by more than a step.
+                    match self.terrain_at(assets, world) {
+                        Some(t) if t < old.z - cap.step_down => {
+                            self.airborne = true;
+                            self.vz = 0.0;
+                            self.air_velocity = self.ground_velocity;
+                        }
+                        Some(t) => world.z = t,
+                        None => world.z = old.z,
+                    }
+                    self.place(world, 0);
+                }
+            }
+        }
+        if self.airborne {
+            // In the air: walls push the whole capsule; gravity integrates
+            // the vertical speed; land on the first floor, or bump the
+            // ceiling.
+            for &blk in &blocks {
+                if let Some(c) = self.collision(assets, blk) {
+                    world = c.resolve(world, cap.radius, cap.height);
+                }
+            }
+            self.vz -= GRAVITY * dt;
+            let dz = self.vz * dt;
+            let mut landed: Option<(Vec3, u32)> = None;
+            let mut ceiling: Option<Vec3> = None;
+            for &blk in &blocks {
+                if let Some(c) = self.collision(assets, blk) {
+                    match c.vertical(world, dz, &cap) {
+                        Vertical::Landed(p, cell) => {
+                            if landed.map(|(l, _)| p.z > l.z).unwrap_or(true) {
+                                landed = Some((p, cell));
+                            }
+                        }
+                        Vertical::Ceiling(p) => {
+                            if ceiling.map(|c| p.z < c.z).unwrap_or(true) {
+                                ceiling = Some(p);
+                            }
+                        }
+                        Vertical::Free(_) => {}
+                    }
+                }
+            }
+            // Terrain catches us outdoors (or when the floor we would land
+            // on is outdoor geometry below the ground).
+            if dz < 0.0 && (!indoors || landed.map(|(_, c)| c == 0).unwrap_or(false)) {
+                if let Some(t) = self.terrain_at(assets, world) {
+                    let above_landing = landed.map(|(l, _)| t > l.z).unwrap_or(true);
+                    if t >= world.z + dz && above_landing {
+                        landed = Some((Vec3::new(world.x, world.y, t), 0));
+                    }
+                }
+            }
+            if let Some((p, cell)) = landed {
+                world = p;
+                self.airborne = false;
+                self.vz = 0.0;
+                self.place(world, cell);
+            } else {
+                if let Some(p) = ceiling {
+                    world = p;
+                    self.vz = 0.0;
+                } else {
+                    world.z += dz;
+                }
+                if indoors {
+                    self.local = world - ac_world::landblock_origin(self.landblock());
+                } else {
+                    self.place(world, 0);
+                }
             }
         }
         self.moving = true;
