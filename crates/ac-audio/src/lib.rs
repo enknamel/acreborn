@@ -153,7 +153,7 @@ pub use ac_formats::sound_table::{pick_entry, sound_for};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ac_formats::sound_table::SoundData;
+    use ac_formats::sound_table::{SoundData, SoundEntry, SoundTable};
 
     fn table(entries: &[(u32, f32)]) -> ac_formats::sound_table::SoundTable {
         SoundTable {
@@ -195,14 +195,6 @@ mod tests {
         let t = table(&[(0x0A00_0010, 0.5), (0x0A00_0011, 0.5)]);
         assert_eq!(pick_entry(&t, 3, 0.99).unwrap().wave_id, 0x0A00_0011);
         assert!(pick_entry(&table(&[]), 3, 0.0).is_none());
-    }
-
-    #[test]
-    fn random_unit_in_range() {
-        for _ in 0..1000 {
-            let r = random_unit();
-            assert!((0.0..1.0).contains(&r), "{r}");
-        }
     }
 
     fn pcm_wave(bits: u16, channels: u16, data: Vec<u8>) -> Wave {

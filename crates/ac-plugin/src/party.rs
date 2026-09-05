@@ -459,8 +459,14 @@ impl Plugin for Party {
         let rows = self.rows(cx);
         let mut activate = None;
         let mut lead = None;
+        // Below the radar, which sits in the top-right corner.
+        let w = egui.viewport_rect().width();
         egui::Window::new("Party")
             .default_width(420.0)
+            .default_pos(egui::pos2(
+                w - 440.0,
+                2.0 * crate::panels::radar::RADIUS + 48.0,
+            ))
             .show(egui, |ui| {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.follow, "follow");

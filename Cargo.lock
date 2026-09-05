@@ -84,6 +84,7 @@ version = "0.1.0"
 dependencies = [
  "ac-bus",
  "ac-client",
+ "ac-formats",
  "ac-scene",
  "ac-world",
  "egui",

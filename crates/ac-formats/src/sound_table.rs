@@ -122,3 +122,16 @@ fn random_unit() -> f32 {
         (z >> 40) as f32 / (1u64 << 24) as f32
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn random_unit_in_range() {
+        for _ in 0..1000 {
+            let r = random_unit();
+            assert!((0.0..1.0).contains(&r), "{r}");
+        }
+    }
+}

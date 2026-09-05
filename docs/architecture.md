@@ -21,14 +21,14 @@ Libraries, in dependency order (each depends only on the ones above it):
 | `ac-net` | Wire protocol, sans-IO: `packet`, `hash32`, `isaac`, `wire` (Reader/Writer), `messages` (opcodes, parsers, builders), `session::Session` (consumes datagrams and time, produces datagrams and decoded messages; the caller owns the socket). | - |
 | `ac-world` | `World`: the object table built from server messages (`WorldObject`, `Position`, `MoveTarget`, `CommandQueue` in `motion`), `stats::PlayerStats` (the character sheet), open container and vendor state. | ac-net, ac-formats |
 | `ac-client` | `Client`: one headless game session. Owns the socket and `Session`, applies messages to its `World`, runs the character's physics (`player::Player`), runs the gameplay timers (combat, loot), and exposes every action a player can take. Reports `Event`s to whoever drives it. | ac-net, ac-world, ac-scene |
-| `ac-plugin` | `Plugin` trait, `Ctx`, `Blackboard` (named values plus a one-frame message bus), and `host::Host` which fans callbacks out to every session. | ac-client, egui |
+| `ac-plugin` | `Plugin` trait, `Ctx`, `Blackboard` (named values plus a one-frame message bus), `host::Host` which fans callbacks out to every session, `icons` (item and spell icons as egui textures), and the built-in `panels` (vitals, radar, target bar, inventory, loot, vendor, skills, spellbook), each a plugin. | ac-client, egui |
 | `ac-audio` | `Audio` on top of `kira`: open the default device, play a decoded `Wave` once at a volume; sound-table lookup helpers. | ac-formats |
 
 Binaries:
 
 | bin | role |
 |---|---|
-| `acviewer` | The client: wgpu renderer, egui overlay (`ui.rs`), multi-session host (`Net` per session), landblock streaming, third-person camera, and the built-in plugins in `plugins/`. Also a standalone viewer for landblocks, models, particle emitters and chargen looks, and a headless `--screenshot` runner. |
+| `acviewer` | The client: wgpu renderer, egui overlay (`ui.rs`: the status line and the chat box; every other panel is a plugin), multi-session host (`Net` per session), landblock streaming, third-person camera, and the built-in plugins in `plugins/`. Also a standalone viewer for landblocks, models, particle emitters and chargen looks, and a headless `--screenshot` runner. |
 | `aclauncher` | Desktop launch manager: servers and accounts in `~/.acreborn/launcher.json`, one `acviewer --connect` process per launch, logs in `~/.acreborn/logs/`. |
 | `acclient` | The older headless CLI built directly on `ac-net`/`ac-world`: log in, optionally `--create` a character, enter the world, print messages. Still the quickest way to create a character. |
 | `acdat` | DAT CLI: `info`, `ls`, `cat`, `extract`, `decode` (asset as JSON), `wav`, `manifest` and `diff` (against an ACE-generated manifest). |
@@ -88,10 +88,15 @@ several `Client`s the same way the viewer does.
 ## Design goal: plugin-driven extensibility
 
 Everything the UI can do is a method on `ac_client::Client` or an `Event`
-it emits; the UI has no private channel to the server. `acviewer`'s
-`apply_ui_commands` turns overlay clicks into `client.buy/sell/take/
-interact/cast/say`, and its `tick_client` turns `Event::Chat`/`Sound`/
-`Placed` into chat lines, audio and a scene rebuild. A plugin gets the same
+it emits; the UI has no private channel to the server. The panels
+themselves (vitals, radar, target bar, inventory, loot, vendor, skills,
+spellbook) are plugins in `ac_plugin::panels`: each reads `cx.client()`
+and turns its clicks into `client.buy/sell/take/interact/cast`, so they
+double as examples and can be swapped for your own. `acviewer` keeps only
+the status line and the chat box; `apply_ui_commands` sends chat lines to
+`client.say` or to the plugins' `/commands`, and `tick_client` turns
+`Event::Chat`/`Sound`/`Placed` into chat lines, audio and a scene rebuild.
+A plugin gets the same
 `&mut Client` (for every session) plus the same event list, so anything a
 person can do at the keyboard a plugin can do programmatically, and the
 `/commands` in `plugins/console.rs` are one-line wrappers over `Client`.
@@ -105,10 +110,10 @@ person can do at the keyboard a plugin can do programmatically, and the
    `Host::key` offers the key to plugins; then the viewer's own bindings
    (Tab switch, C combat, I/K/P panels, Enter chat, Space jump). Held
    movement keys sit in `App::keys`.
-2. **UI commands**: `apply_ui_commands` drains what the overlay asked for.
-   Chat lines starting with `/` go to `Host::command`; the rest to
-   `client.say`. Buy/sell/take/close/cast/activate requests become `Client`
-   calls on the active session.
+2. **UI commands**: `apply_ui_commands` drains the chat box. Lines
+   starting with `/` go to `Host::command`; the rest to `client.say`.
+   (Panel clicks need no relay: the panel plugins called `Client` during
+   the previous frame's `ui` pass.)
 3. **Tick every session**: for each `Net`, `tick_client` builds a
    `player::Input` from the keys (active session only) and calls
    `Client::tick(input, dt, now)`, which pumps the socket, applies messages,
@@ -130,10 +135,13 @@ person can do at the keyboard a plugin can do programmatically, and the
 6. **Camera and character**: third-person camera behind `client.player`,
    clamped against walls; the character's model is re-instanced when
    `PlayerFrame::dirty`.
-7. **Render**: `refresh_status` fills the overlay (vitals, target, radar
-   blips, panels); `Ui::begin` runs the egui pass, inside which
-   `Host::ui` lets plugins draw; `gpu.render` draws the scene and paints
-   the overlay; `request_redraw` schedules the next frame (vsync).
+7. **Render**: `refresh_status` fills the status line; `run_overlay` runs
+   the egui pass (`Ui::begin`), inside which `Host::ui` lets plugins draw:
+   the panels first, reading the active `Client` and acting on it, then
+   the rest; the host's status line and chat box go on top. `gpu.render`
+   draws the scene and paints the overlay; `request_redraw` schedules the
+   next frame (vsync). Offline, `--screenshot --demo-ui` runs the same
+   pass with the panels on canned data (`plugins::demo`).
 
 ## Headless testing
 
