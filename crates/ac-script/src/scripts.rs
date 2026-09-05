@@ -435,6 +435,12 @@ mod tests {
             self.record(format!("take #{guid}"));
             true
         }
+        fn raise(&mut self, _w: &str) -> bool {
+            false
+        }
+        fn train(&mut self, _s: &str) -> bool {
+            false
+        }
         fn drop_item(&mut self, _guid: i64) -> bool {
             false
         }

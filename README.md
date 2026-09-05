@@ -70,7 +70,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # slowly, Enter opens the chat box (server commands start with @), left click
 # selects and appraises an object, double-click uses it (doors, NPCs), picks
 # it up (ground items) or puts it on / takes it off (in the inventory panel,
-# toggled with I; drag an item from the inventory onto a side pack or the
+# toggled with I; K shows the character sheet with Raise buttons that spend
+# unassigned XP on attributes, vitals and skills and Train buttons that
+# spend skill credits; drag an item from the inventory onto a side pack or the
 # Pack header to move it, onto the target bar or an NPC/player in the world
 # to hand it over, onto an open chest to store it, or onto empty ground to
 # drop it; K shows the skills panel, P the spellbook, B the spell bar

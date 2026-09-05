@@ -104,6 +104,9 @@ fn summary(c: &Client, index: usize) -> Map {
     };
     map.insert("name".into(), name.into());
     map.insert("level".into(), int(stats.level));
+    map.insert("total_xp".into(), int(stats.total_xp));
+    map.insert("available_xp".into(), int(stats.available_xp));
+    map.insert("skill_credits".into(), int(stats.skill_credits));
     for (i, vital) in ["health", "stamina", "mana"].into_iter().enumerate() {
         map.insert(vital.into(), int(stats.vitals[i].current));
         map.insert(format!("{vital}_max").into(), int(stats.vital_max(i)));
@@ -294,6 +297,30 @@ impl Api for CtxApi<'_, '_> {
         held
     }
 
+    fn raise(&mut self, what: &str) -> bool {
+        use ac_plugin::ac_client::advance::{ATTRIBUTE_NAMES, VITAL_NAMES};
+        let c = self.client();
+        let w = what.trim().to_lowercase();
+        if let Some(i) = ATTRIBUTE_NAMES.iter().position(|n| n.to_lowercase() == w) {
+            return c.raise_attribute(i);
+        }
+        if let Some(i) = VITAL_NAMES.iter().position(|n| n.to_lowercase() == w) {
+            return c.raise_vital(i);
+        }
+        match skill_by_name(c, what) {
+            Some(id) => c.raise_skill(id),
+            None => false,
+        }
+    }
+
+    fn train(&mut self, skill: &str) -> bool {
+        let c = self.client();
+        match skill_by_name(c, skill) {
+            Some(id) => c.train_skill(id),
+            None => false,
+        }
+    }
+
     fn drop_item(&mut self, g: i64) -> bool {
         self.client().drop_item(g as u32)
     }
@@ -455,4 +482,27 @@ impl Api for CtxApi<'_, '_> {
             }
         }
     }
+}
+
+/// A skill id from (a prefix of) its name, case-insensitive.
+fn skill_by_name(c: &ac_plugin::ac_client::Client, name: &str) -> Option<u32> {
+    let want = name.trim().to_lowercase();
+    if want.is_empty() {
+        return None;
+    }
+    // Every skill in the table, not just the ones on the sheet.
+    let ids: Vec<u32> = match c.assets.skill_table() {
+        Ok(t) => t.skills.iter().map(|(id, _)| *id).collect(),
+        Err(_) => c.world.stats.skills.iter().map(|s| s.id).collect(),
+    };
+    ids.iter()
+        .copied()
+        .find(|&id| ac_world::stats::skill_name(id).to_lowercase() == want)
+        .or_else(|| {
+            ids.iter().copied().find(|&id| {
+                ac_world::stats::skill_name(id)
+                    .to_lowercase()
+                    .starts_with(&want)
+            })
+        })
 }

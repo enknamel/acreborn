@@ -12,6 +12,7 @@ pub const OPEN_KEY: &str = "panels.skills_open";
 /// One line of the skills panel.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SkillRow {
+    pub id: u32,
     pub name: &'static str,
     /// Current skill value (attribute base + creation bonus + ranks).
     pub value: u32,
@@ -19,6 +20,28 @@ pub struct SkillRow {
     /// Advancement class: 0 inactive, 1 untrained, 2 trained, 3 specialized.
     pub advancement: u32,
     pub training: &'static str,
+    /// XP for the next rank (trained/specialized skills below max).
+    pub raise_xp: Option<u32>,
+    /// Credits to train (untrained/inactive skills).
+    pub train_credits: Option<u32>,
+}
+
+/// An attribute or vital line: current value, ranks bought, next cost.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatRow {
+    pub name: &'static str,
+    pub value: u32,
+    pub ranks: u32,
+    pub raise_xp: Option<u32>,
+}
+
+/// What the player clicked this frame.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Actions {
+    pub raise_attribute: Vec<usize>,
+    pub raise_vital: Vec<usize>,
+    pub raise_skill: Vec<u32>,
+    pub train_skill: Vec<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,6 +51,8 @@ pub struct SkillsView {
     pub total_xp: i64,
     pub available_xp: i64,
     pub skill_credits: i32,
+    pub attributes: Vec<StatRow>,
+    pub vitals: Vec<StatRow>,
     pub skills: Vec<SkillRow>,
 }
 
@@ -64,25 +89,69 @@ pub fn view(c: &Client) -> Option<SkillsView> {
         .skills
         .iter()
         .map(|sk| SkillRow {
+            id: sk.id,
             name: ac_world::stats::skill_name(sk.id),
             value: st.skill_value(sk, table.as_ref().and_then(|t| t.get(sk.id))),
             ranks: sk.ranks,
             advancement: sk.advancement,
             training: ac_world::stats::sac_name(sk.advancement),
+            raise_xp: c.skill_raise_cost(sk.id).xp(),
+            train_credits: c.skill_train_cost(sk.id),
         })
         .collect();
+    // Skills the sheet has no record for yet are unusable until trained.
+    if let Some(t) = table.as_ref() {
+        for (id, base) in &t.skills {
+            if skills.iter().any(|s| s.id == *id) {
+                continue;
+            }
+            skills.push(SkillRow {
+                id: *id,
+                name: ac_world::stats::skill_name(*id),
+                value: 0,
+                ranks: 0,
+                advancement: 0,
+                training: ac_world::stats::sac_name(0),
+                raise_xp: None,
+                train_credits: Some(base.trained_cost.max(0) as u32),
+            });
+        }
+    }
     sort(&mut skills);
+    let attributes = ac_client::advance::ATTRIBUTE_NAMES
+        .iter()
+        .enumerate()
+        .map(|(i, name)| StatRow {
+            name,
+            value: st.attributes[i].value(),
+            ranks: st.attributes[i].ranks,
+            raise_xp: c.attribute_raise_cost(i).xp(),
+        })
+        .collect();
+    let vitals = ac_client::advance::VITAL_NAMES
+        .iter()
+        .enumerate()
+        .map(|(i, name)| StatRow {
+            name,
+            value: st.vital_max(i),
+            ranks: st.vitals[i].ranks,
+            raise_xp: c.vital_raise_cost(i).xp(),
+        })
+        .collect();
     Some(SkillsView {
         name: st.name.clone(),
         level: st.level,
         total_xp: st.total_xp,
         available_xp: st.available_xp,
         skill_credits: st.skill_credits,
+        attributes,
+        vitals,
         skills,
     })
 }
 
-pub fn draw(egui: &egui::Context, v: &SkillsView) {
+pub fn draw(egui: &egui::Context, v: &SkillsView) -> Actions {
+    let mut actions = Actions::default();
     window(
         "skills",
         egui::pos2(8.0, 132.0),
@@ -108,15 +177,61 @@ pub fn draw(egui: &egui::Context, v: &SkillsView) {
             .small(),
         );
         ui.add_space(4.0);
+        let can_pay = |xp: Option<u32>| xp.is_some_and(|x| x as i64 <= v.available_xp);
         egui::ScrollArea::vertical()
             .max_height(320.0)
             .show(ui, |ui| {
                 ui.set_min_width(340.0);
-                egui::Grid::new("skills_grid")
+                egui::Grid::new("stats_grid")
                     .num_columns(4)
                     .spacing([14.0, 2.0])
                     .show(ui, |ui| {
-                        for h in ["Skill", "Value", "Ranks", "Training"] {
+                        for h in ["Attribute", "Value", "Ranks", "Raise"] {
+                            caption(ui, h);
+                        }
+                        ui.end_row();
+                        for (i, a) in v.attributes.iter().chain(v.vitals.iter()).enumerate() {
+                            ui.label(egui::RichText::new(a.name).color(egui::Color32::WHITE));
+                            ui.label(
+                                egui::RichText::new(a.value.to_string())
+                                    .color(egui::Color32::WHITE)
+                                    .strong(),
+                            );
+                            ui.label(
+                                egui::RichText::new(a.ranks.to_string())
+                                    .color(egui::Color32::from_gray(200)),
+                            );
+                            match a.raise_xp {
+                                Some(xp) => {
+                                    let b = ui.add_enabled(
+                                        can_pay(Some(xp)),
+                                        egui::Button::new(format!("+1  {}", thousands(xp as i64)))
+                                            .small(),
+                                    );
+                                    if b.on_hover_text("XP for the next point").clicked() {
+                                        if i < v.attributes.len() {
+                                            actions.raise_attribute.push(i);
+                                        } else {
+                                            actions.raise_vital.push(i - v.attributes.len());
+                                        }
+                                    }
+                                }
+                                None => {
+                                    ui.label(
+                                        egui::RichText::new("max")
+                                            .color(egui::Color32::from_gray(140)),
+                                    );
+                                }
+                            }
+                            ui.end_row();
+                        }
+                    });
+                ui.add_space(6.0);
+                egui::Grid::new("skills_grid")
+                    .num_columns(5)
+                    .spacing([14.0, 2.0])
+                    .show(ui, |ui| {
+                        for h in ["Skill", "Value", "Ranks", "Training", "Raise / Train"] {
                             caption(ui, h);
                         }
                         ui.end_row();
@@ -135,11 +250,34 @@ pub fn draw(egui: &egui::Context, v: &SkillsView) {
                             );
                             ui.label(egui::RichText::new(s.ranks.to_string()).color(color));
                             ui.label(egui::RichText::new(s.training).color(color));
+                            if let Some(xp) = s.raise_xp {
+                                let b = ui.add_enabled(
+                                    can_pay(Some(xp)),
+                                    egui::Button::new(format!("+1  {}", thousands(xp as i64)))
+                                        .small(),
+                                );
+                                if b.on_hover_text("XP for the next rank").clicked() {
+                                    actions.raise_skill.push(s.id);
+                                }
+                            } else if let Some(credits) = s.train_credits {
+                                let b = ui.add_enabled(
+                                    v.skill_credits >= credits as i32,
+                                    egui::Button::new(format!("Train  {credits}")).small(),
+                                );
+                                if b.on_hover_text("skill credits to train").clicked() {
+                                    actions.train_skill.push(s.id);
+                                }
+                            } else {
+                                ui.label(
+                                    egui::RichText::new("max").color(egui::Color32::from_gray(140)),
+                                );
+                            }
                             ui.end_row();
                         }
                     });
             });
     });
+    actions
 }
 
 #[derive(Default)]
@@ -153,11 +291,14 @@ impl Skills {
     /// A small sheet; closed until K, like the live one.
     pub fn demo() -> Self {
         let row = |name, value, ranks, advancement| SkillRow {
+            id: 0,
             name,
             value,
             ranks,
             advancement,
             training: ac_world::stats::sac_name(advancement),
+            raise_xp: (advancement >= 2).then_some(1_200),
+            train_credits: (advancement < 2).then_some(4),
         };
         let mut skills = vec![
             row("Dagger", 120, 30, 3),
@@ -174,6 +315,24 @@ impl Skills {
                 total_xp: 1_234_567,
                 available_xp: 12_345,
                 skill_credits: 2,
+                attributes: ac_client::advance::ATTRIBUTE_NAMES
+                    .iter()
+                    .map(|n| StatRow {
+                        name: n,
+                        value: 60,
+                        ranks: 10,
+                        raise_xp: Some(2_300),
+                    })
+                    .collect(),
+                vitals: ac_client::advance::VITAL_NAMES
+                    .iter()
+                    .map(|n| StatRow {
+                        name: n,
+                        value: 90,
+                        ranks: 5,
+                        raise_xp: Some(900),
+                    })
+                    .collect(),
                 skills,
             }),
             show: false,
@@ -196,7 +355,21 @@ impl Plugin for Skills {
             Source::Live => cx.try_client().and_then(|c| view(c)),
         };
         if let Some(v) = v {
-            draw(egui, &v);
+            let a = draw(egui, &v);
+            if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
+                for i in a.raise_attribute {
+                    c.raise_attribute(i);
+                }
+                for i in a.raise_vital {
+                    c.raise_vital(i);
+                }
+                for id in a.raise_skill {
+                    c.raise_skill(id);
+                }
+                for id in a.train_skill {
+                    c.train_skill(id);
+                }
+            }
         }
     }
 

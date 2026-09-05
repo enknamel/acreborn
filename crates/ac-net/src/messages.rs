@@ -865,6 +865,10 @@ mod tests {
 /// GameAction type ids (inside a 0xF7B1 message).
 pub mod action {
     pub const TALK: u32 = 0x0015;
+    pub const RAISE_VITAL: u32 = 0x0044;
+    pub const RAISE_ATTRIBUTE: u32 = 0x0045;
+    pub const RAISE_SKILL: u32 = 0x0046;
+    pub const TRAIN_SKILL: u32 = 0x0047;
     pub const SET_AFK_MODE: u32 = 0x000F;
     pub const SET_AFK_MESSAGE: u32 = 0x0010;
     pub const TELL: u32 = 0x005D;

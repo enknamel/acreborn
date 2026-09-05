@@ -247,6 +247,16 @@ Casting rules (ACE `Player_Magic`, matching retail):
   (0x0046), TrainSkill (0x0047: skill, credits); the server answers with
   private property updates (total XP, unassigned XP, level, skill credits,
   the attribute/skill records) and system chat ("You are now level N!").
+* Raising on the wire: the client sends an XP *amount* (RaiseSkill
+  0x0046: skill id, xp; RaiseAttribute 0x0045: attribute 1..6, xp;
+  RaiseVital 0x0044: MaxHealth 1 / MaxStamina 3 / MaxMana 5, xp) and the
+  server adds it to the stat's experience and recomputes the rank, so one
+  rank costs `table[ranks + 1] - xp_spent`. TrainSkill (0x0047: skill,
+  credits) trains a skill even when the sheet has no record for it yet.
+  The server answers with the updated record (PrivateUpdateSkill,
+  PrivateUpdateAttribute, PrivateUpdateVital), the new unassigned XP
+  (PrivateUpdatePropertyInt64 AvailableExperience) and a chat line ("Your
+  base Healing skill is now 38!"). Verified live on ACE.
 * **Vitae**: each death adds 5% vitae penalty up to 40%, cutting health,
   stamina, mana and all skills by that percentage. It is an enchantment
   (spell `Vitae`, shown as a status icon). Earning XP recovers 1% at a
