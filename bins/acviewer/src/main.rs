@@ -103,6 +103,10 @@ struct Cli {
     /// Connected headless mode: open the skills panel in the screenshot.
     #[arg(long)]
     show_skills: bool,
+    /// Connected headless mode: press these panel keys once placed
+    /// (letters, e.g. `--press O,B,U`), so the screenshot shows them.
+    #[arg(long, value_delimiter = ',')]
+    press: Vec<String>,
     /// Connected headless mode: once a vendor window is open (after --use
     /// on the vendor), buy the first stock item whose name starts with this.
     #[arg(long)]
@@ -1495,14 +1499,22 @@ fn main() -> Result<()> {
                                 st.wielded.len()
                             );
                         }
+                        // The panels are plugins: press their keys.
+                        let mut keys: Vec<egui::Key> = Vec::new();
                         if app.cli.show_skills {
-                            // The panels are plugins: press their keys.
-                            for key in [egui::Key::K, egui::Key::P] {
-                                let active = app.active;
-                                let clients = clients_of(&mut app.nets);
-                                let r = app.plugins.key(clients, active, key, true);
-                                app.apply_requests(r);
-                            }
+                            keys.extend([egui::Key::K, egui::Key::P]);
+                        }
+                        keys.extend(
+                            app.cli
+                                .press
+                                .iter()
+                                .filter_map(|k| egui::Key::from_name(k.trim())),
+                        );
+                        for key in keys {
+                            let active = app.active;
+                            let clients = clients_of(&mut app.nets);
+                            let r = app.plugins.key(clients, active, key, true);
+                            app.apply_requests(r);
                         }
                     }
                     let (ci, sent) = click_state;

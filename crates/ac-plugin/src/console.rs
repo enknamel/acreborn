@@ -17,11 +17,36 @@ impl Plugin for Console {
         match name {
             "help" => {
                 cx.log("/use NAME  /attack NAME  /cast NAME  /loot [NAME]  /buy NAME  /sell NAME");
-                cx.log("/wield NAME  /combat  /peace  /stop  /who  /clients  /switch N");
+                cx.log(
+                    "/select NAME  /wield NAME  /combat  /peace  /stop  /who  /clients  /switch N",
+                );
             }
             "use" => {
                 if !cx.client().use_by_name(args) {
                     cx.log(format!("Nothing named {args:?} in view"));
+                }
+            }
+            "select" => {
+                // Select by name prefix without using: carried items
+                // (worn ones too) win over the floor, exact names first.
+                let c = cx.client();
+                let me = c.world.player_guid;
+                let pick = c
+                    .world
+                    .objects
+                    .values()
+                    .filter(|o| o.name.starts_with(args))
+                    .min_by_key(|o| {
+                        let carried = me.is_some() && (o.container == me || o.wielder == me);
+                        (o.name != args, !carried)
+                    })
+                    .map(|o| (o.guid, o.name.clone()));
+                match pick {
+                    Some((guid, name)) => {
+                        c.select(Some(guid));
+                        cx.log(format!("selected {name}"));
+                    }
+                    None => cx.log(format!("Nothing named {args:?} in view")),
                 }
             }
             "wield" => {
