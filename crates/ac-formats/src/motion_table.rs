@@ -83,6 +83,27 @@ pub fn motion_key(style: u32, motion: u32) -> u32 {
     (style << 16) | (motion & 0xFF_FFFF)
 }
 
+/// Class bits in the high byte of a MotionCommand id. Stances are
+/// `STYLE`, looping motions (Ready, walk, run, On/Off) are `SUBSTATE`,
+/// one-shots (attacks, emotes) are `ACTION`.
+pub mod command_mask {
+    pub const STYLE: u32 = 0x8000_0000;
+    pub const SUBSTATE: u32 = 0x4000_0000;
+    pub const MODIFIER: u32 = 0x2000_0000;
+    pub const ACTION: u32 = 0x1000_0000;
+}
+
+/// True if two command ids name the same command. The low 16 bits are a
+/// command's unique index; the class bits above are dropped on the wire,
+/// so a value without them matches any full id with the same index.
+pub fn same_command(a: u32, b: u32) -> bool {
+    if a >> 16 == 0 || b >> 16 == 0 {
+        a & 0xFFFF == b & 0xFFFF
+    } else {
+        a == b
+    }
+}
+
 impl MotionTable {
     pub fn parse(id: u32, data: &[u8]) -> Result<Self> {
         let mut r = Reader::new(data);
@@ -120,5 +141,31 @@ impl MotionTable {
                 .map(|(_, d)| d)
         };
         find(motion_key(style, motion)).or_else(|| find(motion_key(self.default_style, motion)))
+    }
+
+    /// The transition played when `command` is issued while `current` is
+    /// the motion in `style`: a one-shot action (attack, emote) over the
+    /// current motion, or the change from one motion to the next (a door
+    /// going from Off to On). Falls back to the style's generic links
+    /// (`current` = 0). Commands may be full ids or the wire's low 16 bits.
+    pub fn link(&self, style: u32, current: u32, command: u32) -> Option<&MotionData> {
+        let find = |k: u32| {
+            self.links
+                .iter()
+                .find(|(key, _)| *key == k)
+                .and_then(|(_, inner)| inner.iter().find(|(m, _)| same_command(*m, command)))
+                .map(|(_, d)| d)
+        };
+        find(motion_key(style, current)).or_else(|| find(motion_key(style, 0)))
+    }
+
+    /// Recover a full command id (with its class bits) from the low 16
+    /// bits carried on the wire, from the commands this table links to.
+    pub fn full_command(&self, low: u16) -> Option<u32> {
+        self.links
+            .iter()
+            .flat_map(|(_, inner)| inner.iter())
+            .map(|(m, _)| *m)
+            .find(|m| *m & 0xFFFF == low as u32)
     }
 }

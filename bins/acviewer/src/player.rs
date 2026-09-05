@@ -2,7 +2,7 @@
 //! character with WASD, follows terrain outdoors, tracks the cell id, and
 //! reports movement to the server.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use ac_formats::landblock::CellLandblock;
@@ -43,6 +43,9 @@ pub struct Player {
     pub dirty: bool,
     table: Option<ac_formats::motion_table::MotionTable>,
     pub anim: Option<AnimPlayer>,
+    /// One-shots (attacks, emotes) playing over the cycle, in order; the
+    /// front one drives the pose until it finishes.
+    oneshots: VecDeque<AnimPlayer>,
     current_motion: u32,
     pub n_parts: usize,
 }
@@ -70,6 +73,7 @@ impl Player {
             dirty: true,
             table: None,
             anim: None,
+            oneshots: VecDeque::new(),
             current_motion: 0,
             n_parts: 0,
         }
@@ -118,7 +122,49 @@ impl Player {
         }
     }
 
-    /// Advance the animation and pick idle/walk/run from the input.
+    /// Play a one-shot motion command (an attack, an emote) once over the
+    /// current stance and motion, then return to the cycle. `cmd` may be a
+    /// full MotionCommand id or the low 16 bits a MovementEvent carries;
+    /// `speed` scales playback (1.0 = as authored). Commands queue up and
+    /// play in order. Returns false if the table has no such animation.
+    #[allow(dead_code)] // for the main loop to call on the player's queued commands
+    pub fn play_command(&mut self, assets: &Assets, cmd: u32, speed: f32) -> bool {
+        let Some(t) = self.table.as_ref() else {
+            return false;
+        };
+        let current = if self.current_motion == 0 {
+            motion::READY
+        } else {
+            self.current_motion
+        };
+        let idle = t.default_motion(self.stance).unwrap_or(motion::READY);
+        let link = AnimPlayer::link(assets, t, self.stance, current, cmd)
+            .or_else(|| AnimPlayer::link(assets, t, self.stance, idle, cmd));
+        match link {
+            Some(mut p) => {
+                p.speed = speed.abs().max(0.1);
+                self.oneshots.push_back(p);
+                self.dirty = true;
+                true
+            }
+            None => {
+                tracing::debug!(
+                    "no animation for command {cmd:#010x} in stance {:#010x}",
+                    self.stance
+                );
+                false
+            }
+        }
+    }
+
+    /// True while a one-shot is playing.
+    #[allow(dead_code)]
+    pub fn busy(&self) -> bool {
+        !self.oneshots.is_empty()
+    }
+
+    /// Advance the animation and pick idle/walk/run from the input. A
+    /// queued one-shot overrides the pose until it has played through.
     pub fn animate(&mut self, assets: &Assets, input: &Input, dt: f32) -> Option<Vec<glam::Mat4>> {
         let m = if input.forward > 0.0 {
             if input.run {
@@ -136,8 +182,18 @@ impl Player {
             motion::READY
         };
         self.set_motion(assets, m);
-        let a = self.anim.as_mut()?;
-        a.advance(dt);
+        // The cycle keeps time underneath so it resumes in phase.
+        if let Some(a) = self.anim.as_mut() {
+            a.advance(dt);
+        }
+        while self.oneshots.front().is_some_and(|p| p.finished()) {
+            self.oneshots.pop_front();
+        }
+        if let Some(front) = self.oneshots.front_mut() {
+            front.advance(dt);
+            return Some(front.part_transforms(self.n_parts));
+        }
+        let a = self.anim.as_ref()?;
         Some(a.part_transforms(self.n_parts))
     }
 

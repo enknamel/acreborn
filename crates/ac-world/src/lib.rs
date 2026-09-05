@@ -3,6 +3,7 @@
 //! `DeleteObject`) and keeps a table of objects with their model ids and
 //! positions.
 
+pub mod motion;
 pub mod object;
 pub mod stats;
 
@@ -12,6 +13,7 @@ use ac_net::messages::{self, event, opcode};
 use ac_net::wire::Reader;
 use glam::{Mat4, Quat, Vec3};
 
+pub use motion::{CommandQueue, PendingCommand};
 pub use object::{MoveTarget, MovementEvent, ObjectCreate, Position};
 
 /// What an object is currently doing, for animation and prediction.
@@ -95,6 +97,9 @@ pub struct WorldObject {
     pub texture_changes: Vec<(u8, u32, u32)>,
     pub anim_part_changes: Vec<(u8, u32)>,
     pub motion: Motion,
+    /// One-shot motions (attacks, emotes, door open/close) the server has
+    /// asked for, newest last; repeats across events are filtered out.
+    pub commands: CommandQueue,
     /// Where the object is being drawn: eases toward `position` so
     /// server updates don't snap.
     pub display: Option<Position>,
@@ -225,6 +230,7 @@ impl World {
                         texture_changes: oc.texture_changes,
                         anim_part_changes: oc.anim_part_changes,
                         motion: Motion::default(),
+                        commands: CommandQueue::default(),
                         display: oc.position,
                         target: None,
                     };
@@ -303,6 +309,14 @@ impl World {
                         run_rate: ev.run_rate,
                     };
                     o.target = ev.target;
+                    for &(cmd, seq, speed) in &ev.commands {
+                        if o.commands.push(cmd, seq, speed) {
+                            tracing::debug!(
+                                "{:#010x} plays command {cmd:#06x} (seq {seq:#x}, speed {speed})",
+                                ev.guid
+                            );
+                        }
+                    }
                     if let (Some(h), Some(p)) = (ev.desired_heading, o.position.as_mut()) {
                         if !matches!(ev.target, Some(MoveTarget::Position { .. })) {
                             p.rotation = heading_quat(h);
