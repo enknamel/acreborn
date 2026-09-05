@@ -11,8 +11,12 @@ against ACE; thirteen asset types decode every file in both archives;
 and in `--connect` mode logs in to a local ACE server and walks your
 character around the live world with server-accepted movement, with a
 chat overlay for talking to the server and other players.
-See `docs/` for the subsystem specs and `reference/README.md` for how the
-reverse-engineering material is regenerated.
+See [`docs/architecture.md`](docs/architecture.md) for the crate map and
+data flow, [`docs/plugins.md`](docs/plugins.md) for writing a plugin,
+[`docs/multi-session.md`](docs/multi-session.md) for running several
+clients, `docs/subsystems/` for the format and protocol specs, and
+`reference/README.md` for how the reverse-engineering material is
+regenerated.
 
 ```
 export AC_DATA_DIR=~/Downloads/ac_data     # acclient.exe + client_*.dat live here
@@ -52,7 +56,12 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # double-click casts). C toggles melee combat:
 # double-click a creature to attack it until it dies; double-click its corpse
 # to loot (Take all / Close). Space jumps. Sounds play unless --mute.
+# Chat lines starting with / are plugin commands (/help lists them: /use,
+# /attack, /cast, /loot, /buy, /sell, /combat, /peace, /who, /switch N).
 cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
+# several characters in one window: --client ACCOUNT:PASSWORD[:CHARACTER]
+# per extra session; Tab (or /switch N) picks the one shown and steered
+cargo run --release -p acviewer -- --connect 127.0.0.1 -a alice -v pw1 --client bob:pw2:Bob
 ```
 
 ## Launcher
@@ -100,11 +109,15 @@ The config lives in `~/.acreborn/launcher.json`:
 in plain text** in this file; it is only as private as your home directory.
 
 Workspace: `crates/ac-dat` (container), `crates/ac-formats` (asset
-decoders), `crates/ac-scene` (GPU-free mesh assembly, collision),
-`crates/ac-net` (protocol, sans-IO session), `crates/ac-world` (object
-table and movement), `bins/acdat` (CLI), `bins/acviewer` (wgpu viewer and
-client), `bins/acclient` (headless client), `bins/aclauncher` (launch
-manager).
+decoders), `crates/ac-scene` (GPU-free assembly, collision, lighting,
+particles, chargen), `crates/ac-net` (protocol, sans-IO session),
+`crates/ac-world` (object table, character sheet, motions),
+`crates/ac-client` (headless game session: connect, tick, actions, events,
+player physics), `crates/ac-plugin` (`Plugin` trait, `Ctx`, blackboard and
+bus, host), `crates/ac-audio` (sound playback), `bins/acdat` (CLI),
+`bins/acviewer` (wgpu viewer and multi-session client with the built-in
+plugins), `bins/aclauncher` (launch manager), `bins/acclient` (old
+headless CLI). See `docs/architecture.md`.
 
 Debugging aids: `RUST_LOG=acviewer=debug`, `ACV_HIDE_STATIC=1` (draw only
 server objects), and in connected `--screenshot` mode `--walk`, `--say`,
