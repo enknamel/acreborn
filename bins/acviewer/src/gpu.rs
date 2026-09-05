@@ -726,8 +726,10 @@ impl Gpu {
 
     /// Write an image and its CPU box-filtered mip chain into one layer.
     fn upload_layer(&self, texture: &wgpu::Texture, layer: u32, img: &Rgba) {
-        let (mut w, mut h, mut px) = (img.width, img.height, img.pixels.clone());
+        let (mut w, mut h) = (img.width, img.height);
+        let mut level_px: Option<Vec<u8>> = None;
         for level in 0..texture.mip_level_count() {
+            let px: &[u8] = level_px.as_deref().unwrap_or(&img.pixels);
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture,
@@ -739,7 +741,7 @@ impl Gpu {
                     },
                     aspect: wgpu::TextureAspect::All,
                 },
-                &px,
+                px,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(w * 4),
@@ -754,33 +756,10 @@ impl Gpu {
             if w == 1 && h == 1 {
                 break;
             }
-            let nw = (w / 2).max(1);
-            let nh = (h / 2).max(1);
-            let mut next = vec![0u8; (nw * nh * 4) as usize];
-            for y in 0..nh {
-                for x in 0..nw {
-                    let mut acc = [0u32; 4];
-                    let mut n = 0;
-                    for dy in 0..2 {
-                        for dx in 0..2 {
-                            let sx = (x * 2 + dx).min(w - 1);
-                            let sy = (y * 2 + dy).min(h - 1);
-                            let o = ((sy * w + sx) * 4) as usize;
-                            for c in 0..4 {
-                                acc[c] += px[o + c] as u32;
-                            }
-                            n += 1;
-                        }
-                    }
-                    let o = ((y * nw + x) * 4) as usize;
-                    for c in 0..4 {
-                        next[o + c] = (acc[c] / n) as u8;
-                    }
-                }
-            }
+            let (nw, nh, next) = downsample(px, w, h);
             w = nw;
             h = nh;
-            px = next;
+            level_px = Some(next);
         }
     }
 
@@ -936,18 +915,23 @@ impl Gpu {
                 pixels: vec![255, 0, 255, 255],
             })),
             MaterialKey::Terrain => {
+                let t0 = Instant::now();
                 let layers: Vec<Rgba> = (0..)
                     .map_while(|i| materials(MaterialKey::TerrainLayer(i)))
                     .collect();
                 let alphas: Vec<Rgba> = (0..)
                     .map_while(|i| materials(MaterialKey::TerrainAlpha(i)))
                     .collect();
+                let t_decode = t0.elapsed();
+                let bg = self.make_terrain_material(&layers, &alphas);
                 tracing::debug!(
-                    "terrain material: {} texture layers, {} alpha maps",
+                    "terrain material: {} texture layers, {} alpha maps; decode {:.1} ms, upload {:.1} ms",
                     layers.len(),
-                    alphas.len()
+                    alphas.len(),
+                    t_decode.as_secs_f64() * 1e3,
+                    (t0.elapsed() - t_decode).as_secs_f64() * 1e3
                 );
-                self.make_terrain_material(&layers, &alphas)
+                bg
             }
             // Water ripples come from the Region's water texture; without
             // one the surface is a flat tint.
@@ -979,6 +963,8 @@ impl Gpu {
         mut materials: impl FnMut(MaterialKey) -> Option<Rgba>,
     ) -> Vec<DrawBatch> {
         let mut out = Vec::new();
+        let t0 = Instant::now();
+        let mut t_materials = std::time::Duration::ZERO;
         let mut keys: Vec<_> = batches.keys().copied().collect();
         keys.sort_by_key(|k| match k {
             MaterialKey::Terrain => (0u8, 0, 0, 0),
@@ -992,7 +978,9 @@ impl Gpu {
             if b.indices.is_empty() {
                 continue;
             }
+            let tm = Instant::now();
             let bind_group = self.material(key, &mut materials);
+            t_materials += tm.elapsed();
             let vertex_buf = self
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1018,7 +1006,7 @@ impl Gpu {
             let kind = match key {
                 MaterialKey::Water(_) => DrawKind::Water,
                 MaterialKey::Terrain => DrawKind::Terrain,
-                _ if b.vertices.iter().any(|v| v.color[3] < 1.0) => DrawKind::Translucent,
+                _ if b.vertices.first().is_some_and(|v| v.color[3] < 1.0) => DrawKind::Translucent,
                 _ => DrawKind::Opaque,
             };
             out.push(DrawBatch {
@@ -1030,7 +1018,12 @@ impl Gpu {
                 kind,
             });
         }
-        tracing::debug!("uploaded {} batches", out.len());
+        tracing::debug!(
+            "uploaded {} batches in {:.1} ms ({:.1} ms materials)",
+            out.len(),
+            t0.elapsed().as_secs_f64() * 1e3,
+            t_materials.as_secs_f64() * 1e3
+        );
         out
     }
 
@@ -1069,6 +1062,7 @@ impl Gpu {
         ui: Option<UiPaint<'_>>,
     ) -> Result<()> {
         let (w, h) = (self.config.width, self.config.height);
+        let t0 = Instant::now();
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("offscreen"),
             size: wgpu::Extent3d {
@@ -1127,6 +1121,7 @@ impl Gpu {
         });
         self.device.poll(wgpu::PollType::wait_indefinitely())?;
         rx.recv()??;
+        let t_render = t0.elapsed();
         let data = slice.get_mapped_range()?;
         let bgra = matches!(self.config.format, wgpu::TextureFormat::Bgra8Unorm);
         let mut pixels = Vec::with_capacity((w * h * 4) as usize);
@@ -1142,7 +1137,20 @@ impl Gpu {
         }
         drop(data);
         buf.unmap();
-        image::save_buffer(path, &pixels, w, h, image::ColorType::Rgba8)?;
+        // A screenshot is written once and read by a person or a test:
+        // fast compression is plenty.
+        let file = std::io::BufWriter::new(std::fs::File::create(path)?);
+        let encoder = image::codecs::png::PngEncoder::new_with_quality(
+            file,
+            image::codecs::png::CompressionType::Fast,
+            image::codecs::png::FilterType::Adaptive,
+        );
+        image::ImageEncoder::write_image(encoder, &pixels, w, h, image::ExtendedColorType::Rgba8)?;
+        tracing::debug!(
+            "render_to_png: draw and readback {:.1} ms, encode {:.1} ms",
+            t_render.as_secs_f64() * 1e3,
+            (t0.elapsed() - t_render).as_secs_f64() * 1e3
+        );
         Ok(())
     }
 
@@ -1286,6 +1294,44 @@ impl Gpu {
         }
         self.queue.submit([encoder.finish()]);
     }
+}
+
+/// One RGBA8 mip level down: a 2x2 box filter (odd edges reuse their last
+/// row or column). Returns the new width, height and pixels.
+fn downsample(px: &[u8], w: u32, h: u32) -> (u32, u32, Vec<u8>) {
+    let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+    let (w, h) = (w as usize, h as usize);
+    let row = w * 4;
+    let mut out = Vec::with_capacity(nw as usize * nh as usize * 4);
+    let avg = |a: &[u8], b: &[u8], c: &[u8], d: &[u8]| {
+        [0, 1, 2, 3].map(|i| ((a[i] as u32 + b[i] as u32 + c[i] as u32 + d[i] as u32) / 4) as u8)
+    };
+    if w % 2 == 0 && h % 2 == 0 {
+        // The common case: every output texel averages a full 2x2 block.
+        for rows in px[..row * h].chunks_exact(row * 2) {
+            let (r0, r1) = rows.split_at(row);
+            let (r0, r1) = (r0.as_chunks::<8>().0, r1.as_chunks::<8>().0);
+            for (a, b) in r0.iter().zip(r1) {
+                out.extend_from_slice(&avg(&a[..4], &a[4..], &b[..4], &b[4..]));
+            }
+        }
+    } else {
+        for y in 0..nh as usize {
+            let r0 = &px[(y * 2).min(h - 1) * row..][..row];
+            let r1 = &px[(y * 2 + 1).min(h - 1) * row..][..row];
+            for x in 0..nw as usize {
+                let x0 = (x * 2).min(w - 1) * 4;
+                let x1 = (x * 2 + 1).min(w - 1) * 4;
+                out.extend_from_slice(&avg(
+                    &r0[x0..x0 + 4],
+                    &r0[x1..x1 + 4],
+                    &r1[x0..x0 + 4],
+                    &r1[x1..x1 + 4],
+                ));
+            }
+        }
+    }
+    (nw, nh, out)
 }
 
 /// Nearest-neighbour resample, for texture-array layers of unequal size.

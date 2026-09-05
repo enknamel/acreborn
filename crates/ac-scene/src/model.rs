@@ -121,6 +121,102 @@ pub fn build_mesh(assets: &Assets, g: &GfxObj) -> Result<Mesh> {
     build_mesh_with(assets, g, 0, &Appearance::default())
 }
 
+/// Vertices of a GfxObj or cell structure looked up by polygon vertex id.
+/// Ids are small and dense, so a table indexed by id beats hashing.
+pub(crate) struct VertexTable<'a> {
+    by_id: Vec<Option<&'a ac_formats::gfxobj::Vertex>>,
+}
+
+impl<'a> VertexTable<'a> {
+    pub fn new(verts: &'a [(u16, ac_formats::gfxobj::Vertex)]) -> Self {
+        let len = verts
+            .iter()
+            .map(|(k, _)| *k as usize + 1)
+            .max()
+            .unwrap_or(0);
+        let mut by_id = vec![None; len];
+        for (k, v) in verts {
+            by_id[*k as usize] = Some(v);
+        }
+        VertexTable { by_id }
+    }
+
+    pub fn get(&self, id: i16) -> Option<&'a ac_formats::gfxobj::Vertex> {
+        self.by_id.get(id as u16 as usize).copied().flatten()
+    }
+}
+
+/// Append one polygon (fan triangulated) to `sub`, with flipped winding
+/// and normals for a back face.
+pub(crate) fn emit_polygon(
+    sub: &mut SubMesh,
+    verts: &VertexTable,
+    vids: &[i16],
+    uv_idx: &[u8],
+    flip: bool,
+) {
+    let base = sub.vertices.len() as u32;
+    sub.vertices.reserve(vids.len());
+    let mut n = 0u32;
+    for (i, &vid) in vids.iter().enumerate() {
+        let Some(v) = verts.get(vid) else {
+            continue;
+        };
+        let uv = uv_idx
+            .get(i)
+            .and_then(|&ui| v.uvs.get(ui as usize))
+            .map(|u| Vec2::new(u.u, u.v))
+            .unwrap_or(Vec2::ZERO);
+        sub.vertices.push(MeshVertex {
+            position: v.origin,
+            normal: if flip { -v.normal } else { v.normal },
+            uv,
+        });
+        n += 1;
+    }
+    for i in 1..n.saturating_sub(1) {
+        if flip {
+            sub.indices
+                .extend_from_slice(&[base, base + i + 1, base + i]);
+        } else {
+            sub.indices
+                .extend_from_slice(&[base, base + i, base + i + 1]);
+        }
+    }
+}
+
+/// Submeshes grouped by surface, in first-use order; sorted by surface id
+/// when finished. A model uses a handful of surfaces, so a linear scan is
+/// cheaper than a map.
+pub(crate) struct SubMeshes(Vec<SubMesh>);
+
+impl SubMeshes {
+    pub fn new() -> Self {
+        SubMeshes(Vec::new())
+    }
+
+    /// The submesh for `surface_id`, created by `make` on first use.
+    pub fn get_or_insert(
+        &mut self,
+        surface_id: u32,
+        make: impl FnOnce() -> Result<SubMesh>,
+    ) -> Result<&mut SubMesh> {
+        let idx = match self.0.iter().position(|s| s.surface_id == surface_id) {
+            Some(i) => i,
+            None => {
+                self.0.push(make()?);
+                self.0.len() - 1
+            }
+        };
+        Ok(&mut self.0[idx])
+    }
+
+    pub fn finish(mut self) -> Vec<SubMesh> {
+        self.0.sort_by_key(|s| s.surface_id);
+        self.0
+    }
+}
+
 /// `build_mesh` with appearance overrides for the given part index.
 pub fn build_mesh_with(
     assets: &Assets,
@@ -128,11 +224,9 @@ pub fn build_mesh_with(
     part_index: u8,
     app: &Appearance,
 ) -> Result<Mesh> {
-    use std::collections::HashMap;
     let swaps = app.texture_swaps.get(&part_index);
-    let verts: HashMap<u16, &ac_formats::gfxobj::Vertex> =
-        g.vertices.iter().map(|(k, v)| (*k, v)).collect();
-    let mut by_surface: HashMap<(u32, bool), SubMesh> = HashMap::new();
+    let verts = VertexTable::new(&g.vertices);
+    let mut by_surface = SubMeshes::new();
 
     let mut emit = |surface_idx: i16, vids: &[i16], uv_idx: &[u8], flip: bool| -> Result<()> {
         let surface_id = g
@@ -140,74 +234,37 @@ pub fn build_mesh_with(
             .get(surface_idx.max(0) as usize)
             .copied()
             .unwrap_or(0);
-        let two_sided = false;
-        let sub = match by_surface.entry((surface_id, two_sided)) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => {
-                let (solid_color, translucency) = if surface_id != 0 {
-                    let s = assets.surface(surface_id)?;
-                    let color = match s.base {
-                        SurfaceBase::Solid { color } => Some(color),
-                        SurfaceBase::Image { .. } => None,
-                    };
-                    (color, s.translucency)
-                } else {
-                    (Some(0xFFFF_00FF), 0.0)
-                };
-                // A texture swap applies when the surface's texture matches the old id.
-                let mut texture_override = None;
-                if let Some(sw) = swaps {
-                    if surface_id != 0 {
-                        if let Ok(s) = assets.surface(surface_id) {
-                            if let SurfaceBase::Image { texture, .. } = s.base {
-                                texture_override = sw
-                                    .iter()
-                                    .find(|(old, _)| *old == texture)
-                                    .map(|(_, new)| *new);
-                            }
-                        }
-                    }
+        let sub = by_surface.get_or_insert(surface_id, || {
+            let (solid_color, translucency, texture) = if surface_id != 0 {
+                let s = assets.surface(surface_id)?;
+                match s.base {
+                    SurfaceBase::Solid { color } => (Some(color), s.translucency, None),
+                    SurfaceBase::Image { texture, .. } => (None, s.translucency, Some(texture)),
                 }
-                e.insert(SubMesh {
-                    surface_id,
-                    texture_override,
-                    palette: app.palette.clone(),
-                    palette_hash: app.palette_hash,
-                    solid_color,
-                    translucency,
-                    two_sided,
-                    vertices: Vec::new(),
-                    indices: Vec::new(),
-                })
-            }
-        };
-        let base = sub.vertices.len() as u32;
-        let mut n = 0u32;
-        for (i, &vid) in vids.iter().enumerate() {
-            let Some(v) = verts.get(&(vid as u16)) else {
-                continue;
-            };
-            let uv = uv_idx
-                .get(i)
-                .and_then(|&ui| v.uvs.get(ui as usize))
-                .map(|u| Vec2::new(u.u, u.v))
-                .unwrap_or(Vec2::ZERO);
-            sub.vertices.push(MeshVertex {
-                position: v.origin,
-                normal: if flip { -v.normal } else { v.normal },
-                uv,
-            });
-            n += 1;
-        }
-        for i in 1..n.saturating_sub(1) {
-            if flip {
-                sub.indices
-                    .extend_from_slice(&[base, base + i + 1, base + i]);
             } else {
-                sub.indices
-                    .extend_from_slice(&[base, base + i, base + i + 1]);
-            }
-        }
+                (Some(0xFFFF_00FF), 0.0, None)
+            };
+            // A texture swap applies when the surface's texture matches the old id.
+            let texture_override = match (swaps, texture) {
+                (Some(sw), Some(texture)) => sw
+                    .iter()
+                    .find(|(old, _)| *old == texture)
+                    .map(|(_, new)| *new),
+                _ => None,
+            };
+            Ok(SubMesh {
+                surface_id,
+                texture_override,
+                palette: app.palette.clone(),
+                palette_hash: app.palette_hash,
+                solid_color,
+                translucency,
+                two_sided: false,
+                vertices: Vec::new(),
+                indices: Vec::new(),
+            })
+        })?;
+        emit_polygon(sub, &verts, vids, uv_idx, flip);
         Ok(())
     };
 
@@ -217,11 +274,9 @@ pub fn build_mesh_with(
             emit(p.neg_surface, &p.vertex_ids, &p.neg_uv_indices, true)?;
         }
     }
-    let mut submeshes: Vec<SubMesh> = by_surface.into_values().collect();
-    submeshes.sort_by_key(|s| s.surface_id);
     Ok(Mesh {
         gfxobj_id: g.id,
-        submeshes,
+        submeshes: by_surface.finish(),
     })
 }
 

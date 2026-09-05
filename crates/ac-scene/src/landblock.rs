@@ -1,5 +1,7 @@
 //! An outdoor landblock assembled for rendering.
 
+use std::rc::Rc;
+
 use ac_formats::landblock::{CellLandblock, LandblockInfo};
 use glam::Mat4;
 
@@ -22,7 +24,15 @@ pub struct LandblockScene {
     pub cells: Vec<crate::interior::CellScene>,
 }
 
-pub fn load(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
+/// The assembled landblock, from [`Assets::landblock`]'s cache when it
+/// was loaded recently (the viewer's renderer and its collision world
+/// share one assembly this way).
+pub fn load(assets: &Assets, block_id: u32) -> Result<Rc<LandblockScene>> {
+    assets.landblock(block_id)
+}
+
+/// Assemble a landblock from the archives; [`load`] caches the result.
+pub(crate) fn build(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
     let block_id = block_id & 0xFFFF_0000;
     let region = assets.region()?;
     let lb_id = block_id | 0xFFFF;

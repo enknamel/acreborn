@@ -1,15 +1,15 @@
 //! Interior cells (EnvCell + Environment) as meshes.
 
-use std::collections::HashMap;
-
 use ac_formats::environment::CellStruct;
 use ac_formats::gfxobj::{CullMode, Polygon};
 use ac_formats::landblock::EnvCell;
 use ac_formats::surface::SurfaceBase;
-use glam::{Mat4, Vec2};
+use glam::Mat4;
 
-use crate::model::{frame_to_mat, place, MeshVertex, PlacedPart, SubMesh};
-use crate::{Assets, Error, Result};
+use crate::model::{
+    emit_polygon, frame_to_mat, place, PlacedPart, SubMesh, SubMeshes, VertexTable,
+};
+use crate::{Assets, Result};
 
 /// One interior cell ready to draw: its structure mesh (landblock-local
 /// transform applied on the caller's side) and its static objects.
@@ -28,67 +28,37 @@ pub struct CellScene {
 /// openings between cells) are skipped; surfaces come from the EnvCell's
 /// surface list, indexed by the polygon's surface slot.
 fn build_cell_mesh(assets: &Assets, cs: &CellStruct, surfaces: &[u32]) -> Result<Vec<SubMesh>> {
-    let verts: HashMap<u16, &ac_formats::gfxobj::Vertex> =
-        cs.vertices.iter().map(|(k, v)| (*k, v)).collect();
-    let mut by_surface: HashMap<u32, SubMesh> = HashMap::new();
+    let verts = VertexTable::new(&cs.vertices);
+    let mut by_surface = SubMeshes::new();
     let mut emit = |surface_idx: i16, vids: &[i16], uv_idx: &[u8], flip: bool| -> Result<()> {
         let surface_id = surfaces
             .get(surface_idx.max(0) as usize)
             .copied()
             .unwrap_or(0);
-        let sub = match by_surface.entry(surface_id) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => {
-                let (solid_color, translucency) = if surface_id != 0 {
-                    let s = assets.surface(surface_id)?;
-                    let color = match s.base {
-                        SurfaceBase::Solid { color } => Some(color),
-                        SurfaceBase::Image { .. } => None,
-                    };
-                    (color, s.translucency)
-                } else {
-                    (Some(0xFF80_8080), 0.0)
+        let sub = by_surface.get_or_insert(surface_id, || {
+            let (solid_color, translucency) = if surface_id != 0 {
+                let s = assets.surface(surface_id)?;
+                let color = match s.base {
+                    SurfaceBase::Solid { color } => Some(color),
+                    SurfaceBase::Image { .. } => None,
                 };
-                e.insert(SubMesh {
-                    surface_id,
-                    texture_override: None,
-                    palette: None,
-                    palette_hash: 0,
-                    solid_color,
-                    translucency,
-                    two_sided: false,
-                    vertices: Vec::new(),
-                    indices: Vec::new(),
-                })
-            }
-        };
-        let base = sub.vertices.len() as u32;
-        let mut n = 0u32;
-        for (i, &vid) in vids.iter().enumerate() {
-            let Some(v) = verts.get(&(vid as u16)) else {
-                continue;
-            };
-            let uv = uv_idx
-                .get(i)
-                .and_then(|&ui| v.uvs.get(ui as usize))
-                .map(|u| Vec2::new(u.u, u.v))
-                .unwrap_or(Vec2::ZERO);
-            sub.vertices.push(MeshVertex {
-                position: v.origin,
-                normal: if flip { -v.normal } else { v.normal },
-                uv,
-            });
-            n += 1;
-        }
-        for i in 1..n.saturating_sub(1) {
-            if flip {
-                sub.indices
-                    .extend_from_slice(&[base, base + i + 1, base + i]);
+                (color, s.translucency)
             } else {
-                sub.indices
-                    .extend_from_slice(&[base, base + i, base + i + 1]);
-            }
-        }
+                (Some(0xFF80_8080), 0.0)
+            };
+            Ok(SubMesh {
+                surface_id,
+                texture_override: None,
+                palette: None,
+                palette_hash: 0,
+                solid_color,
+                translucency,
+                two_sided: false,
+                vertices: Vec::new(),
+                indices: Vec::new(),
+            })
+        })?;
+        emit_polygon(sub, &verts, vids, uv_idx, flip);
         Ok(())
     };
     for (id, p) in &cs.polygons {
@@ -101,9 +71,7 @@ fn build_cell_mesh(assets: &Assets, cs: &CellStruct, surfaces: &[u32]) -> Result
             emit(p.neg_surface, &p.vertex_ids, &p.neg_uv_indices, true)?;
         }
     }
-    let mut v: Vec<SubMesh> = by_surface.into_values().collect();
-    v.sort_by_key(|s| s.surface_id);
-    Ok(v)
+    Ok(by_surface.finish())
 }
 
 /// Load all interior cells of a landblock (`0x100 .. 0x100 + num_cells`).
@@ -115,8 +83,6 @@ pub fn load_cells(
     origin: Mat4,
 ) -> Result<Vec<CellScene>> {
     let mut out = Vec::with_capacity(num_cells as usize);
-    let mut env_cache: HashMap<u32, std::rc::Rc<ac_formats::environment::Environment>> =
-        HashMap::new();
     for i in 0..num_cells {
         let cell_id = (block_id & 0xFFFF_0000) | (0x100 + i);
         let Ok(bytes) = assets.cell.read(cell_id) else {
@@ -129,22 +95,7 @@ pub fn load_cells(
                 continue;
             }
         };
-        let env = match env_cache.get(&cell.environment_id) {
-            Some(e) => e.clone(),
-            None => {
-                let b = assets.portal.read(cell.environment_id)?;
-                let e = std::rc::Rc::new(
-                    ac_formats::environment::Environment::parse(cell.environment_id, &b).map_err(
-                        |source| Error::Format {
-                            id: cell.environment_id,
-                            source,
-                        },
-                    )?,
-                );
-                env_cache.insert(cell.environment_id, e.clone());
-                e
-            }
-        };
+        let env = assets.environment(cell.environment_id)?;
         let Some((_, cs)) = env
             .cells
             .iter()
