@@ -9,6 +9,7 @@
 //!   buildings) as a list of placed models.
 
 pub mod anim;
+pub mod chargen;
 pub mod collision;
 pub mod interior;
 pub mod landblock;
@@ -23,8 +24,9 @@ use std::rc::Rc;
 
 use ac_dat::DatArchive;
 use ac_formats::{
-    gfxobj::GfxObj, palette::Palette, region::Region, scene::Scene, setup::Setup, surface::Surface,
-    surface_texture::SurfaceTexture, texture::Texture,
+    chargen::CharGen, gfxobj::GfxObj, palette::Palette, palette_set::PaletteSet, region::Region,
+    scene::Scene, setup::Setup, surface::Surface, surface_texture::SurfaceTexture,
+    texture::Texture,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -51,12 +53,14 @@ pub struct Assets {
     pub portal: DatArchive,
     pub cell: DatArchive,
     region: RefCell<Option<Rc<Region>>>,
+    chargen: RefCell<Option<Rc<CharGen>>>,
     gfxobjs: RefCell<HashMap<u32, Rc<GfxObj>>>,
     setups: RefCell<HashMap<u32, Rc<Setup>>>,
     surfaces: RefCell<HashMap<u32, Rc<Surface>>>,
     surface_textures: RefCell<HashMap<u32, Rc<SurfaceTexture>>>,
     textures: RefCell<HashMap<u32, Rc<Texture>>>,
     palettes: RefCell<HashMap<u32, Rc<Palette>>>,
+    palette_sets: RefCell<HashMap<u32, Rc<PaletteSet>>>,
     scenes: RefCell<HashMap<u32, Rc<Scene>>>,
 }
 
@@ -82,12 +86,14 @@ impl Assets {
             portal: DatArchive::open(d.join("client_portal.dat"))?,
             cell: DatArchive::open(d.join("client_cell_1.dat"))?,
             region: RefCell::new(None),
+            chargen: RefCell::new(None),
             gfxobjs: Default::default(),
             setups: Default::default(),
             surfaces: Default::default(),
             surface_textures: Default::default(),
             textures: Default::default(),
             palettes: Default::default(),
+            palette_sets: Default::default(),
             scenes: Default::default(),
         })
     }
@@ -98,6 +104,7 @@ impl Assets {
     cached!(surface_texture, surface_textures, SurfaceTexture, portal);
     cached!(texture, textures, Texture, portal);
     cached!(palette, palettes, Palette, portal);
+    cached!(palette_set, palette_sets, PaletteSet, portal);
     cached!(scene, scenes, Scene, portal);
 
     pub fn region(&self) -> Result<Rc<Region>> {
@@ -113,6 +120,22 @@ impl Assets {
         );
         *self.region.borrow_mut() = Some(r.clone());
         Ok(r)
+    }
+
+    /// The character-generation table (0x0E000002).
+    pub fn chargen(&self) -> Result<Rc<CharGen>> {
+        if let Some(c) = self.chargen.borrow().as_ref() {
+            return Ok(c.clone());
+        }
+        let bytes = self.portal.read(CharGen::ID)?;
+        let c = Rc::new(
+            CharGen::parse(CharGen::ID, &bytes).map_err(|source| Error::Format {
+                id: CharGen::ID,
+                source,
+            })?,
+        );
+        *self.chargen.borrow_mut() = Some(c.clone());
+        Ok(c)
     }
 
     /// Resolve a Surface's texture to RGBA. Follows Surface -> SurfaceTexture

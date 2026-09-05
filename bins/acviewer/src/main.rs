@@ -2,6 +2,7 @@
 //!
 //!   acviewer --landblock A9B4 [--radius 1]
 //!   acviewer --model 02000001
+//!   acviewer --chargen aluvian,m,3,0,0,0,0.5     # a dressed-up human head
 //!
 //! Controls: right mouse drag to look, WASD to move, Q/E down/up,
 //! Shift to go faster, Escape to quit.
@@ -41,6 +42,12 @@ struct Cli {
     /// Model (GfxObj 01xxxxxx or Setup 02xxxxxx) to show, hex
     #[arg(long)]
     model: Option<String>,
+    /// Dress the model as a new character from the CharGen table:
+    /// race,gender,hair,eyes,nose,mouth,skin[,hair_color,eye_color].
+    /// race = heritage name or id, gender = m/f, styles/colors are option
+    /// indices, skin is a 0..1 shade. Shows the race's Setup unless --model is given.
+    #[arg(long)]
+    chargen: Option<String>,
     /// Connect to an ACE server, log in, and view the world around the character
     #[arg(long)]
     connect: Option<String>,
@@ -907,9 +914,31 @@ impl App {
             return self.start_connect();
         }
         let assets = ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?;
-        let built = if let Some(m) = &self.cli.model {
-            let id = u32::from_str_radix(m.trim_start_matches("0x"), 16)?;
-            scene::build_model(&assets, id)?
+        let mut palettes = scene::Palettes::default();
+        let built = if self.cli.model.is_some() || self.cli.chargen.is_some() {
+            let model = match &self.cli.model {
+                Some(m) => Some(u32::from_str_radix(m.trim_start_matches("0x"), 16)?),
+                None => None,
+            };
+            let (id, app) = match &self.cli.chargen {
+                Some(spec) => {
+                    let look = parse_look(&assets, spec)?;
+                    let desc = ac_scene::chargen::describe(&assets, &look)?;
+                    tracing::info!(
+                        "chargen {look:?}: setup {:#010x}, {} part swaps, {} texture swaps, {} sub-palettes",
+                        desc.setup_id,
+                        desc.part_changes.len(),
+                        desc.texture_changes.len(),
+                        desc.sub_palettes.len()
+                    );
+                    (model.unwrap_or(desc.setup_id), desc.appearance(&assets))
+                }
+                None => (model.unwrap(), ac_scene::model::Appearance::default()),
+            };
+            if let Some(p) = &app.palette {
+                palettes.insert(app.palette_hash, p.clone());
+            }
+            scene::build_model_with(&assets, id, &app)?
         } else {
             let lb = self.cli.landblock.as_deref().unwrap_or("A9B4");
             let id = u32::from_str_radix(lb.trim_start_matches("0x"), 16)? << 16;
@@ -922,7 +951,6 @@ impl App {
             built.center,
             built.radius
         );
-        let palettes = scene::Palettes::default();
         gpu.set_scene(built.batches, |k| {
             scene::material_image(&assets, k, &palettes)
         });
@@ -1149,6 +1177,50 @@ impl ApplicationHandler for App {
             _ => {}
         }
     }
+}
+
+/// Parse `--chargen race,gender,hair,eyes,nose,mouth,skin[,hair_color,eye_color]`.
+fn parse_look(assets: &ac_scene::Assets, spec: &str) -> Result<ac_scene::chargen::Look> {
+    let f: Vec<&str> = spec.split(',').map(str::trim).collect();
+    anyhow::ensure!(
+        (7..=9).contains(&f.len()),
+        "--chargen wants race,gender,hair,eyes,nose,mouth,skin[,hair_color,eye_color]"
+    );
+    let cg = assets.chargen()?;
+    let heritage = ac_scene::chargen::heritage_id(&cg, f[0])
+        .with_context(|| format!("unknown race {:?}", f[0]))?;
+    let gender = match f[1].to_ascii_lowercase().as_str() {
+        "m" | "male" | "1" => 1,
+        "f" | "female" | "2" => 2,
+        g => anyhow::bail!("gender {g:?}: want m or f"),
+    };
+    let idx = |s: &str, what: &str| -> Result<usize> {
+        s.parse()
+            .with_context(|| format!("{what} {s:?}: want an index"))
+    };
+    let skin: f32 = f[6]
+        .parse()
+        .with_context(|| format!("skin {:?}: want 0..1", f[6]))?;
+    Ok(ac_scene::chargen::Look {
+        heritage,
+        gender,
+        hair_style: idx(f[2], "hair")?,
+        eyes: idx(f[3], "eyes")?,
+        nose: idx(f[4], "nose")?,
+        mouth: idx(f[5], "mouth")?,
+        skin_shade: skin,
+        hair_color: f
+            .get(7)
+            .map(|s| idx(s, "hair_color"))
+            .transpose()?
+            .unwrap_or(0),
+        eye_color: f
+            .get(8)
+            .map(|s| idx(s, "eye_color"))
+            .transpose()?
+            .unwrap_or(0),
+        ..Default::default()
+    })
 }
 
 fn main() -> Result<()> {

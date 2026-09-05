@@ -15,6 +15,7 @@ pub mod gfxobj;
 pub mod landblock;
 pub mod motion_table;
 pub mod palette;
+pub mod palette_set;
 pub mod region;
 pub mod scene;
 pub mod setup;
