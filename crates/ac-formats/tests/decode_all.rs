@@ -235,3 +235,81 @@ fn motion_tables() {
         motion_table::MotionTable::parse(id, b).map(|_| ())
     });
 }
+
+#[test]
+fn waves() {
+    check(FileKind::Wave, |id, b| wave::Wave::parse(id, b).map(|_| ()));
+}
+
+#[test]
+fn sound_tables() {
+    check(FileKind::SoundTable, |id, b| {
+        sound_table::SoundTable::parse(id, b).map(|_| ())
+    });
+}
+
+/// Every wave must be a format the audio layer knows how to play, and its
+/// RIFF form must be self-consistent.
+#[test]
+fn wave_formats() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    let mut tags = std::collections::BTreeMap::new();
+    for e in dat.entries().filter(|e| dat.kind(e.id) == FileKind::Wave) {
+        let w = wave::Wave::parse(e.id, &dat.read(e.id).unwrap()).unwrap();
+        let f = &w.format;
+        *tags
+            .entry((f.format_tag, f.channels, f.bits_per_sample, f.extra.len()))
+            .or_insert(0usize) += 1;
+        assert!(
+            w.is_pcm() || w.is_mp3(),
+            "{:08X}: unexpected format tag {:#x}",
+            e.id,
+            f.format_tag
+        );
+        let riff = w.to_riff();
+        assert_eq!(&riff[0..4], b"RIFF", "{:08X}", e.id);
+        assert_eq!(
+            u32::from_le_bytes(riff[4..8].try_into().unwrap()) as usize + 8,
+            riff.len(),
+            "{:08X}",
+            e.id
+        );
+    }
+    eprintln!("wave (tag, channels, bits, extra): {tags:?}");
+}
+
+/// The human sound table (weenie DID 0x20000001; the Setup 0x02000001
+/// leaves `default_sound_table` at 0) resolves the common combat and
+/// movement sound types to existing waves.
+#[test]
+fn human_sound_table_resolves() {
+    let Some(dat) = archive("client_portal.dat") else {
+        return;
+    };
+    let setup = setup::Setup::parse(0x0200_0001, &dat.read(0x0200_0001).unwrap()).unwrap();
+    let table_id = if setup.default_sound_table != 0 {
+        setup.default_sound_table
+    } else {
+        0x2000_0001
+    };
+    let t = sound_table::SoundTable::parse(table_id, &dat.read(table_id).unwrap()).unwrap();
+    eprintln!(
+        "sound table {table_id:08X}: {} types: {:?}",
+        t.sounds.len(),
+        t.sound_types().collect::<Vec<_>>()
+    );
+    // Sound::Attack1 = 3, Sound::Wound1 = 0x0C, Sound::Death1 = 0x0F (the
+    // client's Sound enum). Footsteps come from the terrain, not this table.
+    for sound_type in [3u32, 0x0C, 0x0F] {
+        let d = t
+            .get(sound_type)
+            .unwrap_or_else(|| panic!("sound type {sound_type} missing"));
+        assert!(!d.entries.is_empty());
+        for e in &d.entries {
+            assert_eq!(dat.kind(e.wave_id), FileKind::Wave, "{:08X}", e.wave_id);
+            assert!(e.probability > 0.0 && e.probability <= 1.0);
+        }
+    }
+}

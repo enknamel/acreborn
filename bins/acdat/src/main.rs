@@ -39,6 +39,8 @@ enum Cmd {
     },
     /// Decode one file with ac-formats and print it as JSON
     Decode { id: String },
+    /// Write a Wave (0x0A) file as a standard RIFF .wav
+    Wav { id: String, out: PathBuf },
     /// Emit a manifest: id, offset, size, iteration, sha256 (for golden diffs)
     Manifest,
     /// Compare the archive against a manifest produced by `manifest` or AceDump
@@ -70,6 +72,8 @@ fn decode_json(kind: FileKind, id: u32, b: &[u8]) -> Result<serde_json::Value> {
         FileKind::LandBlock => serde_json::to_value(landblock::CellLandblock::parse(id, b)?)?,
         FileKind::LandBlockInfo => serde_json::to_value(landblock::LandblockInfo::parse(id, b)?)?,
         FileKind::EnvCell => serde_json::to_value(landblock::EnvCell::parse(id, b)?)?,
+        FileKind::Wave => serde_json::to_value(wave::Wave::parse(id, b)?)?,
+        FileKind::SoundTable => serde_json::to_value(sound_table::SoundTable::parse(id, b)?)?,
         other => bail!("no decoder for {other:?} yet"),
     };
     Ok(v)
@@ -164,6 +168,32 @@ fn main() -> Result<()> {
             let json = decode_json(dat.kind(id), id, &bytes)?;
             serde_json::to_writer_pretty(&mut out, &json)?;
             writeln!(out)?;
+        }
+        Cmd::Wav { id, out: path } => {
+            let id = parse_id(&id)?;
+            if dat.kind(id) != FileKind::Wave {
+                bail!("{id:08X} is {:?}, not a Wave", dat.kind(id));
+            }
+            let wave = ac_formats::wave::Wave::parse(id, &dat.read(id)?)?;
+            let mut f = std::io::BufWriter::new(
+                std::fs::File::create(&path)
+                    .with_context(|| format!("creating {}", path.display()))?,
+            );
+            wave.write_riff(&mut f)?;
+            f.flush()?;
+            let fmt = &wave.format;
+            writeln!(
+                out,
+                "{id:08X}: {} tag {:#x}, {} ch, {} Hz, {} bit, {} bytes, {:.2}s -> {}",
+                if wave.is_mp3() { "mp3" } else { "pcm" },
+                fmt.format_tag,
+                fmt.channels,
+                fmt.samples_per_sec,
+                fmt.bits_per_sample,
+                wave.data.len(),
+                wave.duration_secs(),
+                path.display()
+            )?;
         }
         Cmd::Manifest => {
             writeln!(out, "id\toffset\tsize\titeration\tsha256")?;

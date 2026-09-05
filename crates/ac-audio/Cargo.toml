@@ -1,0 +1,14 @@
+[package]
+name = "ac-audio"
+description = "Sound playback for decoded Wave assets on top of kira"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-formats = { path = "../ac-formats" }
+kira = { version = "0.12", default-features = false, features = ["cpal", "mp3"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+ac-dat = { path = "../ac-dat" }
