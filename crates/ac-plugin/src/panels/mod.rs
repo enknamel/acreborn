@@ -1,7 +1,7 @@
 //! The client's built-in panels, each a [`Plugin`]: vitals, radar, target
-//! bar, inventory, loot, vendor, skills and spellbook. They double as
-//! examples of a UI plugin and can be replaced by registering something
-//! else in their place.
+//! bar, inventory, loot, vendor, skills, spellbook, spell bar, components
+//! and buffs. They double as examples of a UI plugin and can be replaced
+//! by registering something else in their place.
 //!
 //! Every panel follows the same shape:
 //!
@@ -12,17 +12,21 @@
 //!   the person clicked (guids to take, buy, cast...);
 //! * the `Plugin` impl: `ui` builds the view, draws it, and turns the
 //!   clicks into `Client` calls (`interact`, `take`, `buy`, `cast`...);
-//!   `key` handles the panel's toggle (I inventory, K skills, P spellbook).
+//!   `key` handles the panel's toggle (I inventory, K skills, P spellbook,
+//!   B spell bar, O components, U buffs).
 //!
 //! A panel's data comes from a [`Source`]: `Live` reads the session, `Demo`
 //! holds a canned view for the offline `--demo-ui` screenshot (clicks are
 //! dropped, there is no session to send them to). [`demo`] builds the demo
 //! set; [`live`] the real one.
 
+pub mod buffs;
+pub mod components;
 pub mod inventory;
 pub mod loot;
 pub mod radar;
 pub mod skills;
+pub mod spellbar;
 pub mod spellbook;
 pub mod target;
 pub mod vendor;
@@ -48,6 +52,25 @@ impl<T> Source<T> {
             Source::Live => None,
             Source::Demo(d) => Some(d),
         }
+    }
+}
+
+/// A spell being dragged from the spellbook onto a spell bar or one of
+/// its tabs (an egui drag-and-drop payload).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpellDrag(pub u32);
+
+/// `5400` -> `1h 30m`, `754` -> `12m 34s`, `45` -> `45s`. Negative
+/// values read as zero.
+pub fn fmt_seconds(secs: f64) -> String {
+    let total = secs.max(0.0).round() as u64;
+    let (h, m, s) = (total / 3600, total / 60 % 60, total % 60);
+    if h > 0 {
+        format!("{h}h {m:02}m")
+    } else if m > 0 {
+        format!("{m}m {s:02}s")
+    } else {
+        format!("{s}s")
     }
 }
 
@@ -170,6 +193,9 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(inventory::Inventory::default()),
         Box::new(skills::Skills::default()),
         Box::new(spellbook::Spellbook::default()),
+        Box::new(spellbar::SpellBar::default()),
+        Box::new(components::Components::default()),
+        Box::new(buffs::Buffs::default()),
     ]
 }
 
@@ -189,6 +215,11 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         Box::new(spellbook::Spellbook::demo(
             tables.as_ref().map(|(t, c)| (&**t, &**c)),
         )),
+        Box::new(spellbar::SpellBar::demo(tables.as_ref().map(|(t, _)| &**t))),
+        Box::new(components::Components::demo(
+            tables.as_ref().map(|(_, c)| &**c),
+        )),
+        Box::new(buffs::Buffs::demo(tables.as_ref().map(|(t, _)| &**t))),
     ]
 }
 
@@ -201,6 +232,15 @@ mod tests {
         assert_eq!(item_label("Pyreal", 12), "Pyreal (12)");
         assert_eq!(item_label("Dagger", 1), "Dagger");
         assert_eq!(item_label("Dagger", 0), "Dagger");
+    }
+
+    #[test]
+    fn seconds_format() {
+        assert_eq!(fmt_seconds(45.0), "45s");
+        assert_eq!(fmt_seconds(754.0), "12m 34s");
+        assert_eq!(fmt_seconds(5400.0), "1h 30m");
+        assert_eq!(fmt_seconds(-3.0), "0s");
+        assert_eq!(fmt_seconds(0.4), "0s");
     }
 
     #[test]

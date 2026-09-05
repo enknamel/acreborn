@@ -157,6 +157,9 @@ Vec<u32>` (known spell ids), `enchantments`, `inventory`, `wielded`,
 | `toggle_combat()` | Melee mode on/off (`combat`); leaving it clears the attack target. |
 | `attack(guid)` | One TargetedMeleeAttack and set `attack_target`; `tick_combat` re-swings until the target dies. Needs `combat`. |
 | `cast(spell_id)` | Enter magic mode if needed, then cast: self-targeted spells untargeted, others at `selected` (or ourselves). |
+| `known_spell_ids()`, `spell(id)`, `spellbook_filters()`, `set_spellbook_filters(bits)`, `forget_spell(id)` | The spellbook (`ac_client::magic`). |
+| `spell_bars()`, `add_to_spell_bar(bar, pos, id)`, `remove_from_spell_bar(bar, id)` | The eight server-persisted spell bars. |
+| `enchantments()`, `components()`, `has_focus(school)`, `current_formula(id)`, `can_cast(id)`, `set_desired_component(id, n)`, `fill_components()` | Buffs, components and the cast pre-check. |
 | `take(guid)` | Queue an item of the open container for pickup. |
 | `close_container()` | Stop viewing the open container. |
 | `buy(guid)`, `sell(guid)`, `close_vendor()` | Trade with `world.open_vendor`. |
@@ -201,8 +204,8 @@ pub use ac_plugin::{console, panels};
 pub fn builtin() -> Host {
     let mut host = Host::new();
     for p in panels::live() {          // vitals, radar, target, vendor, loot,
-        host.register(p);              // inventory, skills, spellbook
-    }
+        host.register(p);              // inventory, skills, spellbook,
+    }                                  // spellbar, components, buffs
     host.register(Box::new(console::Console::default()));
     host.register(Box::new(autoheal::AutoHeal::default()));
     host
@@ -211,7 +214,8 @@ pub fn builtin() -> Host {
 
 Order matters for `key` and `command` (first to return `true` wins), so
 put plugins that claim generic keys last; the panels go first so they draw
-under everything else and own I, K and P. Any binary that drives sessions
+under everything else and own I, K, P, B, O, U and (while the spell bar is
+visible) `1`..`9`, Insert, Delete, PageUp and PageDown. Any binary that drives sessions
 can host plugins the same way: `Host::new()`, `register`, then
 `frame`/`ui`/`key`/`command`/`end_frame` (see `crates/ac-plugin/src/host.rs`).
 
@@ -219,8 +223,9 @@ can host plugins the same way: `Host::new()`, `register`, then
 
 `crates/ac-plugin/src/panels/` holds the client's own overlay, one plugin
 per file: `vitals`, `radar`, `target`, `inventory` (I), `loot`, `vendor`,
-`skills` (K), `spellbook` (P). Each has the same three parts, so any of
-them is a template for a UI plugin:
+`skills` (K), `spellbook` (P), `spellbar` (B), `components` (O), `buffs`
+(U). Each has the same three parts, so any of them is a template for a UI
+plugin:
 
 * `view(&Client) -> View`: a plain struct of what to draw, built from the
   session each frame (`world.stats`, `inventory()`, `open_container`,
@@ -238,7 +243,41 @@ constructors feed `acviewer --screenshot --demo-ui`, which registers
 no server; `Ctx::try_client()` is `None` there. To replace a panel,
 register your own plugin instead of it in `builtin()`; the skills panel
 publishes whether it is open on the blackboard (`panels::skills::OPEN_KEY`)
-so the spellbook can sit beside it, a small example of panels talking.
+so the spellbook can sit beside it, a small example of panels talking. The
+spellbook and spell bar do the same (`panels::spellbook::OPEN_KEY`,
+`panels::spellbar::{SHOWN_KEY, VISIBLE_KEY}`).
+
+The magic panels follow `docs/game/mechanics.md` (section 1) and build on
+`ac_client::magic`:
+
+* **spellbook** (P): known spells (`known_spell_ids`, `spell`) in display
+  order, filtered by the server-side bits (`spellbook_filters`,
+  `set_spellbook_filters`) with one toggle per school and level.
+  Double-click or drag a spell onto the spell bar or one of its tabs to add
+  it (`add_to_spell_bar`); right-click or `i` for details (school, level,
+  mana, duration, description, the current formula from `current_formula`
+  with each component's presence, Cast, and Delete with confirmation →
+  `forget_spell`).
+* **spellbar** (B; also shown while the spellbook is open or `client.magic`
+  is set): the eight tabs from `spell_bars`. `1`..`9` cast the nth spell of
+  the shown tab; PageUp / Insert show the next / previous tab, PageDown /
+  Delete select the next / previous spell, Ctrl jumps to the last / first;
+  Shift+Delete or Remove takes the selected spell off (`remove_from_spell_bar`);
+  click selects, double-click or Cast casts (`cast`). Hovering shows
+  `can_cast`'s verdict (no caster, missing components by name, mana); such
+  spells are dimmed but still castable, the server has the last word.
+  `/bar` lists the tabs, `/bar N` shows tab N, `/bar add NAME [N]` and
+  `/bar remove NAME [N]` edit them by spell name (prefixes work).
+* **components** (O): `components()` grouped by kind with the count and an
+  editable desired quantity 0..999 (`set_desired_component`), the foci
+  carried per school (`has_focus`), and "Fill from vendor"
+  (`fill_components`, enabled while `world.open_vendor` is set).
+* **buffs** (U, on by default): `enchantments()` split into beneficial and
+  harmful by the SpellTable flag, soonest to expire first, vitae as
+  "Vitae -N%". Time left is `duration + start_time - elapsed`: ACE sends
+  `start_time` as the non-positive seconds the spell has already run, so
+  the panel anchors each value to the local clock when it first sees it
+  and needs no server time base.
 
 ## Worked example: auto-heal
 

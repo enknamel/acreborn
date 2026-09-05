@@ -70,8 +70,10 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # slowly, Enter opens the chat box (server commands start with @), left click
 # selects and appraises an object, double-click uses it (doors, NPCs), picks
 # it up (ground items) or puts it on / takes it off (in the inventory panel,
-# toggled with I; K shows the skills panel, P the spellbook, where a
-# double-click casts). C toggles melee combat:
+# toggled with I; K shows the skills panel, P the spellbook, B the spell bar
+# (1..9 cast its spells, Insert/PageUp cycle tabs, Delete/PageDown spells),
+# O the components panel, U the buffs; /bar edits the spell bar). C toggles
+# melee combat:
 # double-click a creature to attack it until it dies; double-click its corpse
 # to loot (Take all / Close). Space jumps. Sounds play unless --mute.
 # Chat lines starting with / are plugin commands (/help lists them: /use,
