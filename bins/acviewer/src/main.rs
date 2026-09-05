@@ -83,6 +83,10 @@ struct Cli {
     /// Connected headless mode: jump once after placement.
     #[arg(long)]
     jump: bool,
+    /// Connected headless mode: also write `<screenshot>.mid.png` this many
+    /// seconds after placement (mid-action captures).
+    #[arg(long)]
+    snap_at: Option<f32>,
     /// Connected headless mode: open the corpse of the attacked creature (or
     /// the container named here) and take everything.
     #[arg(long, num_args = 0..=1, default_missing_value = "")]
@@ -1704,6 +1708,40 @@ fn main() -> Result<()> {
                             ui.outgoing.push(app.cli.say[said].clone());
                         }
                         said += 1;
+                    }
+                    if let Some(at) = app.cli.snap_at {
+                        if t > at {
+                            app.cli.snap_at = None;
+                            app.refresh_status();
+                            let (w, h) = gpu.size();
+                            if let Some(ui) = app.ui.as_mut() {
+                                ui.begin(None, gpu.device(), gpu.queue(), w, h);
+                                ui.begin(None, gpu.device(), gpu.queue(), w, h);
+                            }
+                            let vp = app.camera.view_proj(gpu.aspect());
+                            let mid = path.with_extension("mid.png");
+                            let mut ui = app.ui.take();
+                            let mut paint =
+                                |d: &wgpu::Device,
+                                 q: &wgpu::Queue,
+                                 e: &mut wgpu::CommandEncoder,
+                                 v: &wgpu::TextureView| {
+                                    if let Some(ui) = ui.as_mut() {
+                                        ui.paint(d, q, e, v);
+                                    }
+                                };
+                            if let Err(e) = gpu.render_to_png(
+                                vp,
+                                Vec3::new(0.4, 0.3, 1.0),
+                                &mid,
+                                Some(&mut paint),
+                            ) {
+                                tracing::warn!("mid screenshot: {e:#}");
+                            } else {
+                                tracing::info!("wrote {}", mid.display());
+                            }
+                            app.ui = ui;
+                        }
                     }
                     if app.cli.jump && t > 1.5 {
                         app.cli.jump = false;
