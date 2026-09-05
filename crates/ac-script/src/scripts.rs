@@ -707,11 +707,13 @@ mod tests {
             from: 1,
             topic: "assist".into(),
             value: serde_json::json!({"guid": 5, "name": "Rat"}),
+            origin: None,
         });
         rec.inbox.push(Message {
             from: 1,
             topic: "other".into(),
             value: Value::Null,
+            origin: None,
         });
         {
             let _bound = Bound::new(&mut rec);
@@ -839,6 +841,7 @@ mod tests {
             from: 0,
             topic: "assist".into(),
             value: rec.posted[0].1.clone(),
+            origin: None,
         });
         rec.me.insert("target".into(), Dynamic::UNIT);
         rec.session = 1;

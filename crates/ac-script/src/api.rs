@@ -152,6 +152,9 @@ fn from_value(v: Value) -> Dynamic {
 fn message_map(m: &Message) -> Map {
     let mut map = Map::new();
     map.insert("from".into(), Dynamic::from(m.from as i64));
+    if let Some(origin) = &m.origin {
+        map.insert("origin".into(), origin.clone().into());
+    }
     map.insert("topic".into(), m.topic.clone().into());
     map.insert("value".into(), from_value(m.value.clone()));
     map

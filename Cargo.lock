@@ -29,6 +29,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-bus"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "ac-client"
 version = "0.1.0"
 dependencies = [
@@ -73,6 +82,7 @@ dependencies = [
 name = "ac-plugin"
 version = "0.1.0"
 dependencies = [
+ "ac-bus",
  "ac-client",
  "ac-scene",
  "ac-world",

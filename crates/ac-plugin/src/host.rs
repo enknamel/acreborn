@@ -4,7 +4,7 @@
 
 use std::time::Instant;
 
-use crate::{Blackboard, Client, Ctx, Event, Plugin};
+use crate::{Blackboard, BusClient, Client, Ctx, Event, Plugin};
 
 pub struct Host {
     plugins: Vec<Box<dyn Plugin>>,
@@ -70,6 +70,29 @@ impl Host {
     /// Once all sessions ran this frame: rotate the bus.
     pub fn end_frame(&mut self) {
         self.board.end_frame();
+    }
+
+    /// Link the blackboard to the cross-process bus: this frame's posts
+    /// go out tagged `from: name`, other processes' posts come in as
+    /// messages from [`crate::REMOTE`], and values are shared.
+    pub fn attach_bus(&mut self, client: BusClient, name: String) {
+        tracing::info!(
+            addr = client.addr(),
+            name,
+            hosting = client.is_hosting(),
+            "bus attached"
+        );
+        self.board.attach_bus(client, name);
+    }
+
+    /// [`attach_bus`](Self::attach_bus) with a client that joins the hub
+    /// at `addr` (`HOST:PORT`, a bare port, or empty for the default) or
+    /// becomes it when none listens.
+    pub fn join_bus(&mut self, addr: Option<&str>, name: &str) -> std::io::Result<()> {
+        let addr = ac_bus::resolve_addr(addr);
+        let client = BusClient::connect_or_host(&addr, name)?;
+        self.attach_bus(client, name.to_string());
+        Ok(())
     }
 
     pub fn ui(

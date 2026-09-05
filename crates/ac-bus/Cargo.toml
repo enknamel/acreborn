@@ -1,0 +1,11 @@
+[package]
+name = "ac-bus"
+description = "Local cross-process message bus: line-based JSON over loopback TCP, auto-hosted by the first process"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
