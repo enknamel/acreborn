@@ -5,7 +5,8 @@ pub use ac_plugin::{console, panels, party};
 pub use ac_plugin::{Host, Requests};
 
 /// The built-in plugins. Add yours here (or load them at runtime later).
-/// The panels go first so they draw under, and take their keys (I, K, P)
+/// The panels go first so they draw under, and take their keys (I, K, P,
+/// B, O, U, the spell bar's number and cycling keys)
 /// before, anything registered after them.
 pub fn builtin() -> Host {
     let mut host = Host::new();
