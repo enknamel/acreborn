@@ -9,6 +9,8 @@ pub mod opcode {
     pub const CHARACTER_ENTER_WORLD: u32 = 0xF657;
     pub const CHARACTER_LIST: u32 = 0xF658;
     pub const CHARACTER_ERROR: u32 = 0xF659;
+    pub const CHARACTER_DELETE: u32 = 0xF655;
+    pub const CHARACTER_RESTORE: u32 = 0xF7D9;
     pub const OBJECT_CREATE: u32 = 0xF745;
     pub const PLAYER_CREATE: u32 = 0xF746;
     pub const OBJECT_DELETE: u32 = 0xF747;

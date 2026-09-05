@@ -2,6 +2,7 @@
 //! our character, and the gameplay commands a UI or a script can issue.
 //! Nothing here renders; several `Client`s can live in one process.
 
+pub mod creation;
 pub mod magic;
 pub mod player;
 pub mod route;
