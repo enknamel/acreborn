@@ -72,10 +72,14 @@ shared and what is per session:
 * **Shared per process**: `Rc<ac_scene::Assets>` (the DAT mmaps and every
   decoded asset cache), the `ac_audio::Audio` device (it is `Clone`), the
   `plugins::Host` with its `Blackboard`, the window, the wgpu device.
+* **Shared per process, scene side**: the viewer's `mesh_cache`,
+  `gpu_meshes`, `palettes`, motion `tables`, particle `fx` and
+  `loaded_blocks` live on the `App`, so sessions in the same place share
+  one copy of its meshes and materials.
 * **Per session** (`acviewer`'s `Net`): the `ac_client::Client` (socket,
-  `Session`, `World`, `Player`, combat and loot state), plus the GPU-side
-  caches for what that session has seen: `loaded_blocks`, `mesh_cache`,
-  `gpu_meshes`, `palettes`, `anims`, `tables`, `fx`.
+  `Session`, `World`, `Player` with its collision and navigation graphs,
+  combat, loot and route state), plus the animation and picking state of
+  the objects it sees (`anims`, `pickables`).
 * **Drawn**: only the active session (`App::active`). Keys steer it, its
   chat and sounds reach the overlay, landblocks stream around its
   character. Every other session still ticks its network, physics and
