@@ -561,7 +561,7 @@ mod tests {
         pack_item(&mut c, 0x8000_0011, 691, 2);
         pack_item(&mut c, 0x8000_0012, mapper.component_wcid(7).unwrap(), 1);
         pack_item(&mut c, 0x8000_0013, 12345, 1); // not a component
-        // Desired quantities are keyed by weenie class, as on the wire.
+                                                  // Desired quantities are keyed by weenie class, as on the wire.
         c.world.stats.options.desired_comps = vec![(691, 10), (20631, 4), (774, 0)];
         let comps = c.components();
         let by_id = |id: u32| comps.iter().find(|x| x.component_id == id).cloned();
