@@ -786,6 +786,14 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   shows portal space (a short tunnel effect, `Portal_Space`) before the
   new landblock. Some have level or quest restrictions ("You are not
   powerful enough to use this portal").
+* **Dungeons have no outside.** Every collision triangle of a dungeon
+  block carries its cell id, including the objects placed in cells and
+  the block-level ones (portals, grates), and while the character stands
+  in a dungeon cell an untagged floor keeps the current cell and the
+  terrain never catches a fall. Before this, standing on a door sill or a
+  staircase (untagged geometry) re-homed the character to the outdoor
+  cell under the dungeon and ACE refused every move afterwards
+  ("movement pre-validation failed from 012F010C ... to 012E0009").
 * **Map coordinates**: the game's "42.1N, 33.6E" is the world position
   (landblock × 192 m + local) divided by 240 minus 102 on both axes,
   north and east positive, a twentieth taken off before rounding to a

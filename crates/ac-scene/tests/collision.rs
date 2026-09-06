@@ -209,3 +209,27 @@ fn ceilings_block_walking_and_jumping() {
         Vertical::Free(Vec3::new(0.0, 0.0, 1.0))
     );
 }
+
+/// Objects placed inside dungeon cells (doors, chests, stairs) must carry
+/// their cell id: a cell-0 floor inside a dungeon used to re-home the
+/// character to an outdoor cell under it.
+#[test]
+fn dungeon_geometry_is_all_tagged_with_cells() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(dir).unwrap();
+    // The sewer dungeon where the fall-through was seen, and the Academy.
+    for block in [0x012F_0000u32, 0x8602_0000] {
+        let scene = landblock::load(&assets, block).unwrap();
+        assert!(scene.is_dungeon, "{block:#010x} should be a dungeon");
+        let w = CollisionWorld::from_scene(&assets, &scene).unwrap();
+        let untagged = w.tris.iter().filter(|t| t.cell == 0).count();
+        assert_eq!(
+            untagged,
+            0,
+            "{block:#010x}: {untagged} of {} tris have no cell",
+            w.tris.len()
+        );
+    }
+}

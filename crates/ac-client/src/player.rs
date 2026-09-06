@@ -373,6 +373,14 @@ impl Player {
 
     /// Collision world for a landblock, built from the assembled scene on
     /// first use (this loads the block's models once, ~0.5 s).
+    /// Whether the block we stand in is a dungeon: there is no terrain
+    /// under it to fall onto, and no cell-0 floor can take us outside.
+    fn in_dungeon(&mut self, assets: &Assets) -> bool {
+        let blk = self.landblock();
+        self.collision(assets, blk);
+        self.blocks.get(&blk).map(|b| b.dungeon).unwrap_or(false)
+    }
+
     fn collision(&mut self, assets: &Assets, block_id: u32) -> Option<&CollisionWorld> {
         let block_id = block_id & 0xFFFF_0000;
         self.block(assets, block_id)?;
@@ -584,6 +592,7 @@ impl Player {
         }
         let cap = self.capsule;
         let indoors = self.is_indoors();
+        let dungeon = indoors && self.in_dungeon(assets);
         let mut world = target;
         if !self.airborne {
             // Walking: walls push, ledges up to step_up are climbed, drops
@@ -618,6 +627,14 @@ impl Player {
                 Some((z, cell)) if cell != 0 => {
                     // Standing on an interior cell's floor: that cell owns us.
                     world.z = z;
+                    self.place(world, cell);
+                }
+                Some((z, _)) if dungeon => {
+                    // Untagged geometry inside a dungeon (a placed object
+                    // without a cell): stand on it but stay in our cell; a
+                    // dungeon has no outside to walk into.
+                    world.z = z;
+                    let cell = self.cell;
                     self.place(world, cell);
                 }
                 Some((z, _)) if !indoors || z > old.z - 0.5 => {
@@ -695,7 +712,7 @@ impl Player {
             }
             // Terrain catches us outdoors (or when the floor we would land
             // on is outdoor geometry below the ground).
-            if dz < 0.0 && (!indoors || landed.map(|(_, c)| c == 0).unwrap_or(false)) {
+            if dz < 0.0 && !dungeon && (!indoors || landed.map(|(_, c)| c == 0).unwrap_or(false)) {
                 if let Some(t) = self.terrain_at(assets, world) {
                     let above_landing = landed.map(|(l, _)| t > l.z).unwrap_or(true);
                     if t >= world.z + dz && above_landing {
@@ -707,6 +724,12 @@ impl Player {
                 world = p;
                 self.airborne = false;
                 self.vz = 0.0;
+                // Landing on untagged geometry in a dungeon keeps our cell.
+                let cell = if cell == 0 && dungeon {
+                    self.cell
+                } else {
+                    cell
+                };
                 self.place(world, cell);
             } else {
                 if let Some(p) = ceiling {

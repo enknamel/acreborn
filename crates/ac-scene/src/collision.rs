@@ -169,11 +169,15 @@ impl CollisionWorld {
         }
     }
 
-    fn add_gfxobj(&mut self, g: &GfxObj, t: Mat4) {
+    /// Add a placed object's geometry; `cell` is the interior cell it
+    /// stands in (0 outdoors), so that standing on a door sill, a
+    /// staircase or a chest inside a dungeon still counts as being in
+    /// that cell.
+    fn add_gfxobj(&mut self, g: &GfxObj, t: Mat4, cell: u32) {
         if !g.physics_polygons.is_empty() {
-            self.add_polys(&g.vertices, &g.physics_polygons, t, 0);
+            self.add_polys(&g.vertices, &g.physics_polygons, t, cell);
         } else {
-            self.add_polys(&g.vertices, &g.polygons, t, 0);
+            self.add_polys(&g.vertices, &g.polygons, t, cell);
         }
     }
 
@@ -181,9 +185,12 @@ impl CollisionWorld {
     /// statics, scenery) and interior cells.
     pub fn from_scene(assets: &Assets, scene: &LandblockScene) -> Result<Self> {
         let mut w = CollisionWorld::default();
-        for part in &scene.parts {
-            if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
-                w.add_gfxobj(&g, part.transform);
+        let cells_first = scene.is_dungeon;
+        if !cells_first {
+            for part in &scene.parts {
+                if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
+                    w.add_gfxobj(&g, part.transform, 0);
+                }
             }
         }
         for cell in &scene.cells {
@@ -204,8 +211,37 @@ impl CollisionWorld {
             }
             for part in &cell.parts {
                 if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
-                    w.add_gfxobj(&g, part.transform);
+                    w.add_gfxobj(&g, part.transform, cell.cell_id);
                 }
+            }
+        }
+        if cells_first {
+            // A dungeon's block-level objects (portals, grates, statues)
+            // also stand inside cells: tag them with the cell whose floor
+            // is under them, else the nearest cell, so nothing in a
+            // dungeon reads as outdoor geometry.
+            for part in &scene.parts {
+                let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
+                    continue;
+                };
+                let origin = part.transform.w_axis.truncate();
+                let cell = w
+                    .floor_at(origin + Vec3::new(0.0, 0.0, 0.5), 5.0, 50.0)
+                    .map(|(_, c)| c)
+                    .filter(|&c| c != 0)
+                    .or_else(|| {
+                        scene
+                            .cells
+                            .iter()
+                            .min_by(|a, b| {
+                                let da = (a.transform.w_axis.truncate() - origin).length();
+                                let db = (b.transform.w_axis.truncate() - origin).length();
+                                da.total_cmp(&db)
+                            })
+                            .map(|c| c.cell_id)
+                    })
+                    .unwrap_or(0);
+                w.add_gfxobj(&g, part.transform, cell);
             }
         }
         Ok(w)
@@ -577,7 +613,7 @@ pub fn from_model(assets: &Assets, model_id: u32, world: Mat4) -> Result<Collisi
     let mut w = CollisionWorld::default();
     for part in place(assets, model_id, world)? {
         if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
-            w.add_gfxobj(&g, part.transform);
+            w.add_gfxobj(&g, part.transform, 0);
         }
     }
     Ok(w)
