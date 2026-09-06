@@ -1018,9 +1018,14 @@ pub fn object_instances(
     for o in world.drawable().filter(|o| !o.is_player) {
         let Some(t) = o.transform() else { continue };
         let (app, key) = appearance_of(assets, o, palettes);
+        // A re-described object (a hook now showing the item hung on it)
+        // may have a new setup: rebuild its animation state too.
+        let n_parts = assets.setup(o.setup_id).map(|s| s.parts.len()).unwrap_or(0);
         let stale = anims
             .get(&o.guid)
-            .map(|a| a.motion != o.motion.forward || a.style != o.motion.style)
+            .map(|a| {
+                a.motion != o.motion.forward || a.style != o.motion.style || a.n_parts != n_parts
+            })
             .unwrap_or(true);
         if stale {
             let prev = anims.remove(&o.guid);
