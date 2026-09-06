@@ -69,10 +69,11 @@ pub fn draw(egui: &egui::Context, v: &CombatView) -> Actions {
     let rect = egui.viewport_rect();
     egui::Area::new(egui::Id::new("combat_bar"))
         .fade_in(false)
-        .fixed_pos(egui::pos2(
+        .default_pos(egui::pos2(
             rect.width() * 0.5 - 200.0,
             rect.height() - 300.0,
         ))
+        .movable(true)
         .show(egui, |ui| {
             frame(170, 6).show(ui, |ui| {
                 ui.horizontal(|ui| {

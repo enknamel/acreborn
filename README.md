@@ -102,7 +102,8 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # /wave, animate and say the line), H housing (your house, guests,
 # recall; use a house sign to see its price and buy it), N the social
 # panel (your title, friends with who is online, squelches), X the character
-# options; server
+# options (every panel can be dragged anywhere by its empty space; the
+# options panel's "Reset window layout" puts them all back); server
 # questions such as a fellowship invitation or an oath pop up with Yes/No;
 # double-click the Ust to open the salvage window, drag a salvage bag onto
 # an item in the pack to tinker it). C toggles combat in the stance of
