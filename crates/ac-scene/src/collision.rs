@@ -201,12 +201,18 @@ impl CollisionWorld {
                     .iter()
                     .find(|(k, _)| *k == cell.cell_structure as u32)
                 {
-                    let polys = if cs.physics_polygons.is_empty() {
-                        &cs.polygons
-                    } else {
-                        &cs.physics_polygons
-                    };
-                    w.add_polys(&cs.vertices, polys, cell.transform, cell.cell_id);
+                    // Physics polygons only. A cell structure without any
+                    // is an air cell whose every face is a portal (the
+                    // space above a hall's balcony): building its drawn
+                    // polygons instead put an invisible floor and walls
+                    // there. Of 3168 cell structures in the data, the two
+                    // without physics polygons are such air cells.
+                    w.add_polys(
+                        &cs.vertices,
+                        &cs.physics_polygons,
+                        cell.transform,
+                        cell.cell_id,
+                    );
                 }
             }
             for part in &cell.parts {

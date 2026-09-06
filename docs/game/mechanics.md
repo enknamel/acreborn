@@ -847,6 +847,15 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   `jump_trace CELL x y z heading` follows one frame by frame, and
   `ac-scene --example tris_near BLOCK x y z r` lists the collision
   triangles around a point with the pushes they apply.
+* **Collision comes from physics polygons only.** A cell structure's
+  drawn polygons include its portals (the openings to the next cell);
+  the two cell structures in the data without physics polygons are air
+  cells whose every face is a portal, such as the space above the
+  meeting hall's balcony. Building their drawn faces instead put an
+  invisible floor and four invisible walls six metres above the hall,
+  and a jump from the balcony or the stair top ended standing on it,
+  boxed in: "stuck at the floor's level in the air above the stairs".
+  `ac-scene --example env_survey` counts such cells.
 * **Landing and headroom.** A falling character lands on any floor up
   to a step (0.6 m) above its feet, so a jump that arrives a few
   centimetres under a ledge's top stands on the ledge instead of passing

@@ -93,6 +93,17 @@ fn main() {
                             airborne_frames = 0;
                         }
                     }
+                    let end_w = pl.world_position();
+                    let on_nothing = !pl.is_airborne() && world.floor_at(end_w, 0.1, 0.1).is_none();
+                    if on_nothing {
+                        bad += 1;
+                        let l = end_w - origin;
+                        println!(
+                            "ONNOTHING cell {:#010x} from ({:.1}, {:.1}, {:.1}) heading {deg:3}: at cell {:#010x} ({:.2}, {:.2}, {:.2}) floor below {:?}",
+                            cs.cell_id, start.x, start.y, start.z, pl.cell, l.x, l.y, l.z,
+                            world.floor_at(end_w, 0.1, 50.0).map(|(z, c)| (z - origin.z, format!("{c:#x}")))
+                        );
+                    }
                     if pl.is_airborne() && airborne_frames > 180 {
                         bad += 1;
                         let l = pl.world_position() - origin;

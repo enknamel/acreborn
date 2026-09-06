@@ -104,3 +104,48 @@ fn jumps_beside_meeting_hall_walls_stay_inside() {
     }
     assert!(bad.is_empty(), "left the building: {bad:?}");
 }
+
+/// The cells above the meeting hall's floor (0x01250124 and its like)
+/// are air: every face is a portal and there are no physics polygons.
+/// Their portal polygons used to be built into the collision as walls
+/// and a floor, so a jump from the balcony landed on an invisible floor
+/// six metres above the hall, boxed in by invisible walls.
+#[test]
+fn air_cells_above_the_meeting_hall_have_no_floor() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(std::path::Path::new(&dir)).unwrap();
+    let block = 0x0125_0000;
+    let scene = landblock::load(&assets, block).unwrap();
+    let world = CollisionWorld::from_scene(&assets, &scene).unwrap();
+    let origin = ac_scene::lbid::world_origin(block);
+    // Over the hall at balcony height: nothing to stand on until the
+    // ramp well below.
+    let over_hall = origin + Vec3::new(30.0, -38.0, 6.3);
+    assert_eq!(world.floor_at(over_hall, 0.6, 1.5), None);
+    let deep = world.floor_at(over_hall, 0.6, 50.0).map(|f| f.0 - origin.z);
+    assert!(deep.is_some_and(|z| z < 5.0), "floor below: {deep:?}");
+
+    // A running jump north off the balcony ends on the hall floor.
+    let cell = 0x0125_010F;
+    let mut pl = Player::new(&assets, cell, Vec3::new(30.0, -43.0, 6.0), Quat::IDENTITY);
+    pl.set_motion_table(&assets, 0x0200_0001, 0x0900_0001);
+    pl.max_jump_power = 1.0;
+    for frame in 0..300 {
+        let input = Input {
+            forward: 1.0,
+            strafe: 0.0,
+            run: true,
+            jump: false,
+            jump_held: false,
+        };
+        if frame == 30 {
+            pl.jump(1.0);
+        }
+        pl.update(&assets, &input, 1.0 / 60.0);
+    }
+    let end = pl.world_position() - origin;
+    assert!(!pl.is_airborne(), "still airborne at {end}");
+    assert!(end.z.abs() < 0.05 && end.y > -35.0, "ended at {end}");
+}
