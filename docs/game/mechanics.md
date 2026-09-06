@@ -270,6 +270,22 @@ Casting rules (ACE `Player_Magic`, matching retail):
   (damage, damage resist, crit...) come from augmentations, aetheria,
   trinkets and masteries.
 
+### Augmentations
+
+Permanent upgrades bought with experience from augmentation gems (ACE
+`AugmentationDevice`; "Might of the Seventh Mule", "Quick Learner"...,
+costs of 1 to 4 billion XP as `AugmentationCost`, PropertyInt64 3, which
+appraisal shows). Using the gem asks a kind 6 confirmation ("This action
+will augment your character with X and will cost N available
+experience."); on yes the server checks the XP, the per-type maximum
+(innate attributes 10 in all, most others once, carrying capacity 5,
+resistances 2 each) and, for skill augmentations, that the skill is
+trained, then raises the character property (PropertyInt 218..328),
+takes the XP, plays an effect and says "Name has acquired the X
+augmentation!". The client lists the ones taken under the skills panel
+(`ac_client::augmentations` names them by property) and scripts read
+`augmentations()`.
+
 ### Character creation and selection
 
 Sources: ACE `ACE.Server/Factories/PlayerFactory.cs` (`Create`,

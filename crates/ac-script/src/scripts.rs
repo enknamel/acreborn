@@ -520,6 +520,9 @@ mod tests {
             false
         }
         fn appraise(&mut self, _g: i64) {}
+        fn augmentations(&mut self) -> rhai::Array {
+            rhai::Array::new()
+        }
         fn emote(&mut self, _w: &str) -> bool {
             false
         }

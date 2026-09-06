@@ -54,6 +54,8 @@ pub struct SkillsView {
     pub attributes: Vec<StatRow>,
     pub vitals: Vec<StatRow>,
     pub skills: Vec<SkillRow>,
+    /// Augmentations taken: (name, times, maximum).
+    pub augmentations: Vec<(String, u32, u32)>,
 }
 
 /// `1234567` -> `1,234,567`.
@@ -147,6 +149,11 @@ pub fn view(c: &Client) -> Option<SkillsView> {
         attributes,
         vitals,
         skills,
+        augmentations: c
+            .augmentations()
+            .into_iter()
+            .map(|a| (a.name.to_string(), a.count, a.max))
+            .collect(),
     })
 }
 
@@ -275,6 +282,15 @@ pub fn draw(egui: &egui::Context, v: &SkillsView) -> Actions {
                             ui.end_row();
                         }
                     });
+                if !v.augmentations.is_empty() {
+                    caption(ui, format!("Augmentations ({})", v.augmentations.len()));
+                    for (name, count, max) in &v.augmentations {
+                        ui.label(
+                            egui::RichText::new(format!("{name}  {count}/{max}"))
+                                .color(egui::Color32::from_rgb(200, 220, 255)),
+                        );
+                    }
+                }
             });
     });
     actions
@@ -334,6 +350,7 @@ impl Skills {
                     })
                     .collect(),
                 skills,
+                augmentations: vec![("Might of the Seventh Mule (carrying capacity)".into(), 2, 5)],
             }),
             show: false,
         }

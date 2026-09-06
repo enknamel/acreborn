@@ -3,6 +3,7 @@
 //! Nothing here renders; several `Client`s can live in one process.
 
 pub mod advance;
+pub mod augmentations;
 pub mod creation;
 pub mod emotes;
 pub mod magic;

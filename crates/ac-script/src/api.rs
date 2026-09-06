@@ -156,6 +156,8 @@ pub trait Api {
     /// damage_min, speed, weapon_skill, offense, spells, spellcraft, mana, mana_max, wield_skill,
     /// wield_level, level, health, health_max, ints: #{id: v}, floats: #{id: v}) or unit.
     fn appraise(&mut self, guid: i64);
+    /// Augmentations taken, as maps { name, count, max }.
+    fn augmentations(&mut self) -> Array;
     /// A soul emote by word ("wave", "bow", "cheer"...); false for unknown words.
     fn emote(&mut self, words: &str) -> bool;
     /// Friends as maps { guid, name, online }; add by name, remove by guid.
@@ -360,6 +362,7 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("put_in", |i: i64, c: i64| with_api(|a| a.put_in(i, c)));
     engine.register_fn("split", |i: i64, n: i64| with_api(|a| a.split(i, n)));
     engine.register_fn("appraise", |g: i64| with_api(|a| a.appraise(g)));
+    engine.register_fn("augmentations", || with_api(|a| a.augmentations()));
     engine.register_fn("emote", |w: &str| with_api(|a| a.emote(w)));
     engine.register_fn("friends", || with_api(|a| a.friends()));
     engine.register_fn("add_friend", |n: &str| with_api(|a| a.add_friend(n)));

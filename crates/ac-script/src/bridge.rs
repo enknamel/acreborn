@@ -754,6 +754,20 @@ impl Api for CtxApi<'_, '_> {
         self.client().emote(words)
     }
 
+    fn augmentations(&mut self) -> Array {
+        self.client()
+            .augmentations()
+            .into_iter()
+            .map(|a| {
+                let mut m = Map::new();
+                m.insert("name".into(), a.name.into());
+                m.insert("count".into(), int(a.count));
+                m.insert("max".into(), int(a.max));
+                Dynamic::from_map(m)
+            })
+            .collect()
+    }
+
     fn appraise(&mut self, guid: i64) {
         self.client().appraise(guid as u32);
     }

@@ -185,6 +185,9 @@ pub fn build(
         if let Some(c) = a.int(106) {
             lines.push(("Spellcraft".into(), c.to_string()));
         }
+        if let Some((_, cost)) = a.int64s.iter().find(|(k, _)| *k == 3) {
+            lines.push(("Augmentation cost".into(), format!("{cost} XP")));
+        }
         if let (Some(cur), Some(max)) = (a.int(107), a.int(108)) {
             let rate = a
                 .float(5)
