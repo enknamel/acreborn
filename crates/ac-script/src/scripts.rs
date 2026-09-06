@@ -340,6 +340,10 @@ mod tests {
         posted: Vec<(String, Value)>,
         inbox: Vec<Message>,
         activate: Option<i64>,
+        /// What `item_stats()` / `find_items()` answer, and how many of
+        /// them count as unappraised.
+        items: Array,
+        unappraised: i64,
     }
 
     impl Recorder {
@@ -485,6 +489,20 @@ mod tests {
         }
         fn salvage(&mut self, _items: rhai::Array) -> bool {
             false
+        }
+        fn item_stats(&mut self) -> Array {
+            self.items.clone()
+        }
+        fn find_items(&mut self, query: &str) -> Array {
+            self.record(format!("find_items {query}"));
+            self.items.clone()
+        }
+        fn appraise_all(&mut self) -> i64 {
+            self.record("appraise_all");
+            std::mem::take(&mut self.unappraised)
+        }
+        fn unappraised(&mut self) -> i64 {
+            self.unappraised
         }
         fn allegiance_name(&mut self, _n: &str) {}
         fn house_profile(&mut self) -> Dynamic {
@@ -895,7 +913,7 @@ mod tests {
             let _bound = Bound::new(&mut rec);
             scripts.rescan();
         }
-        assert_eq!(scripts.len(), 3, "{:?}", scripts.names());
+        assert_eq!(scripts.len(), 4, "{:?}", scripts.names());
         assert!(
             rec.logs
                 .iter()
@@ -990,5 +1008,118 @@ mod tests {
             scripts.tick(1, 0.1);
         }
         assert_eq!(rec.calls, ["[1] attack #77"]);
+    }
+
+    /// Canned `item_stats()` maps, built the way the live bridge builds them.
+    fn canned_items() -> Array {
+        use ac_client::items::ItemStats;
+        let sword = ItemStats {
+            guid: 0x8000_0010,
+            name: "Fine Sword".into(),
+            kind: "weapon",
+            stack: 1,
+            wielded: true,
+            appraised: true,
+            damage_low: 8,
+            damage_high: 14,
+            damage_type: "Slashing".into(),
+            speed: 40,
+            spells: vec!["Blood Drinker IV".into()],
+            ..Default::default()
+        };
+        let comps = ItemStats {
+            guid: 0x8000_0011,
+            name: "Prismatic Taper".into(),
+            kind: "comps",
+            stack: 50,
+            appraised: true,
+            ..Default::default()
+        };
+        [sword, comps]
+            .iter()
+            .map(|s| Dynamic::from_map(crate::bridge::item_map(s)))
+            .collect()
+    }
+
+    #[test]
+    fn item_search_functions_reach_the_api() {
+        let dir = script_dir();
+        write(
+            &dir,
+            "items.rhai",
+            r#"
+            fn command(name, args) {
+                let all = item_stats();
+                let found = find_items(args);
+                log("all=" + all.len() + " found=" + found.len());
+                for it in found {
+                    log(it.name + " " + it.kind + " x" + it.stack + " dmg=" + it.damage_high
+                        + " spells=" + it.spells.len() + " lines=" + it.summary.len());
+                }
+                log("unappraised=" + unappraised() + " queued=" + appraise_all()
+                    + " left=" + unappraised());
+                true
+            }
+            "#,
+        );
+        let mut scripts = Scripts::new(&dir);
+        let mut rec = Recorder::new();
+        rec.items = canned_items();
+        rec.unappraised = 3;
+        {
+            let _bound = Bound::new(&mut rec);
+            scripts.rescan();
+            assert!(scripts.command(0, "items", "dmg>10"));
+        }
+        assert_eq!(rec.calls, ["[0] find_items dmg>10", "[0] appraise_all"]);
+        assert_eq!(
+            rec.logs[1..],
+            [
+                "all=2 found=2",
+                "Fine Sword weapon x1 dmg=14 spells=1 lines=2",
+                "Prismatic Taper comps x50 dmg=0 spells=0 lines=0",
+                "unappraised=3 queued=3 left=0",
+            ]
+        );
+    }
+
+    #[test]
+    fn example_find_items_appraises_then_lists_weapons() {
+        let mut scripts = Scripts::new(examples_dir());
+        let mut rec = Recorder::new();
+        rec.items = canned_items();
+        rec.unappraised = 2;
+        {
+            let _bound = Bound::new(&mut rec);
+            scripts.rescan();
+            // Other keys and key-ups are left alone.
+            assert!(!scripts.key(0, "F5", true));
+            assert!(!scripts.key(0, "F6", false));
+            // Something is unappraised: the first press queues appraisals.
+            assert!(scripts.key(0, "F6", true));
+            // Everything is appraised now: the second press lists.
+            assert!(scripts.key(0, "F6", true));
+        }
+        assert_eq!(
+            rec.calls,
+            ["[0] appraise_all", "[0] find_items type:weapon dmg>10"]
+        );
+        let logs: Vec<&str> = rec
+            .logs
+            .iter()
+            .filter(|l| !l.starts_with("Script "))
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            logs,
+            [
+                "find_items: appraising 2 item(s), press F6 again in a moment",
+                "find_items: 2 weapon(s) with damage over 10",
+                "  Fine Sword (wielded): 8-14 Slashing",
+                "    Damage 8-14 Slashing (speed 40)",
+                "    Spells: Blood Drinker IV",
+                "  Prismatic Taper: 0-0 ",
+            ]
+        );
     }
 }

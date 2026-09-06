@@ -10,6 +10,7 @@ loaded; `/scripts reload` reloads everything. Errors show in the chat log.
 | `greeter.rhai` | `/hello [name]` says hello in local chat (a `command` hook) |
 | `autoloot.rhai` | When the attack target dies, opens its corpse and takes everything (a `tick` hook with state in `this`) |
 | `assist.rhai` | Posts the attack target on the bus; other sessions attack it (`post` / `messages`) |
+| `find_items.rhai` | F6 lists the carried weapons with damage over 10 and their summaries (`find_items`, `appraise_all`; a `key` hook) |
 
 ## Hooks
 
@@ -52,6 +53,9 @@ Actions (on the current session; names match by prefix, like the console):
 - `appraise(guid)` asks the server; `appraisal(guid)` is the last answer as a map (`name, usage, short_desc, long_desc, value, burden, workmanship, armor_level, damage, damage_min, speed, weapon_skill, offense, spells, spellcraft, mana, mana_max, wield_skill, wield_level, level, health, health_max, ints, floats`) or `()`
 - `split(guid, n)` takes `n` off a stack into the main pack; `merge(from, to)` pours one stack into another of the same kind
 - `salvageable()` (carried loot an Ust can salvage), `salvage([guids])` (needs an Ust in the pack; yields show in chat); tinkering is `use_on(bag, item)` then `confirm(true)`
+- `item_stats()`: every carried and worn item as a map (`guid, name, kind, stack, wielded, container, value, burden, workmanship, material, appraised, damage_low, damage_high, damage_type, speed, weapon_skill, armor_level, shield, spells, wield_skill, wield_level, mana, max_mana, spellcraft, tinks, bonded, attuned, summary`); `kind` is one word ("weapon", "armor", "caster", "comps"...), `spells` is an array of names, `summary` the tooltip lines. The numbers past `appraised` are 0 (and the strings empty) until the item has been appraised
+- `find_items(query)`: the items matching a search line, same shape. Words match the name, material, kind or a spell name; `dmg>10`, `al>=200`, `value<100`, `ws>=5`, `wield<=100` compare numbers (`speed`, `mana`, `sc`, `tinks`, `stack`, `atk`, `def` too); `spell:blood`, `type:armor`, `mat:iron`, `skill:sword`, `wielded`, `unappraised` filter. Every term must hold
+- `appraise_all()`: asks the server about every carried item not yet appraised, one at a time in the background; returns how many were queued. `unappraised()` is how many still lack an answer
 - `option(name, on)` sets a character option by label prefix; `raise(what)`, `train(skill)` spend XP and credits
 - `switch(i)`: make session `i` the active one
 - `with_session(i, || ...)`: run the closure with session `i` current, then restore; returns the closure's value

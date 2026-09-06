@@ -2,6 +2,7 @@
 //! functions. Each action mirrors what the console plugin does for the
 //! same `/command`, so scripts and typed commands behave alike.
 
+use ac_client::items::ItemStats;
 use ac_plugin::{Client, Ctx, Message};
 use ac_world::{item_type, object_desc_flags, WorldObject};
 use rhai::{Array, Dynamic, Map};
@@ -117,6 +118,43 @@ fn object_map(o: &WorldObject, me: Option<[f32; 3]>, carried: bool) -> Map {
     );
     map.insert("workmanship".into(), float(o.workmanship));
     map.insert("structure".into(), int(o.structure));
+    map
+}
+
+/// An [`ItemStats`] as the map `item_stats()` and `find_items()` return.
+pub fn item_map(s: &ItemStats) -> Map {
+    let text = |t: &str| -> Dynamic { t.to_string().into() };
+    let mut map = Map::new();
+    map.insert("guid".into(), int(s.guid));
+    map.insert("name".into(), text(&s.name));
+    map.insert("kind".into(), text(s.kind));
+    map.insert("stack".into(), int(s.stack));
+    map.insert("wielded".into(), s.wielded.into());
+    map.insert("container".into(), int(s.container));
+    map.insert("value".into(), int(s.value));
+    map.insert("burden".into(), int(s.burden));
+    map.insert("workmanship".into(), float(s.workmanship));
+    map.insert("material".into(), text(s.material));
+    map.insert("appraised".into(), s.appraised.into());
+    map.insert("damage_low".into(), int(s.damage_low));
+    map.insert("damage_high".into(), int(s.damage_high));
+    map.insert("damage_type".into(), text(&s.damage_type));
+    map.insert("speed".into(), int(s.speed));
+    map.insert("weapon_skill".into(), text(&s.weapon_skill));
+    map.insert("armor_level".into(), int(s.armor_level));
+    map.insert("shield".into(), int(s.shield));
+    let spells: Array = s.spells.iter().map(|n| text(n)).collect();
+    map.insert("spells".into(), spells.into());
+    map.insert("wield_skill".into(), text(&s.wield_skill));
+    map.insert("wield_level".into(), int(s.wield_level));
+    map.insert("mana".into(), int(s.mana));
+    map.insert("max_mana".into(), int(s.max_mana));
+    map.insert("spellcraft".into(), int(s.spellcraft));
+    map.insert("tinks".into(), int(s.tinks));
+    map.insert("bonded".into(), s.bonded.into());
+    map.insert("attuned".into(), s.attuned.into());
+    let summary: Array = s.summary().into_iter().map(Dynamic::from).collect();
+    map.insert("summary".into(), summary.into());
     map
 }
 
@@ -581,6 +619,30 @@ impl Api for CtxApi<'_, '_> {
             .map(|g| g as u32)
             .collect();
         self.client().salvage(&guids)
+    }
+
+    fn item_stats(&mut self) -> Array {
+        self.client()
+            .item_stats()
+            .iter()
+            .map(|s| Dynamic::from_map(item_map(s)))
+            .collect()
+    }
+
+    fn find_items(&mut self, query: &str) -> Array {
+        self.client()
+            .find_items(query)
+            .iter()
+            .map(|s| Dynamic::from_map(item_map(s)))
+            .collect()
+    }
+
+    fn appraise_all(&mut self) -> i64 {
+        self.client().appraise_all() as i64
+    }
+
+    fn unappraised(&mut self) -> i64 {
+        self.client().unappraised_count() as i64
     }
 
     fn allegiance_refresh(&mut self) {
@@ -1049,4 +1111,105 @@ fn skill_by_name(c: &ac_plugin::ac_client::Client, name: &str) -> Option<u32> {
                     .starts_with(&want)
             })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn item_map_carries_every_field_and_the_summary() {
+        let s = ItemStats {
+            guid: 0x8000_0010,
+            name: "Fine Sword".into(),
+            kind: "weapon",
+            stack: 1,
+            wielded: true,
+            container: 0x5000_0001,
+            value: 1200,
+            burden: 300,
+            workmanship: 6.0,
+            material: "Iron",
+            appraised: true,
+            damage_low: 8,
+            damage_high: 14,
+            damage_type: "Slashing".into(),
+            speed: 40,
+            weapon_skill: "Sword".into(),
+            spells: vec!["Blood Drinker IV".into()],
+            wield_skill: "Sword".into(),
+            wield_level: 250,
+            mana: 100,
+            max_mana: 200,
+            spellcraft: 180,
+            tinks: 2,
+            bonded: true,
+            ..Default::default()
+        };
+        let m = item_map(&s);
+        let keys = [
+            "guid",
+            "name",
+            "kind",
+            "stack",
+            "wielded",
+            "container",
+            "value",
+            "burden",
+            "workmanship",
+            "material",
+            "appraised",
+            "damage_low",
+            "damage_high",
+            "damage_type",
+            "speed",
+            "weapon_skill",
+            "armor_level",
+            "shield",
+            "spells",
+            "wield_skill",
+            "wield_level",
+            "mana",
+            "max_mana",
+            "spellcraft",
+            "tinks",
+            "bonded",
+            "attuned",
+            "summary",
+        ];
+        for k in keys {
+            assert!(m.contains_key(k), "missing {k}");
+        }
+        assert_eq!(m.len(), keys.len());
+        assert_eq!(m["guid"].as_int().unwrap(), 0x8000_0010);
+        assert_eq!(m["kind"].clone().into_string().unwrap(), "weapon");
+        assert_eq!(m["material"].clone().into_string().unwrap(), "Iron");
+        assert_eq!(m["damage_high"].as_int().unwrap(), 14);
+        assert_eq!(m["workmanship"].as_float().unwrap(), 6.0);
+        assert!(m["wielded"].as_bool().unwrap());
+        assert!(m["bonded"].as_bool().unwrap());
+        assert!(!m["attuned"].as_bool().unwrap());
+        let spells = m["spells"].clone().into_array().unwrap();
+        assert_eq!(spells[0].clone().into_string().unwrap(), "Blood Drinker IV");
+        let summary = m["summary"].clone().into_array().unwrap();
+        assert_eq!(
+            summary[0].clone().into_string().unwrap(),
+            "Damage 8-14 Slashing (speed 40)"
+        );
+        // An unappraised item has empty strings, not unit, for its text fields.
+        let m = item_map(&ItemStats {
+            name: "Mystery Wand".into(),
+            kind: "caster",
+            ..Default::default()
+        });
+        assert_eq!(m["material"].clone().into_string().unwrap(), "");
+        assert_eq!(m["damage_type"].clone().into_string().unwrap(), "");
+        assert!(!m["appraised"].as_bool().unwrap());
+        assert!(m["spells"].clone().into_array().unwrap().is_empty());
+        assert!(m["summary"].clone().into_array().unwrap().iter().any(|l| l
+            .clone()
+            .into_string()
+            .unwrap()
+            == "(not appraised)"));
+    }
 }

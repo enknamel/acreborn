@@ -113,6 +113,23 @@ pub trait Api {
     fn salvageable(&mut self) -> Array;
     /// Salvage these guids with the carried Ust; the yields show in chat.
     fn salvage(&mut self, items: Array) -> bool;
+    /// Every carried and worn item as a map: `guid, name, kind, stack,
+    /// wielded, container, value, burden, workmanship, material, appraised,
+    /// damage_low, damage_high, damage_type, speed, weapon_skill,
+    /// armor_level, shield, spells, wield_skill, wield_level, mana,
+    /// max_mana, spellcraft, tinks, bonded, attuned, summary`. The numbers
+    /// past `appraised` are zero (or empty) until the item is appraised.
+    fn item_stats(&mut self) -> Array;
+    /// The items of `item_stats` matching a search line: words match the
+    /// name, material, kind or a spell name; `dmg>10`, `al>=200`,
+    /// `value<100`, `ws>=5`, `wield<=100` compare numbers; `spell:blood`,
+    /// `type:armor`, `mat:iron`, `skill:sword`, `wielded`, `unappraised`.
+    fn find_items(&mut self, query: &str) -> Array;
+    /// Queue an appraisal of every carried item without one (sent one at
+    /// a time in the background); returns how many were queued.
+    fn appraise_all(&mut self) -> i64;
+    /// How many carried items still lack an appraisal.
+    fn unappraised(&mut self) -> i64;
     /// Name the allegiance (monarch), "" clears it.
     fn allegiance_name(&mut self, name: &str);
     /// The house sign last used, as a map { slumlord, owner, owner_name, kind, min_level, buy: [{name, wcid, needed, paid}], rent: [...] } or unit.
@@ -337,6 +354,10 @@ pub fn register(engine: &mut Engine) {
     });
     engine.register_fn("salvageable", || with_api(|a| a.salvageable()));
     engine.register_fn("salvage", |items: Array| with_api(|a| a.salvage(items)));
+    engine.register_fn("item_stats", || with_api(|a| a.item_stats()));
+    engine.register_fn("find_items", |q: &str| with_api(|a| a.find_items(q)));
+    engine.register_fn("appraise_all", || with_api(|a| a.appraise_all()));
+    engine.register_fn("unappraised", || with_api(|a| a.unappraised()));
     engine.register_fn("allegiance_name", |n: &str| {
         with_api(|a| a.allegiance_name(n))
     });
