@@ -4,7 +4,7 @@
 //! members or disband. The member list shows everyone's vitals.
 
 use super::{caption, title, window, Source};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberRow {
@@ -239,6 +239,16 @@ impl Fellowship {
 impl Plugin for Fellowship {
     fn name(&self) -> &str {
         "fellowship"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("fellowship.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("fellowship.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

@@ -4,7 +4,7 @@
 //! can sit beside it.
 
 use super::{caption, has_sheet, window, Source};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 
 /// Blackboard key: `true` while the skills panel is open.
 pub const OPEN_KEY: &str = "panels.skills_open";
@@ -360,6 +360,16 @@ impl Skills {
 impl Plugin for Skills {
     fn name(&self) -> &str {
         "skills"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("skills.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("skills.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

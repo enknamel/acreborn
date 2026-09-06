@@ -36,33 +36,29 @@ pub fn view(c: &Client) -> Option<TargetView> {
 pub fn draw(egui: &egui::Context, t: &TargetView) -> Option<u32> {
     let w = egui.viewport_rect().width();
     let mut given = None;
-    egui::Area::new(egui::Id::new("target"))
-        .fade_in(false)
-        .default_pos(egui::pos2(w * 0.5 - 130.0, 8.0))
-        .movable(true)
-        .show(egui, |ui| {
-            let (zone, _) = ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new(), |ui| {
-                frame(160, 6).show(ui, |ui| {
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(248.0, 18.0), egui::Sense::hover());
-                    let p = ui.painter();
-                    p.rect_filled(rect, 3.0, egui::Color32::from_gray(40));
-                    let mut fill = rect;
-                    fill.set_width(rect.width() * t.health.clamp(0.0, 1.0));
-                    p.rect_filled(fill, 3.0, egui::Color32::from_rgb(200, 40, 40));
-                    p.text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        bar_text(&t.name, t.health),
-                        egui::FontId::proportional(14.0),
-                        egui::Color32::WHITE,
-                    );
-                });
+    super::area("target", egui::pos2(w * 0.5 - 130.0, 8.0)).show(egui, |ui| {
+        let (zone, _) = ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new(), |ui| {
+            frame(160, 6).show(ui, |ui| {
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(248.0, 18.0), egui::Sense::hover());
+                let p = ui.painter();
+                p.rect_filled(rect, 3.0, egui::Color32::from_gray(40));
+                let mut fill = rect;
+                fill.set_width(rect.width() * t.health.clamp(0.0, 1.0));
+                p.rect_filled(fill, 3.0, egui::Color32::from_rgb(200, 40, 40));
+                p.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    bar_text(&t.name, t.health),
+                    egui::FontId::proportional(14.0),
+                    egui::Color32::WHITE,
+                );
             });
-            if let Some(p) = zone.response.dnd_release_payload::<ItemDrag>() {
-                given = Some(p.0);
-            }
         });
+        if let Some(p) = zone.response.dnd_release_payload::<ItemDrag>() {
+            given = Some(p.0);
+        }
+    });
     given
 }
 

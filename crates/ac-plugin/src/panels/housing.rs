@@ -6,7 +6,7 @@
 //! from the pack.
 
 use super::{caption, title, window, Source};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaymentRow {
@@ -387,6 +387,16 @@ impl Housing {
 impl Plugin for Housing {
     fn name(&self) -> &str {
         "housing"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("housing.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("housing.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

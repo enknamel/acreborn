@@ -6,7 +6,7 @@
 //! monarch and co-vassal chat go through `/v`, `/p`, `/m`, `/c`.
 
 use super::{caption, title, window, Source};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberRow {
@@ -381,6 +381,16 @@ impl Allegiance {
 impl Plugin for Allegiance {
     fn name(&self) -> &str {
         "allegiance"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("allegiance.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("allegiance.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

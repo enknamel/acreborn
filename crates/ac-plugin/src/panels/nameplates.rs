@@ -9,7 +9,7 @@
 
 use super::map::Kind;
 use super::Source;
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 use glam::{Mat4, Vec3, Vec4};
 
 /// Blackboard key of the camera matrix the host sets every frame.
@@ -207,6 +207,16 @@ impl Nameplates {
 impl Plugin for Nameplates {
     fn name(&self) -> &str {
         "nameplates"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("nameplates.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("nameplates.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

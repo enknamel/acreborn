@@ -223,6 +223,31 @@ visible) `1`..`9`, Insert, Delete, PageUp and PageDown. Any binary that drives s
 can host plugins the same way: `Host::new()`, `register`, then
 `frame`/`ui`/`key`/`command`/`end_frame` (see `crates/ac-plugin/src/host.rs`).
 
+## Settings
+
+What the UI remembers between runs lives in `~/.config/acreborn/ui.json`
+(`$ACREBORN_CONFIG_DIR` overrides the directory): where every panel was
+dragged, which panels are open, and each panel's own state (the
+inventory's search, chips, sort and folded packs; the map's tab, follow
+and zoom). The host reads it at startup, writes it when the window
+closes and every 30 s if anything changed, and the options panel's
+"Reset window layout" forgets the saved positions.
+
+A plugin joins in with two optional `Plugin` hooks:
+
+```rust
+fn load(&mut self, settings: &Settings) {
+    if let Some(v) = settings.get("myplugin.show") { self.show = v; }
+}
+fn save(&self, settings: &mut Settings) {
+    settings.set("myplugin.show", self.show);
+}
+```
+
+`Settings::get::<T>` and `set` take anything `serde` can carry; prefix
+keys with the plugin's name. `cx.settings` reaches the same store from
+`ui`/`tick`.
+
 ## The built-in panels
 
 `crates/ac-plugin/src/panels/` holds the client's own overlay, one plugin

@@ -4,7 +4,7 @@
 //! player; remove with the buttons.
 
 use super::{caption, title, window, Source};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SocialView {
@@ -263,6 +263,16 @@ impl Social {
 impl Plugin for Social {
     fn name(&self) -> &str {
         "social"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("social.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("social.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

@@ -17,7 +17,7 @@ use ac_formats::spell_table::school;
 
 use super::{caption, has_sheet, title, window, Source};
 use crate::icons::{IconCache, IconLayers};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 
 /// Highest desired quantity the server accepts.
 pub const MAX_DESIRED: u32 = 999;
@@ -353,6 +353,16 @@ impl Components {
 impl Plugin for Components {
     fn name(&self) -> &str {
         "components"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("components.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("components.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

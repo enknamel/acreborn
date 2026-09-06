@@ -1,17 +1,30 @@
-//! Plugin host: owns the registered plugins and the blackboard, and fans
-//! callbacks out with every session in reach. Shared by every binary that
-//! runs sessions (the windowed viewer, headless runners).
+//! Plugin host: owns the registered plugins, the blackboard and the
+//! settings store, and fans callbacks out with every session in reach.
+//! Shared by every binary that runs sessions (the windowed viewer,
+//! headless runners).
 
-use std::time::Instant;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use crate::icons::{IconCache, IconLoader};
-use crate::{Blackboard, BusClient, Client, Ctx, Event, Plugin};
+use crate::{panels, Blackboard, BusClient, Client, Ctx, Event, Plugin, Settings};
+
+/// How often [`Host::autosave`] writes the settings file when something
+/// changed.
+pub const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
 
 pub struct Host {
     plugins: Vec<Box<dyn Plugin>>,
     pub board: Blackboard,
     /// Icons plugins draw; empty until [`Host::set_icon_loader`].
     pub icons: IconCache,
+    /// What survives a restart; empty until [`Host::load_settings`].
+    pub settings: Settings,
+    /// Where the settings are written; `None` until loaded.
+    settings_path: Option<PathBuf>,
+    /// The egui context of the last `ui` pass, for window positions.
+    egui: Option<egui::Context>,
+    last_save: Instant,
 }
 
 /// What a batch of callbacks asked the host for.
@@ -28,6 +41,10 @@ impl Host {
             plugins: Vec::new(),
             board: Blackboard::default(),
             icons: IconCache::default(),
+            settings: Settings::new(),
+            settings_path: None,
+            egui: None,
+            last_save: Instant::now(),
         }
     }
 
@@ -37,12 +54,78 @@ impl Host {
         self.icons.set_loader(loader);
     }
 
-    pub fn register(&mut self, plugin: Box<dyn Plugin>) {
+    /// Add a plugin. When the settings were already loaded it gets its
+    /// [`Plugin::load`] right away.
+    pub fn register(&mut self, mut plugin: Box<dyn Plugin>) {
+        if self.settings_path.is_some() {
+            plugin.load(&self.settings);
+        }
         self.plugins.push(plugin);
     }
 
     pub fn names(&self) -> Vec<&str> {
         self.plugins.iter().map(|p| p.name()).collect()
+    }
+
+    /// Read the settings file at `path` (missing is fine), remember the
+    /// saved window positions for [`panels::window`], and give every
+    /// registered plugin its [`Plugin::load`]. Later saves go to `path`.
+    pub fn load_settings(&mut self, path: PathBuf) {
+        self.settings = Settings::load(&path);
+        tracing::info!(
+            path = %path.display(),
+            keys = self.settings.values().len(),
+            "settings loaded"
+        );
+        self.settings_path = Some(path);
+        panels::restore_positions(self.settings.get("windows").unwrap_or_default());
+        for p in &mut self.plugins {
+            p.load(&self.settings);
+        }
+    }
+
+    /// Where [`Host::save_settings`] writes, once loaded.
+    pub fn settings_path(&self) -> Option<&PathBuf> {
+        self.settings_path.as_ref()
+    }
+
+    /// Collect every plugin's [`Plugin::save`] and the panel windows'
+    /// positions, then write the file when anything changed. Returns
+    /// whether the file was written. Does nothing before
+    /// [`Host::load_settings`].
+    pub fn save_settings(&mut self) -> bool {
+        self.last_save = Instant::now();
+        let Some(path) = self.settings_path.clone() else {
+            return false;
+        };
+        if let Some(egui) = &self.egui {
+            self.settings.set("windows", panels::positions(egui));
+        }
+        for p in &self.plugins {
+            p.save(&mut self.settings);
+        }
+        if !self.settings.dirty {
+            return false;
+        }
+        match self.settings.save(&path) {
+            Ok(()) => {
+                tracing::debug!(path = %path.display(), "settings saved");
+                true
+            }
+            Err(e) => {
+                tracing::warn!("settings: cannot write {}: {e}", path.display());
+                false
+            }
+        }
+    }
+
+    /// [`Host::save_settings`] when [`AUTOSAVE_EVERY`] passed since the
+    /// last one; call it once per frame.
+    pub fn autosave(&mut self) -> bool {
+        if self.last_save.elapsed() < AUTOSAVE_EVERY {
+            return false;
+        }
+        self.save_settings()
     }
 
     /// Run every plugin's per-frame hooks for session `index`: its events
@@ -59,6 +142,7 @@ impl Host {
             clients,
             index,
             board: &mut self.board,
+            settings: &mut self.settings,
             icons: &mut self.icons,
             dt,
             now,
@@ -112,10 +196,14 @@ impl Host {
         index: usize,
         egui: &egui::Context,
     ) -> Requests {
+        if self.egui.is_none() {
+            self.egui = Some(egui.clone());
+        }
         let mut cx = Ctx {
             clients,
             index,
             board: &mut self.board,
+            settings: &mut self.settings,
             icons: &mut self.icons,
             dt: 0.0,
             now: Instant::now(),
@@ -143,6 +231,7 @@ impl Host {
             clients,
             index,
             board: &mut self.board,
+            settings: &mut self.settings,
             icons: &mut self.icons,
             dt: 0.0,
             now: Instant::now(),
@@ -172,6 +261,7 @@ impl Host {
             clients,
             index,
             board: &mut self.board,
+            settings: &mut self.settings,
             icons: &mut self.icons,
             dt: 0.0,
             now: Instant::now(),

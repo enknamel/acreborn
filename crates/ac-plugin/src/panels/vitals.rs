@@ -54,55 +54,51 @@ pub fn view(c: &Client) -> Option<VitalsView> {
 /// yourself: a healing kit, food, a potion).
 pub fn draw(egui: &egui::Context, v: &VitalsView) -> Option<u32> {
     let mut dropped = None;
-    egui::Area::new(egui::Id::new("vitals"))
-        .fade_in(false)
-        .default_pos(egui::pos2(8.0, 36.0))
-        .movable(true)
-        .show(egui, |ui| {
-            let (zone, _) = ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new(), |ui| {
-                frame(160, 6).show(ui, |ui| {
-                    ui.set_min_width(220.0);
-                    ui.label(
-                        egui::RichText::new(format!("{}  (level {})", v.name, v.level))
-                            .color(egui::Color32::WHITE)
-                            .strong(),
+    super::area("vitals", egui::pos2(8.0, 36.0)).show(egui, |ui| {
+        let (zone, _) = ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new(), |ui| {
+            frame(160, 6).show(ui, |ui| {
+                ui.set_min_width(220.0);
+                ui.label(
+                    egui::RichText::new(format!("{}  (level {})", v.name, v.level))
+                        .color(egui::Color32::WHITE)
+                        .strong(),
+                );
+                for (i, b) in v.bars.iter().enumerate() {
+                    let color = [
+                        egui::Color32::from_rgb(200, 40, 40),
+                        egui::Color32::from_rgb(220, 180, 40),
+                        egui::Color32::from_rgb(50, 90, 220),
+                    ][i.min(2)];
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(220.0, 16.0), egui::Sense::hover());
+                    let p = ui.painter();
+                    p.rect_filled(rect, 3.0, egui::Color32::from_gray(40));
+                    let mut fill = rect;
+                    fill.set_width(rect.width() * fraction(b.current, b.max));
+                    p.rect_filled(fill, 3.0, color);
+                    p.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        format!("{} {}/{}", b.name, b.current, b.max),
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::WHITE,
                     );
-                    for (i, b) in v.bars.iter().enumerate() {
-                        let color = [
-                            egui::Color32::from_rgb(200, 40, 40),
-                            egui::Color32::from_rgb(220, 180, 40),
-                            egui::Color32::from_rgb(50, 90, 220),
-                        ][i.min(2)];
-                        let (rect, _) =
-                            ui.allocate_exact_size(egui::vec2(220.0, 16.0), egui::Sense::hover());
-                        let p = ui.painter();
-                        p.rect_filled(rect, 3.0, egui::Color32::from_gray(40));
-                        let mut fill = rect;
-                        fill.set_width(rect.width() * fraction(b.current, b.max));
-                        p.rect_filled(fill, 3.0, color);
-                        p.text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            format!("{} {}/{}", b.name, b.current, b.max),
-                            egui::FontId::proportional(13.0),
-                            egui::Color32::WHITE,
-                        );
-                    }
-                    if let Some(charge) = v.jump_charge {
-                        let (rect, _) =
-                            ui.allocate_exact_size(egui::vec2(220.0, 8.0), egui::Sense::hover());
-                        let p = ui.painter();
-                        p.rect_filled(rect, 2.0, egui::Color32::from_gray(40));
-                        let mut fill = rect;
-                        fill.set_width(rect.width() * charge.clamp(0.0, 1.0));
-                        p.rect_filled(fill, 2.0, egui::Color32::from_rgb(120, 220, 120));
-                    }
-                });
+                }
+                if let Some(charge) = v.jump_charge {
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(220.0, 8.0), egui::Sense::hover());
+                    let p = ui.painter();
+                    p.rect_filled(rect, 2.0, egui::Color32::from_gray(40));
+                    let mut fill = rect;
+                    fill.set_width(rect.width() * charge.clamp(0.0, 1.0));
+                    p.rect_filled(fill, 2.0, egui::Color32::from_rgb(120, 220, 120));
+                }
             });
-            if let Some(p) = zone.response.dnd_release_payload::<ItemDrag>() {
-                dropped = Some(p.0);
-            }
         });
+        if let Some(p) = zone.response.dnd_release_payload::<ItemDrag>() {
+            dropped = Some(p.0);
+        }
+    });
     dropped
 }
 

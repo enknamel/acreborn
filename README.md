@@ -82,7 +82,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # double-click a spot on the world map, or type a town name, to walk there
 # by an overland route; K shows the character sheet with Raise buttons that spend
 # unassigned XP on attributes, vitals and skills and Train buttons that
-# spend skill credits; drag an item from the inventory onto a side pack or the
+# spend skill credits; panels can be dragged anywhere and where you put
+# them, which ones are open and what you searched for are remembered in
+# ~/.config/acreborn/ui.json (X has "Reset window layout"); drag an item from the inventory onto a side pack or the
 # Pack header to move it (a stack onto another of its kind merges them;
 # right-click a stack for the split slider), onto the target bar or an NPC/player in the world
 # Double-click picks a loose item up and uses anything else; with an

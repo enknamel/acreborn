@@ -87,48 +87,44 @@ pub fn draw(egui: &egui::Context, blips: &[Blip], range: f32) {
     let r = RADIUS;
     let w = egui.viewport_rect().width();
     let center = egui::pos2(w - r - 16.0, r + 16.0);
-    egui::Area::new(egui::Id::new("radar"))
-        .fade_in(false)
-        .default_pos(egui::pos2(center.x - r - 4.0, center.y - r - 4.0))
-        .movable(true)
-        .show(egui, |ui| {
-            let (rect, _) = ui.allocate_exact_size(
-                egui::vec2(2.0 * r + 8.0, 2.0 * r + 8.0),
-                egui::Sense::hover(),
-            );
-            let c = rect.center();
-            let p = ui.painter();
-            p.circle_filled(c, r, egui::Color32::from_black_alpha(160));
-            p.circle_stroke(c, r, egui::Stroke::new(1.5, egui::Color32::from_gray(180)));
-            p.circle_stroke(
-                c,
-                r * 0.5,
-                egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
-            );
-            p.line_segment(
-                [egui::pos2(c.x, c.y - r), egui::pos2(c.x, c.y + r)],
-                egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
-            );
-            p.line_segment(
-                [egui::pos2(c.x - r, c.y), egui::pos2(c.x + r, c.y)],
-                egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
-            );
-            let scale = r / range.max(1.0);
-            for b in blips {
-                let d = (b.x * b.x + b.y * b.y).sqrt();
-                if d > range {
-                    continue;
-                }
-                let at = egui::pos2(c.x + b.x * scale, c.y - b.y * scale);
-                let (col, rad) = match b.kind {
-                    BlipKind::Player => (egui::Color32::from_rgb(90, 220, 90), 3.5),
-                    BlipKind::Creature => (egui::Color32::from_rgb(230, 120, 40), 3.0),
-                    BlipKind::Other => (egui::Color32::from_gray(200), 2.0),
-                };
-                p.circle_filled(at, rad, col);
+    super::area("radar", egui::pos2(center.x - r - 4.0, center.y - r - 4.0)).show(egui, |ui| {
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(2.0 * r + 8.0, 2.0 * r + 8.0),
+            egui::Sense::hover(),
+        );
+        let c = rect.center();
+        let p = ui.painter();
+        p.circle_filled(c, r, egui::Color32::from_black_alpha(160));
+        p.circle_stroke(c, r, egui::Stroke::new(1.5, egui::Color32::from_gray(180)));
+        p.circle_stroke(
+            c,
+            r * 0.5,
+            egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
+        );
+        p.line_segment(
+            [egui::pos2(c.x, c.y - r), egui::pos2(c.x, c.y + r)],
+            egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
+        );
+        p.line_segment(
+            [egui::pos2(c.x - r, c.y), egui::pos2(c.x + r, c.y)],
+            egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
+        );
+        let scale = r / range.max(1.0);
+        for b in blips {
+            let d = (b.x * b.x + b.y * b.y).sqrt();
+            if d > range {
+                continue;
             }
-            p.circle_filled(c, 3.0, egui::Color32::WHITE);
-        });
+            let at = egui::pos2(c.x + b.x * scale, c.y - b.y * scale);
+            let (col, rad) = match b.kind {
+                BlipKind::Player => (egui::Color32::from_rgb(90, 220, 90), 3.5),
+                BlipKind::Creature => (egui::Color32::from_rgb(230, 120, 40), 3.0),
+                BlipKind::Other => (egui::Color32::from_gray(200), 2.0),
+            };
+            p.circle_filled(at, rad, col);
+        }
+        p.circle_filled(c, 3.0, egui::Color32::WHITE);
+    });
 }
 
 pub struct Radar {

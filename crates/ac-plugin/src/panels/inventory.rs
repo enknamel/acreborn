@@ -21,6 +21,7 @@
 
 use super::{caption, has_sheet, item_row, title, window, Item, ItemDrag, Source};
 use crate::icons::{IconCache, IconLayers};
+use crate::Settings;
 use crate::{egui, Client, Ctx, Plugin};
 use ac_client::items::{self, ItemStats, NumKey, Query, SortKey};
 
@@ -201,7 +202,8 @@ pub struct Actions {
 }
 
 /// The panel's own state: search line, chip, sort, folded packs.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct State {
     pub search: String,
     /// Index into [`KINDS`] (0 = all) and [`SORTS`] (0 = name).
@@ -748,6 +750,20 @@ impl Inventory {
 impl Plugin for Inventory {
     fn name(&self) -> &str {
         "inventory"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("inventory.show") {
+            self.show = v;
+        }
+        if let Some(v) = settings.get::<State>("inventory.state") {
+            self.state = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("inventory.show", self.show);
+        settings.set("inventory.state", &self.state);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

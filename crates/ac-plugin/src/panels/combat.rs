@@ -67,59 +67,56 @@ pub fn step_power(power: f32, up: bool) -> f32 {
 pub fn draw(egui: &egui::Context, v: &CombatView) -> Actions {
     let mut actions = Actions::default();
     let rect = egui.viewport_rect();
-    egui::Area::new(egui::Id::new("combat_bar"))
-        .fade_in(false)
-        .default_pos(egui::pos2(
-            rect.width() * 0.5 - 200.0,
-            rect.height() - 300.0,
-        ))
-        .movable(true)
-        .show(egui, |ui| {
-            frame(170, 6).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(if v.missile { "Missile" } else { "Melee" })
-                            .color(egui::Color32::from_rgb(255, 200, 120))
-                            .strong(),
-                    );
-                    for (h, name) in HEIGHTS {
-                        if ui.selectable_label(v.height == h, name).clicked() {
-                            actions.height = Some(h);
-                        }
+    super::area(
+        "combat_bar",
+        egui::pos2(rect.width() * 0.5 - 200.0, rect.height() - 300.0),
+    )
+    .show(egui, |ui| {
+        frame(170, 6).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(if v.missile { "Missile" } else { "Melee" })
+                        .color(egui::Color32::from_rgb(255, 200, 120))
+                        .strong(),
+                );
+                for (h, name) in HEIGHTS {
+                    if ui.selectable_label(v.height == h, name).clicked() {
+                        actions.height = Some(h);
                     }
-                    let mut p = v.power;
-                    let label = if v.missile { "accuracy" } else { "power" };
-                    if ui
-                        .add(
-                            egui::Slider::new(&mut p, 0.0..=1.0)
-                                .text(label)
-                                .show_value(false),
-                        )
-                        .changed()
-                    {
-                        actions.power = Some(p);
-                    }
-                    ui.label(
-                        egui::RichText::new(format!("{:.0}%", v.power * 100.0))
-                            .color(egui::Color32::from_gray(200)),
-                    );
-                    let mut auto = v.auto_repeat;
-                    if ui.checkbox(&mut auto, "repeat").changed() {
-                        actions.auto_repeat = Some(auto);
-                    }
-                    if ui.button("Peace").clicked() {
-                        actions.peace = true;
-                    }
-                });
-                if let Some(t) = &v.target {
-                    ui.label(
-                        egui::RichText::new(format!("attacking {t}"))
-                            .color(egui::Color32::from_gray(190))
-                            .small(),
-                    );
+                }
+                let mut p = v.power;
+                let label = if v.missile { "accuracy" } else { "power" };
+                if ui
+                    .add(
+                        egui::Slider::new(&mut p, 0.0..=1.0)
+                            .text(label)
+                            .show_value(false),
+                    )
+                    .changed()
+                {
+                    actions.power = Some(p);
+                }
+                ui.label(
+                    egui::RichText::new(format!("{:.0}%", v.power * 100.0))
+                        .color(egui::Color32::from_gray(200)),
+                );
+                let mut auto = v.auto_repeat;
+                if ui.checkbox(&mut auto, "repeat").changed() {
+                    actions.auto_repeat = Some(auto);
+                }
+                if ui.button("Peace").clicked() {
+                    actions.peace = true;
                 }
             });
+            if let Some(t) = &v.target {
+                ui.label(
+                    egui::RichText::new(format!("attacking {t}"))
+                        .color(egui::Color32::from_gray(190))
+                        .small(),
+                );
+            }
         });
+    });
     actions
 }
 

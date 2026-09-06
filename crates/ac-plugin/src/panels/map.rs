@@ -21,7 +21,7 @@
 //! dungeon whenever the character moves to another storey.
 
 use super::{caption, has_sheet, title, window, Source};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_scene::mapimage::MapImage;
 use glam::Vec2;
 use std::sync::mpsc::Receiver;
@@ -251,7 +251,7 @@ pub fn to_world(rect: egui::Rect, center: Vec2, s: f32, screen: egui::Pos2) -> V
     )
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Tab {
     World,
     Local,
@@ -267,7 +267,10 @@ pub struct Actions {
     pub cancel_travel: bool,
 }
 
-/// The panel's own state.
+/// The panel's own state. The pan is not kept across restarts: the map
+/// opens on the character.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct State {
     pub tab: Tab,
     pub search: String,
@@ -277,7 +280,9 @@ pub struct State {
     pub zoom_world: f32,
     pub zoom_local: f32,
     /// World xy at the centre of the view when not following.
+    #[serde(skip)]
     pub pan: Vec2,
+    #[serde(skip)]
     pub place: String,
 }
 
@@ -701,6 +706,20 @@ impl Map {
 impl Plugin for Map {
     fn name(&self) -> &str {
         "map"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("map.show") {
+            self.show = v;
+        }
+        if let Some(v) = settings.get::<State>("map.state") {
+            self.state = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("map.show", self.show);
+        settings.set("map.state", &self.state);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

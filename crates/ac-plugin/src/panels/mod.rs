@@ -172,14 +172,91 @@ pub fn window(
     margin: i8,
 ) -> egui::Window<'static> {
     egui::Window::new(name.to_string())
+        // An explicit id: a window's own id is derived from its title in
+        // a way `Id::new(name)` does not reproduce, and `positions` looks
+        // the panels up by name.
+        .id(egui::Id::new(name.to_string()))
         .fade_in(false)
         .title_bar(false)
         .resizable(false)
         .movable(true)
         .constrain(true)
         .frame(frame(alpha, margin))
-        .default_pos(pos)
+        .default_pos(remembered(name, pos))
         .fixed_size(size)
+}
+
+/// A bare movable area (the vitals, radar, target bar and combat bar,
+/// which paint themselves rather than sitting in a panel frame). Its
+/// position is remembered like a window's.
+pub fn area(name: &str, pos: egui::Pos2) -> egui::Area {
+    egui::Area::new(egui::Id::new(name.to_string()))
+        .fade_in(false)
+        .movable(true)
+        .constrain(true)
+        .default_pos(remembered(name, pos))
+}
+
+/// Where the panels were when the settings were written, and the names
+/// of every panel drawn this run.
+static LAYOUT: std::sync::Mutex<Option<Layout>> = std::sync::Mutex::new(None);
+
+#[derive(Default)]
+struct Layout {
+    saved: std::collections::BTreeMap<String, [f32; 2]>,
+    seen: std::collections::BTreeSet<String>,
+}
+
+/// Note the panel and answer with its saved position, or `fallback` when
+/// it has none.
+fn remembered(name: &str, fallback: egui::Pos2) -> egui::Pos2 {
+    let Ok(mut guard) = LAYOUT.lock() else {
+        return fallback;
+    };
+    let layout = guard.get_or_insert_with(Layout::default);
+    if !layout.seen.contains(name) {
+        layout.seen.insert(name.to_string());
+    }
+    match layout.saved.get(name) {
+        Some([x, y]) => egui::pos2(*x, *y),
+        None => fallback,
+    }
+}
+
+/// Take the saved positions out of the settings (see
+/// [`crate::Host::load_settings`]). Call before the first frame: a panel
+/// only takes its saved position the first time it is drawn.
+pub fn restore_positions(saved: std::collections::BTreeMap<String, [f32; 2]>) {
+    if let Ok(mut guard) = LAYOUT.lock() {
+        guard.get_or_insert_with(Layout::default).saved = saved;
+    }
+}
+
+/// Where every panel drawn this run sits now, for the settings file.
+pub fn positions(egui: &egui::Context) -> std::collections::BTreeMap<String, [f32; 2]> {
+    let Ok(guard) = LAYOUT.lock() else {
+        return Default::default();
+    };
+    let Some(layout) = guard.as_ref() else {
+        return Default::default();
+    };
+    layout
+        .seen
+        .iter()
+        .filter_map(|name| {
+            let rect = egui.memory(|m| m.area_rect(egui::Id::new(name.clone())))?;
+            Some((name.clone(), [rect.min.x, rect.min.y]))
+        })
+        .collect()
+}
+
+/// Forget the saved positions so the panels fall back to their built-in
+/// places (the options panel's "Reset window layout", together with
+/// egui's `reset_areas`).
+pub fn forget_positions() {
+    if let Ok(mut guard) = LAYOUT.lock() {
+        guard.get_or_insert_with(Layout::default).saved.clear();
+    }
 }
 
 /// A dim small caption ("Worn", "Level 3", column headers).
@@ -322,5 +399,29 @@ mod tests {
         for (a, b) in live.iter().zip(&demo) {
             assert_eq!(a.name(), b.name());
         }
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    #[test]
+    fn saved_positions_win_over_the_built_in_place() {
+        forget_positions();
+        let default = egui::pos2(100.0, 200.0);
+        assert_eq!(remembered("panel_under_test", default), default);
+        restore_positions(
+            [("panel_under_test".to_string(), [12.0, 34.0])]
+                .into_iter()
+                .collect(),
+        );
+        assert_eq!(
+            remembered("panel_under_test", default),
+            egui::pos2(12.0, 34.0)
+        );
+        // Reset puts it back.
+        forget_positions();
+        assert_eq!(remembered("panel_under_test", default), default);
     }
 }

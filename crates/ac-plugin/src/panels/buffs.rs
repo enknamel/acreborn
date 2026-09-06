@@ -19,7 +19,7 @@ use ac_world::stats::Enchantment;
 
 use super::{caption, fmt_seconds, has_sheet, window, Source};
 use crate::icons::{IconCache, IconLayers};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 
 /// The vitae penalty's spell id (ACE `SpellId.Vitae`).
 pub const VITAE_SPELL: u16 = 666;
@@ -295,6 +295,16 @@ impl Buffs {
 impl Plugin for Buffs {
     fn name(&self) -> &str {
         "buffs"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("buffs.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("buffs.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

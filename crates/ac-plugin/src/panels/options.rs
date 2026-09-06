@@ -4,7 +4,7 @@
 //! their default positions.
 
 use super::{title, window, Source};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_client::options::{CharacterOption, OPTIONS};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,9 +55,11 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Vec<(CharacterOption, bool
         }
     });
     if reset_layout {
-        // Forget every area's remembered position (and size): each panel
-        // reopens at its `default_pos` on the next frame.
+        // Forget every area's remembered position (and size), and the
+        // positions read back from the settings file, so each panel
+        // reopens at its built-in place on the next frame.
         egui.memory_mut(|m| m.reset_areas());
+        super::forget_positions();
     }
     changed
 }
@@ -86,6 +88,16 @@ impl Options {
 impl Plugin for Options {
     fn name(&self) -> &str {
         "options"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("options.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("options.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {

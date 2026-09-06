@@ -1152,6 +1152,8 @@ impl ApplicationHandler for App {
             event_loop.exit();
             return;
         }
+        self.plugins
+            .load_settings(ac_plugin::Settings::default_path());
         let (w, h) = gpu.size();
         let mut ui = ui::Ui::new(gpu.device(), gpu.format(), Some(&window), w, h);
         let icons = icon_loader(self.cli.data_dir.clone());
@@ -1193,6 +1195,7 @@ impl ApplicationHandler for App {
             .unwrap_or(false);
         match event {
             WindowEvent::CloseRequested => {
+                self.plugins.save_settings();
                 if let Some(net) = self.nets.get_mut(self.active) {
                     net.client.disconnect(Instant::now());
                 }
@@ -1355,6 +1358,7 @@ impl ApplicationHandler for App {
                     self.fps * 0.95 + 0.05 / dt.max(1e-3)
                 };
                 self.refresh_status();
+                self.plugins.autosave();
                 if let Some(mut g) = self.gpu.take() {
                     let vp = self.camera.view_proj(g.aspect());
                     let (w, h) = g.size();
@@ -1492,6 +1496,8 @@ fn main() -> Result<()> {
             app.plugins = plugins::demo(&app.cli.data_dir);
         }
         app.plugins.set_icon_loader(icons);
+        app.plugins
+            .load_settings(ac_plugin::Settings::default_path());
         if app.cli.connect.is_some() {
             // Pump the connection until the player is placed and the world
             // has settled, then render from the character's viewpoint.
@@ -1927,6 +1933,7 @@ fn main() -> Result<()> {
                          v: &wgpu::TextureView| ui.paint(d, q, e, v);
         gpu.render_to_png(vp, Vec3::new(0.4, 0.3, 1.0), &path, Some(&mut paint))?;
         tracing::info!("wrote {}", path.display());
+        app.plugins.save_settings();
         if let Some(net) = app.nets.get_mut(app.active) {
             net.client.disconnect(Instant::now());
         }

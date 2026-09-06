@@ -22,6 +22,7 @@ pub mod icons;
 pub mod lobby;
 pub mod panels;
 pub mod party;
+pub mod settings;
 
 pub use ac_bus::{self, BusClient, Incoming};
 pub use ac_client::{self, Client, Event};
@@ -29,6 +30,7 @@ pub use egui;
 pub use host::{Host, Requests};
 pub use icons::{IconCache, IconLayers, IconLoader};
 pub use serde_json::{self, Value};
+pub use settings::Settings;
 
 /// The `from` of a message that came over the cross-process bus; its
 /// `origin` names the process.
@@ -157,6 +159,9 @@ pub struct Ctx<'a> {
     pub clients: Vec<&'a mut Client>,
     pub index: usize,
     pub board: &'a mut Blackboard,
+    /// What survives a restart (see [`settings`]): read and write it
+    /// freely, the host writes the file.
+    pub settings: &'a mut Settings,
     /// Item and spell icons as egui textures (see [`icons`]).
     pub icons: &'a mut IconCache,
     pub dt: f32,
@@ -224,6 +229,14 @@ pub trait Plugin {
     fn command(&mut self, _cx: &mut Ctx, _name: &str, _args: &str) -> bool {
         false
     }
+
+    /// Once, after the host read the settings file: take back what
+    /// [`Plugin::save`] stored last time (`settings.get::<T>(key)`).
+    fn load(&mut self, _settings: &Settings) {}
+
+    /// Before the host writes the settings file (on exit and every 30 s):
+    /// store what should survive a restart (`settings.set(key, value)`).
+    fn save(&self, _settings: &mut Settings) {}
 }
 
 /// Split `/attack Drudge Skulker` into `("attack", "Drudge Skulker")`.

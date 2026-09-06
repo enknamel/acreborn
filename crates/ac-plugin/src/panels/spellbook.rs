@@ -16,7 +16,7 @@ use ac_formats::spell_table::{school, Spell, SpellTable};
 
 use super::{caption, fmt_seconds, has_sheet, title, window, Source, SpellDrag};
 use crate::icons::{IconCache, IconLayers};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 
 /// Blackboard key: `true` while the spellbook is open.
 pub const OPEN_KEY: &str = "panels.spellbook_open";
@@ -526,6 +526,16 @@ impl Spellbook {
 impl Plugin for Spellbook {
     fn name(&self) -> &str {
         "spellbook"
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("spellbook.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("spellbook.show", self.show);
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
