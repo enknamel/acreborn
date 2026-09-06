@@ -394,6 +394,7 @@ impl Client {
                         | ac_world::Applied::Fellowship
                         | ac_world::Applied::Allegiance
                         | ac_world::Applied::House
+                        | ac_world::Applied::Social
                         | ac_world::Applied::Confirmation
                         | ac_world::Applied::Inventory => continue,
                         ac_world::Applied::Failed => tracing::warn!("failed to apply a message"),
@@ -1651,6 +1652,66 @@ impl Client {
     /// The jump charge while the key is held, as power 0..=1.
     pub fn jump_charge(&self) -> Option<f32> {
         self.player.as_ref().and_then(|p| p.jump_charge())
+    }
+
+    /// Add a friend by name (AddFriend 0x0018); the server answers with a
+    /// FriendsListUpdate or "X not found" in chat.
+    pub fn add_friend(&mut self, name: &str) {
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(name.trim());
+        self.session
+            .send_action(ac_net::messages::action::ADD_FRIEND, &w.finish());
+    }
+
+    /// Drop a friend (RemoveFriend 0x0017: guid), or everyone with
+    /// `None` (RemoveAllFriends 0x0025).
+    pub fn remove_friend(&mut self, guid: Option<u32>) {
+        match guid {
+            Some(g) => self
+                .session
+                .send_action(ac_net::messages::action::REMOVE_FRIEND, &g.to_le_bytes()),
+            None => self
+                .session
+                .send_action(ac_net::messages::action::REMOVE_ALL_FRIENDS, &[]),
+        }
+    }
+
+    /// Show one of our titles (TitleSet 0x002C); the server confirms
+    /// with UpdateTitle.
+    pub fn set_title(&mut self, title: u32) {
+        self.session
+            .send_action(ac_net::messages::action::TITLE_SET, &title.to_le_bytes());
+    }
+
+    /// Squelch or unsquelch a character (ModifyCharacterSquelch 0x0058:
+    /// flag, guid, name, ChatMessageType; guid 0 with a name looks the
+    /// player up, chat type 1 = all channels), their whole account
+    /// (ModifyAccountSquelch 0x0059: flag, name), or a chat type from
+    /// everyone (ModifyGlobalSquelch 0x005B: flag, ChatMessageType). The
+    /// server confirms in chat and re-sends the squelch list.
+    pub fn squelch(&mut self, guid: u32, name: &str, on: bool) {
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(u32::from(on)).u32(guid).string16(name.trim()).u32(1);
+        self.session.send_action(
+            ac_net::messages::action::MODIFY_CHARACTER_SQUELCH,
+            &w.finish(),
+        );
+    }
+
+    pub fn squelch_account(&mut self, name: &str, on: bool) {
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(u32::from(on)).string16(name.trim());
+        self.session.send_action(
+            ac_net::messages::action::MODIFY_ACCOUNT_SQUELCH,
+            &w.finish(),
+        );
+    }
+
+    pub fn squelch_global(&mut self, chat_type: u32, on: bool) {
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(u32::from(on)).u32(chat_type);
+        self.session
+            .send_action(ac_net::messages::action::MODIFY_GLOBAL_SQUELCH, &w.finish());
     }
 
     /// Ask the server about our house (HouseQuery 0x021E): HouseData

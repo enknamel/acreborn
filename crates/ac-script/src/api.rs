@@ -156,6 +156,17 @@ pub trait Api {
     /// damage_min, speed, weapon_skill, offense, spells, spellcraft, mana, mana_max, wield_skill,
     /// wield_level, level, health, health_max, ints: #{id: v}, floats: #{id: v}) or unit.
     fn appraise(&mut self, guid: i64);
+    /// Friends as maps { guid, name, online }; add by name, remove by guid.
+    fn friends(&mut self) -> Array;
+    fn add_friend(&mut self, name: &str);
+    fn remove_friend(&mut self, guid: i64);
+    /// Titles as a map { current, ids: [...] }; choose one by id.
+    fn titles(&mut self) -> Map;
+    fn set_title(&mut self, id: i64);
+    /// Squelch (or unsquelch) a player by name.
+    fn squelch(&mut self, name: &str, on: bool);
+    /// Squelched players as maps { guid, name, mask }.
+    fn squelches(&mut self) -> Array;
     fn appraisal(&mut self, guid: i64) -> Dynamic;
     fn merge(&mut self, from: i64, to: i64) -> bool;
     /// Queue everything in the open container; returns how many.
@@ -347,6 +358,15 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("put_in", |i: i64, c: i64| with_api(|a| a.put_in(i, c)));
     engine.register_fn("split", |i: i64, n: i64| with_api(|a| a.split(i, n)));
     engine.register_fn("appraise", |g: i64| with_api(|a| a.appraise(g)));
+    engine.register_fn("friends", || with_api(|a| a.friends()));
+    engine.register_fn("add_friend", |n: &str| with_api(|a| a.add_friend(n)));
+    engine.register_fn("remove_friend", |g: i64| with_api(|a| a.remove_friend(g)));
+    engine.register_fn("titles", || with_api(|a| a.titles()));
+    engine.register_fn("set_title", |t: i64| with_api(|a| a.set_title(t)));
+    engine.register_fn("squelch", |n: &str, on: bool| {
+        with_api(|a| a.squelch(n, on))
+    });
+    engine.register_fn("squelches", || with_api(|a| a.squelches()));
     engine.register_fn("appraisal", |g: i64| with_api(|a| a.appraisal(g)));
     engine.register_fn("merge", |f: i64, t: i64| with_api(|a| a.merge(f, t)));
     engine.register_fn("take_all", || with_api(|a| a.take_all()));

@@ -8,6 +8,7 @@ pub mod housing;
 pub mod material;
 pub mod motion;
 pub mod object;
+pub mod social;
 pub mod stats;
 
 use std::collections::HashMap;
@@ -204,6 +205,9 @@ pub struct World {
     pub house: Option<Option<housing::HouseData>>,
     /// Our house's guest list (UpdateHAR), on request.
     pub house_access: Option<housing::HouseAccess>,
+    pub friends: Vec<social::Friend>,
+    pub titles: social::Titles,
+    pub squelches: social::Squelches,
 }
 
 /// What `apply` did with a message, for logging.
@@ -237,6 +241,8 @@ pub enum Applied {
     Allegiance,
     /// A house profile, our house data or its guest list arrived.
     House,
+    /// Friends, titles or squelches changed.
+    Social,
     /// An object's look changed (equipment).
     Appearance,
     /// A creature's health fraction changed.
@@ -711,6 +717,55 @@ impl World {
                     }
                     Applied::House
                 }
+                Some((_, _, event::FRIENDS_LIST_UPDATE, rest)) => match social::parse_friends(rest)
+                {
+                    Some(u) => {
+                        match u.kind {
+                            0 => self.friends = u.friends,
+                            2 => {
+                                for f in &u.friends {
+                                    self.friends.retain(|x| x.guid != f.guid);
+                                }
+                            }
+                            _ => {
+                                for f in u.friends {
+                                    match self.friends.iter_mut().find(|x| x.guid == f.guid) {
+                                        Some(x) => {
+                                            x.online = f.online;
+                                            if !f.name.is_empty() {
+                                                x.name = f.name;
+                                            }
+                                        }
+                                        None => self.friends.push(f),
+                                    }
+                                }
+                            }
+                        }
+                        Applied::Social
+                    }
+                    None => Applied::Failed,
+                },
+                Some((_, _, event::CHARACTER_TITLE, rest)) => match social::Titles::parse(rest) {
+                    Some(t) => {
+                        self.titles = t;
+                        Applied::Social
+                    }
+                    None => Applied::Failed,
+                },
+                Some((_, _, event::UPDATE_TITLE, rest)) => {
+                    if self.titles.apply_update(rest) {
+                        Applied::Social
+                    } else {
+                        Applied::Failed
+                    }
+                }
+                Some((_, _, event::SET_SQUELCH_DB, rest)) => match social::parse_squelches(rest) {
+                    Some(sq) => {
+                        self.squelches = sq;
+                        Applied::Social
+                    }
+                    None => Applied::Failed,
+                },
                 Some((_, _, event::CONFIRMATION_DONE, rest)) => {
                     let mut r = Reader::new(rest);
                     if let (Ok(kind), Ok(context)) = (r.u32(), r.u32()) {

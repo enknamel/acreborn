@@ -34,6 +34,7 @@ pub mod options;
 pub mod radar;
 pub mod salvage;
 pub mod skills;
+pub mod social;
 pub mod spellbar;
 pub mod spellbook;
 pub mod target;
@@ -228,6 +229,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(salvage::Salvage::default()),
         Box::new(housing::Housing::default()),
         Box::new(appraisal::AppraisalPanel::default()),
+        Box::new(social::Social::default()),
         Box::new(confirm::Confirm::default()),
         Box::new(options::Options::default()),
         Box::new(combat::Combat::default()),
@@ -257,6 +259,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         Box::new(salvage::Salvage::demo()),
         Box::new(housing::Housing::demo()),
         Box::new(appraisal::AppraisalPanel::demo()),
+        Box::new(social::Social::demo()),
         Box::new(confirm::Confirm::demo()),
         Box::new(options::Options::demo()),
         Box::new(combat::Combat::demo()),

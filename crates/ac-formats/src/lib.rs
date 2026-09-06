@@ -11,6 +11,7 @@ pub mod reader;
 pub mod animation;
 pub mod chargen;
 pub mod dual_did_mapper;
+pub mod enum_mapper;
 pub mod environment;
 pub mod gfxobj;
 pub mod landblock;

@@ -705,6 +705,20 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   everyone on the channel, sender included, gets back as ChannelBroadcast
   0x0147 (channel, sender or "" for yourself, text); `/v`, `/p`, `/m`,
   `/c`, `/f` in the chat box.
+* **Friends, titles, squelch**: AddFriend 0x0018 (name) / RemoveFriend
+  0x0017 (guid) / RemoveAllFriends 0x0025 answer with FriendsListUpdate
+  0x0021 (count, records of guid, online flag, appear-offline flag,
+  name, two empty guid lists; then the kind: 0 full list at login, 1
+  added, 2 removed, 4 online status changed). Titles: CharacterTitle
+  0x0029 at login (1, shown id, count, ids); TitleSet 0x002C (id) picks
+  one and UpdateTitle 0x002B (id, shown flag) confirms or grants a new
+  one ("You have been granted a new title."); names come from the
+  portal EnumMapper 0x22000041. Squelch: ModifyCharacterSquelch 0x0058
+  (flag, guid, name), ModifyAccountSquelch 0x0059 (flag, name),
+  ModifyGlobalSquelch 0x005B (flag, ChatMessageType); the server drops
+  the squelched player's lines before they reach us and re-sends
+  SetSquelchDB 0x01F4 (account table, character table of guid to
+  filter masks, name, account flag; global mask).
 * **Turbine chat** (message 0xF7DE, not a game event) carries the rooms:
   General 2, Trade 3, LFG 4, Roleplay 5, the society rooms 6..9, Olthoi
   10, and each allegiance's own room whose id is the allegiance's biota

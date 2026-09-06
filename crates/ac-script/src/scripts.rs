@@ -520,6 +520,19 @@ mod tests {
             false
         }
         fn appraise(&mut self, _g: i64) {}
+        fn friends(&mut self) -> rhai::Array {
+            rhai::Array::new()
+        }
+        fn add_friend(&mut self, _n: &str) {}
+        fn remove_friend(&mut self, _g: i64) {}
+        fn titles(&mut self) -> Map {
+            Map::new()
+        }
+        fn set_title(&mut self, _t: i64) {}
+        fn squelch(&mut self, _n: &str, _on: bool) {}
+        fn squelches(&mut self) -> rhai::Array {
+            rhai::Array::new()
+        }
         fn appraisal(&mut self, _g: i64) -> Dynamic {
             Dynamic::UNIT
         }

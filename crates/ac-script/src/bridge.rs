@@ -673,6 +673,62 @@ impl Api for CtxApi<'_, '_> {
         c.put_in_container(item as u32, container)
     }
 
+    fn friends(&mut self) -> Array {
+        self.client()
+            .world
+            .friends
+            .iter()
+            .map(|f| {
+                let mut m = Map::new();
+                m.insert("guid".into(), int(f.guid));
+                m.insert("name".into(), f.name.clone().into());
+                m.insert("online".into(), f.online.into());
+                Dynamic::from_map(m)
+            })
+            .collect()
+    }
+
+    fn add_friend(&mut self, name: &str) {
+        self.client().add_friend(name);
+    }
+
+    fn remove_friend(&mut self, guid: i64) {
+        self.client().remove_friend(Some(guid as u32));
+    }
+
+    fn titles(&mut self) -> Map {
+        let t = &self.client().world.titles;
+        let mut m = Map::new();
+        m.insert("current".into(), int(t.current));
+        let ids: Array = t.ids.iter().map(|i| int(*i)).collect();
+        m.insert("ids".into(), ids.into());
+        m
+    }
+
+    fn set_title(&mut self, id: i64) {
+        self.client().set_title(id as u32);
+    }
+
+    fn squelch(&mut self, name: &str, on: bool) {
+        self.client().squelch(0, name, on);
+    }
+
+    fn squelches(&mut self) -> Array {
+        self.client()
+            .world
+            .squelches
+            .characters
+            .iter()
+            .map(|q| {
+                let mut m = Map::new();
+                m.insert("guid".into(), int(q.guid));
+                m.insert("name".into(), q.name.clone().into());
+                m.insert("mask".into(), int(q.mask));
+                Dynamic::from_map(m)
+            })
+            .collect()
+    }
+
     fn appraise(&mut self, guid: i64) {
         self.client().appraise(guid as u32);
     }

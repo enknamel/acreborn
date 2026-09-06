@@ -65,6 +65,7 @@ pub struct Assets {
     region: RefCell<Option<Rc<Region>>>,
     chargen: RefCell<Option<Rc<CharGen>>>,
     skill_table: RefCell<Option<Rc<SkillTable>>>,
+    character_titles: RefCell<Option<Rc<ac_formats::enum_mapper::EnumMapper>>>,
     spell_table: RefCell<Option<Rc<SpellTable>>>,
     spell_components: RefCell<Option<Rc<SpellComponentTable>>>,
     spell_component_ids: RefCell<Option<Rc<DualDidMapper>>>,
@@ -114,6 +115,7 @@ impl Assets {
             region: RefCell::new(None),
             chargen: RefCell::new(None),
             skill_table: RefCell::new(None),
+            character_titles: RefCell::new(None),
             spell_table: RefCell::new(None),
             spell_components: RefCell::new(None),
             spell_component_ids: RefCell::new(None),
@@ -230,6 +232,21 @@ impl Assets {
                 })?,
             );
         *self.skill_table.borrow_mut() = Some(t.clone());
+        Ok(t)
+    }
+
+    /// The character title names (EnumMapper 0x22000041).
+    pub fn character_titles(&self) -> Result<Rc<ac_formats::enum_mapper::EnumMapper>> {
+        use ac_formats::enum_mapper::EnumMapper;
+        if let Some(t) = self.character_titles.borrow().as_ref() {
+            return Ok(t.clone());
+        }
+        let bytes = self.portal.read(EnumMapper::CHARACTER_TITLES)?;
+        let t = Rc::new(EnumMapper::parse(&bytes).map_err(|source| Error::Format {
+            id: EnumMapper::CHARACTER_TITLES,
+            source,
+        })?);
+        *self.character_titles.borrow_mut() = Some(t.clone());
         Ok(t)
     }
 

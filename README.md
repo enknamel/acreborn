@@ -84,7 +84,8 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # (swear to the selected player, break, name it; /v /p /m /c chat to
 # vassals, patron, monarch, co-vassals; /g /trade /lfg /rp /a for the
 # General, Trade, LFG, Roleplay and allegiance rooms), H housing (your house, guests,
-# recall; use a house sign to see its price and buy it), X the character
+# recall; use a house sign to see its price and buy it), N the social
+# panel (your title, friends with who is online, squelches), X the character
 # options; server
 # questions such as a fellowship invitation or an oath pop up with Yes/No;
 # double-click the Ust to open the salvage window, drag a salvage bag onto

@@ -398,6 +398,16 @@ pub mod event {
     pub const CONFIRMATION_REQUEST: u32 = 0x0274;
     pub const CONFIRMATION_DONE: u32 = 0x0276;
     pub const ALLEGIANCE_UPDATE_ABORTED: u32 = 0x0003;
+    /// Friends: count, records (guid, online, appear offline, name, two
+    /// empty guid lists), then the update kind (0 full list, 1 added, 2
+    /// removed, 4 status changed).
+    pub const FRIENDS_LIST_UPDATE: u32 = 0x0021;
+    /// At login: 1, the shown title id, count, title ids.
+    pub const CHARACTER_TITLE: u32 = 0x0029;
+    /// A title granted or chosen: title id, shown flag.
+    pub const UPDATE_TITLE: u32 = 0x002B;
+    /// The squelch list: account table, character table, global mask.
+    pub const SET_SQUELCH_DB: u32 = 0x01F4;
     pub const ALLEGIANCE_UPDATE: u32 = 0x0020;
     pub const ALLEGIANCE_UPDATE_DONE: u32 = 0x01C8;
     pub const ALLEGIANCE_LOGIN_NOTIFICATION: u32 = 0x027A;
@@ -1446,6 +1456,14 @@ pub mod action {
     pub const FELLOWSHIP_RECRUIT: u32 = 0x00A5;
     pub const FELLOWSHIP_UPDATE_REQUEST: u32 = 0x00A6;
     pub const CONFIRMATION_RESPONSE: u32 = 0x0275;
+    pub const REMOVE_FRIEND: u32 = 0x0017;
+    pub const ADD_FRIEND: u32 = 0x0018;
+    pub const REMOVE_ALL_FRIENDS: u32 = 0x0025;
+    pub const TITLE_SET: u32 = 0x002C;
+    /// (flag, guid, name, ChatMessageType), (flag, name), (flag, ChatMessageType).
+    pub const MODIFY_CHARACTER_SQUELCH: u32 = 0x0058;
+    pub const MODIFY_ACCOUNT_SQUELCH: u32 = 0x0059;
+    pub const MODIFY_GLOBAL_SQUELCH: u32 = 0x005B;
     pub const SWEAR_ALLEGIANCE: u32 = 0x001D;
     pub const BREAK_ALLEGIANCE: u32 = 0x001E;
     pub const ALLEGIANCE_UPDATE_REQUEST: u32 = 0x001F;
