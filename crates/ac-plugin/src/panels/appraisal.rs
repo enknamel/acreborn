@@ -1,5 +1,10 @@
-//! The appraisal window: what the server told us about the last object
-//! we assessed (clicking selects and appraises). Items show value,
+//! The appraisal window (Z): what the server told us about the last
+//! object we assessed. It never opens by itself, because it used to
+//! appear under the pointer on the first click of a double-click and
+//! swallow the second; Z opens and closes it, and while it is open it
+//! follows whatever is assessed next. The one-line summary always goes
+//! to the chat log, and the inventory shows an item's stats on hover.
+//! Items show value,
 //! burden, workmanship and material, armor level with per-damage
 //! protections, weapon damage, speed, skill and bonuses, spells with
 //! spellcraft and mana, wield requirements, tinkering and the flags
@@ -8,7 +13,7 @@
 //! appraisal.
 
 use super::{caption, title, window, Source};
-use crate::{egui, Client, Ctx, Plugin};
+use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_net::messages::Appraisal;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -331,9 +336,8 @@ pub fn draw(egui: &egui::Context, v: &AppraisalView) -> bool {
 #[derive(Default)]
 pub struct AppraisalPanel {
     source: Source<AppraisalView>,
-    /// The last `appraisal_seq` shown; a new one reopens the window.
-    seen: u64,
-    closed: bool,
+    /// Open (Z toggles it). Starts closed.
+    pub show: bool,
 }
 
 impl AppraisalPanel {
@@ -357,8 +361,7 @@ impl AppraisalPanel {
                 spells: vec!["Blood Drinker III".into(), "Swift Killer III".into()],
                 failed: false,
             }),
-            seen: 0,
-            closed: false,
+            show: true,
         }
     }
 }
@@ -369,24 +372,38 @@ impl Plugin for AppraisalPanel {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if !self.show {
+            return;
+        }
         let v = match &self.source {
             Source::Demo(d) => Some(d.clone()),
             Source::Live => {
                 let Some(c) = cx.try_client() else { return };
-                if c.appraisal_seq != self.seen {
-                    self.seen = c.appraisal_seq;
-                    self.closed = false;
-                }
-                if self.closed {
-                    return;
-                }
                 view(c)
             }
         };
         let Some(v) = v else { return };
         if draw(egui, &v) {
-            self.closed = true;
+            self.show = false;
         }
+    }
+
+    fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
+        if key == egui::Key::Z && pressed {
+            self.show = !self.show;
+            return true;
+        }
+        false
+    }
+
+    fn load(&mut self, settings: &Settings) {
+        if let Some(v) = settings.get("appraisal.show") {
+            self.show = v;
+        }
+    }
+
+    fn save(&self, settings: &mut Settings) {
+        settings.set("appraisal.show", self.show);
     }
 }
 

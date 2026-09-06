@@ -273,6 +273,9 @@ pub struct Actions {
 #[serde(default)]
 pub struct State {
     pub tab: Tab,
+    /// Not kept across restarts: a search that survived would hide most
+    /// of the list on the next run and look like a broken panel.
+    #[serde(skip)]
     pub search: String,
     pub kind: usize,
     pub follow: bool,

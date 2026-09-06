@@ -218,6 +218,9 @@ pub struct Actions {
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct State {
+    /// Not kept across restarts: a search that survived would hide
+    /// most of the list on the next run and look like a broken panel.
+    #[serde(skip)]
     pub search: String,
     /// Index into [`KINDS`] (0 = all) and [`SORTS`] (0 = name).
     pub kind: usize,

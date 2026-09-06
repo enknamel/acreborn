@@ -71,7 +71,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # has tabs for Say, Combat, Magic, Channels and System with unread counts,
 # timestamps, a draggable top edge, and clicking a speaker's name starts a
 # tell), left click
-# selects and appraises an object, double-click uses it (doors, NPCs), picks
+# selects and appraises an object (Z opens the appraisal window, which
+# then follows whatever you assess; the summary always goes to the chat),
+# double-click uses it (doors, NPCs), picks
 # it up (ground items) or puts it on / takes it off (in the inventory panel,
 # toggled with I, which groups items by pack, shows burden and pack slots,
 # searches by name, spell, material or stats such as dmg>10, al>=100,
