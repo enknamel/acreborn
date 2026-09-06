@@ -488,7 +488,7 @@ pub fn draw(
                     if ui.small_button("Cancel").clicked() {
                         actions.cancel_travel = true;
                     }
-                    caption(ui, format!("travelling: waypoint {next} of {n}"));
+                    caption(ui, format!("travelling: step {next} of {n}"));
                 } else {
                     let go = ui.small_button("Go");
                     let edit = ui.add(

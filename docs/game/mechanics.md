@@ -919,6 +919,23 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   dot by kind (player, NPC, monster, corpse, portal, door, item) with a
   searchable list. The gazetteer of towns (`ac_world::towns`) labels the
   world map and names travel destinations.
+* **Travelling uses portals.** A journey is planned over the portals of
+  the world as well as the ground (`ac_world::trip`): from Holtburg to
+  Arwic that is the Town Network, in through the town's portal and out
+  of the hub's, which takes about a minute instead of a quarter of an
+  hour on foot. Walking between two spots is priced by the straight line
+  between them, which is enough to choose which portals to take; the
+  exact path of each step is planned when it is walked, on the terrain
+  grid outdoors and on the landblock's own navigation graph indoors (a
+  landblock's cells can lie outside its square, so an indoor leg is
+  aimed in the character's own landblock, not the one its world position
+  falls in). Using something in the world, attacking or taking the
+  controls stops the journey, since the server walks the character to
+  whatever they used.
+* **Portals and landmarks are server data**, not in the client's own
+  files: `crates/ac-world/data/portals.csv` and `landmarks.csv` are
+  copies of where every portal, lifestone, vendor and standing NPC is
+  (`reference/scripts/data/*.sh` regenerate them).
 * **Lifestones** attune on Use (half stamina). `/lifestone` recalls.
   Portal magic (item school) ties one primary and one secondary portal
   and one lifestone, recalls to them and can summon a portal.

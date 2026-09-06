@@ -5,12 +5,15 @@
 
 pub mod allegiance;
 pub mod housing;
+pub mod landmarks;
 pub mod material;
 pub mod motion;
 pub mod object;
+pub mod portals;
 pub mod social;
 pub mod stats;
 pub mod towns;
+pub mod trip;
 
 use std::collections::HashMap;
 

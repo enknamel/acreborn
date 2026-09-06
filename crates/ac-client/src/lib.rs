@@ -1069,6 +1069,16 @@ impl Client {
         use ac_net::messages::action;
         use ac_world::{item_type, object_desc_flags};
         let me = self.world.player_guid;
+        // Using something in the world walks us to it: stop any journey
+        // so it does not walk us away again afterwards.
+        let in_the_world = self
+            .world
+            .objects
+            .get(&guid)
+            .is_some_and(|o| o.container.is_none() && o.wielder.is_none());
+        if in_the_world {
+            self.interrupt_travel("using something");
+        }
         let Some(o) = self.world.objects.get(&guid) else {
             return;
         };
@@ -1221,6 +1231,7 @@ impl Client {
     }
 
     pub fn attack(&mut self, guid: u32) {
+        self.interrupt_travel("attacking");
         use ac_net::messages::action;
         if !self.combat {
             return;
@@ -1443,6 +1454,7 @@ impl Client {
     /// a book lying on the ground, open a chest, talk to an NPC. Retail's
     /// "Use Selected" action. False when the object is unknown.
     pub fn use_object(&mut self, guid: u32) -> bool {
+        self.interrupt_travel("using something");
         let Some(o) = self.world.objects.get(&guid) else {
             return false;
         };
@@ -1455,6 +1467,7 @@ impl Client {
     /// Pick a loose item up into the pack (PutItemInContainer to our own
     /// guid). False for anything that is not a loose item.
     pub fn pick_up(&mut self, guid: u32) -> bool {
+        self.interrupt_travel("picking something up");
         let Some(me) = self.world.player_guid else {
             return false;
         };
@@ -2299,6 +2312,7 @@ impl Client {
     /// must be in peace mode and close by; the server answers with
     /// RegisterTrade for both (`world.trade`).
     pub fn open_trade(&mut self, player: u32) {
+        self.interrupt_travel("trading");
         use ac_net::messages::action;
         tracing::info!("trade with {player:#010x}");
         self.session
