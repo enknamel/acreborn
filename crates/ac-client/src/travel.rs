@@ -574,6 +574,10 @@ impl Client {
             );
             if jumped && !expected {
                 self.travel.last_seen = Some(me);
+                // Whatever swept us up can still be walked into, so it is
+                // not refused: refusing it once shut the way off the
+                // continent. The route already pays to pass near one, and
+                // the plan from here takes the new position as it is.
                 if let Some(goal) = self.travel.goal {
                     tracing::info!("travel: carried off to {me:?}; planning again from here");
                     if self.travel_to(goal) {
