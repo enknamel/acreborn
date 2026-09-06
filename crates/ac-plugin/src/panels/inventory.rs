@@ -12,12 +12,19 @@
 //!   sort box orders by name, value, burden, damage, armor...
 //! * Hovering an item shows its stats; a click selects and appraises it;
 //!   a double-click uses it (wield, take off, read, drink...); a
-//!   right-click on a stack opens the split popup.
+//!   right-click opens its menu (Use on..., Split..., Use, Drop).
+//! * **Using one item on another** is "Use on..." from the right-click
+//!   menu, then a click on the other item: the two never have to be
+//!   near each other, and the search may be retyped in between to find
+//!   the target. That is single-step crafting (a carving knife on a
+//!   pumpkin, an alembic on a reagent, an oil on a wielded weapon) as
+//!   well as a mana stone on an item or a salvage bag on a weapon.
+//!   Dragging one item onto another does the same for two that happen to
+//!   be side by side. Escape or Cancel drops the pending item.
 //! * Drag an item onto a pack header to move it into that pack (the
 //!   "Pack" header is the main pack); onto a stack of the same kind to
-//!   merge; onto another item to apply it (a salvage bag tinkers, a mana
-//!   stone charges, a key unlocks). Packs themselves hang from the main
-//!   pack: picking one up equips it in a free side slot.
+//!   merge. Packs themselves hang from the main pack: picking one up
+//!   equips it in a free side slot.
 
 use super::{caption, has_sheet, item_row, title, window, Item, ItemDrag, Source};
 use crate::icons::{IconCache, IconLayers};
@@ -199,6 +206,12 @@ pub struct Actions {
     pub inspect: Vec<u32>,
     /// Appraise every unappraised item in the background.
     pub appraise_all: bool,
+    /// "Use on..." was chosen: this item is waiting for a target.
+    pub use_on_from: Option<u32>,
+    /// Stop waiting for a target.
+    pub cancel_use: bool,
+    /// Items to drop on the ground.
+    pub drop: Vec<u32>,
 }
 
 /// The panel's own state: search line, chip, sort, folded packs.
@@ -212,6 +225,11 @@ pub struct State {
     pub descending: bool,
     pub folded: Vec<u32>,
     pub worn_folded: bool,
+    /// An item waiting for something to be used on (crafting: an alembic
+    /// on a reagent, an oil on a weapon, a key on a chest). The next item
+    /// clicked is the target. Not kept across restarts.
+    #[serde(skip)]
+    pub pending_use: Option<u32>,
 }
 
 impl State {
@@ -273,6 +291,25 @@ fn tooltip(ui: &mut egui::Ui, r: &Row) {
     }
 }
 
+/// What clicking an item does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Click {
+    /// Finish a waiting "Use on...": use this source on the clicked item.
+    UseOn(u32),
+    /// Select and appraise the clicked item.
+    Select,
+}
+
+/// A click on `target` finishes a pending use, unless the pending item is
+/// the one clicked (using something on itself is not a recipe, so that
+/// just selects it again).
+pub fn click_action(pending: Option<u32>, target: u32) -> Click {
+    match pending {
+        Some(source) if source != target => Click::UseOn(source),
+        _ => Click::Select,
+    }
+}
+
 /// One item row with its drop handling; returns nothing, fills `actions`.
 fn draw_row(
     ui: &mut egui::Ui,
@@ -280,6 +317,8 @@ fn draw_row(
     v: &InventoryView,
     r: &Row,
     key: SortKey,
+    // The item waiting for a target, if any.
+    pending: Option<u32>,
     actions: &mut Actions,
 ) {
     let color = if r.item.wielded {
@@ -305,14 +344,34 @@ fn draw_row(
         .inner
     });
     let row = resp.inner.on_hover_ui(|ui| tooltip(ui, r));
+    // Right-click opens the item's menu; while an item is waiting to be
+    // used on something, a click picks the target instead of selecting.
+    row.context_menu(|ui| {
+        if ui.button("Use on...").clicked() {
+            actions.use_on_from = Some(r.item.guid);
+            ui.close();
+        }
+        if r.item.stack > 1 && ui.button("Split...").clicked() {
+            actions.split_of = Some(r.item.guid);
+            ui.close();
+        }
+        if ui.button("Use").clicked() {
+            actions.activated.push(r.item.guid);
+            ui.close();
+        }
+        if ui.button("Drop").clicked() {
+            actions.drop.push(r.item.guid);
+            ui.close();
+        }
+    });
     if row.clicked() {
-        actions.inspect.push(r.item.guid);
+        match click_action(pending, r.item.guid) {
+            Click::UseOn(source) => actions.apply.push((source, r.item.guid)),
+            Click::Select => actions.inspect.push(r.item.guid),
+        }
     }
-    if row.double_clicked() {
+    if row.double_clicked() && pending.is_none() {
         actions.activated.push(r.item.guid);
-    }
-    if row.secondary_clicked() && r.item.stack > 1 {
-        actions.split_of = Some(r.item.guid);
     }
     if let Some(p) = dropped {
         if p.0 == r.item.guid {
@@ -452,6 +511,23 @@ pub fn draw(
                 actions.appraise_all = true;
             }
         });
+        if let Some(source) = st.pending_use {
+            let name = v
+                .rows
+                .iter()
+                .find(|r| r.item.guid == source)
+                .map(|r| r.item.name.clone())
+                .unwrap_or_else(|| "it".into());
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("Using {name} on... click the other item"))
+                        .color(egui::Color32::from_rgb(255, 220, 120)),
+                );
+                if ui.small_button("Cancel").clicked() {
+                    actions.cancel_use = true;
+                }
+            });
+        }
         if st.filtering() {
             caption(ui, format!("showing {} of {}", order.len(), v.rows.len()));
         }
@@ -483,7 +559,7 @@ pub fn draw(
                     }
                     if !st.worn_folded {
                         for i in worn {
-                            draw_row(ui, icons, v, &v.rows[i], key, &mut actions);
+                            draw_row(ui, icons, v, &v.rows[i], key, st.pending_use, &mut actions);
                         }
                     }
                 }
@@ -497,7 +573,7 @@ pub fn draw(
                         &mut actions,
                     );
                     for i in main {
-                        draw_row(ui, icons, v, &v.rows[i], key, &mut actions);
+                        draw_row(ui, icons, v, &v.rows[i], key, st.pending_use, &mut actions);
                     }
                 }
                 // Side packs with their contents.
@@ -524,7 +600,15 @@ pub fn draw(
                     if !folded {
                         ui.indent(p.guid, |ui| {
                             for i in inside {
-                                draw_row(ui, icons, v, &v.rows[i], key, &mut actions);
+                                draw_row(
+                                    ui,
+                                    icons,
+                                    v,
+                                    &v.rows[i],
+                                    key,
+                                    st.pending_use,
+                                    &mut actions,
+                                );
                             }
                         });
                     }
@@ -537,7 +621,7 @@ pub fn draw(
                         && !v.packs.iter().any(|p| p.guid == r.stats.container)
                 });
                 for i in stray {
-                    draw_row(ui, icons, v, &v.rows[i], key, &mut actions);
+                    draw_row(ui, icons, v, &v.rows[i], key, st.pending_use, &mut actions);
                 }
             });
     });
@@ -776,6 +860,15 @@ impl Plugin for Inventory {
         };
         let Some(v) = v else { return };
         let actions = draw(egui, cx.icons(), &v, &mut self.state);
+        if let Some(g) = actions.use_on_from {
+            self.state.pending_use = Some(g);
+        }
+        if actions.cancel_use || egui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.state.pending_use = None;
+        }
+        if !actions.apply.is_empty() {
+            self.state.pending_use = None;
+        }
         if let Some(g) = actions.split_of {
             let stack = v
                 .rows
@@ -819,6 +912,9 @@ impl Plugin for Inventory {
             }
             for (item, target) in actions.apply {
                 c.use_on(item, target);
+            }
+            for g in actions.drop {
+                c.drop_item(g);
             }
             for (item, container) in actions.moves {
                 let container = if container == 0 {
@@ -882,6 +978,16 @@ mod tests {
         assert_eq!(v.rows[idx[0]].item.name, "Fine Sword");
         assert_eq!(v.rows[idx[1]].item.name, "Leather Tunic");
         assert!(!st.filtering());
+    }
+
+    #[test]
+    fn a_waiting_item_is_used_on_the_next_click() {
+        // Nothing waiting: a click selects.
+        assert_eq!(click_action(None, 7), Click::Select);
+        // Waiting: the next item clicked is the target.
+        assert_eq!(click_action(Some(3), 7), Click::UseOn(3));
+        // Clicking the waiting item itself is not a recipe.
+        assert_eq!(click_action(Some(3), 3), Click::Select);
     }
 
     #[test]

@@ -620,6 +620,16 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   an item onto someone to give it and used a kit on someone by selecting
   them and using the kit; the client does the same (with nothing
   selected the server applies the kit to yourself).
+* **Single-step crafting** is one item used on another: the client sends
+  UseWithTarget 0x0035 and the server looks the pair up in its recipe
+  book (source weenie + target weenie -> a recipe), so the same action
+  covers a carving knife on a pumpkin, an alembic on a reagent, an oil
+  on a weapon and a salvage bag on one. The character must be in peace
+  mode, a recipe may need a trade skill ("You are not trained in that
+  trade skill") and, when the crafting-chance option is on, the server
+  asks for confirmation first. In the inventory this is "Use on..."
+  from an item's right-click menu, then a click on the other item.
+  Verified live: a Carving Knife on a Pumpkin became a Jack o' Lantern.
 * Mana stones charge wielded items; healing kits heal (Healing skill,
   difficulty = missing health × 2, harder in combat, 1 stamina per 5
   health); potions and food restore vitals.

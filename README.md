@@ -76,7 +76,10 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # toggled with I, which groups items by pack, shows burden and pack slots,
 # searches by name, spell, material or stats such as dmg>10, al>=100,
 # type:armor, spell:blood, wielded, sorts by value/burden/damage/armor and
-# shows an item's stats on hover; "Appraise all" fetches the stats of every
+# shows an item's stats on hover; right-click an item for its menu, where
+# "Use on..." then a click on another item combines the two (single-step
+# crafting: a carving knife on a pumpkin, an oil on a weapon, a mana stone
+# on an item), so they need not be next to each other; "Appraise all" fetches the stats of every
 # item; V toggles the nameplates over creatures, players and portals
 # (names fade with distance, a health bar under anything hurt or targeted);
 # M opens the map: the world map of Dereth with the towns, or the
