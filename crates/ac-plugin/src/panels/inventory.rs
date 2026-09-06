@@ -69,13 +69,24 @@ pub const KINDS: &[(&str, &[&str])] = &[
     ("Comps", &["comps"]),
     ("Food", &["food"]),
     ("Gems", &["gem"]),
-    ("Keys", &["key", "lockpick"]),
-    ("Scrolls", &["scroll"]),
-    ("Salvage", &["salvage"]),
+    ("Keys", &["key"]),
+    ("Books", &["writable"]),
+    ("Salvage", &["salvage", "tool"]),
     ("Packs", &["pack"]),
     (
         "Misc",
-        &["misc", "money", "healer", "manastone", "portal", "trinket"],
+        &[
+            "misc",
+            "money",
+            "manastone",
+            "portal",
+            "trinket",
+            "junk",
+            "note",
+            "service",
+            "lifestone",
+            "gameboard",
+        ],
     ),
 ];
 

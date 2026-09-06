@@ -46,7 +46,7 @@ impl Kind {
             Kind::Player
         } else if d & f::CORPSE != 0 {
             Kind::Corpse
-        } else if d & f::PORTAL != 0 || o.item_type & 0x2000 != 0 {
+        } else if d & f::PORTAL != 0 || o.item_type & item_type::PORTAL != 0 {
             Kind::Portal
         } else if d & f::DOOR != 0 {
             Kind::Door

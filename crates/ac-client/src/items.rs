@@ -22,14 +22,19 @@ pub fn kind_name(item_type: u32) -> &'static str {
         (item_type::MONEY, "money"),
         (item_type::GEM, "gem"),
         (item_type::KEY, "key"),
-        (item_type::LOCKPICK, "lockpick"),
-        (item_type::HEALER, "healer"),
         (item_type::MANA_STONE, "manastone"),
-        (0x80, "comps"),
-        (0x400, "scroll"),
-        (0x2000, "portal"),
-        (0x40000, "salvage"),
-        (0x200000, "trinket"),
+        (item_type::SPELL_COMPONENTS, "comps"),
+        (item_type::WRITABLE, "writable"),
+        (item_type::PORTAL, "portal"),
+        (item_type::TINKERING_MATERIAL, "salvage"),
+        (item_type::TINKERING_TOOL, "tool"),
+        (item_type::PROMISSORY_NOTE, "note"),
+        (item_type::SERVICE, "service"),
+        (item_type::LIFESTONE, "lifestone"),
+        (item_type::GAMEBOARD, "gameboard"),
+        (item_type::MAGIC_WIELDABLE, "trinket"),
+        (item_type::MISC, "misc"),
+        (item_type::USELESS, "junk"),
     ];
     kinds
         .iter()
@@ -738,7 +743,15 @@ mod tests {
         assert!(lines.iter().any(|l| l == "Workmanship 6 Iron"));
         assert!(unknown().summary().contains(&"(not appraised)".to_string()));
         assert_eq!(kind_name(item_type::ARMOR | item_type::CLOTHING), "armor");
-        assert_eq!(kind_name(0x80), "comps");
+        assert_eq!(kind_name(item_type::MISC), "misc");
         assert_eq!(kind_name(0), "misc");
+        // The bits that used to be mislabelled: a book is Writable, a
+        // healing kit is Misc, 0x10000 is Portal (not a healer) and
+        // 0x20000 is Lockable (a chest, not a lockpick).
+        assert_eq!(kind_name(item_type::WRITABLE), "writable");
+        assert_eq!(kind_name(item_type::PORTAL), "portal");
+        assert_eq!(kind_name(item_type::SPELL_COMPONENTS), "comps");
+        assert_eq!(kind_name(item_type::TINKERING_MATERIAL), "salvage");
+        assert_eq!(kind_name(item_type::CREATURE | item_type::LOCKABLE), "misc");
     }
 }

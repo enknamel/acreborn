@@ -55,23 +55,46 @@ pub mod object_desc_flags {
     pub const PORTAL: u32 = 0x0004_0000;
 }
 
-/// ItemType bits.
+/// ItemType bits (ACE `ItemType`). There is no "healer" type: a healing
+/// kit is `MISC`, and what an item may be used on comes from its
+/// [`usable`] word, not from these.
 pub mod item_type {
     pub const MELEE_WEAPON: u32 = 0x1;
     pub const ARMOR: u32 = 0x2;
     pub const CLOTHING: u32 = 0x4;
     pub const JEWELRY: u32 = 0x8;
     pub const CREATURE: u32 = 0x10;
+    pub const FOOD: u32 = 0x20;
     pub const MONEY: u32 = 0x40;
+    pub const MISC: u32 = 0x80;
     pub const MISSILE_WEAPON: u32 = 0x100;
     pub const CONTAINER: u32 = 0x200;
-    pub const CASTER: u32 = 0x8000;
-    pub const FOOD: u32 = 0x20;
+    pub const USELESS: u32 = 0x400;
     pub const GEM: u32 = 0x800;
+    pub const SPELL_COMPONENTS: u32 = 0x1000;
+    /// Books, plaques, signs, scrolls: anything with pages or an
+    /// inscription.
+    pub const WRITABLE: u32 = 0x2000;
     pub const KEY: u32 = 0x4000;
-    pub const HEALER: u32 = 0x10000;
-    pub const LOCKPICK: u32 = 0x20000;
-    pub const MANA_STONE: u32 = 0x80000;
+    pub const CASTER: u32 = 0x8000;
+    pub const PORTAL: u32 = 0x1_0000;
+    /// A thing that can be locked (a chest, a door), not a lockpick.
+    pub const LOCKABLE: u32 = 0x2_0000;
+    pub const PROMISSORY_NOTE: u32 = 0x4_0000;
+    pub const MANA_STONE: u32 = 0x8_0000;
+    pub const SERVICE: u32 = 0x10_0000;
+    pub const MAGIC_WIELDABLE: u32 = 0x20_0000;
+    pub const CRAFT_COOKING_BASE: u32 = 0x40_0000;
+    pub const CRAFT_ALCHEMY_BASE: u32 = 0x80_0000;
+    pub const CRAFT_FLETCHING_BASE: u32 = 0x200_0000;
+    pub const CRAFT_ALCHEMY_INTERMEDIATE: u32 = 0x400_0000;
+    pub const CRAFT_FLETCHING_INTERMEDIATE: u32 = 0x800_0000;
+    pub const LIFESTONE: u32 = 0x1000_0000;
+    /// The Ust and its kin.
+    pub const TINKERING_TOOL: u32 = 0x2000_0000;
+    /// Salvage bags.
+    pub const TINKERING_MATERIAL: u32 = 0x4000_0000;
+    pub const GAMEBOARD: u32 = 0x8000_0000;
     /// Item types that go on the body: wield them rather than use them.
     pub const WIELDABLE: u32 = MELEE_WEAPON | ARMOR | CLOTHING | JEWELRY | MISSILE_WEAPON | CASTER;
 }
