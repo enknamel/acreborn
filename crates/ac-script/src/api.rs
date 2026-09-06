@@ -44,6 +44,10 @@ pub trait Api {
     /// Summary of the current session's character (see `session`).
     fn me(&mut self) -> Map;
 
+    /// How journeys are planned: "quick" takes the fastest chain of
+    /// portals, "steady" prefers fewer hops. Returns the style in force.
+    fn travel_style(&mut self, style: &str) -> String;
+
     /// Turn playing on its own on or off (see `ac_client::autoplay`);
     /// returns whether it is on now.
     fn autoplay(&mut self, on: bool) -> bool;
@@ -339,6 +343,9 @@ pub fn register(engine: &mut Engine) {
     // reads
     engine.register_fn("me", || with_api(|a| a.me()));
     engine.register_fn("autoplay", |on: bool| with_api(|a| a.autoplay(on)));
+    engine.register_fn("travel_style", |style: &str| {
+        with_api(|a| a.travel_style(style))
+    });
     engine.register_fn("autoplay_status", || with_api(|a| a.autoplay_status()));
     engine.register_fn("objects", || with_api(|a| a.objects()));
     engine.register_fn("inventory", || with_api(|a| a.inventory()));

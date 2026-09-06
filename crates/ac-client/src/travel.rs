@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use ac_formats::region::Region;
 use ac_scene::worldgrid::WorldGrid;
 use ac_scene::worldroute;
-use ac_world::trip::{self, Step, Trip};
+use ac_world::trip::{self, Prefs, Step, Trip};
 use glam::{Vec2, Vec3};
 
 use crate::Client;
@@ -76,6 +76,13 @@ pub struct Travel {
     step_best: f32,
     /// Where the step is aimed, to measure that.
     step_target: Option<Vec2>,
+    /// Where the character stood last frame, to notice a portal that
+    /// took them somewhere the journey did not ask for.
+    last_seen: Option<Vec2>,
+    /// When we last tried jumping into a portal that has not taken us.
+    last_hop: Option<Instant>,
+    /// How journeys are chosen: the quickest chain, or fewer hops.
+    pub prefs: Prefs,
     /// The mouths of portals that would not take us *on this journey*:
     /// they are left out while the rest of the way is planned again, and
     /// forgotten as soon as the player asks to go somewhere else. Named
@@ -262,6 +269,7 @@ impl Client {
             Step::Walk(_) => None,
         };
         self.travel.portal_since = None;
+        self.travel.last_hop = None;
         self.travel.step_since = Some(Instant::now());
         self.travel.step_best = f32::INFINITY;
         self.travel.step_target = Some(target);
@@ -400,6 +408,17 @@ impl Client {
     /// The journey being made, for a map to draw or describe.
     pub fn travel_trip(&self) -> Option<&Trip> {
         self.travel.trip.as_ref()
+    }
+
+    /// How journeys are chosen. `Prefs::quick()` takes the fastest chain
+    /// of portals; `Prefs::steady()` prefers fewer hops, since each one
+    /// is a chance to be turned away or land somewhere unexpected.
+    pub fn set_travel_prefs(&mut self, prefs: Prefs) {
+        self.travel.prefs = prefs;
+    }
+
+    pub fn travel_prefs(&self) -> Prefs {
+        self.travel.prefs
     }
 
     pub fn traveling(&self) -> bool {
@@ -544,6 +563,27 @@ impl Client {
             }
             return None;
         }
+        // A portal takes whoever touches it, so the character can be
+        // carried off mid-walk by one the journey never meant to use.
+        // Wherever they have landed, plan again from there.
+        if let Some(last) = self.travel.last_seen {
+            let jumped = me.distance(last) > 60.0;
+            let expected = matches!(
+                self.travel.trip.as_ref().and_then(|t| t.steps.get(self.travel.step)),
+                Some(Step::Portal { exit, .. }) if me.distance(*exit) < 60.0
+            );
+            if jumped && !expected {
+                self.travel.last_seen = Some(me);
+                if let Some(goal) = self.travel.goal {
+                    tracing::info!("travel: carried off to {me:?}; planning again from here");
+                    if self.travel_to(goal) {
+                        return self.travel_goal(now);
+                    }
+                }
+                return None;
+            }
+        }
+        self.travel.last_seen = Some(me);
         loop {
             let n = self.travel.route.as_ref()?.len();
             let waypoint = |t: &Travel, i: usize| t.route.as_ref().map(|r| r[i]);
@@ -590,6 +630,21 @@ impl Client {
                             }
                         }
                         return None;
+                    }
+                    // A few portals sit above the ground and have to be
+                    // jumped into; try that while we wait.
+                    if self
+                        .travel
+                        .portal_since
+                        .is_some_and(|t| now.duration_since(t) > Duration::from_secs(3))
+                        && self
+                            .travel
+                            .last_hop
+                            .is_none_or(|t| now.duration_since(t) > Duration::from_secs(2))
+                    {
+                        self.travel.last_hop = Some(now);
+                        tracing::info!("travel: jumping into the portal");
+                        self.jump(1.0);
                     }
                     let mouth = waypoint(&self.travel, n - 1)?;
                     let z = self

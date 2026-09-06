@@ -261,6 +261,21 @@ impl Api for CtxApi<'_, '_> {
         summary(self.client(), index)
     }
 
+    fn travel_style(&mut self, style: &str) -> String {
+        let steady = style.eq_ignore_ascii_case("steady");
+        let c = self.client();
+        c.set_travel_prefs(if steady {
+            ac_world::trip::Prefs::steady()
+        } else {
+            ac_world::trip::Prefs::quick()
+        });
+        if steady {
+            "steady".into()
+        } else {
+            "quick".into()
+        }
+    }
+
     fn autoplay(&mut self, on: bool) -> bool {
         let c = self.client();
         c.autoplay.config.enabled = on;

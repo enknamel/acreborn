@@ -367,6 +367,10 @@ mod tests {
             m.insert("session".into(), Dynamic::from_int(self.session));
             m
         }
+        fn travel_style(&mut self, style: &str) -> String {
+            self.calls.push(format!("travel_style({style})"));
+            style.to_string()
+        }
         fn autoplay(&mut self, on: bool) -> bool {
             self.calls.push(format!("autoplay({on})"));
             self.autoplay_on = on;

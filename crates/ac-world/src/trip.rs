@@ -144,6 +144,44 @@ impl PartialOrd for Queued {
     }
 }
 
+/// How a journey should be chosen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Prefs {
+    /// What one portal is reckoned to cost, in seconds. Raise it and the
+    /// journey takes fewer, longer hops; lower it and it hops more.
+    pub portal_seconds: f32,
+    /// Give up on a chain longer than this many portals.
+    pub max_portals: usize,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Prefs {
+            portal_seconds: PORTAL_SECONDS,
+            max_portals: 8,
+        }
+    }
+}
+
+impl Prefs {
+    /// The quickest way, however many portals it takes.
+    pub fn quick() -> Self {
+        Prefs {
+            portal_seconds: PORTAL_SECONDS,
+            max_portals: 8,
+        }
+    }
+
+    /// Fewer hops: every portal is a chance to be turned away, to land
+    /// somewhere unexpected, or to walk into something on the way.
+    pub fn steady() -> Self {
+        Prefs {
+            portal_seconds: PORTAL_SECONDS * 6.0,
+            max_portals: 3,
+        }
+    }
+}
+
 /// Plan a journey from `from` (in cell `from_cell`) to `goal` for a
 /// character of any level, ignoring what portals ask for.
 pub fn plan(from: Vec2, from_cell: u32, goal: Vec2) -> Option<Trip> {
@@ -165,6 +203,28 @@ pub fn plan_for(
     level: u32,
     quests_done: &[String],
     avoid: &[Vec2],
+) -> Option<Trip> {
+    plan_with(
+        from,
+        from_cell,
+        goal,
+        level,
+        quests_done,
+        avoid,
+        Prefs::default(),
+    )
+}
+
+/// [`plan_for`] with the journey's preferences (see [`Prefs`]).
+#[allow(clippy::too_many_arguments)]
+pub fn plan_with(
+    from: Vec2,
+    from_cell: u32,
+    goal: Vec2,
+    level: u32,
+    quests_done: &[String],
+    avoid: &[Vec2],
+    prefs: Prefs,
 ) -> Option<Trip> {
     // Straight there, when that is a believable walk.
     if can_walk(from, from_cell, goal, 0) {
@@ -238,7 +298,7 @@ pub fn plan_for(
             if node.at.distance(mouth) > PORTAL_REACH && node.cell & 0xFFFF < 0x100 {
                 continue;
             }
-            let step_cost = walk_seconds(node.at, mouth) + PORTAL_SECONDS;
+            let step_cost = walk_seconds(node.at, mouth) + prefs.portal_seconds;
             let next = q.cost + step_cost;
             if best.map(|(b, _)| next >= b).unwrap_or(false) {
                 continue;
@@ -259,9 +319,21 @@ pub fn plan_for(
         }
     }
     let (seconds, end) = best?;
+    // Too long a chain of portals is more chance to go wrong than it is
+    // worth; the caller asked for fewer.
+    let mut hops = 0;
+    let mut at = end;
+    while let Some((prev, _)) = came[at] {
+        hops += 1;
+        at = prev;
+    }
+    if hops > prefs.max_portals {
+        return None;
+    }
     // Walk back through the portals taken.
     let mut steps = Vec::new();
     let mut at = end;
+    #[allow(clippy::needless_late_init)]
     while let Some((prev, pi)) = came[at] {
         let p: &Portal = portals[pi];
         steps.push(Step::Portal {

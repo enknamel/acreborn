@@ -938,6 +938,18 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   falls in). Using something in the world, attacking or taking the
   controls stops the journey, since the server walks the character to
   whatever they used.
+* **Being carried off is normal.** A portal takes whoever touches it, so
+  the character walks at a portal's centre and can be swept away
+  mid-stride by one the journey never meant to use. Rather than only
+  keeping clear of them, a journey notices it has landed somewhere it
+  did not plan and plans again from there. A few portals sit above the
+  ground and are jumped into, so one that has not taken the character
+  three seconds after they reached it gets a jump.
+* **How a journey is chosen** is a preference (`ac_world::trip::Prefs`):
+  `quick` takes the fastest chain of portals, `steady` reckons a portal
+  at six times the cost and takes at most three, since every hop is a
+  chance to be turned away or land somewhere unexpected. Scripts set it
+  with `travel_style("steady")`.
 * **A portal takes whoever walks into it.** A route on the way to
   somewhere else must give every other portal a wide berth, or the
   character is swallowed by one and comes out across the world: a walk
