@@ -1335,6 +1335,13 @@ impl Client {
         self.appraisals.insert(a.guid, a);
     }
 
+    /// Select an item in a panel and appraise it, what a single click on
+    /// a pack, container, vendor or trade row does.
+    pub fn inspect(&mut self, guid: u32) {
+        self.selected = Some(guid);
+        self.appraise(guid);
+    }
+
     /// Ask the server to appraise an object (IdentifyObject 0x00C8); the
     /// answer lands in `appraisals` and opens the appraisal panel.
     pub fn appraise(&mut self, guid: u32) {

@@ -21,6 +21,8 @@ pub struct TradeView {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Actions {
     pub add: Vec<u32>,
+    /// Single-clicked items on either side: select and appraise.
+    pub inspect: Vec<u32>,
     pub accept: bool,
     pub decline: bool,
     pub reset: bool,
@@ -101,7 +103,9 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &TradeView) -> Actio
                     caption(ui, "Your offer (drop items here)");
                     ui.set_min_height(170.0);
                     for it in &v.mine {
-                        item_row(ui, icons, it, egui::Color32::WHITE);
+                        if item_row(ui, icons, it, egui::Color32::WHITE).clicked() {
+                            actions.inspect.push(it.guid);
+                        }
                     }
                     if v.mine.is_empty() {
                         ui.label(
@@ -115,12 +119,16 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &TradeView) -> Actio
             caption(&mut cols[1], &format!("{}'s offer", v.partner));
             cols[1].set_min_height(170.0);
             for it in &v.theirs {
-                item_row(
+                if item_row(
                     &mut cols[1],
                     icons,
                     it,
                     egui::Color32::from_rgb(200, 230, 255),
-                );
+                )
+                .clicked()
+                {
+                    actions.inspect.push(it.guid);
+                }
             }
             if v.theirs.is_empty() {
                 cols[1]
@@ -202,6 +210,9 @@ impl Plugin for Trade {
         let Some(v) = v else { return };
         let a = draw(egui, cx.icons(), &v);
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
+            for g in a.inspect {
+                c.inspect(g);
+            }
             for g in a.add {
                 c.add_to_trade(g);
             }

@@ -41,6 +41,8 @@ pub struct Actions {
     pub merge: Vec<(u32, u32)>,
     /// Right-clicked stack: open the split popup for it.
     pub split_of: Option<u32>,
+    /// Single-clicked items: select and appraise.
+    pub inspect: Vec<u32>,
 }
 
 /// Draw the panel: double-click uses an item, dragging one onto a side
@@ -99,6 +101,9 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, items: &[Item]) -> Acti
                             .dnd_drop_zone::<ItemDrag, _>(egui::Frame::new(), |ui| {
                                 item_row(ui, icons, it, color)
                             });
+                        if r.inner.clicked() {
+                            actions.inspect.push(it.guid);
+                        }
                         if r.inner.double_clicked() {
                             actions.activated.push(it.guid);
                         }
@@ -112,6 +117,9 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, items: &[Item]) -> Acti
                             .dnd_drop_zone::<ItemDrag, _>(egui::Frame::new(), |ui| {
                                 item_row(ui, icons, it, color)
                             });
+                        if r.inner.clicked() {
+                            actions.inspect.push(it.guid);
+                        }
                         if r.inner.double_clicked() {
                             actions.activated.push(it.guid);
                         }
@@ -265,6 +273,9 @@ impl Plugin for Inventory {
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             if let Some((g, n)) = split_now {
                 c.split_stack(g, None, n);
+            }
+            for g in actions.inspect {
+                c.inspect(g);
             }
             for g in actions.activated {
                 c.interact(g);

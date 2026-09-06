@@ -29,6 +29,8 @@ pub struct Actions {
     pub buy: Vec<u32>,
     pub sell: Vec<u32>,
     pub close: bool,
+    /// Single-clicked stock or pack items: select and appraise.
+    pub inspect: Vec<u32>,
 }
 
 /// Vendor stock with this "-1" stack size never runs out.
@@ -90,6 +92,7 @@ fn trade_list(
     button: &str,
     items: &[TradeItem],
     out: &mut Vec<u32>,
+    inspect: &mut Vec<u32>,
 ) {
     ui.label(egui::RichText::new(header).color(egui::Color32::from_gray(180)));
     egui::ScrollArea::vertical()
@@ -101,10 +104,18 @@ fn trade_list(
                     if ui.small_button(button).clicked() {
                         out.push(it.guid);
                     }
-                    ui.label(
-                        egui::RichText::new(format!("{}  {}p", it.name, it.price))
-                            .color(egui::Color32::WHITE),
-                    );
+                    if ui
+                        .add(
+                            egui::Label::new(
+                                egui::RichText::new(format!("{}  {}p", it.name, it.price))
+                                    .color(egui::Color32::WHITE),
+                            )
+                            .sense(egui::Sense::click()),
+                        )
+                        .clicked()
+                    {
+                        inspect.push(it.guid);
+                    }
                 });
             }
         });
@@ -136,6 +147,7 @@ pub fn draw(egui: &egui::Context, v: &VendorView) -> Actions {
                 "Buy",
                 &v.stock,
                 &mut actions.buy,
+                &mut actions.inspect,
             );
             trade_list(
                 &mut cols[1],
@@ -144,6 +156,7 @@ pub fn draw(egui: &egui::Context, v: &VendorView) -> Actions {
                 "Sell",
                 &v.selling,
                 &mut actions.sell,
+                &mut actions.inspect,
             );
         });
     });
@@ -194,6 +207,9 @@ impl Plugin for Vendor {
         let Some(v) = v else { return };
         let actions = draw(egui, &v);
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
+            for g in actions.inspect {
+                c.inspect(g);
+            }
             for g in actions.buy {
                 c.buy(g);
             }

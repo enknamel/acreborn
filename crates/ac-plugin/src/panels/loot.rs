@@ -19,6 +19,8 @@ pub struct Actions {
     pub close: bool,
     /// Carried items dragged onto the window: put into the container.
     pub store: Vec<u32>,
+    /// Single-clicked items: select and appraise.
+    pub inspect: Vec<u32>,
 }
 
 /// The open container, if any. Items the server has not described yet
@@ -68,7 +70,11 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &LootView) -> Action
                     ui.label(egui::RichText::new("(empty)").color(egui::Color32::from_gray(170)));
                 }
                 for it in &v.items {
-                    if item_row(ui, icons, it, egui::Color32::WHITE).double_clicked() {
+                    let r = item_row(ui, icons, it, egui::Color32::WHITE);
+                    if r.clicked() {
+                        actions.inspect.push(it.guid);
+                    }
+                    if r.double_clicked() {
                         actions.take.push(it.guid);
                     }
                 }
@@ -133,6 +139,9 @@ impl Plugin for Loot {
         let Some(v) = v else { return };
         let actions = draw(egui, cx.icons(), &v);
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
+            for g in actions.inspect {
+                c.inspect(g);
+            }
             for g in actions.take {
                 c.take(g);
             }
