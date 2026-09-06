@@ -302,3 +302,30 @@ fn one_sided_walls_hold_only_what_started_in_front() {
         assert!(s.pos.x >= -1e-3, "walked through the wall to {}", s.pos);
     }
 }
+
+#[test]
+fn world_grid_matches_the_terrain_mesh() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(dir).unwrap();
+    let cache = std::env::temp_dir().join("acreborn-test-cache");
+    let grid = ac_scene::worldgrid::WorldGrid::load_cached(&assets, &cache).unwrap();
+    assert!(grid.has_block(0xA9, 0xB4), "Holtburg missing");
+    // Holtburg's block: every lattice vertex agrees with the mesh vertex.
+    let scene = landblock::load(&assets, 0xA9B4_0000).unwrap();
+    let origin = ac_scene::lbid::world_origin(0xA9B4_0000);
+    for v in &scene.terrain.vertices {
+        let w = glam::Vec2::new(v.position.x + origin.x, v.position.y + origin.y);
+        let (gx, gy) = ac_scene::worldgrid::WorldGrid::nearest_vertex(w);
+        assert!((grid.height(gx, gy) - v.position.z).abs() < 1e-3);
+        assert_eq!(grid.terrain_type(gx, gy), v.terrain_type);
+    }
+    // And the cache round-trips.
+    let again = ac_scene::worldgrid::WorldGrid::load_cached(&assets, &cache).unwrap();
+    assert_eq!(again.heights.len(), grid.heights.len());
+    assert_eq!(
+        again.height(0xA9 * 8 + 4, 0xB4 * 8 + 4),
+        grid.height(0xA9 * 8 + 4, 0xB4 * 8 + 4)
+    );
+}
