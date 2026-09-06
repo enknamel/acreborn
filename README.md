@@ -74,7 +74,11 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # searches by name, spell, material or stats such as dmg>10, al>=100,
 # type:armor, spell:blood, wielded, sorts by value/burden/damage/armor and
 # shows an item's stats on hover; "Appraise all" fetches the stats of every
-# item; K shows the character sheet with Raise buttons that spend
+# item; M opens the map: the world map of Dereth with the towns, or the
+# current landblock (a dungeon's floor plan indoors) with everything the
+# server has sent as dots and a searchable list of it (click selects);
+# double-click a spot on the world map, or type a town name, to walk there
+# by an overland route; K shows the character sheet with Raise buttons that spend
 # unassigned XP on attributes, vitals and skills and Train buttons that
 # spend skill credits; drag an item from the inventory onto a side pack or the
 # Pack header to move it (a stack onto another of its kind merges them;

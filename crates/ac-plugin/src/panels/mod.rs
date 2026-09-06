@@ -31,6 +31,7 @@ pub mod fellowship;
 pub mod housing;
 pub mod inventory;
 pub mod loot;
+pub mod map;
 pub mod options;
 pub mod radar;
 pub mod salvage;
@@ -245,6 +246,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(combat::Combat::default()),
         Box::new(loot::Loot::default()),
         Box::new(inventory::Inventory::default()),
+        Box::new(map::Map::default()),
         Box::new(skills::Skills::default()),
         Box::new(spellbook::Spellbook::default()),
         Box::new(spellbar::SpellBar::default()),
@@ -276,6 +278,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         Box::new(combat::Combat::demo()),
         Box::new(loot::Loot::demo()),
         Box::new(inventory::Inventory::demo()),
+        Box::new(map::Map::demo()),
         Box::new(skills::Skills::demo()),
         Box::new(spellbook::Spellbook::demo(
             tables.as_ref().map(|(t, c)| (&**t, &**c)),

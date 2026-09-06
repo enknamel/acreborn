@@ -883,6 +883,16 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   steers around buildings and fences; a leg that makes no progress for
   8 s is skipped. Terrain only: portals, the Town Network and recalls
   are not used yet.
+* **The map (M)** is drawn from the game data, not a stored picture: the
+  world map colours every landblock's 9x9 terrain vertices by the
+  region's terrain type with hill shading (`ac-scene` `worldgrid` and
+  `worldmap`, cached under `~/.cache/acreborn`), a local map or a
+  dungeon floor plan comes from the landblock's terrain and collision
+  floors (`localmap`; storeys are shown one at a time, the character's
+  z ± 6 m), and everything the server has sent for the landblock is a
+  dot by kind (player, NPC, monster, corpse, portal, door, item) with a
+  searchable list. The gazetteer of towns (`ac_world::towns`) labels the
+  world map and names travel destinations.
 * **Lifestones** attune on Use (half stamina). `/lifestone` recalls.
   Portal magic (item school) ties one primary and one secondary portal
   and one lifestone, recalls to them and can summon a portal.
