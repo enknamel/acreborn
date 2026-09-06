@@ -206,7 +206,45 @@ impl Client {
             }
         }
         let Some(trip) = planned else {
-            tracing::warn!("travel: no way to {goal:?}");
+            // Say why. Often there is a way, but not one this character
+            // may take yet: every chain to the far continents runs
+            // through a portal with a level on it.
+            let anyone = trip::plan_with(
+                Vec2::new(me.x, me.y),
+                cell,
+                goal,
+                0,
+                &[],
+                &[],
+                self.travel.prefs,
+            );
+            let why = match anyone {
+                Some(t) => {
+                    let asks = t
+                        .steps
+                        .iter()
+                        .filter_map(|s| match s {
+                            Step::Portal { mouth, name, .. } => ac_world::portals::near(*mouth, 3.0)
+                                .first()
+                                .and_then(|p| p.refusal(level))
+                                .map(|r| format!("{name} {r}")),
+                            Step::Walk(_) => None,
+                        })
+                        .next();
+                    match asks {
+                        Some(asks) => format!(
+                            "No way there yet: the only route runs through a portal that {asks}."
+                        ),
+                        None => "No way there from here.".to_string(),
+                    }
+                }
+                None => "No way there from here.".to_string(),
+            };
+            tracing::warn!("travel: {why} ({goal:?}, level {level})");
+            self.events.push(crate::Event::Chat {
+                text: why,
+                kind: 1,
+            });
             return false;
         };
         self.travel.refused = refused;
