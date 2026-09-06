@@ -15,6 +15,7 @@ pub mod collision;
 pub mod interior;
 pub mod landblock;
 pub mod lighting;
+pub mod localmap;
 pub mod mapimage;
 pub mod model;
 pub mod nav;
