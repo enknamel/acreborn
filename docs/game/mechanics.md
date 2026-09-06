@@ -786,6 +786,11 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   shows portal space (a short tunnel effect, `Portal_Space`) before the
   new landblock. Some have level or quest restrictions ("You are not
   powerful enough to use this portal").
+* **Map coordinates**: the game's "42.1N, 33.6E" is the world position
+  (landblock × 192 m + local) divided by 240 minus 102 on both axes,
+  north and east positive, a twentieth taken off before rounding to a
+  tenth; indoor cells (0x100 and up) have none. The status line shows
+  them; scripts read `me().coords`.
 * **Lifestones** attune on Use (half stamina). `/lifestone` recalls.
   Portal magic (item school) ties one primary and one secondary portal
   and one lifestone, recalls to them and can summon a portal.

@@ -85,6 +85,7 @@ dependencies = [
  "ac-bus",
  "ac-client",
  "ac-formats",
+ "ac-net",
  "ac-scene",
  "ac-world",
  "egui",

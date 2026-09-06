@@ -156,6 +156,14 @@ fn summary(c: &Client, index: usize) -> Map {
         Some(p.local)
     });
     let l = local.unwrap_or_default();
+    let coords = c
+        .player
+        .as_ref()
+        .map(|p| ac_world::object::Position::new_flat(p.cell, p.local))
+        .or_else(|| c.world.player()?.position)
+        .map(|p| ac_world::map_coord_str(&p))
+        .unwrap_or_default();
+    map.insert("coords".into(), coords.into());
     map.insert("local_x".into(), float(l.x));
     map.insert("local_y".into(), float(l.y));
     map.insert("local_z".into(), float(l.z));

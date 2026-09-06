@@ -32,7 +32,7 @@ inside functions (Rhai rule): use `this` or the blackboard.
 
 Reads (maps have the listed fields):
 
-- `me()`: `session, guid, name, level, health, health_max, stamina, stamina_max, mana, mana_max, total_xp, available_xp, skill_credits, x, y, z, cell, local_x, local_y, local_z` (position within the landblock, the numbers `@loc` and `@teleloc` use), `vitae` (penalty in percent, 0 without one), `combat, magic, target, target_name, selected, placed, vendor_open, container_open` (`target`/`selected` are guids or `()`)
+- `me()`: `session, guid, name, level, health, health_max, stamina, stamina_max, mana, mana_max, total_xp, available_xp, skill_credits, x, y, z, cell, local_x, local_y, local_z` (position within the landblock, the numbers `@loc` and `@teleloc` use), `coords` ("42.1N, 33.6E", or "indoors"), `vitae` (penalty in percent, 0 without one), `combat, magic, target, target_name, selected, placed, vendor_open, container_open` (`target`/`selected` are guids or `()`)
 - `objects()`: nearest first; each `guid, name, distance, is_creature, is_player` (another player character), `is_corpse, health, x, y, z, cell, stack, value`
 - `inventory()`, `container()` (items of the open corpse/chest): same shape, plus `material` (name or `()`), `workmanship`, `structure` (a salvage bag's units)
 - `sessions()`: number of sessions; `session(i)`: summary of session `i` or `()`; `session_index()`

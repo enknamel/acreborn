@@ -216,7 +216,8 @@ struct App {
     keys: HashSet<KeyCode>,
     looking: bool,
     cursor: Option<(f64, f64)>,
-    /// Space was pressed since the last frame.
+    /// A full-power jump was asked for (`--jump`); Space itself charges
+    /// through `Input::jump_held`.
     jump_requested: bool,
     last_cursor: Option<(f64, f64)>,
     last_frame: Instant,
@@ -592,7 +593,8 @@ impl App {
             match net.client.world.player().and_then(|o| o.position) {
                 Some(p) => {
                     s += &format!(
-                        "  cell {:#010x}  x {:.1} y {:.1} z {:.1}  objects {}",
+                        "  {}  cell {:#010x}  x {:.1} y {:.1} z {:.1}  objects {}",
+                        ac_world::map_coord_str(&p),
                         p.cell,
                         p.local.x,
                         p.local.y,
@@ -711,6 +713,7 @@ impl App {
                         - keys.contains(&KeyCode::KeyA) as i8) as f32,
                     run: !keys.contains(&KeyCode::ShiftLeft),
                     jump,
+                    jump_held: keys.contains(&KeyCode::Space),
                 }
             } else {
                 player::Input::default()
@@ -1207,12 +1210,6 @@ impl ApplicationHandler for App {
                         if used {
                             return;
                         }
-                    }
-                    if code == KeyCode::Space
-                        && event.state == ElementState::Pressed
-                        && !self.nets.is_empty()
-                    {
-                        self.jump_requested = true;
                     }
                     if code == KeyCode::Tab
                         && event.state == ElementState::Pressed

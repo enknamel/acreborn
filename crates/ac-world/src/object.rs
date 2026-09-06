@@ -23,6 +23,15 @@ pub struct Position {
 }
 
 impl Position {
+    /// A position with no rotation.
+    pub fn new_flat(cell: u32, local: Vec3) -> Self {
+        Position {
+            cell,
+            local,
+            rotation: Quat::IDENTITY,
+        }
+    }
+
     /// `u32 cell, f32 x y z, f32 qw qx qy qz`.
     pub fn parse(r: &mut Reader) -> Result<Self> {
         let cell = r.u32()?;

@@ -171,6 +171,32 @@ pub fn landblock_origin(cell: u32) -> Vec3 {
     Vec3::new(bx * 192.0, by * 192.0, 0.0)
 }
 
+/// The map coordinates the game shows (42.1N, 33.6E): world position
+/// over 240 minus 102 on both axes, north and east positive. None
+/// indoors (cells from 0x100 up have no map position).
+pub fn map_coords(p: &object::Position) -> Option<(f32, f32)> {
+    if p.cell & 0xFFFF >= 0x100 {
+        return None;
+    }
+    let g = landblock_origin(p.cell) + p.local;
+    Some((g.y / 240.0 - 102.0, g.x / 240.0 - 102.0))
+}
+
+/// `42.1N, 33.6E` (ACE `GetMapCoordStr`: a twentieth is taken off before
+/// rounding, as retail did), or "indoors".
+pub fn map_coord_str(p: &object::Position) -> String {
+    match map_coords(p) {
+        Some((ns, ew)) => format!(
+            "{:.1}{}, {:.1}{}",
+            (ns.abs() - 0.05).max(0.0),
+            if ns >= 0.0 { "N" } else { "S" },
+            (ew.abs() - 0.05).max(0.0),
+            if ew >= 0.0 { "E" } else { "W" }
+        ),
+        None => "indoors".into(),
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct World {
     pub objects: HashMap<u32, WorldObject>,
@@ -1193,6 +1219,24 @@ pub fn heading_quat(deg: f32) -> Quat {
 /// Orientation facing a horizontal direction.
 pub fn heading_quat_from_dir(dir: Vec3) -> Quat {
     Quat::from_rotation_z((-dir.x).atan2(dir.y))
+}
+
+#[cfg(test)]
+mod coord_tests {
+    use super::*;
+
+    #[test]
+    fn holtburg_lifestone_reads_like_retail() {
+        // The Holtburg lifestone sits at 0xA9B40019 (81.3, 11.8), which
+        // ACE reports as 42.0N, 33.5E.
+        let p = object::Position::new_flat(0xA9B4_0019, Vec3::new(81.33, 11.8, 94.0));
+        assert_eq!(map_coord_str(&p), "42.0N, 33.5E");
+        let south_west = object::Position::new_flat(0x0101_0001, Vec3::ZERO);
+        assert_eq!(map_coord_str(&south_west), "101.1S, 101.1W");
+        let inside = object::Position::new_flat(0x7200_018C, Vec3::ZERO);
+        assert_eq!(map_coord_str(&inside), "indoors");
+        assert!(map_coords(&inside).is_none());
+    }
 }
 
 #[cfg(test)]
