@@ -332,6 +332,7 @@ mod tests {
     struct Recorder {
         calls: Vec<String>,
         logs: Vec<String>,
+        autoplay_on: bool,
         session: i64,
         sessions: i64,
         me: Map,
@@ -365,6 +366,18 @@ mod tests {
             let mut m = self.me.clone();
             m.insert("session".into(), Dynamic::from_int(self.session));
             m
+        }
+        fn autoplay(&mut self, on: bool) -> bool {
+            self.calls.push(format!("autoplay({on})"));
+            self.autoplay_on = on;
+            on
+        }
+        fn autoplay_status(&mut self) -> String {
+            if self.autoplay_on {
+                "fighting Drudge Skulker".into()
+            } else {
+                String::new()
+            }
         }
         fn objects(&mut self) -> Array {
             self.objects.clone()

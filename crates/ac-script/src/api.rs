@@ -43,6 +43,13 @@ pub trait Api {
     // ---- reads ----
     /// Summary of the current session's character (see `session`).
     fn me(&mut self) -> Map;
+
+    /// Turn playing on its own on or off (see `ac_client::autoplay`);
+    /// returns whether it is on now.
+    fn autoplay(&mut self, on: bool) -> bool;
+
+    /// What it is doing: "fighting Drudge Skulker", "" when off.
+    fn autoplay_status(&mut self) -> String;
     /// Objects in view, nearest first: `guid, name, distance, is_creature,
     /// is_player, is_corpse, health, x, y, z, cell`.
     fn objects(&mut self) -> Array;
@@ -331,6 +338,8 @@ pub fn register(engine: &mut Engine) {
 
     // reads
     engine.register_fn("me", || with_api(|a| a.me()));
+    engine.register_fn("autoplay", |on: bool| with_api(|a| a.autoplay(on)));
+    engine.register_fn("autoplay_status", || with_api(|a| a.autoplay_status()));
     engine.register_fn("objects", || with_api(|a| a.objects()));
     engine.register_fn("inventory", || with_api(|a| a.inventory()));
     engine.register_fn("container", || with_api(|a| a.container()));

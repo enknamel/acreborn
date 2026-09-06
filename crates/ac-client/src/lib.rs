@@ -4,6 +4,7 @@
 
 pub mod advance;
 pub mod augmentations;
+pub mod autoplay;
 pub mod creation;
 pub mod daytime;
 pub mod emotes;
@@ -128,6 +129,9 @@ pub struct Client {
     /// Names of spells learnt from scrolls this session, for spells the
     /// SpellTable lacks; `world.stats.spells` is the spellbook itself.
     pub known_spells: std::collections::HashMap<u32, String>,
+    /// Playing on its own: the rules and what it is doing (see
+    /// [`autoplay`]).
+    pub autoplay: autoplay::Autoplay,
     /// Refuse to cast when components of the current formula are missing
     /// (`CastCheck::MissingComponents`). Off by default: the server
     /// decides whether components are required (`require_spell_comps`),
@@ -250,6 +254,7 @@ impl Client {
             attack_height: 2,
             attack_power: 0.5,
             known_spells: Default::default(),
+            autoplay: Default::default(),
             require_components: false,
             attack_target: None,
             attack_pending: false,
@@ -551,6 +556,7 @@ impl Client {
         self.tick_loot();
         self.tick_store();
         self.tick_appraise();
+        self.tick_autoplay(now);
         // Build the static scene once the player is placed.
         if self.scene_block.is_none() {
             if let Some(p) = self.world.player().and_then(|o| o.position) {

@@ -261,6 +261,20 @@ impl Api for CtxApi<'_, '_> {
         summary(self.client(), index)
     }
 
+    fn autoplay(&mut self, on: bool) -> bool {
+        let c = self.client();
+        c.autoplay.config.enabled = on;
+        on
+    }
+
+    fn autoplay_status(&mut self) -> String {
+        let c = self.client();
+        if !c.autoplay.config.enabled {
+            return String::new();
+        }
+        c.autoplay.status.clone()
+    }
+
     fn objects(&mut self) -> Array {
         let c = self.client();
         let me = player_position(c);

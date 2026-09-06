@@ -11,4 +11,6 @@ ac-net = { path = "../ac-net" }
 ac-scene = { path = "../ac-scene" }
 ac-world = { path = "../ac-world" }
 glam = "0.30"
+serde.workspace = true
+serde_json = "1"
 tracing.workspace = true
