@@ -213,6 +213,33 @@ pub trait Api {
     fn board_set(&mut self, key: &str, value: Value);
     /// Ask the host to make session `i` the active (drawn, steered) one.
     fn switch(&mut self, i: i64);
+    /// Plan an overland route to a destination and walk it: a place name
+    /// ("Arwic", by prefix or part), map coordinates ("42.1N, 33.6E") or a
+    /// world position ("x,y"). False when the destination is unknown, the
+    /// character is not outdoors, or no route exists.
+    fn travel_to(&mut self, destination: &str) -> bool;
+    /// Whether an overland route is being walked.
+    fn traveling(&mut self) -> bool;
+    fn cancel_travel(&mut self);
+    /// A gazetteer place as a map `{ name, ns, ew, x, y }` (map
+    /// coordinates and world xy) or unit when unknown.
+    fn place(&mut self, name: &str) -> Dynamic;
+}
+
+/// A gazetteer place as the script sees it (see `Api::place`).
+pub fn place_map(name: &str) -> Dynamic {
+    let Some(p) = ac_world::towns::find(name) else {
+        return Dynamic::UNIT;
+    };
+    let tenth = |v: f32| ((v as f64) * 10.0).round() / 10.0;
+    let w = p.world_xy();
+    let mut m = Map::new();
+    m.insert("name".into(), p.name.into());
+    m.insert("ns".into(), Dynamic::from_float(tenth(p.ns)));
+    m.insert("ew".into(), Dynamic::from_float(tenth(p.ew)));
+    m.insert("x".into(), Dynamic::from_float(tenth(w.x)));
+    m.insert("y".into(), Dynamic::from_float(tenth(w.y)));
+    Dynamic::from_map(m)
 }
 
 thread_local! {
@@ -418,6 +445,10 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("log", |t: &str| with_api(|a| a.log(t)));
     engine.register_fn("log", |d: Dynamic| with_api(|a| a.log(&d.to_string())));
     engine.register_fn("switch", |i: i64| with_api(|a| a.switch(i)));
+    engine.register_fn("travel_to", |d: &str| with_api(|a| a.travel_to(d)));
+    engine.register_fn("traveling", || with_api(|a| a.traveling()));
+    engine.register_fn("cancel_travel", || with_api(|a| a.cancel_travel()));
+    engine.register_fn("place", |n: &str| with_api(|a| a.place(n)));
 
     // blackboard and bus
     engine.register_fn("post", |topic: &str, v: Dynamic| -> ScriptResult<()> {

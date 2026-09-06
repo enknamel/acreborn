@@ -11,6 +11,7 @@ pub mod magic;
 pub mod options;
 pub mod player;
 pub mod route;
+pub mod travel;
 pub mod weenie_errors;
 
 use std::time::{Duration, Instant};
@@ -111,6 +112,8 @@ pub struct Client {
     /// Route steering toward `move_to` when the straight line to it is
     /// blocked (see `route`).
     pub steering: route::Steering,
+    /// The overland route being walked, if any (see `travel`).
+    pub travel: travel::Travel,
     /// Melee combat mode is on.
     pub combat: bool,
     /// Magic combat mode is on.
@@ -239,6 +242,7 @@ impl Client {
             move_to: None,
             move_to_since: Instant::now(),
             steering: route::Steering::new(Instant::now()),
+            travel: Default::default(),
             combat: false,
             magic: false,
             missile: false,
@@ -351,6 +355,7 @@ impl Client {
                                 pl.dirty = true;
                             }
                             self.steering.reset();
+                            self.travel_displaced();
                         }
                         ac_world::Applied::PlayerMoveTo | ac_world::Applied::PlayerMotion => {
                             // A MoveTo aimed at us is ours to carry out; a plain
@@ -636,26 +641,35 @@ impl Client {
     }
 
     fn tick_player(&mut self, input: player::Input, dt: f32, now: Instant) -> PlayerFrame {
+        // The user taking the controls ends an overland trip.
+        let manual = input.forward != 0.0 || input.strafe != 0.0;
+        if manual && self.traveling() {
+            tracing::info!("travel: cancelled, the user took over");
+            self.cancel_travel();
+        }
+        // The next leg of the overland route, if one is being walked.
+        let travel_goal = self.travel_goal(now);
         // Player movement, camera, and reporting.
         if let Some(pl) = self.player.as_mut() {
             let mut input = input;
             // Server-driven MoveTo (using something out of reach): run toward
             // the target until close enough, unless the user takes over.
-            let manual = input.forward != 0.0 || input.strafe != 0.0;
-            if self.move_to.is_none() || manual {
+            // Without one, the current leg of the overland route.
+            if (self.move_to.is_none() && travel_goal.is_none()) || manual {
                 self.steering.reset();
             }
-            if let Some(t) = self.move_to {
-                let goal = match t {
-                    ac_world::object::MoveTarget::Object(g) => self
+            {
+                let goal = match self.move_to {
+                    Some(ac_world::object::MoveTarget::Object(g)) => self
                         .world
                         .objects
                         .get(&g)
                         .and_then(|o| o.display.or(o.position))
                         .map(|p| (ac_world::landblock_origin(p.cell) + p.local, 1.0, p.cell)),
-                    ac_world::object::MoveTarget::Position { cell, local } => {
+                    Some(ac_world::object::MoveTarget::Position { cell, local }) => {
                         Some((ac_world::landblock_origin(cell) + local, 0.3, cell))
                     }
+                    None => travel_goal,
                 };
                 if let Some((g, stop, goal_cell)) = goal {
                     let d = g - pl.world_position();

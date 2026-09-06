@@ -1088,6 +1088,27 @@ impl Api for CtxApi<'_, '_> {
             }
         }
     }
+
+    fn travel_to(&mut self, destination: &str) -> bool {
+        let Some(goal) = ac_world::towns::parse_destination(destination) else {
+            self.cx
+                .log(format!("travel_to: unknown destination '{destination}'").as_str());
+            return false;
+        };
+        self.client().travel_to(goal)
+    }
+
+    fn traveling(&mut self) -> bool {
+        self.client().traveling()
+    }
+
+    fn cancel_travel(&mut self) {
+        self.client().cancel_travel();
+    }
+
+    fn place(&mut self, name: &str) -> Dynamic {
+        crate::api::place_map(name)
+    }
 }
 
 /// A skill id from (a prefix of) its name, case-insensitive.

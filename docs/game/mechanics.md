@@ -870,6 +870,19 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   north and east positive, a twentieth taken off before rounding to a
   tenth; indoor cells (0x100 and up) have none. The status line shows
   them; scripts read `me().coords`.
+* **Overland travel** (`Client::travel_to_place`; scripts' `travel_to`):
+  a route is planned on the world terrain grid (the 24 m lattice of
+  every landblock's heights, A* with 8 neighbours): an edge costs its
+  length, more on a slope (`1 + 2 * grade`) and 0.7x on a road; a rise
+  over run above 0.7 is a wall (the collision world's floors go up to
+  1.33, the local graph's steps to 0.5); the sea is impassable and
+  rivers and lakes are crossed in short spans at six times the cost
+  (Dereth's bridges and fords are objects over water terrain that the
+  grid cannot see, so the road leads to the crossing). The character
+  walks the route leg by leg through the per-landblock move-to, which
+  steers around buildings and fences; a leg that makes no progress for
+  8 s is skipped. Terrain only: portals, the Town Network and recalls
+  are not used yet.
 * **Lifestones** attune on Use (half stamina). `/lifestone` recalls.
   Portal magic (item school) ties one primary and one secondary portal
   and one lifestone, recalls to them and can summon a portal.
