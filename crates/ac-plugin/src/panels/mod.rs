@@ -155,7 +155,13 @@ pub fn frame(alpha: u8, margin: i8) -> egui::Frame {
         .inner_margin(margin)
 }
 
-/// A borderless, fixed window: the panels never move or resize.
+/// A borderless window of a fixed size that opens at `pos` and can be
+/// dragged anywhere inside the viewport: egui remembers where it was
+/// moved for the rest of the session, and "Reset window layout" in the
+/// options panel (X) puts every panel back at its default. Without a
+/// title bar egui moves the window from a drag on any part of it that no
+/// widget claims, so item rows, spell rows and scroll areas keep their
+/// own drags (an item row starts an [`ItemDrag`], not a move).
 pub fn window(
     name: &str,
     pos: egui::Pos2,
@@ -167,8 +173,10 @@ pub fn window(
         .fade_in(false)
         .title_bar(false)
         .resizable(false)
+        .movable(true)
+        .constrain(true)
         .frame(frame(alpha, margin))
-        .fixed_pos(pos)
+        .default_pos(pos)
         .fixed_size(size)
 }
 

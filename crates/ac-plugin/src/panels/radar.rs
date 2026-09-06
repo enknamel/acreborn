@@ -89,7 +89,8 @@ pub fn draw(egui: &egui::Context, blips: &[Blip], range: f32) {
     let center = egui::pos2(w - r - 16.0, r + 16.0);
     egui::Area::new(egui::Id::new("radar"))
         .fade_in(false)
-        .fixed_pos(egui::pos2(center.x - r - 4.0, center.y - r - 4.0))
+        .default_pos(egui::pos2(center.x - r - 4.0, center.y - r - 4.0))
+        .movable(true)
         .show(egui, |ui| {
             let (rect, _) = ui.allocate_exact_size(
                 egui::vec2(2.0 * r + 8.0, 2.0 * r + 8.0),

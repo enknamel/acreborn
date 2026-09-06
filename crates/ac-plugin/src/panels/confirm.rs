@@ -63,7 +63,8 @@ pub fn draw(egui: &egui::Context, questions: &[Question]) -> Vec<(u32, u32, bool
                     .fill(egui::Color32::from_black_alpha(220))
                     .inner_margin(10),
             )
-            .fixed_pos(egui::pos2(
+            .movable(true)
+            .default_pos(egui::pos2(
                 rect.width() * 0.5 - 180.0,
                 rect.height() * 0.35 + i as f32 * 110.0,
             ))

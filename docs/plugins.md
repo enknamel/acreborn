@@ -245,6 +245,17 @@ has the same three parts, so any of them is a template for a UI plugin:
   `Client` (`interact`, `take`, `close_container`, `buy`, `sell`,
   `close_vendor`, `cast`); `key` toggles the panel.
 
+Every panel is a borderless `egui::Window` (or `Area`) built by
+`panels::window(name, pos, size, alpha, margin)`: fixed size, no title bar,
+opened at `pos` and movable by dragging any part of it that no widget
+claims (item and spell rows keep their own drag-and-drop, scroll areas
+their drag-to-scroll). egui remembers where each was moved for the rest of
+the session and keeps it inside the viewport; positions computed from the
+viewport size (the centred target bar, the radar in the corner) are only
+recomputed for a panel that has not been moved. "Reset window layout" in
+the options panel (X) calls `egui::Memory::reset_areas`, which puts every
+panel back at its default position.
+
 A panel's data comes from a `Source<View>`: `Live` (the session) or
 `Demo(view)` (canned data whose actions are dropped). `Panel::demo()`
 constructors feed `acviewer --screenshot --demo-ui`, which registers

@@ -38,7 +38,8 @@ pub fn draw(egui: &egui::Context, t: &TargetView) -> Option<u32> {
     let mut given = None;
     egui::Area::new(egui::Id::new("target"))
         .fade_in(false)
-        .fixed_pos(egui::pos2(w * 0.5 - 130.0, 8.0))
+        .default_pos(egui::pos2(w * 0.5 - 130.0, 8.0))
+        .movable(true)
         .show(egui, |ui| {
             let (zone, _) = ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new(), |ui| {
                 frame(160, 6).show(ui, |ui| {

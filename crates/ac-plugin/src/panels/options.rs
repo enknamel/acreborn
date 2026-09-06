@@ -1,4 +1,7 @@
-//! Character options (X): the server-side switches, as checkboxes.
+//! Character options (X): the server-side switches, as checkboxes, and
+//! at the bottom a "Reset window layout" button that forgets where every
+//! panel was dragged (`egui::Memory::reset_areas`) so they all return to
+//! their default positions.
 
 use super::{title, window, Source};
 use crate::{egui, Client, Ctx, Plugin};
@@ -16,9 +19,11 @@ pub fn view(c: &Client) -> OptionsView {
     }
 }
 
-/// Returns the options toggled this frame with their new value.
+/// Returns the options toggled this frame with their new value. The
+/// layout reset is applied here directly: it only touches egui's memory.
 pub fn draw(egui: &egui::Context, v: &OptionsView) -> Vec<(CharacterOption, bool)> {
     let mut changed = Vec::new();
+    let mut reset_layout = false;
     let w = egui.viewport_rect().width();
     window(
         "options",
@@ -31,7 +36,7 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Vec<(CharacterOption, bool
         ui.set_min_size(egui::vec2(344.0, 408.0));
         title(ui, "Character options");
         egui::ScrollArea::vertical()
-            .max_height(380.0)
+            .max_height(350.0)
             .show(ui, |ui| {
                 for (o, on) in &v.rows {
                     let mut b = *on;
@@ -40,7 +45,20 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Vec<(CharacterOption, bool
                     }
                 }
             });
+        ui.separator();
+        if ui
+            .button("Reset window layout")
+            .on_hover_text("Put every panel back where it opens by default")
+            .clicked()
+        {
+            reset_layout = true;
+        }
     });
+    if reset_layout {
+        // Forget every area's remembered position (and size): each panel
+        // reopens at its `default_pos` on the next frame.
+        egui.memory_mut(|m| m.reset_areas());
+    }
     changed
 }
 
