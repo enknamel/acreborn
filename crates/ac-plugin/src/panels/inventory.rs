@@ -190,27 +190,15 @@ pub struct Actions {
 }
 
 /// The panel's own state: search line, chip, sort, folded packs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
     pub search: String,
+    /// Index into [`KINDS`] (0 = all) and [`SORTS`] (0 = name).
     pub kind: usize,
     pub sort: usize,
     pub descending: bool,
     pub folded: Vec<u32>,
     pub worn_folded: bool,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State {
-            search: String::new(),
-            kind: 0,
-            sort: 0,
-            descending: false,
-            folded: Vec::new(),
-            worn_folded: false,
-        }
-    }
 }
 
 impl State {
@@ -561,9 +549,7 @@ pub fn draw_split(
 ) -> Option<u32> {
     let mut result = None;
     let rect = egui.viewport_rect();
-    let Some((_, amount)) = split.as_mut() else {
-        return None;
-    };
+    let (_, amount) = split.as_mut()?;
     let mut open = true;
     egui::Window::new("split_stack")
         .title_bar(false)
