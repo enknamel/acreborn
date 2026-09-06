@@ -224,10 +224,12 @@ impl Client {
                         .steps
                         .iter()
                         .filter_map(|s| match s {
-                            Step::Portal { mouth, name, .. } => ac_world::portals::near(*mouth, 3.0)
-                                .first()
-                                .and_then(|p| p.refusal(level))
-                                .map(|r| format!("{name} {r}")),
+                            Step::Portal { mouth, name, .. } => {
+                                ac_world::portals::near(*mouth, 3.0)
+                                    .first()
+                                    .and_then(|p| p.refusal(level))
+                                    .map(|r| format!("{name} {r}"))
+                            }
                             Step::Walk(_) => None,
                         })
                         .next();
@@ -241,10 +243,7 @@ impl Client {
                 None => "No way there from here.".to_string(),
             };
             tracing::warn!("travel: {why} ({goal:?}, level {level})");
-            self.events.push(crate::Event::Chat {
-                text: why,
-                kind: 1,
-            });
+            self.events.push(crate::Event::Chat { text: why, kind: 1 });
             return false;
         };
         self.travel.refused = refused;
