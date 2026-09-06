@@ -231,6 +231,8 @@ struct App {
     next_frame: Instant,
     /// Landblocks currently uploaded to the GPU (the active session's area).
     loaded_blocks: std::collections::HashSet<u32>,
+    /// The time of day the sky was last built for (see `tick_sky`).
+    sky_at: Option<f32>,
     /// Block id -> is a dungeon (learnt when the block is built).
     dungeon: std::collections::HashMap<u32, bool>,
     /// Caches shared by every session: decoded meshes, GPU meshes, palettes,
@@ -611,6 +613,46 @@ impl App {
 
     /// The status line: frame rate, where the character stands, what is
     /// selected (with its icon), combat mode. The panels are plugins.
+    /// Follow the world's clock: the sky, sun and fog change as the day
+    /// goes by. Only outdoors, and only when the time has moved enough to
+    /// be worth rebuilding (a day in Dereth is under an hour, so this is
+    /// every few seconds).
+    fn tick_sky(&mut self, gpu: &mut gpu::Gpu) {
+        let Some(net) = self.nets.get(self.active) else {
+            return;
+        };
+        let indoors = net
+            .client
+            .player
+            .as_ref()
+            .map(|p| p.is_indoors())
+            .unwrap_or(false);
+        let block = net.client.player.as_ref().map(|p| p.cell & 0xFFFF_0000);
+        if indoors || block.is_some_and(|b| self.dungeon.get(&b) == Some(&true)) {
+            return;
+        }
+        let Some(day) = net.client.day_time() else {
+            return;
+        };
+        if self
+            .sky_at
+            .is_some_and(|t: f32| (t - day.fraction).abs() < 0.004)
+        {
+            return;
+        }
+        let Some(env) = net
+            .client
+            .assets
+            .region()
+            .ok()
+            .and_then(|r| sky::Environment::from_region(&r, day.fraction))
+        else {
+            return;
+        };
+        self.sky_at = Some(day.fraction);
+        gpu.set_environment(env);
+    }
+
     fn refresh_status(&mut self) {
         let Some(ui) = &mut self.ui else { return };
         let mut s = format!("{:.0} fps", self.fps);
@@ -876,6 +918,7 @@ impl App {
             }
             if let Some(&id) = wanted.iter().find(|id| !self.loaded_blocks.contains(id)) {
                 let t0 = Instant::now();
+                let day_fraction = net.client.day_time().map(|d| d.fraction).unwrap_or(0.5);
                 match scene::build_landblock(&net.client.assets, id, &mut self.mesh_cache) {
                     Ok(built) => {
                         self.dungeon.insert(id, built.is_dungeon);
@@ -894,7 +937,7 @@ impl App {
                                 assets
                                     .region()
                                     .ok()
-                                    .and_then(|r| sky::Environment::from_region(&r, 0.5))
+                                    .and_then(|r| sky::Environment::from_region(&r, day_fraction))
                                     .unwrap_or_default()
                             };
                             gpu.set_environment(env);
@@ -1351,6 +1394,7 @@ impl ApplicationHandler for App {
                 if let Some(mut g) = self.gpu.take() {
                     self.tick_net(&mut g);
                     self.tick_lobby(&mut g, dt);
+                    self.tick_sky(&mut g);
                     self.gpu = Some(g);
                 }
                 self.fps = if self.fps == 0.0 {
@@ -1473,6 +1517,7 @@ fn main() -> Result<()> {
             pending_switch: None,
             next_frame: Instant::now(),
             loaded_blocks: Default::default(),
+            sky_at: None,
             dungeon: Default::default(),
             mesh_cache: Default::default(),
             gpu_meshes: Default::default(),
@@ -1991,6 +2036,7 @@ fn main() -> Result<()> {
         pending_switch: None,
         next_frame: Instant::now(),
         loaded_blocks: Default::default(),
+        sky_at: None,
         dungeon: Default::default(),
         mesh_cache: Default::default(),
         gpu_meshes: Default::default(),

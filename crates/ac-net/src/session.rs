@@ -90,6 +90,10 @@ pub struct Session {
     outgoing: Vec<(Port, Vec<u8>)>,
     events: Vec<Event>,
     pending_msgs: Vec<(u16, Vec<u8>)>,
+    /// The server's clock: the last time it sent, and when that arrived.
+    /// The world's time of day is read off this (see
+    /// `Session::server_time`).
+    server_time: Option<(f64, Instant)>,
     last_echo: Instant,
     last_ack: Instant,
     ack_dirty: bool,
@@ -104,6 +108,14 @@ pub struct Session {
 }
 
 impl Session {
+    /// The server's clock now: the last time it told us, carried forward
+    /// by how long ago that was. `None` before the first sync. The world's
+    /// time of day comes off this.
+    pub fn server_time(&self) -> Option<f64> {
+        let (t, at) = self.server_time?;
+        Some(t + at.elapsed().as_secs_f64())
+    }
+
     pub fn new(cfg: Config, now: Instant) -> Self {
         Session {
             cfg,
@@ -125,6 +137,7 @@ impl Session {
             outgoing: Vec::new(),
             events: Vec::new(),
             pending_msgs: Vec::new(),
+            server_time: None,
             last_echo: now,
             last_ack: now,
             ack_dirty: false,
@@ -305,6 +318,9 @@ impl Session {
                 }
                 None => tracing::warn!("server asked for uncached seq {seq}"),
             }
+        }
+        if let Some(t) = p.optional.time_sync {
+            self.server_time = Some((t, Instant::now()));
         }
         if let Some(ack) = p.optional.ack_sequence {
             self.sent.retain(|s, _| *s > ack);

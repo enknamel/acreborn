@@ -202,6 +202,21 @@ fn summary(c: &Client, index: usize) -> Map {
         .map(|p| ac_world::map_coord_str(&p))
         .unwrap_or_default();
     map.insert("coords".into(), coords.into());
+    // The world's own clock: "Morning", 06:12, and where that is in the day.
+    match c.day_time() {
+        Some(d) => {
+            map.insert("time".into(), ac_client::daytime::clock(d.fraction).into());
+            map.insert("time_of_day".into(), d.name.to_string().into());
+            map.insert("day_fraction".into(), float(d.fraction));
+            map.insert("night".into(), d.is_night.into());
+        }
+        None => {
+            map.insert("time".into(), "".to_string().into());
+            map.insert("time_of_day".into(), "".to_string().into());
+            map.insert("day_fraction".into(), float(0.5));
+            map.insert("night".into(), false.into());
+        }
+    }
     map.insert("local_x".into(), float(l.x));
     map.insert("local_y".into(), float(l.y));
     map.insert("local_z".into(), float(l.z));

@@ -909,6 +909,12 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   steers around buildings and fences; a leg that makes no progress for
   8 s is skipped. Terrain only: portals, the Town Network and recalls
   are not used yet.
+* **Day and night.** The server's clock arrives in the TimeSync field of
+  the packets it sends; the region file says when the world's clock
+  started and how long a day lasts (about an hour of real time), so the
+  client knows the time of day (`ac_client::daytime`). The sky, sun and
+  fog follow it outdoors, and scripts read `me().time`,
+  `time_of_day` ("Foredawn"), `day_fraction` and `night`.
 * **The map (M)** is drawn from the game data, not a stored picture: the
   world map colours every landblock's 9x9 terrain vertices by the
   region's terrain type with hill shading (`ac-scene` `worldgrid` and
