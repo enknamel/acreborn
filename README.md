@@ -74,7 +74,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # searches by name, spell, material or stats such as dmg>10, al>=100,
 # type:armor, spell:blood, wielded, sorts by value/burden/damage/armor and
 # shows an item's stats on hover; "Appraise all" fetches the stats of every
-# item; M opens the map: the world map of Dereth with the towns, or the
+# item; V toggles the nameplates over creatures, players and portals
+# (names fade with distance, a health bar under anything hurt or targeted);
+# M opens the map: the world map of Dereth with the towns, or the
 # current landblock (a dungeon's floor plan indoors) with everything the
 # server has sent as dots and a searchable list of it (click selects);
 # double-click a spot on the world map, or type a town name, to walk there

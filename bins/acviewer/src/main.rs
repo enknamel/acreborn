@@ -432,6 +432,18 @@ impl App {
         let mut requests: Option<plugins::Requests> = None;
         let mut world_drop: Option<(u32, f64, f64)> = None;
         ui.hud_hidden = lobby.visible();
+        // The frame's camera, for plugins that draw over the world
+        // (nameplates).
+        let vp = self.camera.view_proj(w as f32 / h.max(1) as f32);
+        plugins.board.set(
+            plugins::panels::nameplates::CAMERA_KEY,
+            ac_plugin::Value::Array(
+                vp.to_cols_array()
+                    .iter()
+                    .map(|x| (*x as f64).into())
+                    .collect(),
+            ),
+        );
         ui.begin(
             self.window.as_deref(),
             &mut |egui| {

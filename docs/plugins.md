@@ -229,7 +229,9 @@ can host plugins the same way: `Host::new()`, `register`, then
 per file: `vitals`, `radar`, `target`, `inventory` (I; grouped by pack,
 searchable with `ac_client::items::Query` lines such as `dmg>10 spell:blood
 type:armor`, sortable, with stat tooltips and a background "Appraise all"),
-`map` (M; world map from the terrain grid, local map or dungeon floor
+`nameplates` (V; names over creatures, players and portals in the 3D
+view, projected through the camera the host publishes on the blackboard
+as `camera.view_proj`), `map` (M; world map from the terrain grid, local map or dungeon floor
 plan, objects in the landblock with search and kind chips, overland
 travel by double-click or town name), `loot`, `vendor`,
 `skills` (K), `spellbook` (P), `spellbar` (B), `components` (O), `buffs`

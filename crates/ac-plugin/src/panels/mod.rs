@@ -32,6 +32,7 @@ pub mod housing;
 pub mod inventory;
 pub mod loot;
 pub mod map;
+pub mod nameplates;
 pub mod options;
 pub mod radar;
 pub mod salvage;
@@ -229,6 +230,7 @@ pub fn item_row(
 /// The panels reading the active session, in drawing order.
 pub fn live() -> Vec<Box<dyn Plugin>> {
     vec![
+        Box::new(nameplates::Nameplates::default()),
         Box::new(vitals::Vitals::default()),
         Box::new(radar::Radar::default()),
         Box::new(target::Target::default()),
@@ -261,6 +263,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
 pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
     let tables = assets.and_then(|a| Some((a.spell_table().ok()?, a.spell_components().ok()?)));
     vec![
+        Box::new(nameplates::Nameplates::demo()),
         Box::new(vitals::Vitals::demo()),
         Box::new(radar::Radar::demo()),
         Box::new(target::Target::demo()),
