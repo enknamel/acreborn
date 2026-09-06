@@ -8,7 +8,10 @@
 //!   coordinates under the pointer.
 //! * The list on the right is everything in the landblock: a search box
 //!   and kind chips narrow it, a click selects the object (and rings it
-//!   on the map), a double-click uses it.
+//!   on the map), a double-click uses it. The same search also looks
+//!   through the towns, lifestones, shops and standing NPCs of the whole
+//!   world (`ac_world::landmarks`); those appear under "elsewhere in the
+//!   world" with how far away they are, and a click travels there.
 //! * On the world map a double-click asks for a route there and the
 //!   character walks it (see `ac_client::Client::travel_to`); a place
 //!   name typed into "travel to" does the same by the gazetteer. The
@@ -124,6 +127,35 @@ pub struct MapView {
     pub travel: Option<(usize, usize)>,
     /// Town names and world positions for the world map.
     pub places: Vec<(&'static str, Vec2)>,
+    /// What the search found elsewhere in the world: (label, position,
+    /// metres away). Towns, lifestones, shops and standing NPCs from
+    /// `ac_world::landmarks` and the gazetteer, nearest first.
+    pub elsewhere: Vec<(String, Vec2, f32)>,
+}
+
+/// The landmarks and towns matching `search`, nearest to `me` first.
+pub fn world_search(search: &str, me: Vec2) -> Vec<(String, Vec2, f32)> {
+    let needle = search.trim().to_lowercase();
+    if needle.len() < 3 {
+        return Vec::new();
+    }
+    let mut out: Vec<(String, Vec2, f32)> = ac_world::towns::PLACES
+        .iter()
+        .filter(|p| p.name.to_lowercase().contains(&needle))
+        .map(|p| (format!("{} (town)", p.name), p.world_xy(), 0.0))
+        .collect();
+    out.extend(
+        ac_world::landmarks::search(&needle, Some(me))
+            .into_iter()
+            .take(40)
+            .map(|l| (format!("{} ({})", l.name, l.kind.label()), l.xy(), 0.0)),
+    );
+    for e in &mut out {
+        e.2 = e.1.distance(me);
+    }
+    out.sort_by(|a, b| a.2.total_cmp(&b.2));
+    out.truncate(20);
+    out
 }
 
 /// The character's world position, z, heading and landblock.
@@ -200,6 +232,7 @@ pub fn view(c: &Client) -> Option<MapView> {
             .iter()
             .map(|p| (p.name, p.world_xy()))
             .collect(),
+        elsewhere: Vec::new(),
     })
 }
 
@@ -514,7 +547,7 @@ pub fn draw(
                 ui.set_width(230.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut st.search)
-                        .hint_text("find in landblock")
+                        .hint_text("find here or anywhere")
                         .desired_width(220.0),
                 );
                 ui.horizontal_wrapped(|ui| {
@@ -552,6 +585,37 @@ pub fn draw(
                             }
                         }
                     });
+                if !v.elsewhere.is_empty() {
+                    caption(ui, "elsewhere in the world");
+                    egui::ScrollArea::vertical()
+                        .id_salt("map_elsewhere")
+                        .max_height(120.0)
+                        .show(ui, |ui| {
+                            for (label, at, away) in &v.elsewhere {
+                                let text = if *away >= 1000.0 {
+                                    format!("{label}  {:.1} km", away / 1000.0)
+                                } else {
+                                    format!("{label}  {away:.0} m")
+                                };
+                                let row = ui
+                                    .add(
+                                        egui::Label::new(
+                                            egui::RichText::new(text)
+                                                .color(egui::Color32::from_rgb(255, 235, 170)),
+                                        )
+                                        .sense(egui::Sense::click())
+                                        .selectable(false),
+                                    )
+                                    .on_hover_text(format!(
+                                        "{}  (click to travel)",
+                                        coords_of(*at)
+                                    ));
+                                if row.clicked() {
+                                    actions.travel_to = Some(*at);
+                                }
+                            }
+                        });
+                }
                 if let Some(w) = hover {
                     caption(ui, format!("pointer: {}", coords_of(w)));
                 }
@@ -629,6 +693,18 @@ impl Map {
                 route: vec![me, me + Vec2::new(50.0, 80.0), me + Vec2::new(140.0, 120.0)],
                 travel: Some((1, 3)),
                 places: vec![("Holtburg", me + Vec2::new(-10.0, 20.0))],
+                elsewhere: vec![
+                    (
+                        "Arwic (town)".into(),
+                        me + Vec2::new(5600.0, -2000.0),
+                        5950.0,
+                    ),
+                    (
+                        "Aun Ralirea (npc)".into(),
+                        me + Vec2::new(300.0, 40.0),
+                        302.0,
+                    ),
+                ],
             }),
             show: true,
             state: State::default(),
@@ -740,6 +816,8 @@ impl Plugin for Map {
             self.poll_world(egui);
             self.ensure_local(egui, c, &v);
         }
+        let mut v = v;
+        v.elsewhere = world_search(&self.state.search, v.me);
         let actions = draw(
             egui,
             &v,

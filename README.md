@@ -87,8 +87,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # M opens the map: the world map of Dereth with the towns, or the
 # current landblock (a dungeon's floor plan indoors) with everything the
 # server has sent as dots and a searchable list of it (click selects);
-# double-click a spot on the world map, or type a town name, to walk there
-# by an overland route; K shows the character sheet with Raise buttons that spend
+# searching also finds towns, lifestones, shops and NPCs anywhere in the
+# world and a click travels to them; double-click a spot on the world map,
+# or type a town name, to travel there, using portals when they are quicker; K shows the character sheet with Raise buttons that spend
 # unassigned XP on attributes, vitals and skills and Train buttons that
 # spend skill credits; panels can be dragged anywhere and where you put
 # them, which ones are open and what you searched for are remembered in
