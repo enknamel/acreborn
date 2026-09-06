@@ -4,6 +4,7 @@
 
 pub mod advance;
 pub mod creation;
+pub mod emotes;
 pub mod magic;
 pub mod options;
 pub mod player;
@@ -785,7 +786,7 @@ impl Client {
             opcode::HEAR_SPEECH => ChatLine::parse_hear_speech(body),
             opcode::HEAR_RANGED_SPEECH => ChatLine::parse_hear_ranged_speech(body),
             opcode::SERVER_MESSAGE => ChatLine::parse_server_message(body),
-            opcode::EMOTE_TEXT => ChatLine::parse_emote_text(body),
+            opcode::EMOTE_TEXT | opcode::SOUL_EMOTE => ChatLine::parse_emote_text(body),
             opcode::GAME_EVENT => match ac_net::messages::split_game_event(body) {
                 Some((_, _, event::TELL, rest)) => ChatLine::parse_tell(rest),
                 Some((_, _, event::CHANNEL_BROADCAST, rest)) => {
@@ -975,7 +976,9 @@ impl Client {
                 }
             }
             (_, true) => line.text.clone(),
-            (opcode::EMOTE_TEXT, _) => format!("{} {}", line.sender, line.text),
+            (opcode::EMOTE_TEXT | opcode::SOUL_EMOTE, _) => {
+                format!("{} {}", line.sender, line.text)
+            }
             (opcode::GAME_EVENT, _) => format!("{} tells you, \"{}\"", line.sender, line.text),
             _ => format!("{} says, \"{}\"", line.sender, line.text),
         };
@@ -1340,6 +1343,24 @@ impl Client {
     pub fn inspect(&mut self, guid: u32) {
         self.selected = Some(guid);
         self.appraise(guid);
+    }
+
+    /// Do a soul emote by word ("wave", "bow", "*cheer*"): play the
+    /// motion, send it in the next movement state so others see it, and
+    /// say the line (SoulEmote 0x01E1: "waves"). False for unknown words.
+    pub fn emote(&mut self, words: &str) -> bool {
+        let Some((cmd, text)) = emotes::lookup(words) else {
+            return false;
+        };
+        if let Some(pl) = self.player.as_mut() {
+            pl.play_command(&self.assets, cmd, 1.0);
+            pl.queue_command(cmd);
+        }
+        let mut w = ac_net::wire::Writer::new();
+        w.string16(text);
+        self.session
+            .send_action(ac_net::messages::action::SOUL_EMOTE, &w.finish());
+        true
     }
 
     /// Ask the server to appraise an object (IdentifyObject 0x00C8); the
@@ -2252,6 +2273,11 @@ impl Client {
                 w.string16(args);
                 self.session.send_action(action::EMOTE, &w.finish());
             }
+            // `/wave`, `/bow`...: the soul emotes (retail typed them as
+            // `*wave*`; both work).
+            n if emotes::lookup(n).is_some() && args.is_empty() => {
+                self.emote(n);
+            }
             // `/g`, `/trade`, `/lfg`, `/rp`, `/a`: the Turbine chat rooms.
             n if ac_net::messages::turbine::from_prefix(n).is_some() => {
                 if args.is_empty() {
@@ -2280,6 +2306,9 @@ impl Client {
     }
 
     pub fn say(&mut self, text: &str) {
+        if emotes::from_chat_line(text).is_some() && self.emote(text) {
+            return;
+        }
         let mut w = ac_net::wire::Writer::new();
         w.string16(text);
         self.session

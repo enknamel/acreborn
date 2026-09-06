@@ -705,6 +705,19 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   everyone on the channel, sender included, gets back as ChannelBroadcast
   0x0147 (channel, sender or "" for yourself, text); `/v`, `/p`, `/m`,
   `/c`, `/f` in the chat box.
+* **Emotes**: `/e text` is a free emote (Emote 0x01DF, shown to everyone
+  near as "Name text" via EmoteText 0x01E0). Soul emotes are the animated
+  ones: typing `*wave*` (retail) or `/wave` looks the word up in the
+  emote table, plays the motion locally, sends it in the next MoveToState
+  as a one-shot command (the command list length sits above the 11 flag
+  bits; each item is the raw command (MotionCommand & 0xFFFF), a packed
+  sequence with the autonomous bit, and speed 1.0, the only speed ACE
+  accepts, and only for the motions in its `SoulEmote` list), and says
+  the line with SoulEmote 0x01E1 (text), which comes back to everyone
+  near as message 0x01E2 (guid, name, text) shown "Name waves". The
+  server relays the command in the UpdateMotion others get, so they play
+  the animation. The client's table (`ac_client::emotes`) holds about
+  seventy words; verified with two sessions (wave, bow deep).
 * **Friends, titles, squelch**: AddFriend 0x0018 (name) / RemoveFriend
   0x0017 (guid) / RemoveAllFriends 0x0025 answer with FriendsListUpdate
   0x0021 (count, records of guid, online flag, appear-offline flag,

@@ -85,7 +85,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # O the components panel, U the buffs, F the fellowship, L the allegiance
 # (swear to the selected player, break, name it; /v /p /m /c chat to
 # vassals, patron, monarch, co-vassals; /g /trade /lfg /rp /a for the
-# General, Trade, LFG, Roleplay and allegiance rooms), H housing (your house, guests,
+# General, Trade, LFG, Roleplay and allegiance rooms; *wave*, *bow*,
+# *cheer* and some seventy other emotes typed between asterisks, or as
+# /wave, animate and say the line), H housing (your house, guests,
 # recall; use a house sign to see its price and buy it), N the social
 # panel (your title, friends with who is online, squelches), X the character
 # options; server

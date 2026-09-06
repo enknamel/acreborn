@@ -31,6 +31,8 @@ pub mod opcode {
     pub const UPDATE_OBJECT: u32 = 0xF7DB;
     pub const CHARACTER_ENTER_WORLD_SERVER_READY: u32 = 0xF7DF;
     pub const EMOTE_TEXT: u32 = 0x01E0;
+    /// HearSoulEmote: sender guid, name, the emote's line ("waves").
+    pub const SOUL_EMOTE: u32 = 0x01E2;
     pub const SET_STACK_SIZE: u32 = 0x0197;
     pub const PUBLIC_UPDATE_INSTANCE_ID: u32 = 0x02DA;
     pub const PICKUP_EVENT: u32 = 0xF74A;
@@ -1628,7 +1630,7 @@ pub fn jump(power: f32, velocity: [f32; 3], instance_seq: u16) -> Vec<u8> {
 }
 
 /// The raw input state the client reports in MoveToState.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct RawMotion {
     pub running: bool,
     /// `motion::WALK_FORWARD`, `WALK_BACKWARDS`, or 0 when idle.
@@ -1637,6 +1639,9 @@ pub struct RawMotion {
     pub sidestep: u32,
     /// `motion::TURN_LEFT/RIGHT` or 0.
     pub turn: u32,
+    /// One-shot commands (emotes) played this update, as full
+    /// MotionCommand ids; the server relays them to everyone in view.
+    pub commands: Vec<u32>,
 }
 
 /// Body of the MoveToState action: input state plus position.
@@ -1663,7 +1668,8 @@ pub fn move_to_state(m: &RawMotion, p: &WirePosition, instance_seq: u16, contact
         flags |= TURN_COMMAND | TURN_SPEED;
     }
     let mut w = Writer::new();
-    w.u32(flags); // command list length 0 in the high bits
+    // The command list length lives above the 11 flag bits.
+    w.u32(flags | ((m.commands.len() as u32) << 11));
     if m.running {
         w.u32(motion::HOLD_KEY_RUN);
     }
@@ -1676,6 +1682,13 @@ pub fn move_to_state(m: &RawMotion, p: &WirePosition, instance_seq: u16, contact
     }
     if m.turn != 0 {
         w.u32(m.turn).f32(1.0);
+    }
+    for (i, cmd) in m.commands.iter().enumerate() {
+        // Raw command (the low 16 bits), packed sequence with the
+        // autonomous bit, speed; ACE only takes emotes at speed 1.
+        w.u16((cmd & 0xFFFF) as u16)
+            .u16(0x8000 | (i as u16 & 0x7FFF))
+            .f32(1.0);
     }
     write_position(&mut w, p);
     w.u16(instance_seq).u16(0).u16(0).u16(0);

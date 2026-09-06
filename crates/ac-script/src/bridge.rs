@@ -729,6 +729,10 @@ impl Api for CtxApi<'_, '_> {
             .collect()
     }
 
+    fn emote(&mut self, words: &str) -> bool {
+        self.client().emote(words)
+    }
+
     fn appraise(&mut self, guid: i64) {
         self.client().appraise(guid as u32);
     }

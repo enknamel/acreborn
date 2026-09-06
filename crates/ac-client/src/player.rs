@@ -111,6 +111,8 @@ pub struct Player {
     /// The most recent take-off, left for the main loop to report; take it
     /// with `Option::take`.
     pub last_jump: Option<Jump>,
+    /// One-shot commands (emotes) to send with the next movement state.
+    pending_commands: Vec<u32>,
     /// Seconds the jump key has been held on the ground, while charging.
     jump_charge: Option<f32>,
     /// The most power the character can put into a jump right now
@@ -151,6 +153,7 @@ impl Player {
             ground_velocity: Vec3::ZERO,
             jump_skill: 100,
             last_jump: None,
+            pending_commands: Vec::new(),
             jump_charge: None,
             max_jump_power: 1.0,
         }
@@ -187,6 +190,12 @@ impl Player {
         self.moving = true;
         self.dirty = true;
         true
+    }
+
+    /// Send a one-shot command (an emote) to the server with the next
+    /// movement state; it relays it to everyone in view.
+    pub fn queue_command(&mut self, cmd: u32) {
+        self.pending_commands.push(cmd);
     }
 
     /// The jump charge as power 0..=1 while the key is held, else None.
@@ -760,8 +769,9 @@ impl Player {
                 0
             },
             turn: 0,
+            commands: std::mem::take(&mut self.pending_commands),
         };
-        if m != self.last_motion && !quiet {
+        if (m != self.last_motion || !m.commands.is_empty()) && !quiet {
             tracing::debug!(
                 "-> MoveToState {:?} at {:#010x} {:?}",
                 m,
@@ -772,7 +782,10 @@ impl Player {
                 action::MOVE_TO_STATE,
                 &messages::move_to_state(&m, &self.wire(), 1, true),
             );
-            self.last_motion = m;
+            self.last_motion = RawMotion {
+                commands: Vec::new(),
+                ..m
+            };
             self.last_auto = now;
         } else if self.moving && now - self.last_auto >= Duration::from_millis(250) {
             tracing::debug!("-> AutonomousPosition {:#010x} {:?}", self.cell, self.local);
