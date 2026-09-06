@@ -10,6 +10,7 @@ pub mod motion;
 pub mod object;
 pub mod social;
 pub mod stats;
+pub mod towns;
 
 use std::collections::HashMap;
 

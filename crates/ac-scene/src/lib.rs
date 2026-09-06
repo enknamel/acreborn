@@ -24,6 +24,7 @@ pub mod scenery;
 pub mod terrain;
 pub mod texmerge;
 pub mod worldgrid;
+pub mod worldroute;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};

@@ -344,6 +344,7 @@ mod tests {
         /// them count as unappraised.
         items: Array,
         unappraised: i64,
+        traveling: bool,
     }
 
     impl Recorder {
@@ -622,6 +623,21 @@ mod tests {
         fn switch(&mut self, i: i64) {
             self.activate = Some(i);
         }
+        fn travel_to(&mut self, destination: &str) -> bool {
+            self.record(format!("travel_to {destination}"));
+            self.traveling = ac_world::towns::parse_destination(destination).is_some();
+            self.traveling
+        }
+        fn traveling(&mut self) -> bool {
+            self.traveling
+        }
+        fn cancel_travel(&mut self) {
+            self.record("cancel_travel");
+            self.traveling = false;
+        }
+        fn place(&mut self, name: &str) -> Dynamic {
+            crate::api::place_map(name)
+        }
     }
 
     /// A fresh directory for one test's scripts.
@@ -899,6 +915,45 @@ mod tests {
         scripts.rescan();
         assert_eq!(scripts.len(), 1);
         assert!(!scripts.command(0, "x", ""));
+    }
+
+    #[test]
+    fn travel_functions_reach_the_api() {
+        let dir = script_dir();
+        write(
+            &dir,
+            "go.rhai",
+            r#"
+            fn command(name, args) {
+                if name != "go" { return false; }
+                let p = place(args);
+                if p == () { log("unknown " + args); return true; }
+                log(p.name + " " + p.ns + " " + p.ew + " " + p.x + " " + p.y);
+                if travel_to(args) { log("traveling " + traveling()); }
+                cancel_travel();
+                log("after " + traveling());
+                true
+            }
+            "#,
+        );
+        let mut scripts = Scripts::new(&dir);
+        let mut rec = Recorder::new();
+        {
+            let _bound = Bound::new(&mut rec);
+            scripts.rescan();
+            assert!(scripts.command(0, "go", "arwic"));
+            assert!(scripts.command(0, "go", "Atlantis"));
+        }
+        assert_eq!(rec.calls, ["[0] travel_to arwic", "[0] cancel_travel"]);
+        assert_eq!(
+            rec.logs[1..],
+            [
+                "Arwic 33.6 56.8 38112.0 32544.0",
+                "traveling true",
+                "after false",
+                "unknown Atlantis"
+            ]
+        );
     }
 
     fn examples_dir() -> PathBuf {

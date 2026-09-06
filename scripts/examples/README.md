@@ -58,6 +58,7 @@ Actions (on the current session; names match by prefix, like the console):
 - `appraise_all()`: asks the server about every carried item not yet appraised, one at a time in the background; returns how many were queued. `unappraised()` is how many still lack an answer
 - `option(name, on)` sets a character option by label prefix; `raise(what)`, `train(skill)` spend XP and credits
 - `switch(i)`: make session `i` the active one
+- Travel: `travel_to(dest)` plans an overland route on the terrain (slopes, water and roads; the local move-to steers around buildings and fences on the way; portals are not used) and walks it. `dest` is a town name (`"Arwic"`, a prefix or part of the name), map coordinates (`"42.1N, 33.6E"`) or a world position (`"x,y"`); false when unknown, indoors or unreachable. `traveling()`; `cancel_travel()` (moving by hand cancels too); `place(name)` is the gazetteer entry as `{ name, ns, ew, x, y }` or `()`
 - `with_session(i, || ...)`: run the closure with session `i` current, then restore; returns the closure's value
 
 Shared state:
