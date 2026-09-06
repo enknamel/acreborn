@@ -11,3 +11,6 @@ ac-formats = { path = "../ac-formats" }
 glam = "0.30"
 thiserror.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
