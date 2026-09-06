@@ -247,7 +247,7 @@ impl CollisionWorld {
         Ok(w)
     }
 
-    fn nearby(&self, p: Vec3, r: f32) -> impl Iterator<Item = &Tri> + '_ {
+    pub fn nearby(&self, p: Vec3, r: f32) -> impl Iterator<Item = &Tri> + '_ {
         let (x0, y0) = cell_of(p - Vec3::splat(r));
         let (x1, y1) = cell_of(p + Vec3::splat(r));
         let mut ids: Vec<u32> = Vec::new();
@@ -349,6 +349,15 @@ impl CollisionWorld {
     /// ignored, so ledges no taller than `skirt` do not push back (the
     /// floor snap then climbs them).
     pub fn resolve_above(&self, p: Vec3, r: f32, h: f32, skirt: f32) -> Vec3 {
+        self.resolve_from(None, p, r, h, skirt)
+    }
+
+    /// [`resolve_above`](Self::resolve_above) for a capsule that came
+    /// from `from`: a one-sided triangle only pushes when the capsule
+    /// started in front of it. Cell walls carry a separate back face, so
+    /// without this the inner face pushes us out and the outer face
+    /// pushes us through, and we end up outside the cell.
+    pub fn resolve_from(&self, from: Option<Vec3>, p: Vec3, r: f32, h: f32, skirt: f32) -> Vec3 {
         let mut pos = p;
         let hi = h - r;
         let lo = (skirt + r).min(hi);
@@ -380,6 +389,14 @@ impl CollisionWorld {
                         if sd >= r {
                             continue;
                         }
+                        if let Some(f) = from {
+                            // Already behind it when the move began: this
+                            // face is not the one holding us.
+                            let start = f + Vec3::new(0.0, 0.0, dz);
+                            if (start - t.a).dot(t.normal) < -1e-3 {
+                                continue;
+                            }
+                        }
                         t.normal * (r - sd)
                     };
                     push.z = 0.0;
@@ -391,6 +408,24 @@ impl CollisionWorld {
             }
             if !moved {
                 break;
+            }
+        }
+        if let Some(f) = from {
+            // Pushes from opposing faces (a wall and a railing a body
+            // width apart) can leave the capsule behind a wall it started
+            // in front of. A one-sided face is never crossed from its
+            // front: stay where the move began instead.
+            for dz in heights {
+                let start = f + Vec3::new(0.0, 0.0, dz);
+                let end = pos + Vec3::new(0.0, 0.0, dz);
+                for t in self.nearby(pos, r + 0.5).chain(self.nearby(f, r + 0.5)) {
+                    if t.two_sided || t.normal.z.abs() > 0.6 {
+                        continue;
+                    }
+                    if crosses_front_to_back(start, end, t) {
+                        return Vec3::new(f.x, f.y, p.z);
+                    }
+                }
             }
         }
         pos
@@ -466,7 +501,7 @@ impl CollisionWorld {
         // the capsule aside like a wall; only one directly overhead
         // blocks the step.
         for _ in 0..3 {
-            let pos = self.resolve_above(target, cap.radius, cap.height, cap.step_up);
+            let pos = self.resolve_from(Some(from), target, cap.radius, cap.height, cap.step_up);
             let probe = Vec3::new(pos.x, pos.y, from.z);
             let floor = self.floor_at(probe, cap.step_up, cap.step_down);
             let feet = Vec3::new(pos.x, pos.y, floor.map(|(z, _)| z).unwrap_or(from.z));
@@ -555,6 +590,18 @@ impl CollisionWorld {
     }
 }
 
+/// Whether the segment `a`..`b` passes through triangle `t` from the side
+/// its normal points to.
+fn crosses_front_to_back(a: Vec3, b: Vec3, t: &Tri) -> bool {
+    let sa = (a - t.a).dot(t.normal);
+    let sb = (b - t.a).dot(t.normal);
+    if sa < -1e-3 || sb >= -1e-3 {
+        return false;
+    }
+    let hit = a + (b - a) * (sa / (sa - sb));
+    (closest_point_on_tri(hit, t) - hit).length() < 0.05
+}
+
 fn point_in_tri_xy(p: Vec3, t: &Tri) -> bool {
     let (ax, ay) = (t.a.x, t.a.y);
     let (bx, by) = (t.b.x, t.b.y);
@@ -567,7 +614,7 @@ fn point_in_tri_xy(p: Vec3, t: &Tri) -> bool {
     !(neg && pos)
 }
 
-fn closest_point_on_tri(p: Vec3, t: &Tri) -> Vec3 {
+pub fn closest_point_on_tri(p: Vec3, t: &Tri) -> Vec3 {
     // Ericson, Real-Time Collision Detection 5.1.5
     let (a, b, c) = (t.a, t.b, t.c);
     let ab = b - a;

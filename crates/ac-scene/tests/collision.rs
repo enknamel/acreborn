@@ -233,3 +233,72 @@ fn dungeon_geometry_is_all_tagged_with_cells() {
         );
     }
 }
+
+/// A one-sided wall in the plane x = `x`, 6 m tall over y -5..5, whose
+/// normal points along `sign` x.
+fn wall_x(w: &mut CollisionWorld, x: f32, sign: f32) {
+    let a = Vec3::new(x, -5.0, 0.0);
+    let b = Vec3::new(x, 5.0, 0.0);
+    let c = Vec3::new(x, 5.0, 6.0);
+    let d = Vec3::new(x, -5.0, 6.0);
+    let n = w.tris.len();
+    quad(w, a, b, c, d, 0, false);
+    if w.tris[n].normal.x * sign < 0.0 {
+        w.tris.truncate(n);
+        quad(w, d, c, b, a, 0, false);
+    }
+    assert!(w.tris[n].normal.x * sign > 0.99);
+}
+
+#[test]
+fn one_sided_walls_hold_only_what_started_in_front() {
+    // A room at x > 0: its wall at x = 0 faces +x. Cells carry a separate
+    // back face for the same wall, facing -x.
+    let mut w = CollisionWorld::default();
+    floor(&mut w, -5.0, 5.0, 0.0, 0);
+    wall_x(&mut w, 0.0, 1.0);
+    wall_x(&mut w, 0.0, -1.0);
+    let cap = Capsule::default();
+    // Walking into the wall from inside the room: held at a radius from it.
+    let s = w.walk(Vec3::new(0.6, 0.0, 0.0), Vec3::new(0.3, 0.0, 0.0), &cap);
+    assert!(!s.blocked);
+    assert!((s.pos.x - cap.radius).abs() < 1e-3, "held at {}", s.pos);
+    // Without knowing where we came from, the back face pushes us out of
+    // the room instead (the old behaviour).
+    let p = w.resolve_above(
+        Vec3::new(0.3, 0.0, 0.0),
+        cap.radius,
+        cap.height,
+        cap.step_up,
+    );
+    assert!(p.x < 0.0 || p.x >= cap.radius - 1e-3, "{p}");
+    let p = w.resolve_from(
+        Some(Vec3::new(0.6, 0.0, 0.0)),
+        Vec3::new(0.3, 0.0, 0.0),
+        cap.radius,
+        cap.height,
+        cap.step_up,
+    );
+    assert!((p.x - cap.radius).abs() < 1e-3, "held at {p}");
+
+    // Jammed between the wall and a railing's back face a body width
+    // away (the meeting hall staircases): the pushes cancel out, but we
+    // never end up behind the wall we started in front of.
+    wall_x(&mut w, 0.4, -1.0);
+    let from = Vec3::new(0.2, 0.0, 0.0);
+    for x in [0.1, 0.2, 0.3, -0.1] {
+        let p = w.resolve_from(
+            Some(from),
+            Vec3::new(x, 0.0, 0.0),
+            cap.radius,
+            cap.height,
+            0.0,
+        );
+        assert!(
+            p.x >= -1e-3,
+            "pushed through the wall to {p} heading for x={x}"
+        );
+        let s = w.walk(from, Vec3::new(x, 0.0, 0.0), &cap);
+        assert!(s.pos.x >= -1e-3, "walked through the wall to {}", s.pos);
+    }
+}

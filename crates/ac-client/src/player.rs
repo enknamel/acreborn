@@ -601,8 +601,9 @@ impl Player {
             let mut blocked = false;
             for &blk in &blocks {
                 if let Some(c) = self.collision(assets, blk) {
-                    let from = Vec3::new(world.x, world.y, old.z);
-                    let w = c.walk(from, world, &cap);
+                    // Where the step began: walls we start in front of
+                    // hold us, ledges are measured from our feet.
+                    let w = c.walk(old, world, &cap);
                     if w.blocked {
                         blocked = true;
                         break;
@@ -686,7 +687,7 @@ impl Player {
             // ceiling.
             for &blk in &blocks {
                 if let Some(c) = self.collision(assets, blk) {
-                    world = c.resolve(world, cap.radius, cap.height);
+                    world = c.resolve_from(Some(old), world, cap.radius, cap.height, 0.0);
                 }
             }
             // The capsule must fit where it is drifting to: no sliding

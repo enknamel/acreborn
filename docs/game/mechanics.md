@@ -833,6 +833,20 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   staircase (untagged geometry) re-homed the character to the outdoor
   cell under the dungeon and ACE refused every move afterwards
   ("movement pre-validation failed from 012F010C ... to 012E0009").
+* **One-sided walls hold only from the front.** Cell structures model
+  each wall as two one-sided polygons, an inner face and an outer face.
+  A one-sided face pushes the capsule out only when the move started in
+  front of it, and a move that would cross a face from its front is
+  refused outright; before this the outer face pushed the character
+  through the wall (or, jammed between a wall and a staircase railing a
+  body width away, the alternating pushes did), after which a jump in
+  the Holtburg meeting hall (0x0125) fell out of the building forever:
+  "stuck in the air" in the client. `cargo run -p ac-client --example
+  jump_scan BLOCK` runs jumps from every standing spot of a dungeon and
+  lists the ones that never land (`SLOPES=1` includes stairs);
+  `jump_trace CELL x y z heading` follows one frame by frame, and
+  `ac-scene --example tris_near BLOCK x y z r` lists the collision
+  triangles around a point with the pushes they apply.
 * **Landing and headroom.** A falling character lands on any floor up
   to a step (0.6 m) above its feet, so a jump that arrives a few
   centimetres under a ledge's top stands on the ledge instead of passing

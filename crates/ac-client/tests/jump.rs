@@ -56,3 +56,51 @@ fn jumps_at_the_shoushi_porch_never_end_under_it() {
     }
     assert!(stuck.is_empty(), "ended without headroom: {stuck:?}");
 }
+
+/// The Holtburg meeting hall (0x0125) has one-sided cell walls with
+/// separate back faces and staircases with railings a body width from
+/// the wall. Running jumps from beside those walls used to leave the
+/// building and fall forever ("stuck in the air" in the client, the
+/// server refusing every position).
+#[test]
+fn jumps_beside_meeting_hall_walls_stay_inside() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(std::path::Path::new(&dir)).unwrap();
+    let cases = [
+        // South wall of the ground-floor hall.
+        (0x0125_010F, Vec3::new(25.5, -44.5, 0.0), 180.0),
+        // Beside the west staircase railing, into the wall.
+        (0x0125_0108, Vec3::new(15.5, -41.5, 0.0), 90.0),
+        // The east one, mirrored.
+        (0x0125_0113, Vec3::new(44.5, -41.5, 0.0), 270.0),
+        // A corner of the entrance corridor.
+        (0x0125_0100, Vec3::new(-4.5, -34.5, 0.0), 90.0),
+    ];
+    let mut bad = Vec::new();
+    for (cell, start, deg) in cases {
+        let heading = (deg as f32).to_radians();
+        let mut pl = Player::new(&assets, cell, start, Quat::from_rotation_z(heading));
+        pl.set_motion_table(&assets, 0x0200_0001, 0x0900_0001);
+        pl.max_jump_power = 1.0;
+        for frame in 0..360 {
+            let input = Input {
+                forward: 1.0,
+                strafe: 0.0,
+                run: true,
+                jump: false,
+                jump_held: false,
+            };
+            if frame == 30 {
+                pl.jump(1.0);
+            }
+            pl.update(&assets, &input, 1.0 / 60.0);
+        }
+        let end = pl.world_position() - ac_world::landblock_origin(cell);
+        if pl.is_airborne() || end.z < -0.5 || end.z > 20.0 {
+            bad.push((cell, start, deg, end, pl.is_airborne()));
+        }
+    }
+    assert!(bad.is_empty(), "left the building: {bad:?}");
+}
