@@ -179,6 +179,12 @@ pub struct ObjectCreate {
     pub max_stack_size: u32,
     /// ACE `Usable`: how the item is used and on what (see `usable`).
     pub usable: u32,
+    /// Burden units (weight), 0 unless sent.
+    pub burden: u32,
+    /// A container's item slots and side-pack slots (a player: the main
+    /// pack and how many packs hang from it), 0 unless sent.
+    pub items_capacity: u32,
+    pub containers_capacity: u32,
     /// EquipMask bits the item can be wielded in.
     pub valid_locations: u32,
     pub wielded_location: u32,
@@ -285,6 +291,12 @@ pub struct WeenieDesc {
     pub max_stack_size: u32,
     /// ACE `Usable`: how the item is used and on what (see `usable`).
     pub usable: u32,
+    /// Burden units (weight), 0 unless sent.
+    pub burden: u32,
+    /// A container's item slots and side-pack slots (a player: the main
+    /// pack and how many packs hang from it), 0 unless sent.
+    pub items_capacity: u32,
+    pub containers_capacity: u32,
 }
 
 impl WeenieDesc {
@@ -305,12 +317,16 @@ impl WeenieDesc {
         if weenie_flags & PLURAL_NAME != 0 {
             r.string16()?;
         }
-        if weenie_flags & ITEMS_CAPACITY != 0 {
-            r.u8()?;
-        }
-        if weenie_flags & CONTAINERS_CAPACITY != 0 {
-            r.u8()?;
-        }
+        let items_capacity = if weenie_flags & ITEMS_CAPACITY != 0 {
+            r.u8()? as u32
+        } else {
+            0
+        };
+        let containers_capacity = if weenie_flags & CONTAINERS_CAPACITY != 0 {
+            r.u8()? as u32
+        } else {
+            0
+        };
         if weenie_flags & AMMO_TYPE != 0 {
             r.u16()?;
         }
@@ -393,9 +409,11 @@ impl WeenieDesc {
         } else {
             0.0
         };
-        if weenie_flags & BURDEN != 0 {
-            r.u16()?;
-        }
+        let burden = if weenie_flags & BURDEN != 0 {
+            r.u16()? as u32
+        } else {
+            0
+        };
         let spell_id = if weenie_flags & SPELL != 0 {
             r.u16()? as u32
         } else {
@@ -476,6 +494,9 @@ impl WeenieDesc {
             max_structure,
             max_stack_size,
             usable,
+            burden,
+            items_capacity,
+            containers_capacity,
         })
     }
 }
@@ -669,6 +690,9 @@ impl ObjectCreate {
             max_structure,
             max_stack_size,
             usable,
+            burden,
+            items_capacity,
+            containers_capacity,
         } = WeenieDesc::parse(&mut r)?;
         Ok(ObjectCreate {
             guid,
@@ -709,6 +733,9 @@ impl ObjectCreate {
             max_structure,
             max_stack_size,
             usable,
+            burden,
+            items_capacity,
+            containers_capacity,
             valid_locations,
             wielded_location,
             no_draw: physics_state & (PHYSICS_STATE_NO_DRAW | PHYSICS_STATE_HIDDEN) != 0,

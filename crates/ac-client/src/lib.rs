@@ -6,6 +6,7 @@ pub mod advance;
 pub mod augmentations;
 pub mod creation;
 pub mod emotes;
+pub mod items;
 pub mod magic;
 pub mod options;
 pub mod player;
@@ -143,6 +144,10 @@ pub struct Client {
     /// server refuses a second pickup while one is in progress).
     pub loot_queue: std::collections::VecDeque<u32>,
     pub loot_inflight: Option<(u32, Instant)>,
+    /// Items waiting to be appraised in the background (`appraise_all`),
+    /// and the one asked for; their answers do not open the window.
+    pub appraise_queue: std::collections::VecDeque<u32>,
+    pub appraise_inflight: Option<(u32, Instant)>,
     /// An item to put into a world container (chest, hook, storage) once
     /// the server has opened it for us: (item, container, asked at).
     pub pending_store: Option<(u32, u32, Instant)>,
@@ -250,6 +255,8 @@ impl Client {
             waves: Default::default(),
             loot_queue: Default::default(),
             loot_inflight: None,
+            appraise_queue: Default::default(),
+            appraise_inflight: None,
             pending_store: None,
             selected: None,
             previous_selected: None,
@@ -537,6 +544,7 @@ impl Client {
         self.tick_combat();
         self.tick_loot();
         self.tick_store();
+        self.tick_appraise();
         // Build the static scene once the player is placed.
         if self.scene_block.is_none() {
             if let Some(p) = self.world.player().and_then(|o| o.position) {
@@ -1405,11 +1413,15 @@ impl Client {
             "appraise {name}: {} properties",
             a.ints.len() + a.strings.len()
         );
-        for l in lines {
-            self.events.push(Event::Chat { text: l, kind: 1 });
+        // A background appraisal (appraise_all) fills the cache without
+        // opening the window or writing to the chat.
+        if self.appraise_inflight.map(|(g, _)| g) != Some(a.guid) {
+            for l in lines {
+                self.events.push(Event::Chat { text: l, kind: 1 });
+            }
+            self.last_appraisal = Some(a.guid);
+            self.appraisal_seq += 1;
         }
-        self.last_appraisal = Some(a.guid);
-        self.appraisal_seq += 1;
         self.appraisals.insert(a.guid, a);
     }
 

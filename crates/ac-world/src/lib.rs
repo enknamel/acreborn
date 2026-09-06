@@ -140,6 +140,11 @@ pub struct WorldObject {
     pub max_stack_size: u32,
     /// How the item is used and on what (see `usable`).
     pub usable: u32,
+    /// Burden units, 0 unless sent.
+    pub burden: u32,
+    /// Item slots and side-pack slots of a container (or of the player).
+    pub items_capacity: u32,
+    pub containers_capacity: u32,
     /// Container holding this item (a pack, or a creature's inventory).
     pub container: Option<u32>,
     /// Creature wielding this item.
@@ -400,6 +405,9 @@ impl World {
                         max_structure: oc.max_structure,
                         max_stack_size: oc.max_stack_size,
                         usable: oc.usable,
+                        burden: oc.burden,
+                        items_capacity: oc.items_capacity,
+                        containers_capacity: oc.containers_capacity,
                         container: oc.container,
                         wielder: oc.wielder,
                         valid_locations: oc.valid_locations,
