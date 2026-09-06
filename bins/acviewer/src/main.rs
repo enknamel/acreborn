@@ -13,6 +13,7 @@ mod gpu;
 mod particles;
 mod scene;
 use ac_client::player;
+mod chat;
 mod plugins;
 mod sky;
 mod ui;
@@ -1921,6 +1922,27 @@ fn main() -> Result<()> {
             if let Some(ui) = app.ui.as_mut() {
                 ui.status_icon = ac_plugin::IconLayers::single(0x0600_2F40);
                 ui.status += "  selected: Demo item";
+                // A line of each kind, so the tabs and colours show.
+                for (text, kind) in [
+                    ("Reborn says, \"heading for the hall\"", 2u32),
+                    ("+Admin tells you, \"take the left stair\"", 3),
+                    ("Reborn waves.", 0xC),
+                    (
+                        "You hit Drudge Skulker for 12 points of slashing damage.",
+                        5,
+                    ),
+                    (
+                        "Drudge Skulker hits you for 4 points of bludgeoning damage.",
+                        6,
+                    ),
+                    ("You cast Heal Self I.", 7),
+                    ("[General] Seller: wts stormwood bow, cheap", 8),
+                    ("[Fellowship] Bob Smith says, \"pulling three\"", 0x13),
+                    ("You have earned 812,000 experience.", 0xD),
+                    ("Welcome to Asheron's Call", 0),
+                ] {
+                    ui.push_chat(text.to_string(), kind);
+                }
             }
         }
         // egui's first frame only loads fonts and asks for a repaint.
