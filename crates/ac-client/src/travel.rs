@@ -33,6 +33,10 @@ pub const LEG: f32 = 60.0;
 /// The leg is cut this far short of the landblock edge so its end lies in
 /// the block the character stands in.
 const EDGE_MARGIN: f32 = 2.0;
+/// A portal that has not taken us in this long is one we cannot use
+/// (a level range, an unfinished quest, or it simply is not there): the
+/// journey is planned again without it.
+pub const PORTAL_GIVE_UP: Duration = Duration::from_secs(12);
 /// No progress toward the current waypoint for this long: skip it.
 pub const STUCK_AFTER: Duration = Duration::from_secs(8);
 /// Getting closer to the waypoint by less than this is not progress.
@@ -49,9 +53,15 @@ pub struct Travel {
     /// The whole journey, portals included, and the step being made.
     trip: Option<Trip>,
     step: usize,
-    /// The landblock the character was in when a portal step began; the
-    /// step is done when they are somewhere else.
+    /// The landblock the character was in when a portal step began, and
+    /// when it began; the step is done when they are somewhere else, and
+    /// given up on when the portal will not take them.
     portal_from: Option<u32>,
+    portal_since: Option<Instant>,
+    /// Portals that would not take us, left out of the next plan.
+    refused: Vec<String>,
+    /// Where the journey is bound, to replan around a refusal.
+    goal: Option<Vec2>,
     /// World xy waypoints of the step being walked, start and goal
     /// included.
     route: Option<Vec<Vec2>>,
@@ -112,7 +122,10 @@ impl Client {
         let me = pl.world_position();
         let cell = pl.cell;
         let t0 = Instant::now();
-        let Some(trip) = trip::plan(Vec2::new(me.x, me.y), cell, goal) else {
+        let level = self.world.stats.level.max(1) as u32;
+        let refused = self.travel.refused.clone();
+        let Some(trip) = trip::plan_for(Vec2::new(me.x, me.y), cell, goal, level, &[], &refused)
+        else {
             tracing::warn!("travel: no way to {goal:?}");
             return false;
         };
@@ -126,6 +139,8 @@ impl Client {
         self.travel.step = 0;
         self.travel.route = None;
         self.travel.portal_from = None;
+        self.travel.portal_since = None;
+        self.travel.goal = Some(goal);
         self.travel.restart_waypoint();
         self.travel_start_step()
     }
@@ -155,6 +170,7 @@ impl Client {
             Step::Portal { .. } => Some(pl.cell & 0xFFFF_0000),
             Step::Walk(_) => None,
         };
+        self.travel.portal_since = self.travel.portal_from.map(|_| Instant::now());
         // Indoors (the Town Network hub, a dungeon) the terrain grid says
         // nothing: walk straight at it and let the landblock's own
         // navigation graph steer.
@@ -197,6 +213,7 @@ impl Client {
         self.travel.step += 1;
         self.travel.route = None;
         self.travel.portal_from = None;
+        self.travel.portal_since = None;
         self.travel.restart_waypoint();
         self.travel_start_step()
     }
@@ -252,7 +269,28 @@ impl Client {
         self.travel.route = None;
         self.travel.step = 0;
         self.travel.portal_from = None;
+        self.travel.portal_since = None;
+        self.travel.refused.clear();
+        self.travel.goal = None;
         self.travel.restart_waypoint();
+    }
+
+    /// The name of the portal the current step is aimed at.
+    fn travel_portal_name(&self) -> Option<String> {
+        match self.travel.trip.as_ref()?.steps.get(self.travel.step)? {
+            Step::Portal { name, .. } => Some(name.clone()),
+            Step::Walk(_) => None,
+        }
+    }
+
+    /// Give up the journey but remember which portals turned us away, so
+    /// the next plan leaves them out.
+    fn cancel_travel_keeping_refusals(&mut self) {
+        let refused = std::mem::take(&mut self.travel.refused);
+        let goal = self.travel.goal;
+        self.cancel_travel();
+        self.travel.refused = refused;
+        self.travel.goal = goal;
     }
 
     /// The route no longer starts where the character stands (a teleport
@@ -314,6 +352,31 @@ impl Client {
                 // until the character has actually gone through, so wait
                 // at its mouth rather than give up.
                 if self.travel.portal_from.is_some() {
+                    // Standing at its mouth and still here: it will not
+                    // take us. Plan the rest of the way without it.
+                    if self
+                        .travel
+                        .portal_since
+                        .is_some_and(|t| now.duration_since(t) > PORTAL_GIVE_UP)
+                    {
+                        if let Some(name) = self.travel_portal_name() {
+                            let level = self.world.stats.level.max(1) as u32;
+                            let why = ac_world::portals::named(&name)
+                                .first()
+                                .and_then(|p| p.refusal(level))
+                                .unwrap_or_else(|| "would not take us".into());
+                            tracing::warn!("travel: the portal {name:?} {why}; going another way");
+                            self.travel.refused.push(name);
+                        }
+                        let goal = self.travel.goal;
+                        self.cancel_travel_keeping_refusals();
+                        if let Some(goal) = goal {
+                            if self.travel_to(goal) {
+                                continue;
+                            }
+                        }
+                        return None;
+                    }
                     let mouth = waypoint(&self.travel, n - 1)?;
                     let z = self
                         .travel

@@ -144,11 +144,26 @@ impl PartialOrd for Queued {
     }
 }
 
-/// Plan a journey from `from` (in cell `from_cell`) to `goal`.
+/// Plan a journey from `from` (in cell `from_cell`) to `goal` for a
+/// character of any level, ignoring what portals ask for.
+pub fn plan(from: Vec2, from_cell: u32, goal: Vec2) -> Option<Trip> {
+    plan_for(from, from_cell, goal, 0, &[], &[])
+}
+
+/// Plan a journey the character can actually make: portals with a level
+/// range outside `level`, or a quest not in `quests_done`, are left out,
+/// as are any in `avoid` (ones that have already refused us).
 ///
 /// Returns `None` when nothing reaches the goal: no walk is short enough
-/// and no portal comes out near it.
-pub fn plan(from: Vec2, from_cell: u32, goal: Vec2) -> Option<Trip> {
+/// and no portal it can take comes out near it.
+pub fn plan_for(
+    from: Vec2,
+    from_cell: u32,
+    goal: Vec2,
+    level: u32,
+    quests_done: &[String],
+    avoid: &[String],
+) -> Option<Trip> {
     // Straight there, when that is a believable walk.
     if can_walk(from, from_cell, goal, 0) {
         return Some(Trip {
@@ -157,8 +172,15 @@ pub fn plan(from: Vec2, from_cell: u32, goal: Vec2) -> Option<Trip> {
         });
     }
     // Otherwise search over portal exits. A node is a place to stand:
-    // the start, or where a portal comes out.
-    let portals = portals::all();
+    // the start, or where a portal comes out. Only the ones this
+    // character may take are in the search: walking to a portal that
+    // turns us away wastes the whole trip.
+    let usable: Vec<&Portal> = portals::all()
+        .iter()
+        .filter(|p| level == 0 || p.usable_by(level, quests_done))
+        .filter(|p| !avoid.iter().any(|a| a.eq_ignore_ascii_case(&p.name)))
+        .collect();
+    let portals = &usable[..];
     let mut nodes = vec![Node {
         at: from,
         cell: from_cell,
@@ -230,7 +252,7 @@ pub fn plan(from: Vec2, from_cell: u32, goal: Vec2) -> Option<Trip> {
     let mut steps = Vec::new();
     let mut at = end;
     while let Some((prev, pi)) = came[at] {
-        let p: &Portal = &portals[pi];
+        let p: &Portal = portals[pi];
         steps.push(Step::Portal {
             name: p.name.clone(),
             mouth: p.from_xy(),
@@ -290,6 +312,36 @@ mod tests {
                 "first portal is {:.0} m away",
                 from.distance(*mouth)
             );
+        }
+    }
+
+    #[test]
+    fn a_portal_that_turns_us_away_is_left_out() {
+        let from = place("Holtburg");
+        let goal = place("Arwic");
+        let trip = plan_for(from, 0xA9B4_0019, goal, 20, &[], &[]).expect("no trip");
+        // Nothing in the plan asks for more than we have.
+        for step in &trip.steps {
+            if let Step::Portal { name, .. } = step {
+                for p in crate::portals::named(name) {
+                    if p.from_xy().distance(from) < 1e-3 {
+                        assert!(p.usable_by(20, &[]), "{name} is not usable at level 20");
+                    }
+                }
+            }
+        }
+        // Told that the first portal refused us, it finds another way.
+        let first = match trip.steps.first() {
+            Some(Step::Portal { name, .. }) => name.clone(),
+            other => panic!("expected a portal first, got {other:?}"),
+        };
+        let again = plan_for(from, 0xA9B4_0019, goal, 20, &[], &[first.clone()]);
+        match again {
+            Some(t) => assert!(
+                !matches!(t.steps.first(), Some(Step::Portal { name, .. }) if *name == first),
+                "took the refused portal again"
+            ),
+            None => {}
         }
     }
 

@@ -256,11 +256,7 @@ impl TeamView {
         self.mates
             .iter()
             .filter(|m| !m.wants.is_empty() && m.world.distance(me) <= radius)
-            .min_by(|a, b| {
-                a.world
-                    .distance(me)
-                    .total_cmp(&b.world.distance(me))
-            })
+            .min_by(|a, b| a.world.distance(me).total_cmp(&b.world.distance(me)))
     }
 
     /// The mate in the worst shape, for a healer.
@@ -756,8 +752,10 @@ impl Client {
                     self.fellowship_recruit(guid);
                 }
                 self.autoplay.last_recruit = Some(now);
-                self.autoplay
-                    .say(Doing::Helping, format!("bringing {name} into the fellowship"));
+                self.autoplay.say(
+                    Doing::Helping,
+                    format!("bringing {name} into the fellowship"),
+                );
                 return true;
             }
         }
@@ -781,10 +779,8 @@ impl Client {
                     if let Some((item, name)) = spare {
                         self.give(mate.guid, item, None);
                         self.autoplay.last_give = Some(now);
-                        self.autoplay.say(
-                            Doing::Helping,
-                            format!("giving {name} to {}", mate.name),
-                        );
+                        self.autoplay
+                            .say(Doing::Helping, format!("giving {name} to {}", mate.name));
                         return true;
                     }
                 }
@@ -823,14 +819,10 @@ impl Client {
             {
                 return false;
             }
-            let target = self
-                .autoplay
-                .team
-                .target()
-                .or_else(|| {
-                    self.attack_target
-                        .map(|t| (t, self.last_target_name.clone()))
-                });
+            let target = self.autoplay.team.target().or_else(|| {
+                self.attack_target
+                    .map(|t| (t, self.last_target_name.clone()))
+            });
             if let Some((guid, name)) = target {
                 let alive = self
                     .world
@@ -849,10 +841,8 @@ impl Client {
                         self.cast(spell);
                         self.autoplay.last_debuff = Some(now);
                         let spell_name = spell_name.clone();
-                        self.autoplay.say(
-                            Doing::Debuffing,
-                            format!("casting {spell_name} on {name}"),
-                        );
+                        self.autoplay
+                            .say(Doing::Debuffing, format!("casting {spell_name} on {name}"));
                         // One family per target: the rest of the team can
                         // stop waiting for us.
                         if team.debuffs.last() == Some(&spell_name) {

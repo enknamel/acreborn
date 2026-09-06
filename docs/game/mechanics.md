@@ -938,6 +938,13 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   falls in). Using something in the world, attacking or taking the
   controls stops the journey, since the server walks the character to
   whatever they used.
+* **Portals ask things of you.** Many have a level range and some want a
+  quest finished (`min_level`, `max_level`, `quest` in the portal table).
+  A journey is planned only over the ones the character may take, and a
+  portal that has not swallowed the character twelve seconds after they
+  reached its mouth is treated as one that will not: it is left out and
+  the rest of the way is planned again. That is what made a trip stop
+  and stand still.
 * **Portals and landmarks are server data**, not in the client's own
   files: `crates/ac-world/data/portals.csv` and `landmarks.csv` are
   copies of where every portal, lifestone, vendor and standing NPC is
