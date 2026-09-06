@@ -71,11 +71,35 @@ pub mod item_type {
     pub const HEALER: u32 = 0x10000;
     pub const LOCKPICK: u32 = 0x20000;
     pub const MANA_STONE: u32 = 0x80000;
-    /// Items applied to a target rather than given: kits, stones, keys,
-    /// lockpicks, gems.
-    pub const USABLE_ON_TARGET: u32 = HEALER | MANA_STONE | KEY | LOCKPICK | GEM;
     /// Item types that go on the body: wield them rather than use them.
     pub const WIELDABLE: u32 = MELEE_WEAPON | ARMOR | CLOTHING | JEWELRY | MISSILE_WEAPON | CASTER;
+}
+
+/// The `Usable` word of an object (ACE `Usable`): the low byte says where
+/// the item must be to be used (wielded, contained, in view, remote), the
+/// bits above 0xFFFF say what it can be used on. An item with any target
+/// bit is applied to something (a kit to a player, a stone to an item, a
+/// key to a chest) rather than used by itself.
+pub mod usable {
+    pub const TARGET_SELF: u32 = 0x2_0000;
+    pub const TARGET_WIELDED: u32 = 0x4_0000;
+    pub const TARGET_CONTAINED: u32 = 0x8_0000;
+    pub const TARGET_VIEWED: u32 = 0x10_0000;
+    pub const TARGET_REMOTE: u32 = 0x20_0000;
+    /// The item itself (a fellowship stone).
+    pub const TARGET_OBJSELF: u32 = 0x80_0000;
+    pub const TARGET_MASK: u32 = 0xFFFF_0000;
+
+    /// Whether using the item means applying it to a target.
+    pub fn needs_target(usable: u32) -> bool {
+        usable & TARGET_MASK & !TARGET_OBJSELF != 0
+    }
+
+    /// Whether the item may be applied to the user (a healing kit, yes; a
+    /// mana stone, also yes; a key, no).
+    pub fn on_self(usable: u32) -> bool {
+        usable & TARGET_SELF != 0
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -114,6 +138,8 @@ pub struct WorldObject {
     pub max_structure: u32,
     /// Largest stack of this item, 1 when it does not stack.
     pub max_stack_size: u32,
+    /// How the item is used and on what (see `usable`).
+    pub usable: u32,
     /// Container holding this item (a pack, or a creature's inventory).
     pub container: Option<u32>,
     /// Creature wielding this item.
@@ -373,6 +399,7 @@ impl World {
                         structure: oc.structure,
                         max_structure: oc.max_structure,
                         max_stack_size: oc.max_stack_size,
+                        usable: oc.usable,
                         container: oc.container,
                         wielder: oc.wielder,
                         valid_locations: oc.valid_locations,
@@ -1364,5 +1391,21 @@ mod tests {
             world.apply(&game_event(event::USE_DONE, &[0, 0, 0, 0])),
             Applied::Ignored
         );
+    }
+
+    #[test]
+    fn usable_words() {
+        // Handy Healing Kit: SourceContainedTargetRemoteOrSelf.
+        assert!(usable::needs_target(0x22_0008));
+        assert!(usable::on_self(0x22_0008));
+        // Mana Stone: SourceContainedTargetSelfOrContained.
+        assert!(usable::needs_target(0xA_0008));
+        // A key: contained, target remote.
+        assert!(usable::needs_target(0x20_0008));
+        assert!(!usable::on_self(0x20_0008));
+        // A book, a sign, a pyreal: no target.
+        assert!(!usable::needs_target(8));
+        assert!(!usable::needs_target(1));
+        assert!(!usable::needs_target(0));
     }
 }

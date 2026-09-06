@@ -292,7 +292,7 @@ impl Api for CtxApi<'_, '_> {
         if !c.world.objects.contains_key(&guid) {
             return false;
         }
-        c.selected = Some(guid);
+        c.select(Some(guid));
         c.interact(guid);
         true
     }
@@ -311,7 +311,7 @@ impl Api for CtxApi<'_, '_> {
         }
         self.set_combat(true);
         let c = self.client();
-        c.selected = Some(guid);
+        c.select(Some(guid));
         c.interact(guid);
         true
     }

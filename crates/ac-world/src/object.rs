@@ -177,6 +177,8 @@ pub struct ObjectCreate {
     pub max_structure: u32,
     /// Largest stack of this item (1 for unstackable things).
     pub max_stack_size: u32,
+    /// ACE `Usable`: how the item is used and on what (see `usable`).
+    pub usable: u32,
     /// EquipMask bits the item can be wielded in.
     pub valid_locations: u32,
     pub wielded_location: u32,
@@ -281,6 +283,8 @@ pub struct WeenieDesc {
     pub max_structure: u32,
     /// Largest stack of this item (1 for unstackable things).
     pub max_stack_size: u32,
+    /// ACE `Usable`: how the item is used and on what (see `usable`).
+    pub usable: u32,
 }
 
 impl WeenieDesc {
@@ -315,9 +319,11 @@ impl WeenieDesc {
         } else {
             0
         };
-        if weenie_flags & USABLE != 0 {
-            r.u32()?;
-        }
+        let usable = if weenie_flags & USABLE != 0 {
+            r.u32()?
+        } else {
+            0
+        };
         if weenie_flags & USE_RADIUS != 0 {
             r.f32()?;
         }
@@ -469,6 +475,7 @@ impl WeenieDesc {
             structure,
             max_structure,
             max_stack_size,
+            usable,
         })
     }
 }
@@ -661,6 +668,7 @@ impl ObjectCreate {
             structure,
             max_structure,
             max_stack_size,
+            usable,
         } = WeenieDesc::parse(&mut r)?;
         Ok(ObjectCreate {
             guid,
@@ -700,6 +708,7 @@ impl ObjectCreate {
             structure,
             max_structure,
             max_stack_size,
+            usable,
             valid_locations,
             wielded_location,
             no_draw: physics_state & (PHYSICS_STATE_NO_DRAW | PHYSICS_STATE_HIDDEN) != 0,

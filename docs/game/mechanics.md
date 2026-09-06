@@ -613,6 +613,13 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   by guid and shows the latest in the appraisal window; scripts read it
   with `appraisal(guid)`. Verified live on a healing kit, a lifestone
   (its Use text) and a barkeeper (level, health).
+* Giving and using-on are different actions: GiveObjectRequest 0x00CD
+  hands an item to an NPC or player, UseWithTarget 0x0035 applies a
+  healing kit, mana stone, key or lockpick to a target (the item's
+  Usable word says which: target bits above 0xFFFF, 0x20000 self). Retail dragged
+  an item onto someone to give it and used a kit on someone by selecting
+  them and using the kit; the client does the same (with nothing
+  selected the server applies the kit to yourself).
 * Mana stones charge wielded items; healing kits heal (Healing skill,
   difficulty = missing health × 2, harder in combat, 1 stamina per 5
   health); potions and food restore vitals.

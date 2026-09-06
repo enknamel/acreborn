@@ -147,6 +147,10 @@ pub struct Client {
     /// the server has opened it for us: (item, container, asked at).
     pub pending_store: Option<(u32, u32, Instant)>,
     pub selected: Option<u32>,
+    /// What was selected before `selected`: clicking a kit in the pack
+    /// selects the kit, and using it then applies it to the player or
+    /// item selected just before (see `use_target`).
+    pub previous_selected: Option<u32>,
     /// The salvage window is open (an Ust was used); the panel closes it.
     pub salvage_open: bool,
     /// A jump asked for by a script or the bot, done on the next tick.
@@ -248,6 +252,7 @@ impl Client {
             loot_inflight: None,
             pending_store: None,
             selected: None,
+            previous_selected: None,
             salvage_open: false,
             pending_jump: None,
             appraisals: std::collections::HashMap::new(),
@@ -1075,6 +1080,24 @@ impl Client {
                 self.known_spells.insert(o.spell_id, spell.to_string());
             }
         }
+        // A kit, a mana stone or a key used with something selected is
+        // applied to it (retail: select the target, then use the item).
+        // With nothing selected an item that may be used on its owner (a
+        // kit, a stone) goes on ourselves; the server has no plain Use
+        // for those.
+        if carried && ac_world::usable::needs_target(o.usable) {
+            let target = self
+                .use_target(guid)
+                .or(if ac_world::usable::on_self(o.usable) {
+                    me
+                } else {
+                    None
+                });
+            if let Some(target) = target {
+                self.use_on(guid, target);
+                return;
+            }
+        }
         if carried && o.weenie_class_id == ac_world::material::UST_WCID {
             // The Ust is the salvaging tool: using it opens the salvage
             // window (the retail client did this itself; the server only
@@ -1204,7 +1227,7 @@ impl Client {
         self.attack_target = Some(guid);
         self.attack_pending = true;
         self.last_attack = Instant::now();
-        self.selected = Some(guid);
+        self.select(Some(guid));
     }
 
     pub fn tick_combat(&mut self) {
@@ -1270,7 +1293,7 @@ impl Client {
         }
         match best {
             Some((_, guid)) => {
-                self.selected = Some(guid);
+                self.select(Some(guid));
                 self.interact(guid);
                 true
             }
@@ -1443,7 +1466,7 @@ impl Client {
     /// Select an item in a panel and appraise it, what a single click on
     /// a pack, container, vendor or trade row does.
     pub fn inspect(&mut self, guid: u32) {
-        self.selected = Some(guid);
+        self.select(Some(guid));
         self.appraise(guid);
     }
 
@@ -2458,7 +2481,20 @@ impl Client {
 
     /// Select an object (what the target bar and appraisal refer to).
     pub fn select(&mut self, guid: Option<u32>) {
+        if guid != self.selected {
+            self.previous_selected = self.selected;
+        }
         self.selected = guid;
+    }
+
+    /// The thing a targetable item is applied to when used: the most
+    /// recently selected object other than the item itself (selecting
+    /// the item to use it must not lose the target picked before).
+    pub fn use_target(&self, item: u32) -> Option<u32> {
+        [self.selected, self.previous_selected]
+            .into_iter()
+            .flatten()
+            .find(|t| *t != item && self.world.objects.contains_key(t))
     }
 
     /// Events produced since the last drain.

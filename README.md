@@ -85,7 +85,8 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # pack, a container, a vendor's list or the trade window selects and
 # appraises it: the appraisal window shows its value, damage, armor,
 # spells and requirements)
-# to hand it over, onto an open chest to store it, or onto empty ground to
+# to hand it over (always a gift; to use a kit, stone or key on someone,
+# select them and use the item), onto an open chest to store it, or onto empty ground to
 # drop it, onto a chest, house hook or storage chest to put it there;
 # K shows the skills panel, P the spellbook, B the spell bar
 # (1..9 cast its spells, Insert/PageUp cycle tabs, Delete/PageDown spells),

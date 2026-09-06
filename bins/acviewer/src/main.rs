@@ -491,7 +491,7 @@ impl App {
             .world
             .objects
             .get(&item)
-            .is_some_and(|o| o.item_type & item_type::USABLE_ON_TARGET != 0);
+            .is_some_and(|o| ac_world::usable::needs_target(o.usable));
         // A chest, a house hook or a storage chest in the world takes the
         // item (PutItemInContainer); creatures are handed it.
         let container = target.filter(|g| {
@@ -500,15 +500,17 @@ impl App {
             })
         });
         match (receiver, target) {
-            // A kit on a player, a key on a chest, a stone on an item.
+            // Dragging onto someone is always a gift; a kit or a stone is
+            // used on them by selecting them and using the item.
+            (Some(t), _) => {
+                c.give(t, item, None);
+            }
+            // A key on a chest, a stone on an item lying there.
             (_, Some(t)) if usable => {
                 c.use_on(item, t);
             }
             (_, Some(t)) if container == Some(t) => {
                 c.store_in(item, t);
-            }
-            (Some(t), _) => {
-                c.give(t, item, None);
             }
             _ => {
                 c.drop_item(item);
@@ -569,13 +571,13 @@ impl App {
             return;
         };
         let Some(guid) = picked else {
-            net.client.selected = None;
+            net.client.select(None);
             return;
         };
         let now = Instant::now();
         let again = matches!(net.client.last_click, Some((t, g)) if g == guid && now - t < Duration::from_millis(500));
         net.client.last_click = Some((now, guid));
-        net.client.selected = Some(guid);
+        net.client.select(Some(guid));
         let name = net
             .client
             .world
