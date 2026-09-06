@@ -140,6 +140,138 @@ impl Default for Loot {
     }
 }
 
+/// What this character does for the others playing alongside it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Role {
+    /// Attacks the team's target.
+    #[default]
+    Fighter,
+    /// Lands the debuffs on the team's target before the others hit it.
+    Debuffer,
+    /// Heals whoever is worst off, and fights only when everyone is
+    /// healthy.
+    Healer,
+}
+
+impl Role {
+    pub fn label(self) -> &'static str {
+        match self {
+            Role::Fighter => "fighter",
+            Role::Debuffer => "debuffer",
+            Role::Healer => "healer",
+        }
+    }
+}
+
+/// Hunting with the other characters being played.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Team {
+    pub enabled: bool,
+    pub role: Role,
+    /// Attack whatever the team is attacking rather than picking alone.
+    pub focus_fire: bool,
+    /// Form a fellowship and recruit the others.
+    pub fellowship: bool,
+    /// The fellowship's name.
+    pub fellowship_name: String,
+    /// Spells a debuffer lands on the team's target, in order
+    /// ("Imperil", "Magic Yield Other").
+    pub debuffs: Vec<String>,
+    /// Hand a teammate standing next to us what they are short of.
+    pub share_supplies: bool,
+    /// Ask for more when fewer than this many are carried (by name).
+    pub keep_stocked: Vec<(String, u32)>,
+}
+
+impl Default for Team {
+    fn default() -> Self {
+        Team {
+            enabled: false,
+            role: Role::Fighter,
+            focus_fire: true,
+            fellowship: true,
+            fellowship_name: "acreborn".into(),
+            debuffs: Vec::new(),
+            share_supplies: true,
+            keep_stocked: vec![("Healing Kit".into(), 1)],
+        }
+    }
+}
+
+/// What one of the others has told us about itself. The host fills this
+/// in from the bus every frame (see `ac_plugin::team`); the rules here
+/// only read it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Mate {
+    pub name: String,
+    pub guid: u32,
+    /// Its session index in its own process.
+    pub session: usize,
+    pub world: glam::Vec3,
+    pub health: f32,
+    pub role: Role,
+    pub target: Option<u32>,
+    pub target_name: String,
+    pub in_fellowship: bool,
+    /// Items it is short of, by name.
+    pub wants: Vec<String>,
+    /// Targets it has already debuffed.
+    pub debuffed: Vec<u32>,
+    /// True for the one that picks the targets.
+    pub leader: bool,
+}
+
+/// The team as the host last saw it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TeamView {
+    pub mates: Vec<Mate>,
+    /// Whether this character is the one picking targets.
+    pub leader: bool,
+}
+
+impl TeamView {
+    /// The target the team is on: the leader's, else the first anyone has.
+    pub fn target(&self) -> Option<(u32, String)> {
+        let leader = self
+            .mates
+            .iter()
+            .find(|m| m.leader)
+            .and_then(|m| m.target.map(|t| (t, m.target_name.clone())));
+        leader.or_else(|| {
+            self.mates
+                .iter()
+                .find_map(|m| m.target.map(|t| (t, m.target_name.clone())))
+        })
+    }
+
+    /// Whether anyone has already landed the debuffs on `target`.
+    pub fn debuffed(&self, target: u32) -> bool {
+        self.mates.iter().any(|m| m.debuffed.contains(&target))
+    }
+
+    /// The mate nearest `me` that is short of something we could hand
+    /// over, within `radius` metres.
+    pub fn wanting<'a>(&'a self, me: glam::Vec3, radius: f32) -> Option<&'a Mate> {
+        self.mates
+            .iter()
+            .filter(|m| !m.wants.is_empty() && m.world.distance(me) <= radius)
+            .min_by(|a, b| {
+                a.world
+                    .distance(me)
+                    .total_cmp(&b.world.distance(me))
+            })
+    }
+
+    /// The mate in the worst shape, for a healer.
+    pub fn worst_hurt(&self) -> Option<&Mate> {
+        self.mates
+            .iter()
+            .filter(|m| m.health > 0.0 && m.health < 1.0)
+            .min_by(|a, b| a.health.total_cmp(&b.health))
+    }
+}
+
 /// Everything the character does on its own.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -149,6 +281,7 @@ pub struct Config {
     pub buffs: Buffs,
     pub fight: Fight,
     pub loot: Loot,
+    pub team: Team,
 }
 
 /// Whether `name` contains any of `list`, case-insensitively. An empty
@@ -191,6 +324,8 @@ pub enum Doing {
     Fighting,
     Looting,
     Buffing,
+    Debuffing,
+    Helping,
 }
 
 impl Doing {
@@ -202,6 +337,8 @@ impl Doing {
             Doing::Fighting => "fighting",
             Doing::Looting => "looting",
             Doing::Buffing => "buffing",
+            Doing::Debuffing => "debuffing",
+            Doing::Helping => "helping the team",
         }
     }
 }
@@ -222,6 +359,15 @@ pub struct Autoplay {
     looted: Vec<u32>,
     /// Corpse items we asked the server about.
     appraising: bool,
+    /// The other characters being played, as the host last saw them.
+    pub team: TeamView,
+    /// Targets this character has landed its debuffs on.
+    pub debuffed: Vec<u32>,
+    /// What this character is short of, for the others to hand over.
+    pub wants: Vec<String>,
+    last_debuff: Option<Instant>,
+    last_give: Option<Instant>,
+    last_recruit: Option<Instant>,
 }
 
 impl Autoplay {
@@ -300,7 +446,11 @@ impl Client {
         if self.autoplay_survive(now) {
             return;
         }
+        self.autoplay_stock();
         if self.autoplay_loot(now) {
+            return;
+        }
+        if self.autoplay_team(now) {
             return;
         }
         if self.autoplay_fight(now) {
@@ -493,6 +643,27 @@ impl Client {
         }
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
+        // Hunting together: hit what the team is hitting.
+        let team = &self.autoplay.config.team;
+        if team.enabled && team.focus_fire && !self.autoplay.team.leader {
+            if let Some((guid, name)) = self.autoplay.team.target() {
+                let alive = self
+                    .world
+                    .objects
+                    .get(&guid)
+                    .is_some_and(|o| o.health.unwrap_or(1.0) > 0.0);
+                if alive {
+                    if !self.combat {
+                        self.toggle_combat();
+                    }
+                    self.attack(guid);
+                    self.autoplay.last_attack = Some(now);
+                    self.autoplay
+                        .say(Doing::Fighting, format!("joining on {name}"));
+                    return true;
+                }
+            }
+        }
         let target = self
             .world
             .objects
@@ -522,6 +693,177 @@ impl Client {
         self.autoplay
             .say(Doing::Fighting, format!("attacking {name}"));
         true
+    }
+
+    /// Note what this character is running short of, so the others can
+    /// hand it over.
+    fn autoplay_stock(&mut self) {
+        let team = self.autoplay.config.team.clone();
+        if !team.enabled {
+            self.autoplay.wants.clear();
+            return;
+        }
+        let mut wants = Vec::new();
+        for (name, least) in &team.keep_stocked {
+            if name.trim().is_empty() {
+                continue;
+            }
+            let have: u32 = self
+                .world
+                .inventory()
+                .filter(|o| o.name.to_lowercase().contains(&name.to_lowercase()))
+                .map(|o| o.stack_size.max(1))
+                .sum();
+            if have < *least {
+                wants.push(name.clone());
+            }
+        }
+        self.autoplay.wants = wants;
+    }
+
+    /// The things done for the team: land the debuffs on its target,
+    /// recruit it into a fellowship, hand over what someone is short of,
+    /// and heal whoever is worst hurt. True when it acted.
+    fn autoplay_team(&mut self, now: Instant) -> bool {
+        let team = self.autoplay.config.team.clone();
+        if !team.enabled {
+            return false;
+        }
+        let me = self.player.as_ref().map(|p| p.world_position());
+        let Some(me) = me else { return false };
+
+        // Bring the others into a fellowship.
+        if team.fellowship
+            && self.autoplay.team.leader
+            && self
+                .autoplay
+                .last_recruit
+                .is_none_or(|t| now.duration_since(t) > Duration::from_secs(5))
+        {
+            let mates: Vec<(u32, String)> = self
+                .autoplay
+                .team
+                .mates
+                .iter()
+                .filter(|m| !m.in_fellowship && m.guid != 0 && m.world.distance(me) < 25.0)
+                .map(|m| (m.guid, m.name.clone()))
+                .collect();
+            if let Some((guid, name)) = mates.first().cloned() {
+                if self.world.fellowship.is_none() {
+                    let fname = team.fellowship_name.clone();
+                    self.fellowship_create(&fname, true);
+                } else {
+                    self.fellowship_recruit(guid);
+                }
+                self.autoplay.last_recruit = Some(now);
+                self.autoplay
+                    .say(Doing::Helping, format!("bringing {name} into the fellowship"));
+                return true;
+            }
+        }
+
+        // Hand over what a teammate is short of.
+        if team.share_supplies
+            && self
+                .autoplay
+                .last_give
+                .is_none_or(|t| now.duration_since(t) > Duration::from_secs(3))
+        {
+            let mate = self.autoplay.team.wanting(me, 6.0).cloned();
+            if let Some(mate) = mate {
+                for want in &mate.wants {
+                    let spare = self
+                        .world
+                        .inventory()
+                        .filter(|o| o.name.to_lowercase().contains(&want.to_lowercase()))
+                        .map(|o| (o.guid, o.name.clone()))
+                        .next();
+                    if let Some((item, name)) = spare {
+                        self.give(mate.guid, item, None);
+                        self.autoplay.last_give = Some(now);
+                        self.autoplay.say(
+                            Doing::Helping,
+                            format!("giving {name} to {}", mate.name),
+                        );
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // A healer looks after the others before it fights.
+        if team.role == Role::Healer {
+            let hurt = self
+                .autoplay
+                .team
+                .worst_hurt()
+                .filter(|m| m.health < self.autoplay.config.survive.heal_below)
+                .cloned();
+            if let Some(hurt) = hurt {
+                let spell = self
+                    .spell_by_name("Heal Other")
+                    .filter(|s| matches!(self.can_cast(*s), crate::magic::CastCheck::Ok));
+                if let Some(spell) = spell {
+                    self.select(Some(hurt.guid));
+                    self.cast(spell);
+                    self.autoplay.last_heal = Some(now);
+                    self.autoplay
+                        .say(Doing::Healing, format!("healing {}", hurt.name));
+                    return true;
+                }
+            }
+        }
+
+        // A debuffer softens the team's target before the others hit it.
+        if team.role == Role::Debuffer && !team.debuffs.is_empty() {
+            if self
+                .autoplay
+                .last_debuff
+                .is_some_and(|t| now.duration_since(t) < BUFF_EVERY)
+            {
+                return false;
+            }
+            let target = self
+                .autoplay
+                .team
+                .target()
+                .or_else(|| {
+                    self.attack_target
+                        .map(|t| (t, self.last_target_name.clone()))
+                });
+            if let Some((guid, name)) = target {
+                let alive = self
+                    .world
+                    .objects
+                    .get(&guid)
+                    .is_some_and(|o| o.health.unwrap_or(1.0) > 0.0);
+                if alive && !self.autoplay.debuffed.contains(&guid) {
+                    for spell_name in &team.debuffs {
+                        let Some(spell) = self.spell_by_name(spell_name) else {
+                            continue;
+                        };
+                        if !matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
+                            continue;
+                        }
+                        self.select(Some(guid));
+                        self.cast(spell);
+                        self.autoplay.last_debuff = Some(now);
+                        let spell_name = spell_name.clone();
+                        self.autoplay.say(
+                            Doing::Debuffing,
+                            format!("casting {spell_name} on {name}"),
+                        );
+                        // One family per target: the rest of the team can
+                        // stop waiting for us.
+                        if team.debuffs.last() == Some(&spell_name) {
+                            self.autoplay.debuffed.push(guid);
+                        }
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Put a buff back up. True when it cast one.
