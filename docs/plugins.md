@@ -226,7 +226,10 @@ can host plugins the same way: `Host::new()`, `register`, then
 ## The built-in panels
 
 `crates/ac-plugin/src/panels/` holds the client's own overlay, one plugin
-per file: `vitals`, `radar`, `target`, `inventory` (I), `loot`, `vendor`,
+per file: `vitals`, `radar`, `target`, `inventory` (I; grouped by pack,
+searchable with `ac_client::items::Query` lines such as `dmg>10 spell:blood
+type:armor`, sortable, with stat tooltips and a background "Appraise all"),
+`loot`, `vendor`,
 `skills` (K), `spellbook` (P), `spellbar` (B), `components` (O), `buffs`
 (U), `trade`, `fellowship` (F), `allegiance` (L), `housing` (H; a used house sign opens it), `social`
 (N: title, friends, squelches), `book` (opens on a used book, sign or

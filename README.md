@@ -70,7 +70,11 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # slowly, Enter opens the chat box (server commands start with @), left click
 # selects and appraises an object, double-click uses it (doors, NPCs), picks
 # it up (ground items) or puts it on / takes it off (in the inventory panel,
-# toggled with I; K shows the character sheet with Raise buttons that spend
+# toggled with I, which groups items by pack, shows burden and pack slots,
+# searches by name, spell, material or stats such as dmg>10, al>=100,
+# type:armor, spell:blood, wielded, sorts by value/burden/damage/armor and
+# shows an item's stats on hover; "Appraise all" fetches the stats of every
+# item; K shows the character sheet with Raise buttons that spend
 # unassigned XP on attributes, vitals and skills and Train buttons that
 # spend skill credits; drag an item from the inventory onto a side pack or the
 # Pack header to move it (a stack onto another of its kind merges them;
