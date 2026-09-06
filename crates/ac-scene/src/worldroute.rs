@@ -81,12 +81,31 @@ pub fn water_kind(region: &Region, terrain_type: u16) -> Water {
 /// `to` inclusive, runs of collinear vertices collapsed; `None` when no
 /// walkable path exists inside the search window.
 pub fn find(grid: &WorldGrid, region: &Region, from: Vec2, to: Vec2) -> Option<Vec<Vec2>> {
+    find_avoiding(grid, region, from, to, &[])
+}
+
+/// How dearly a route pays to pass near something in `avoid`.
+pub const AVOID_FACTOR: f32 = 12.0;
+/// How close counts as near it, metres.
+pub const AVOID_RADIUS: f32 = 14.0;
+
+/// [`find`], keeping away from the spots in `avoid` where it can. A
+/// portal swallows whoever walks into it, so a route that is not meant
+/// to take one has to give it a wide berth.
+pub fn find_avoiding(
+    grid: &WorldGrid,
+    region: &Region,
+    from: Vec2,
+    to: Vec2,
+    avoid: &[Vec2],
+) -> Option<Vec<Vec2>> {
     let water: Vec<Water> = (0..32u16).map(|t| water_kind(region, t)).collect();
-    find_with(
+    find_with_avoid(
         grid,
         |t| water.get(t as usize).copied().unwrap_or(Water::Sea),
         from,
         to,
+        avoid,
     )
 }
 
@@ -97,9 +116,21 @@ pub fn find_with(
     from: Vec2,
     to: Vec2,
 ) -> Option<Vec<Vec2>> {
+    find_with_avoid(grid, water, from, to, &[])
+}
+
+/// [`find_with`] that keeps away from the spots in `avoid`.
+pub fn find_with_avoid(
+    grid: &WorldGrid,
+    water: impl Fn(u16) -> Water,
+    from: Vec2,
+    to: Vec2,
+    avoid: &[Vec2],
+) -> Option<Vec<Vec2>> {
     let land = Land {
         grid,
         water: &water,
+        avoid,
     };
     let start = land.nearest_land(from)?;
     let goal = land.nearest_land(to)?;
@@ -116,6 +147,9 @@ pub fn find_with(
 struct Land<'a> {
     grid: &'a WorldGrid,
     water: &'a dyn Fn(u16) -> Water,
+    /// Spots to keep away from where the route can (portal mouths it is
+    /// not meant to walk into).
+    avoid: &'a [Vec2],
 }
 
 impl Land<'_> {
@@ -190,6 +224,12 @@ impl Land<'_> {
         }
         if !self.dry(a.0, a.1) || !self.dry(b.0, b.1) {
             cost *= FRESH_WATER_FACTOR;
+        }
+        if !self.avoid.is_empty() {
+            let bw = WorldGrid::vertex_world(b.0, b.1);
+            if self.avoid.iter().any(|p| p.distance(bw) < AVOID_RADIUS) {
+                cost *= AVOID_FACTOR;
+            }
         }
         Some(cost)
     }

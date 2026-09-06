@@ -37,9 +37,11 @@ const EDGE_MARGIN: f32 = 2.0;
 /// (a level range, an unfinished quest, or it simply is not there): the
 /// journey is planned again without it.
 pub const PORTAL_GIVE_UP: Duration = Duration::from_secs(12);
-/// A step that has achieved nothing in this long is planned again from
-/// where the character stands.
-pub const STEP_GIVE_UP: Duration = Duration::from_secs(45);
+/// A step that has come no closer to its target in this long is planned
+/// again from where the character stands.
+pub const STEP_GIVE_UP: Duration = Duration::from_secs(30);
+/// Coming this much closer to the step's target counts as progress.
+const STEP_PROGRESS: f32 = 5.0;
 /// No progress toward the current waypoint for this long: skip it.
 pub const STUCK_AFTER: Duration = Duration::from_secs(8);
 /// Getting closer to the waypoint by less than this is not progress.
@@ -65,7 +67,15 @@ pub struct Travel {
     /// began: a step that gets nowhere is planned again from where the
     /// character actually stands.
     step_block: Option<u32>,
+    /// The cell the step is aimed at, so an indoor target is recognised
+    /// even when the character stands outdoors in the same landblock.
+    step_cell: Option<u32>,
     step_since: Option<Instant>,
+    /// Closest the character has come to the step's target: the step is
+    /// only "going nowhere" when this stops improving.
+    step_best: f32,
+    /// Where the step is aimed, to measure that.
+    step_target: Option<Vec2>,
     /// The mouths of portals that would not take us *on this journey*:
     /// they are left out while the rest of the way is planned again, and
     /// forgotten as soon as the player asks to go somewhere else. Named
@@ -242,6 +252,7 @@ impl Client {
         let me3 = pl.world_position();
         let me = Vec2::new(me3.x, me3.y);
         let indoors = pl.is_indoors();
+        let pl_cell = pl.cell;
         let (target, label) = match &step {
             Step::Walk(p) => (*p, "walk".to_string()),
             Step::Portal { name, mouth, .. } => (*mouth, format!("portal {name:?}")),
@@ -252,14 +263,28 @@ impl Client {
         };
         self.travel.portal_since = None;
         self.travel.step_since = Some(Instant::now());
+        self.travel.step_best = f32::INFINITY;
+        self.travel.step_target = Some(target);
+        self.travel.step_cell = match &step {
+            Step::Portal { mouth_cell, .. } => Some(*mouth_cell),
+            Step::Walk(_) => None,
+        };
         self.travel.step_block = Some(match &step {
             Step::Portal { mouth_cell, .. } => *mouth_cell & 0xFFFF_0000,
             Step::Walk(p) => WorldGrid::block_of(*p),
         });
-        // Indoors (the Town Network hub, a dungeon) the terrain grid says
-        // nothing: walk straight at it and let the landblock's own
-        // navigation graph steer.
-        if indoors {
+        // Inside a landblock -- the character in it, or the target in one
+        // of its interior cells -- the terrain grid says nothing. Aim
+        // straight at the target and let the landblock's own navigation
+        // graph steer. A dungeon's exit portal stands in an interior cell
+        // of the block the character walks out into, so the target being
+        // indoors matters as much as the character being indoors.
+        let target_indoors = match &step {
+            Step::Portal { mouth_cell, .. } => mouth_cell & 0xFFFF >= 0x100,
+            Step::Walk(_) => false,
+        };
+        let same_block = self.travel.step_block == Some(pl_cell & 0xFFFF_0000);
+        if indoors || (target_indoors && same_block) {
             tracing::info!("travel: step {} ({label}) inside", self.travel.step);
             self.travel.route = Some(vec![me, target]);
             self.travel.next = 1;
@@ -272,12 +297,26 @@ impl Client {
         // The terrain router can fail on the last few metres to a portal
         // that stands against a cliff or inside a doorway. Walking to
         // just beside it is as good: the local move-to covers the rest.
-        let route = worldroute::find(&grid, &region, me, target).or_else(|| {
+        // Every other portal near the way is a trap: walking into one
+        // takes the character wherever it leads. Give them a wide berth.
+        let keep = match &step {
+            Step::Portal { mouth, .. } => Some(*mouth),
+            Step::Walk(_) => None,
+        };
+        let mid = (me + target) * 0.5;
+        let reach = me.distance(target) * 0.5 + 200.0;
+        let avoid: Vec<Vec2> = ac_world::portals::near(mid, reach)
+            .into_iter()
+            .filter(|p| p.mouth_outdoors())
+            .map(|p| p.from_xy())
+            .filter(|m| keep.is_none_or(|k| k.distance(*m) > 5.0))
+            .collect();
+        let route = worldroute::find_avoiding(&grid, &region, me, target, &avoid).or_else(|| {
             [8.0f32, 16.0, 28.0].into_iter().find_map(|r| {
                 (0..8).find_map(|i| {
                     let a = i as f32 * std::f32::consts::TAU / 8.0;
                     let near = target + Vec2::new(a.cos(), a.sin()) * r;
-                    worldroute::find(&grid, &region, me, near)
+                    worldroute::find_avoiding(&grid, &region, me, near, &avoid)
                 })
             })
         });
@@ -298,9 +337,12 @@ impl Client {
                 // A portal we cannot walk to is no use, whatever the
                 // straight line said: drop it and find another way.
                 if let Some((_, mouth)) = self.travel_portal() {
+                    let step = self.travel.step;
+                    let target_cell = self.travel.step_cell.unwrap_or(0);
                     tracing::warn!(
-                        "travel: step {} ({label}): no way there on foot; going another way",
-                        self.travel.step
+                        "travel: step {step} ({label}): no way there on foot; going another way \
+                         (me cell {pl_cell:#010x} indoors {indoors}, target {target:?} \
+                         cell {target_cell:#010x}, same block {same_block})"
                     );
                     self.travel.refused.push(mouth);
                     let goal = self.travel.goal;
@@ -321,6 +363,9 @@ impl Client {
     fn travel_next_step(&mut self) -> bool {
         self.travel.step += 1;
         self.travel.step_since = None;
+        self.travel.step_cell = None;
+        self.travel.step_target = None;
+        self.travel.step_best = f32::INFINITY;
         self.travel.route = None;
         self.travel.portal_from = None;
         self.travel.portal_since = None;
@@ -420,11 +465,29 @@ impl Client {
             (pl.world_position(), pl.cell & 0xFFFF_0000, pl.is_indoors())
         };
         let me = Vec2::new(me3.x, me3.y);
-        // A portal step is over the moment the character is somewhere
-        // else: the server moved them, so the route they were walking is
-        // meaningless now.
+        // A portal step is over when the character is where the portal
+        // comes out. Merely being in another landblock is not enough:
+        // walking to a portal often crosses a boundary, and counting
+        // that as having gone through skipped the rest of the journey.
         if let Some(from) = self.travel.portal_from {
-            if block != from {
+            let exit = match self
+                .travel
+                .trip
+                .as_ref()
+                .and_then(|t| t.steps.get(self.travel.step))
+            {
+                Some(Step::Portal {
+                    exit, exit_cell, ..
+                }) => Some((*exit, *exit_cell)),
+                _ => None,
+            };
+            let arrived = match exit {
+                Some((exit, exit_cell)) => {
+                    block == exit_cell & 0xFFFF_0000 || me.distance(exit) < 30.0
+                }
+                None => block != from,
+            };
+            if arrived {
                 tracing::info!("travel: through the portal");
                 if let Some((_, mouth)) = self.travel_portal() {
                     self.travel.refused.retain(|r| r.distance(mouth) > 2.0);
@@ -443,7 +506,8 @@ impl Client {
         // landblock's own graph steer. Inside a *building* on the way,
         // with the target elsewhere, keep to the overland legs so the
         // character walks back out instead of pressing against a wall.
-        if indoors && self.travel.step_block == Some(block) {
+        let target_indoors = self.travel.step_cell.is_some_and(|c| c & 0xFFFF >= 0x100);
+        if (indoors || target_indoors) && self.travel.step_block == Some(block) {
             let target = *self.travel.route.as_ref()?.last()?;
             if me.distance(target) <= ARRIVE && self.travel.portal_from.is_none() {
                 if !self.travel_next_step() {
@@ -453,9 +517,16 @@ impl Client {
                 return Some((Vec3::new(target.x, target.y, me3.z), LEG_STOP, block));
             }
         }
-        // Nothing at all achieved on this step for a long while: plan
+        // Coming no closer to this step's target for a long while: plan
         // again from where the character actually stands. No portal is
         // held against us; the plan is simply out of date.
+        if let Some(target) = self.travel.step_target {
+            let d = me.distance(target);
+            if d < self.travel.step_best - STEP_PROGRESS {
+                self.travel.step_best = d;
+                self.travel.step_since = Some(now);
+            }
+        }
         if self
             .travel
             .step_since

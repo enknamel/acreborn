@@ -938,6 +938,16 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   falls in). Using something in the world, attacking or taking the
   controls stops the journey, since the server walks the character to
   whatever they used.
+* **A portal takes whoever walks into it.** A route on the way to
+  somewhere else must give every other portal a wide berth, or the
+  character is swallowed by one and comes out across the world: a walk
+  through Sanamar kept ending in Holtburg. The overland router charges
+  twelve times the cost within fourteen metres of a portal it is not
+  meant to take (`worldroute::find_avoiding`). For the same reason a
+  portal step is finished only when the character is where that portal
+  comes out; merely being in another landblock is not enough, since
+  walking to a portal usually crosses a boundary, and counting that as
+  having gone through skipped the rest of the journey.
 * **Portals ask things of you.** Many have a level range and some want a
   quest finished (`min_level`, `max_level`, `quest` in the portal table).
   A journey is planned only over the ones the character may take, and a
