@@ -3,15 +3,18 @@
 //! inventory into yours; Accept on both sides swaps the items. Any change
 //! to an offer clears both acceptances, as the server does.
 
-use super::{caption, item_row, title, window, Item, ItemDrag, Source};
+use super::{caption, item_row, stats_tooltip, title, window, Item, ItemDrag, Source};
 use crate::icons::IconCache;
 use crate::{egui, Client, Ctx, Plugin};
+use ac_client::items::ItemStats;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TradeView {
     pub partner: String,
     pub mine: Vec<Item>,
     pub theirs: Vec<Item>,
+    /// Stats of everything on either side, by guid, for the tooltips.
+    pub stats: std::collections::HashMap<u32, ItemStats>,
     pub i_accepted: bool,
     pub they_accepted: bool,
     /// "Cannot trade X: reason" from the last TradeFailure.
@@ -56,6 +59,12 @@ pub fn view(c: &Client) -> Option<TradeView> {
             .unwrap_or_else(|| "someone".into()),
         mine: t.mine.iter().map(name).collect(),
         theirs: t.theirs.iter().map(name).collect(),
+        stats: t
+            .mine
+            .iter()
+            .chain(t.theirs.iter())
+            .filter_map(|g| Some((*g, c.stats_of(*g)?)))
+            .collect(),
         i_accepted: t.i_accepted,
         they_accepted: t.they_accepted,
         failure: t
@@ -103,7 +112,11 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &TradeView) -> Actio
                     caption(ui, "Your offer (drop items here)");
                     ui.set_min_height(170.0);
                     for it in &v.mine {
-                        if item_row(ui, icons, it, egui::Color32::WHITE).clicked() {
+                        let row = item_row(ui, icons, it, egui::Color32::WHITE);
+                        if let Some(s) = v.stats.get(&it.guid) {
+                            row.clone().on_hover_ui(|ui| stats_tooltip(ui, &it.name, s));
+                        }
+                        if row.clicked() {
                             actions.inspect.push(it.guid);
                         }
                     }
@@ -119,14 +132,16 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &TradeView) -> Actio
             caption(&mut cols[1], &format!("{}'s offer", v.partner));
             cols[1].set_min_height(170.0);
             for it in &v.theirs {
-                if item_row(
+                let row = item_row(
                     &mut cols[1],
                     icons,
                     it,
                     egui::Color32::from_rgb(200, 230, 255),
-                )
-                .clicked()
-                {
+                );
+                if let Some(s) = v.stats.get(&it.guid) {
+                    row.clone().on_hover_ui(|ui| stats_tooltip(ui, &it.name, s));
+                }
+                if row.clicked() {
                     actions.inspect.push(it.guid);
                 }
             }
@@ -183,6 +198,7 @@ impl Trade {
         };
         Trade {
             source: Source::Demo(TradeView {
+                stats: Default::default(),
                 partner: "Reborn".into(),
                 mine: vec![item(1, "Iron Scarab", 10, 0x0600_1A8A)],
                 theirs: vec![
@@ -242,6 +258,7 @@ mod tests {
             partner: "Bob".into(),
             mine: vec![],
             theirs: vec![],
+            stats: Default::default(),
             i_accepted: false,
             they_accepted: false,
             failure: None,

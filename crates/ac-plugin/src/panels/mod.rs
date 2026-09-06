@@ -371,9 +371,146 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
     ]
 }
 
+/// The tooltip a hovered item shows in any item list: its name, then the
+/// stats summary (damage, armor, spells, requirement, value, burden), and
+/// a hint when it is still unappraised.
+pub fn stats_tooltip(ui: &mut egui::Ui, name: &str, stats: &ac_client::items::ItemStats) {
+    ui.label(egui::RichText::new(name).strong());
+    for line in stats.summary() {
+        ui.label(line);
+    }
+    if !stats.appraised {
+        caption(ui, "click to appraise");
+    }
+}
+
+/// A search line and a kind chip narrowing an item list: the loot window,
+/// the two vendor lists. The search uses the inventory's query language
+/// (`ac_client::items::Query`: `dmg>10 spell:blood type:armor`), the chip
+/// is an index into [`inventory::KINDS`] (0 = all).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Filter {
+    pub search: String,
+    pub kind: usize,
+}
+
+impl Filter {
+    /// Whether anything narrows the list.
+    pub fn filtering(&self) -> bool {
+        !self.search.trim().is_empty() || self.kind != 0
+    }
+
+    pub fn query(&self) -> ac_client::items::Query {
+        ac_client::items::Query::parse(&self.search)
+    }
+
+    /// Whether the search needs appraised numbers (damage, spells...).
+    pub fn needs_appraisal(&self) -> bool {
+        self.query().needs_appraisal()
+    }
+
+    /// The indices of `items` the filter keeps, in their order; `stats`
+    /// picks each item's numbers.
+    pub fn matching<T>(
+        &self,
+        items: &[T],
+        stats: impl Fn(&T) -> &ac_client::items::ItemStats,
+    ) -> Vec<usize> {
+        let q = self.query();
+        let kinds = inventory::KINDS.get(self.kind).map(|k| k.1).unwrap_or(&[]);
+        items
+            .iter()
+            .enumerate()
+            .filter(|(_, it)| {
+                let s = stats(it);
+                (kinds.is_empty() || kinds.contains(&s.kind)) && s.matches(&q)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// The search line with its clear button and the chip row; `width`
+    /// sizes the text field. True when the search text changed (the
+    /// caller may want to appraise if the new query needs numbers).
+    pub fn draw(&mut self, ui: &mut egui::Ui, salt: &str, width: f32) -> bool {
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            let edit = egui::TextEdit::singleline(&mut self.search)
+                .id_salt(salt.to_string())
+                .hint_text("search: name, dmg>10, type:armor")
+                .desired_width(width);
+            changed = ui.add(edit).changed();
+            if ui
+                .add_enabled(!self.search.is_empty(), egui::Button::new("x").small())
+                .clicked()
+            {
+                self.search.clear();
+                changed = true;
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            for (i, (label, _)) in inventory::KINDS.iter().enumerate() {
+                if ui
+                    .selectable_label(self.kind == i, egui::RichText::new(*label).small())
+                    .clicked()
+                {
+                    self.kind = i;
+                }
+            }
+        });
+        changed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_keeps_by_kind_and_query() {
+        use ac_client::items::ItemStats;
+        let items = vec![
+            ItemStats {
+                name: "Fine Sword".into(),
+                kind: "weapon",
+                value: 1200,
+                ..Default::default()
+            },
+            ItemStats {
+                name: "Leather Cap".into(),
+                kind: "armor",
+                value: 22,
+                appraised: true,
+                armor_level: 50,
+                ..Default::default()
+            },
+            ItemStats {
+                name: "Apple".into(),
+                kind: "food",
+                value: 2,
+                ..Default::default()
+            },
+        ];
+        let mut f = Filter::default();
+        assert!(!f.filtering());
+        assert_eq!(f.matching(&items, |s| s), vec![0, 1, 2]);
+        f.kind = inventory::KINDS
+            .iter()
+            .position(|k| k.0 == "Armor")
+            .unwrap();
+        assert!(f.filtering());
+        assert_eq!(f.matching(&items, |s| s), vec![1]);
+        f.kind = 0;
+        f.search = "value<100".into();
+        assert_eq!(f.matching(&items, |s| s), vec![1, 2]);
+        assert!(!f.needs_appraisal());
+        f.search = "al>=40".into();
+        assert!(f.needs_appraisal());
+        assert_eq!(f.matching(&items, |s| s), vec![1]);
+        f.search = "  ".into();
+        assert!(!f.filtering());
+    }
 
     #[test]
     fn labels_show_stacks() {

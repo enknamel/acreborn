@@ -258,7 +258,9 @@ type:armor`, sortable, with stat tooltips and a background "Appraise all"),
 view, projected through the camera the host publishes on the blackboard
 as `camera.view_proj`), `map` (M; world map from the terrain grid, local map or dungeon floor
 plan, objects in the landblock with search and kind chips, overland
-travel by double-click or town name), `loot`, `vendor`,
+travel by double-click or town name), `loot` (search, kind chips, stat tooltips, "Take all" and "Appraise
+all"), `vendor` (the same over both lists, plus a sort and "Sell all
+shown"),
 `skills` (K), `spellbook` (P), `spellbar` (B), `components` (O), `buffs`
 (U), `trade`, `fellowship` (F), `allegiance` (L), `housing` (H; a used house sign opens it), `social`
 (N: title, friends, squelches), `book` (opens on a used book, sign or

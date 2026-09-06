@@ -621,6 +621,99 @@ impl Client {
     }
 }
 
+impl ItemStats {
+    /// From a vendor's stock description (a `WeenieDesc` with no world
+    /// object behind it): name, kind, value, burden, material.
+    pub fn of_desc(guid: u32, d: &ac_world::object::WeenieDesc) -> Self {
+        ItemStats {
+            guid,
+            name: d.name.clone(),
+            wcid: d.weenie_class_id,
+            item_type: d.item_type,
+            kind: kind_name(d.item_type),
+            stack: d.stack_size.max(1),
+            container: d.container.unwrap_or(0),
+            value: d.value,
+            burden: d.burden,
+            workmanship: d.workmanship,
+            material: if d.material != 0 {
+                ac_world::material::name(d.material)
+            } else {
+                ""
+            },
+            structure: d.structure,
+            max_structure: d.max_structure,
+            ..Default::default()
+        }
+    }
+}
+
+impl Client {
+    /// The stats of any object we know about: a carried item, a loot item
+    /// in the open corpse or chest, a vendor's stock line, something on
+    /// the ground or offered in a trade. Appraised where the cache has
+    /// the answer; before that the object description's own spell (a
+    /// scroll's, a wand's) still shows. `None` for an unknown guid.
+    pub fn stats_of(&self, guid: u32) -> Option<ItemStats> {
+        let me = self.world.player_guid;
+        let (mut stats, own_spell) = match self.world.objects.get(&guid) {
+            Some(o) => (ItemStats::of(o, me), o.spell_id),
+            None => {
+                let it = self
+                    .world
+                    .open_vendor
+                    .as_ref()?
+                    .items
+                    .iter()
+                    .find(|it| it.guid == guid)?;
+                (ItemStats::of_desc(guid, &it.desc), it.desc.spell_id)
+            }
+        };
+        let skills = self.assets.skill_table().ok();
+        let spells = self.assets.spell_table().ok();
+        let skill_name = |id: u32| {
+            skills
+                .as_ref()
+                .and_then(|t| t.get(id).map(|s| s.name.clone()))
+                .unwrap_or_else(|| format!("skill {id}"))
+        };
+        let spell_name = |id: u32| {
+            spells
+                .as_ref()
+                .and_then(|t| t.get(id).map(|s| s.name.clone()))
+                .or_else(|| self.known_spells.get(&id).cloned())
+                .unwrap_or_else(|| format!("spell {id}"))
+        };
+        match self.appraisals.get(&guid) {
+            Some(a) => stats = stats.with_appraisal(a, &skill_name, &spell_name),
+            None if own_spell != 0 => stats.spells.push(spell_name(own_spell)),
+            None => {}
+        }
+        Some(stats)
+    }
+
+    /// Queue background appraisals (see `tick_appraise`) for the given
+    /// objects that are not appraised, queued or in flight: the items of
+    /// an open corpse, a trade offer, anything in `world.objects`. Guids
+    /// the world does not hold (a vendor's stock lines, which the queue
+    /// cannot serve; a click on one appraises it) are skipped. Returns
+    /// how many were queued.
+    pub fn appraise_many(&mut self, guids: impl IntoIterator<Item = u32>) -> usize {
+        let mut n = 0;
+        for g in guids {
+            let known = self.world.objects.contains_key(&g);
+            let pending = self.appraisals.contains_key(&g)
+                || self.appraise_queue.contains(&g)
+                || self.appraise_inflight.map(|(i, _)| i) == Some(g);
+            if known && !pending {
+                self.appraise_queue.push_back(g);
+                n += 1;
+            }
+        }
+        n
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -753,5 +846,44 @@ mod tests {
         assert_eq!(kind_name(item_type::SPELL_COMPONENTS), "comps");
         assert_eq!(kind_name(item_type::TINKERING_MATERIAL), "salvage");
         assert_eq!(kind_name(item_type::CREATURE | item_type::LOCKABLE), "misc");
+    }
+
+    #[test]
+    fn stats_of_desc_reads_the_description() {
+        let d = ac_world::object::WeenieDesc {
+            name: "Dagger".into(),
+            weenie_class_id: 21,
+            icon_id: 0x0600_1234,
+            item_type: item_type::MELEE_WEAPON,
+            object_desc_flags: 0,
+            weenie_flags: 0,
+            value: 15,
+            stack_size: 0,
+            container: None,
+            wielder: None,
+            valid_locations: 0,
+            wielded_location: 0,
+            icon_overlay: 0,
+            icon_underlay: 0,
+            spell_id: 0,
+            material: 0,
+            workmanship: 0.0,
+            structure: 0,
+            max_structure: 0,
+            max_stack_size: 1,
+            usable: 0,
+            burden: 60,
+            items_capacity: 0,
+            containers_capacity: 0,
+        };
+        let s = ItemStats::of_desc(0x100, &d);
+        assert_eq!(s.guid, 0x100);
+        assert_eq!(s.name, "Dagger");
+        assert_eq!(s.kind, "weapon");
+        assert_eq!(s.stack, 1);
+        assert_eq!((s.value, s.burden), (15, 60));
+        assert!(!s.appraised);
+        assert!(s.matches(&Query::parse("type:weapon value<20")));
+        assert!(!s.matches(&Query::parse("dmg>0")));
     }
 }
