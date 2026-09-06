@@ -191,7 +191,7 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &BuffsView) {
     let r = super::radar::RADIUS;
     window(
         "buffs",
-        egui::pos2(w - 268.0, 2.0 * r + 350.0),
+        egui::pos2(w - 348.0 - 268.0, 2.0 * r + 40.0),
         egui::vec2(260.0, 200.0),
         170,
         6,
