@@ -13,7 +13,7 @@
 //! * the `Plugin` impl: `ui` builds the view, draws it, and turns the
 //!   clicks into `Client` calls (`interact`, `take`, `buy`, `cast`...);
 //!   `key` handles the panel's toggle (I inventory, K skills, P spellbook,
-//!   B spell bar, O components, U buffs).
+//!   B spell bar, O components, U buffs, J playing on its own).
 //!
 //! A panel's data comes from a [`Source`]: `Live` reads the session, `Demo`
 //! holds a canned view for the offline `--demo-ui` screenshot (clicks are
@@ -22,6 +22,7 @@
 
 pub mod allegiance;
 pub mod appraisal;
+pub mod autoplay;
 pub mod book;
 pub mod buffs;
 pub mod combat;
@@ -331,6 +332,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(spellbar::SpellBar::default()),
         Box::new(components::Components::default()),
         Box::new(buffs::Buffs::default()),
+        Box::new(autoplay::Autoplay::default()),
     ]
 }
 
@@ -368,6 +370,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
             tables.as_ref().map(|(_, c)| &**c),
         )),
         Box::new(buffs::Buffs::demo(tables.as_ref().map(|(t, _)| &**t))),
+        Box::new(autoplay::Autoplay::demo()),
     ]
 }
 
