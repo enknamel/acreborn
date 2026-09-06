@@ -101,6 +101,7 @@ dependencies = [
  "ac-dat",
  "ac-formats",
  "glam 0.30.10",
+ "image",
  "thiserror 2.0.20",
  "tracing",
 ]
