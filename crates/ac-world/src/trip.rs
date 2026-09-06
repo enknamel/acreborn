@@ -152,7 +152,9 @@ pub fn plan(from: Vec2, from_cell: u32, goal: Vec2) -> Option<Trip> {
 
 /// Plan a journey the character can actually make: portals with a level
 /// range outside `level`, or a quest not in `quests_done`, are left out,
-/// as are any in `avoid` (ones that have already refused us).
+/// as are the ones standing at any of `avoid` (mouths that have already
+/// turned us away). Hundreds of portals share a name -- every dungeon
+/// has a "Surface Portal" -- so one is named by where it stands.
 ///
 /// Returns `None` when nothing reaches the goal: no walk is short enough
 /// and no portal it can take comes out near it.
@@ -162,7 +164,7 @@ pub fn plan_for(
     goal: Vec2,
     level: u32,
     quests_done: &[String],
-    avoid: &[String],
+    avoid: &[Vec2],
 ) -> Option<Trip> {
     // Straight there, when that is a believable walk.
     if can_walk(from, from_cell, goal, 0) {
@@ -178,7 +180,7 @@ pub fn plan_for(
     let usable: Vec<&Portal> = portals::all()
         .iter()
         .filter(|p| level == 0 || p.usable_by(level, quests_done))
-        .filter(|p| !avoid.iter().any(|a| a.eq_ignore_ascii_case(&p.name)))
+        .filter(|p| !avoid.iter().any(|a| a.distance(p.from_xy()) < 2.0))
         .collect();
     let portals = &usable[..];
     let mut nodes = vec![Node {
@@ -332,16 +334,15 @@ mod tests {
         }
         // Told that the first portal refused us, it finds another way.
         let first = match trip.steps.first() {
-            Some(Step::Portal { name, .. }) => name.clone(),
+            Some(Step::Portal { mouth, .. }) => *mouth,
             other => panic!("expected a portal first, got {other:?}"),
         };
-        let again = plan_for(from, 0xA9B4_0019, goal, 20, &[], &[first.clone()]);
-        match again {
-            Some(t) => assert!(
-                !matches!(t.steps.first(), Some(Step::Portal { name, .. }) if *name == first),
+        let again = plan_for(from, 0xA9B4_0019, goal, 20, &[], &[first]);
+        if let Some(t) = again {
+            assert!(
+                !matches!(t.steps.first(), Some(Step::Portal { mouth, .. }) if *mouth == first),
                 "took the refused portal again"
-            ),
-            None => {}
+            );
         }
     }
 

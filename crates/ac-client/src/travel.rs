@@ -37,6 +37,9 @@ const EDGE_MARGIN: f32 = 2.0;
 /// (a level range, an unfinished quest, or it simply is not there): the
 /// journey is planned again without it.
 pub const PORTAL_GIVE_UP: Duration = Duration::from_secs(12);
+/// A step that has achieved nothing in this long is planned again from
+/// where the character stands.
+pub const STEP_GIVE_UP: Duration = Duration::from_secs(45);
 /// No progress toward the current waypoint for this long: skip it.
 pub const STUCK_AFTER: Duration = Duration::from_secs(8);
 /// Getting closer to the waypoint by less than this is not progress.
@@ -58,8 +61,16 @@ pub struct Travel {
     /// given up on when the portal will not take them.
     portal_from: Option<u32>,
     portal_since: Option<Instant>,
-    /// Portals that would not take us, left out of the next plan.
-    refused: Vec<String>,
+    /// The landblock the current step is aimed into, and when the step
+    /// began: a step that gets nowhere is planned again from where the
+    /// character actually stands.
+    step_block: Option<u32>,
+    step_since: Option<Instant>,
+    /// The mouths of portals that would not take us *on this journey*:
+    /// they are left out while the rest of the way is planned again, and
+    /// forgotten as soon as the player asks to go somewhere else. Named
+    /// by place, not by name, since every dungeon has a "Surface Portal".
+    refused: Vec<Vec2>,
     /// Where the journey is bound, to replan around a refusal.
     goal: Option<Vec2>,
     /// World xy waypoints of the step being walked, start and goal
@@ -122,13 +133,66 @@ impl Client {
         let me = pl.world_position();
         let cell = pl.cell;
         let t0 = Instant::now();
+        // A new destination starts afresh: what turned us away on the
+        // last journey says nothing about this one.
+        if self.travel.goal.is_none_or(|g| g.distance(goal) > 1.0) {
+            self.travel.refused.clear();
+        }
         let level = self.world.stats.level.max(1) as u32;
-        let refused = self.travel.refused.clone();
-        let Some(trip) = trip::plan_for(Vec2::new(me.x, me.y), cell, goal, level, &[], &refused)
-        else {
+        let mut refused = self.travel.refused.clone();
+        // The planner prices a leg on foot by the straight line between
+        // its ends, so it can pick a portal that stands across water or
+        // up a cliff. Walk the plan through the terrain router before
+        // setting off and, when a portal cannot be reached from where
+        // the step before it leaves the character, plan again without
+        // that one. This holds for the journey being planned only.
+        let mut planned = None;
+        for _ in 0..6 {
+            let Some(t) = trip::plan_for(Vec2::new(me.x, me.y), cell, goal, level, &[], &refused)
+            else {
+                break;
+            };
+            let mut at = Vec2::new(me.x, me.y);
+            let mut at_outdoors = cell & 0xFFFF < 0x100;
+            let mut bad = None;
+            for step in &t.steps {
+                match step {
+                    trip::Step::Portal {
+                        mouth,
+                        mouth_cell,
+                        exit,
+                        exit_cell,
+                        ..
+                    } => {
+                        let mouth_outdoors = mouth_cell & 0xFFFF < 0x100;
+                        if at_outdoors && mouth_outdoors && !self.travel_can_reach(at, *mouth) {
+                            bad = Some(*mouth);
+                            break;
+                        }
+                        at = *exit;
+                        at_outdoors = exit_cell & 0xFFFF < 0x100;
+                    }
+                    trip::Step::Walk(p) => at = *p,
+                }
+            }
+            match bad {
+                Some(mouth) => {
+                    tracing::info!(
+                        "travel: no way on foot to the portal at {mouth:?}; another way"
+                    );
+                    refused.push(mouth);
+                }
+                None => {
+                    planned = Some(t);
+                    break;
+                }
+            }
+        }
+        let Some(trip) = planned else {
             tracing::warn!("travel: no way to {goal:?}");
             return false;
         };
+        self.travel.refused = refused;
         tracing::info!(
             "travel: {} ({} steps, planned in {:?})",
             trip.summary(),
@@ -143,6 +207,22 @@ impl Client {
         self.travel.goal = Some(goal);
         self.travel.restart_waypoint();
         self.travel_start_step()
+    }
+
+    /// Whether the terrain router can get from `me` to `target`, or to
+    /// somewhere just beside it.
+    fn travel_can_reach(&mut self, me: Vec2, target: Vec2) -> bool {
+        let Some((grid, region)) = self.travel_terrain() else {
+            return true;
+        };
+        if worldroute::find(&grid, &region, me, target).is_some() {
+            return true;
+        }
+        (0..8).any(|i| {
+            let a = i as f32 * std::f32::consts::TAU / 8.0;
+            let near = target + Vec2::new(a.cos(), a.sin()) * 16.0;
+            worldroute::find(&grid, &region, me, near).is_some()
+        })
     }
 
     /// Build the route for the step the trip is on. False when the step
@@ -170,7 +250,12 @@ impl Client {
             Step::Portal { .. } => Some(pl.cell & 0xFFFF_0000),
             Step::Walk(_) => None,
         };
-        self.travel.portal_since = self.travel.portal_from.map(|_| Instant::now());
+        self.travel.portal_since = None;
+        self.travel.step_since = Some(Instant::now());
+        self.travel.step_block = Some(match &step {
+            Step::Portal { mouth_cell, .. } => *mouth_cell & 0xFFFF_0000,
+            Step::Walk(p) => WorldGrid::block_of(*p),
+        });
         // Indoors (the Town Network hub, a dungeon) the terrain grid says
         // nothing: walk straight at it and let the landblock's own
         // navigation graph steer.
@@ -184,7 +269,19 @@ impl Client {
         let Some((grid, region)) = self.travel_terrain() else {
             return false;
         };
-        match worldroute::find(&grid, &region, me, target) {
+        // The terrain router can fail on the last few metres to a portal
+        // that stands against a cliff or inside a doorway. Walking to
+        // just beside it is as good: the local move-to covers the rest.
+        let route = worldroute::find(&grid, &region, me, target).or_else(|| {
+            [8.0f32, 16.0, 28.0].into_iter().find_map(|r| {
+                (0..8).find_map(|i| {
+                    let a = i as f32 * std::f32::consts::TAU / 8.0;
+                    let near = target + Vec2::new(a.cos(), a.sin()) * r;
+                    worldroute::find(&grid, &region, me, near)
+                })
+            })
+        });
+        match route {
             Some(route) => {
                 let len: f32 = route.windows(2).map(|w| w[0].distance(w[1])).sum();
                 tracing::info!(
@@ -198,6 +295,18 @@ impl Client {
                 true
             }
             None => {
+                // A portal we cannot walk to is no use, whatever the
+                // straight line said: drop it and find another way.
+                if let Some((_, mouth)) = self.travel_portal() {
+                    tracing::warn!(
+                        "travel: step {} ({label}): no way there on foot; going another way",
+                        self.travel.step
+                    );
+                    self.travel.refused.push(mouth);
+                    let goal = self.travel.goal;
+                    self.cancel_travel_keeping_refusals();
+                    return goal.is_some_and(|g| self.travel_to(g));
+                }
                 tracing::warn!(
                     "travel: step {} ({label}): no route to {target:?}, giving up",
                     self.travel.step
@@ -211,6 +320,7 @@ impl Client {
     /// The step is done: move to the next one.
     fn travel_next_step(&mut self) -> bool {
         self.travel.step += 1;
+        self.travel.step_since = None;
         self.travel.route = None;
         self.travel.portal_from = None;
         self.travel.portal_since = None;
@@ -275,10 +385,10 @@ impl Client {
         self.travel.restart_waypoint();
     }
 
-    /// The name of the portal the current step is aimed at.
-    fn travel_portal_name(&self) -> Option<String> {
+    /// The portal the current step is aimed at: its name and its mouth.
+    fn travel_portal(&self) -> Option<(String, Vec2)> {
         match self.travel.trip.as_ref()?.steps.get(self.travel.step)? {
-            Step::Portal { name, .. } => Some(name.clone()),
+            Step::Portal { name, mouth, .. } => Some((name.clone(), *mouth)),
             Step::Walk(_) => None,
         }
     }
@@ -316,6 +426,9 @@ impl Client {
         if let Some(from) = self.travel.portal_from {
             if block != from {
                 tracing::info!("travel: through the portal");
+                if let Some((_, mouth)) = self.travel_portal() {
+                    self.travel.refused.retain(|r| r.distance(mouth) > 2.0);
+                }
                 if !self.travel_next_step() {
                     return None;
                 }
@@ -325,7 +438,12 @@ impl Client {
         // nothing and a landblock's cells can lie outside its own square,
         // so the leg is aimed straight at the target in the character's
         // own landblock and the landblock's navigation graph steers.
-        if indoors {
+        // Inside the landblock the step is aimed into (the Town Network
+        // hub, a dungeon), walk straight at the target and let the
+        // landblock's own graph steer. Inside a *building* on the way,
+        // with the target elsewhere, keep to the overland legs so the
+        // character walks back out instead of pressing against a wall.
+        if indoors && self.travel.step_block == Some(block) {
             let target = *self.travel.route.as_ref()?.last()?;
             if me.distance(target) <= ARRIVE && self.travel.portal_from.is_none() {
                 if !self.travel_next_step() {
@@ -334,6 +452,26 @@ impl Client {
             } else {
                 return Some((Vec3::new(target.x, target.y, me3.z), LEG_STOP, block));
             }
+        }
+        // Nothing at all achieved on this step for a long while: plan
+        // again from where the character actually stands. No portal is
+        // held against us; the plan is simply out of date.
+        if self
+            .travel
+            .step_since
+            .is_some_and(|t| now.duration_since(t) > STEP_GIVE_UP)
+        {
+            if let Some(goal) = self.travel.goal {
+                tracing::warn!(
+                    "travel: step {} is going nowhere; planning again",
+                    self.travel.step
+                );
+                self.travel.step_since = Some(now);
+                if self.travel_to(goal) {
+                    return self.travel_goal(now);
+                }
+            }
+            return None;
         }
         loop {
             let n = self.travel.route.as_ref()?.len();
@@ -352,6 +490,11 @@ impl Client {
                 // until the character has actually gone through, so wait
                 // at its mouth rather than give up.
                 if self.travel.portal_from.is_some() {
+                    // The clock starts when we reach the mouth, not when
+                    // the step began: the walk there can be long.
+                    if self.travel.portal_since.is_none() {
+                        self.travel.portal_since = Some(now);
+                    }
                     // Standing at its mouth and still here: it will not
                     // take us. Plan the rest of the way without it.
                     if self
@@ -359,14 +502,14 @@ impl Client {
                         .portal_since
                         .is_some_and(|t| now.duration_since(t) > PORTAL_GIVE_UP)
                     {
-                        if let Some(name) = self.travel_portal_name() {
+                        if let Some((name, mouth)) = self.travel_portal() {
                             let level = self.world.stats.level.max(1) as u32;
-                            let why = ac_world::portals::named(&name)
+                            let why = ac_world::portals::near(mouth, 3.0)
                                 .first()
                                 .and_then(|p| p.refusal(level))
                                 .unwrap_or_else(|| "would not take us".into());
                             tracing::warn!("travel: the portal {name:?} {why}; going another way");
-                            self.travel.refused.push(name);
+                            self.travel.refused.push(mouth);
                         }
                         let goal = self.travel.goal;
                         self.cancel_travel_keeping_refusals();

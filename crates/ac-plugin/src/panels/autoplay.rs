@@ -365,6 +365,7 @@ impl Autoplay {
     /// A character in the middle of a fight, with rules filled in.
     pub fn demo() -> Self {
         let config = Config {
+            team: Default::default(),
             enabled: true,
             survive: Survive {
                 heal_below: 0.65,
