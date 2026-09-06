@@ -62,6 +62,9 @@ pub const VERTS_PER_SIDE: usize = 9;
 /// Memoizing asset loader. Single-threaded (`Rc`), intended to be owned by
 /// the viewer or client thread.
 pub struct Assets {
+    /// Where the archives were opened from (a second `Assets` can be
+    /// opened on another thread for long renders).
+    pub data_dir: std::path::PathBuf,
     pub portal: DatArchive,
     pub cell: DatArchive,
     region: RefCell<Option<Rc<Region>>>,
@@ -112,6 +115,7 @@ impl Assets {
     pub fn open(data_dir: impl AsRef<Path>) -> Result<Self> {
         let d = data_dir.as_ref();
         Ok(Assets {
+            data_dir: d.to_path_buf(),
             portal: DatArchive::open(d.join("client_portal.dat"))?,
             cell: DatArchive::open(d.join("client_cell_1.dat"))?,
             region: RefCell::new(None),
