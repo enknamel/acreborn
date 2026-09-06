@@ -794,6 +794,15 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   staircase (untagged geometry) re-homed the character to the outdoor
   cell under the dungeon and ACE refused every move afterwards
   ("movement pre-validation failed from 012F010C ... to 012E0009").
+* **Landing and headroom.** A falling character lands on any floor up
+  to a step (0.6 m) above its feet, so a jump that arrives a few
+  centimetres under a ledge's top stands on the ledge instead of passing
+  through the slab; and while airborne the capsule may only drift to
+  spots with full headroom, so it cannot slide under a porch or a
+  staircase on the way down. Both came from a jump at the Shoushi
+  tailor's porch that ended in the one-metre gap beneath it, blocked in
+  every direction; `cargo run -p ac-client --example jump_probe` scans
+  jumps from a spot, and `tests/jump.rs` keeps that porch honest.
 * **Map coordinates**: the game's "42.1N, 33.6E" is the world position
   (landblock × 192 m + local) divided by 240 minus 102 on both axes,
   north and east positive, a twentieth taken off before rounding to a

@@ -537,7 +537,10 @@ impl CollisionWorld {
     pub fn vertical(&self, from: Vec3, dz: f32, cap: &Capsule) -> Vertical {
         let to = from + Vec3::new(0.0, 0.0, dz);
         if dz < 0.0 {
-            if let Some((z, cell)) = self.floor_at(from, 0.0, -dz) {
+            // A floor up to a step above the feet counts too: a jump that
+            // arrives a few centimetres under a ledge's top lands on it
+            // instead of passing down through the slab.
+            if let Some((z, cell)) = self.floor_at(from, cap.step_up, -dz) {
                 return Vertical::Landed(Vec3::new(from.x, from.y, z), cell);
             }
             Vertical::Free(to)

@@ -689,6 +689,18 @@ impl Player {
                     world = c.resolve(world, cap.radius, cap.height);
                 }
             }
+            // The capsule must fit where it is drifting to: no sliding
+            // under a porch slab or a staircase while falling past it.
+            let fits = blocks.iter().all(|&blk| {
+                self.collision(assets, blk)
+                    .and_then(|c| c.ceiling_at(world, cap.radius))
+                    .is_none_or(|cz| cz - world.z >= cap.height)
+            });
+            if !fits {
+                world.x = old.x;
+                world.y = old.y;
+                self.air_velocity = Vec3::ZERO;
+            }
             self.vz -= GRAVITY * dt;
             let dz = self.vz * dt;
             let mut landed: Option<(Vec3, u32)> = None;
