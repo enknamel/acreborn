@@ -583,6 +583,22 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   armor level and per-damage-type protections, weapon damage / speed /
   modifiers, and for creatures and players level, attributes, allegiance,
   titles and armor levels.
+* **Using things in the world**: retail had two actions on the selected
+  object, "Use Selected" (Use 0x0036: read a book where it lies, open a
+  chest, talk to an NPC) and picking up (PutItemInContainer into the
+  pack), besides double-click which picks a loose item up and uses
+  anything else. The client keeps all three: double-click, R to use in
+  place, G to pick up; scripts `activate(guid)` and `pickup(guid)`. Books,
+  signs and plaques answer Use with BookDataResponse 0x00B4: the book
+  guid, max pages, page count, max characters per page, then each page's
+  scribe id, name, account, flags, a text-included flag, an ignore-author
+  flag and the text when included (never in this event on ACE), then the
+  inscription (the title) and the scribe. BookPageData 0x00AE (guid, page
+  index) fetches one page as BookPageDataResponse 0x00B8 (guid, index,
+  the page with its text). A carried book is read the same way by using
+  it, or with BookData 0x00AA (guid). The client shows the book window
+  with Prev/Next, fetching pages as they are turned to; scripts read
+  `book()` and `read_page(i)`.
 * **Appraisal** (IdentifyObject 0x00C8 on selecting; IdentifyObjectResponse
   0x00C9): a flags word, success, then by flag the int, int64, bool,
   float, string and data-id property tables (PackableHashTables of id,

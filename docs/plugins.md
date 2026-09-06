@@ -229,7 +229,8 @@ can host plugins the same way: `Host::new()`, `register`, then
 per file: `vitals`, `radar`, `target`, `inventory` (I), `loot`, `vendor`,
 `skills` (K), `spellbook` (P), `spellbar` (B), `components` (O), `buffs`
 (U), `trade`, `fellowship` (F), `allegiance` (L), `housing` (H; a used house sign opens it), `social`
-(N: title, friends, squelches), `appraisal`
+(N: title, friends, squelches), `book` (opens on a used book, sign or
+plaque), `appraisal`
 (opens when an assessment arrives), `salvage`
 (opens when the Ust is used), `confirm` (the
 server's Yes/No questions), `options` (X), `combat` (the height/power bar). Each

@@ -276,6 +276,14 @@ impl Api for CtxApi<'_, '_> {
         self.client().use_by_name(name)
     }
 
+    fn activate(&mut self, guid: i64) -> bool {
+        self.client().use_object(guid as u32)
+    }
+
+    fn pickup(&mut self, guid: i64) -> bool {
+        self.client().pick_up(guid as u32)
+    }
+
     fn use_guid(&mut self, guid: i64) -> bool {
         let Ok(guid) = u32::try_from(guid) else {
             return false;
@@ -766,6 +774,31 @@ impl Api for CtxApi<'_, '_> {
                 Dynamic::from_map(m)
             })
             .collect()
+    }
+
+    fn book(&mut self) -> Dynamic {
+        let c = self.client();
+        let Some(b) = c.book.as_ref() else {
+            return Dynamic::UNIT;
+        };
+        let mut m = Map::new();
+        m.insert("guid".into(), int(b.guid));
+        m.insert("title".into(), b.inscription.clone().into());
+        m.insert("author".into(), b.author.clone().into());
+        let pages: Array = b
+            .pages
+            .iter()
+            .map(|p| p.text.clone().map(Dynamic::from).unwrap_or(Dynamic::UNIT))
+            .collect();
+        m.insert("pages".into(), pages.into());
+        Dynamic::from_map(m)
+    }
+
+    fn read_page(&mut self, index: i64) {
+        let c = self.client();
+        if let Some(guid) = c.book.as_ref().map(|b| b.guid) {
+            c.read_page(guid, index.max(0) as u32);
+        }
     }
 
     fn appraise(&mut self, guid: i64) {

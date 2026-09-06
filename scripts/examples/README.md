@@ -39,13 +39,14 @@ Reads (maps have the listed fields):
 
 Actions (on the current session; names match by prefix, like the console):
 
-- `use_name(name)`, `use_guid(guid)`, `attack(name)`, `attack(guid)`, `cast(spell)`, `say(text)`
+- `use_name(name)`, `use_guid(guid)` (double-click: pick up a loose item, use anything else), `activate(guid)` (use in place, e.g. read a book on the ground), `pickup(guid)`, `attack(name)`, `attack(guid)`, `cast(spell)`, `say(text)`
 - `loot()` / `loot(name)`: open the corpse of the last target / by name; `take(guid)`, `take_all()`, `close_container()`
 - `buy(name)`, `sell(name)` (a vendor must be open), `combat(true|false)`, `jump(power)` (0..1, capped by stamina), `select(guid)` (`0` clears)
 - `log(text)` (and `print`): a line in the chat log, not sent to the server
 - Social: `fellow_create(name, share_xp)`, `fellow_recruit(guid)`, `fellow_quit(disband)`, `fellowship()`; `trade_open(guid)`, `trade_add(item)`, `trade_accept()`, `trade_decline()`, `trade_reset()`, `trade_close()`, `trade()`; `confirmations()`, `confirm(yes)` (the oldest pending question); `swear(guid)`, `break_allegiance(guid)`, `allegiance()` (`name, rank, total_members, total_vassals, motd, monarch, patron, me, vassals`, members with `guid, name, level, rank, loyalty, leadership, online, xp_cached, xp_tithed`), `allegiance_refresh()`, `allegiance_name(name)`; `chat("v"|"p"|"m"|"c"|"f", text)` for the vassals, patron, monarch, co-vassals and fellowship channels, `chat("g"|"trade"|"lfg"|"rp"|"a", text)` for the Turbine chat rooms
 - Housing: `house_profile()` after using a sign (`slumlord, owner, owner_name, kind, min_level, buy, rent` with `{name, wcid, needed, paid}` items), `house()` (`kind, cell, rent_paid, rent`) or `()`, `house_query()`, `buy_house()`, `rent_house()` (pay with the pack's items; false when short), `abandon_house()`, `house_guests()` (`open, allegiance_guests, allegiance_storage, guests: [{guid, name, storage}]`; the list is refreshed after every guest change), `house_guest(name, add)`, `house_storage(name, on)`, `house_open(on)`
 - `friends()` (`guid, name, online`), `add_friend(name)`, `remove_friend(guid)`; `titles()` (`current, ids`), `set_title(id)`; `squelch(name, on)`, `squelches()` (`guid, name, mask`)
+- `book()`: the open book/sign as `{ guid, title, author, pages: [text or ()] }` or `()`; `read_page(i)` asks for a page's text
 - `augmentations()`: the augmentations taken, as `{ name, count, max }`
 - `emote(word)`: a soul emote ("wave", "bow", "cheer"...) with its animation and line; false for unknown words
 - `appraise(guid)` asks the server; `appraisal(guid)` is the last answer as a map (`name, usage, short_desc, long_desc, value, burden, workmanship, armor_level, damage, damage_min, speed, weapon_skill, offense, spells, spellcraft, mana, mana_max, wield_skill, wield_level, level, health, health_max, ints, floats`) or `()`

@@ -75,7 +75,12 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # spend skill credits; drag an item from the inventory onto a side pack or the
 # Pack header to move it (a stack onto another of its kind merges them;
 # right-click a stack for the split slider), onto the target bar or an NPC/player in the world
-# The status line shows the map coordinates (42.1N, 33.6E) outdoors.
+# Double-click picks a loose item up and uses anything else; with an
+# object selected, R uses it where it is (read a book or sign on the
+# ground, open a chest) and G picks it up, retail's separate actions.
+# Using a sign, plaque or book (in the world or in the pack) opens the
+# book window with its pages. The status line shows the map coordinates
+# (42.1N, 33.6E) outdoors.
 # (clicking anything in the world or a single click on an item in the
 # pack, a container, a vendor's list or the trade window selects and
 # appraises it: the appraisal window shows its value, damage, armor,

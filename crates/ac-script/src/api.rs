@@ -62,6 +62,10 @@ pub trait Api {
     // ---- actions on the current session ----
     fn use_name(&mut self, name: &str) -> bool;
     fn use_guid(&mut self, guid: i64) -> bool;
+    /// Use an object where it is (read a book on the ground, open a chest) without picking it up.
+    fn activate(&mut self, guid: i64) -> bool;
+    /// Pick a loose item up into the pack.
+    fn pickup(&mut self, guid: i64) -> bool;
     fn attack(&mut self, name: &str) -> bool;
     fn attack_guid(&mut self, guid: i64) -> bool;
     fn cast(&mut self, name: &str) -> bool;
@@ -156,6 +160,9 @@ pub trait Api {
     /// damage_min, speed, weapon_skill, offense, spells, spellcraft, mana, mana_max, wield_skill,
     /// wield_level, level, health, health_max, ints: #{id: v}, floats: #{id: v}) or unit.
     fn appraise(&mut self, guid: i64);
+    /// The open book as a map { guid, title, author, pages: [text or ()] } or unit; `read_page(i)` asks for a page's text.
+    fn book(&mut self) -> Dynamic;
+    fn read_page(&mut self, index: i64);
     /// Augmentations taken, as maps { name, count, max }.
     fn augmentations(&mut self) -> Array;
     /// A soul emote by word ("wave", "bow", "cheer"...); false for unknown words.
@@ -295,6 +302,8 @@ pub fn register(engine: &mut Engine) {
     // actions
     engine.register_fn("use_name", |n: &str| with_api(|a| a.use_name(n)));
     engine.register_fn("use_guid", |g: i64| with_api(|a| a.use_guid(g)));
+    engine.register_fn("activate", |g: i64| with_api(|a| a.activate(g)));
+    engine.register_fn("pickup", |g: i64| with_api(|a| a.pickup(g)));
     engine.register_fn("attack", |n: &str| with_api(|a| a.attack(n)));
     engine.register_fn("attack", |g: i64| with_api(|a| a.attack_guid(g)));
     engine.register_fn("cast", |n: &str| with_api(|a| a.cast(n)));
@@ -362,6 +371,8 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("put_in", |i: i64, c: i64| with_api(|a| a.put_in(i, c)));
     engine.register_fn("split", |i: i64, n: i64| with_api(|a| a.split(i, n)));
     engine.register_fn("appraise", |g: i64| with_api(|a| a.appraise(g)));
+    engine.register_fn("book", || with_api(|a| a.book()));
+    engine.register_fn("read_page", |i: i64| with_api(|a| a.read_page(i)));
     engine.register_fn("augmentations", || with_api(|a| a.augmentations()));
     engine.register_fn("emote", |w: &str| with_api(|a| a.emote(w)));
     engine.register_fn("friends", || with_api(|a| a.friends()));

@@ -156,6 +156,10 @@ pub struct Client {
     /// The guid of the latest appraisal and a counter bumped with each.
     pub last_appraisal: Option<u32>,
     pub appraisal_seq: u64,
+    /// The book, sign or plaque last opened, and a counter bumped when
+    /// one arrives (the book window opens on it).
+    pub book: Option<ac_net::messages::BookData>,
+    pub book_seq: u64,
     /// Our allegiance's Turbine chat room (SetTurbineChatChannels), 0
     /// without one.
     pub allegiance_room: u32,
@@ -249,6 +253,8 @@ impl Client {
             appraisals: std::collections::HashMap::new(),
             last_appraisal: None,
             appraisal_seq: 0,
+            book: None,
+            book_seq: 0,
             allegiance_room: 0,
             turbine_context: 1,
             last_click: None,
@@ -798,6 +804,43 @@ impl Client {
                 Some((_, _, event::CHANNEL_BROADCAST, rest)) => {
                     ChatLine::parse_channel_broadcast(rest)
                 }
+                Some((_, _, event::BOOK_DATA_RESPONSE, rest)) => {
+                    match ac_net::messages::BookData::parse(rest) {
+                        Ok(b) => {
+                            tracing::info!(
+                                "book {:#010x} \"{}\": {} pages",
+                                b.guid,
+                                b.inscription,
+                                b.pages.len()
+                            );
+                            let first_missing = b.pages.first().is_some_and(|p| p.text.is_none());
+                            let guid = b.guid;
+                            self.book = Some(b);
+                            self.book_seq += 1;
+                            if first_missing {
+                                self.read_page(guid, 0);
+                            }
+                            return;
+                        }
+                        Err(e) => {
+                            tracing::warn!("book data: {e}");
+                            return;
+                        }
+                    }
+                }
+                Some((_, _, event::BOOK_PAGE_DATA_RESPONSE, rest)) => {
+                    if let Ok((guid, index, page)) = ac_net::messages::BookData::parse_page(rest) {
+                        if let Some(b) = self.book.as_mut().filter(|b| b.guid == guid) {
+                            if let Some(slot) = b.pages.get_mut(index as usize) {
+                                *slot = page;
+                            } else if index as usize == b.pages.len() {
+                                b.pages.push(page);
+                            }
+                            self.book_seq += 1;
+                        }
+                    }
+                    return;
+                }
                 Some((_, _, event::SALVAGE_OPERATIONS_RESULT, rest)) => {
                     match ac_net::messages::SalvageResult::parse(rest) {
                         Ok(res) => Ok(ChatLine {
@@ -1050,6 +1093,9 @@ impl Client {
             self.session
                 .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
         } else if !carried && !stuck && o.position.is_some() {
+            // Double-click on a loose item picks it up, as retail did; the
+            // "use selected" key (`use_object`) reads or activates it in
+            // place instead.
             tracing::info!("pick up {name} ({guid:#010x})");
             w.u32(guid).u32(me.unwrap_or(0)).u32(0);
             self.session
@@ -1342,6 +1388,56 @@ impl Client {
         self.last_appraisal = Some(a.guid);
         self.appraisal_seq += 1;
         self.appraisals.insert(a.guid, a);
+    }
+
+    /// Use an object where it is (Use 0x0036), never picking it up: read
+    /// a book lying on the ground, open a chest, talk to an NPC. Retail's
+    /// "Use Selected" action. False when the object is unknown.
+    pub fn use_object(&mut self, guid: u32) -> bool {
+        let Some(o) = self.world.objects.get(&guid) else {
+            return false;
+        };
+        tracing::info!("use {} ({guid:#010x}) in place", o.name);
+        self.session
+            .send_action(ac_net::messages::action::USE, &guid.to_le_bytes());
+        true
+    }
+
+    /// Pick a loose item up into the pack (PutItemInContainer to our own
+    /// guid). False for anything that is not a loose item.
+    pub fn pick_up(&mut self, guid: u32) -> bool {
+        let Some(me) = self.world.player_guid else {
+            return false;
+        };
+        let Some(o) = self.world.objects.get(&guid) else {
+            return false;
+        };
+        let stuck = o.object_desc_flags & ac_world::object_desc_flags::STUCK != 0
+            || o.item_type & ac_world::item_type::CREATURE != 0;
+        if stuck || o.position.is_none() || o.container.is_some() || o.wielder.is_some() {
+            return false;
+        }
+        tracing::info!("pick up {} ({guid:#010x})", o.name);
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(guid).u32(me).u32(0);
+        self.session
+            .send_action(ac_net::messages::action::PUT_ITEM_IN_CONTAINER, &w.finish());
+        true
+    }
+
+    /// Ask for one page of the open book (BookPageData 0x00AE); the
+    /// answer fills `book.pages[index]`.
+    pub fn read_page(&mut self, guid: u32, index: u32) {
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(guid).i32(index as i32);
+        self.session
+            .send_action(ac_net::messages::action::BOOK_PAGE_DATA, &w.finish());
+    }
+
+    /// Open a carried book without "using" it (BookData 0x00AA).
+    pub fn open_book(&mut self, guid: u32) {
+        self.session
+            .send_action(ac_net::messages::action::BOOK_DATA, &guid.to_le_bytes());
     }
 
     /// Select an item in a panel and appraise it, what a single click on

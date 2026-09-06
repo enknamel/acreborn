@@ -398,6 +398,12 @@ mod tests {
             self.record(format!("use #{guid}"));
             true
         }
+        fn activate(&mut self, _g: i64) -> bool {
+            false
+        }
+        fn pickup(&mut self, _g: i64) -> bool {
+            false
+        }
         fn attack(&mut self, name: &str) -> bool {
             self.record(format!("attack {name}"));
             true
@@ -520,6 +526,10 @@ mod tests {
             false
         }
         fn appraise(&mut self, _g: i64) {}
+        fn book(&mut self) -> Dynamic {
+            Dynamic::UNIT
+        }
+        fn read_page(&mut self, _i: i64) {}
         fn augmentations(&mut self) -> rhai::Array {
             rhai::Array::new()
         }

@@ -1233,6 +1233,23 @@ impl ApplicationHandler for App {
                         self.toggle_combat();
                         return;
                     }
+                    // Retail's separate actions on the selected object: R
+                    // uses it where it is (read a sign or a book on the
+                    // ground, open a chest), G picks it up.
+                    if (code == KeyCode::KeyR || code == KeyCode::KeyG)
+                        && event.state == ElementState::Pressed
+                    {
+                        if let Some(net) = self.nets.get_mut(self.active) {
+                            if let Some(g) = net.client.selected {
+                                if code == KeyCode::KeyR {
+                                    net.client.use_object(g);
+                                } else {
+                                    net.client.pick_up(g);
+                                }
+                            }
+                        }
+                        return;
+                    }
                     if code == KeyCode::Enter
                         && event.state == ElementState::Pressed
                         && !self.nets.is_empty()

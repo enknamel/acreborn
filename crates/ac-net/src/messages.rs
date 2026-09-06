@@ -418,6 +418,10 @@ pub mod event {
     /// one), general, trade, lfg, roleplay, olthoi, society, three
     /// society rooms; ten u32.
     pub const SET_TURBINE_CHAT_CHANNELS: u32 = 0x0295;
+    /// A used book, sign or plaque: see `BookData`.
+    pub const BOOK_DATA_RESPONSE: u32 = 0x00B4;
+    /// One page's text: see `BookData::parse_page`.
+    pub const BOOK_PAGE_DATA_RESPONSE: u32 = 0x00B8;
     /// Salvage results: skill, skipped guids, (material, workmanship, units) list, bonus.
     pub const SALVAGE_OPERATIONS_RESULT: u32 = 0x02B4;
     /// A house sign was used: slumlord guid, then the profile.
@@ -579,6 +583,123 @@ impl ChatLine {
             sender_id: channel,
             kind: channel::KIND,
         })
+    }
+}
+
+/// One page of a book (ACE `PageData`): who wrote it and, once read,
+/// its text.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BookPage {
+    pub author_id: u32,
+    pub author: String,
+    pub text: Option<String>,
+}
+
+/// BookDataResponse (game event 0x00B4), the answer to using a book,
+/// sign or plaque: the book, its page limits, the pages (texts only when
+/// included; BookPageData 0x00AE fetches one), the inscription and the
+/// scribe.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BookData {
+    pub guid: u32,
+    pub max_pages: u32,
+    pub max_chars: u32,
+    pub pages: Vec<BookPage>,
+    pub inscription: String,
+    pub author: String,
+}
+
+fn read_page(r: &mut Reader) -> Result<BookPage, Truncated> {
+    let author_id = r.u32()?;
+    let author = r.string16()?;
+    let _account = r.string16()?;
+    let _flags = r.u32()?;
+    let included = r.u32()? != 0;
+    let _ignore_author = r.u32()?;
+    let text = if included { Some(r.string16()?) } else { None };
+    Ok(BookPage {
+        author_id,
+        author,
+        text,
+    })
+}
+
+impl BookData {
+    pub fn parse(body: &[u8]) -> Result<Self, Truncated> {
+        let mut r = Reader::new(body);
+        let guid = r.u32()?;
+        let max_pages = r.u32()?;
+        let _num_pages = r.u32()?;
+        let max_chars = r.u32()?;
+        let n = r.u32()? as usize;
+        let mut pages = Vec::with_capacity(n.min(256));
+        for _ in 0..n {
+            pages.push(read_page(&mut r)?);
+        }
+        let inscription = r.string16()?;
+        let _author_id = r.u32()?;
+        let author = r.string16()?;
+        Ok(BookData {
+            guid,
+            max_pages,
+            max_chars,
+            pages,
+            inscription,
+            author,
+        })
+    }
+
+    /// BookPageDataResponse (0x00B8): book guid, page index, the page.
+    pub fn parse_page(body: &[u8]) -> Result<(u32, u32, BookPage), Truncated> {
+        let mut r = Reader::new(body);
+        let guid = r.u32()?;
+        let index = r.u32()?;
+        let page = read_page(&mut r)?;
+        Ok((guid, index, page))
+    }
+}
+
+#[cfg(test)]
+mod book_tests {
+    use super::*;
+
+    #[test]
+    fn parses_book_and_page() {
+        let mut w = Writer::new();
+        w.u32(0x8000_0010).u32(10).u32(2).u32(1000).u32(2);
+        for (name, text) in [("Asheron", Some("Page one.")), ("", None)] {
+            w.u32(1)
+                .string16(name)
+                .string16("beer good")
+                .u32(0xFFFF_0002);
+            match text {
+                Some(t) => {
+                    w.u32(1).u32(0).string16(t);
+                }
+                None => {
+                    w.u32(0).u32(0);
+                }
+            }
+        }
+        w.string16("BASICS OF MAGIC").u32(0).string16("Asheron");
+        let b = BookData::parse(&w.finish()).unwrap();
+        assert_eq!(b.inscription, "BASICS OF MAGIC");
+        assert_eq!(b.pages.len(), 2);
+        assert_eq!(b.pages[0].text.as_deref(), Some("Page one."));
+        assert!(b.pages[1].text.is_none());
+        let mut w = Writer::new();
+        w.u32(0x8000_0010)
+            .u32(1)
+            .u32(1)
+            .string16("Asheron")
+            .string16("x")
+            .u32(0xFFFF_0002)
+            .u32(1)
+            .u32(0)
+            .string16("Page two.");
+        let (g, i, p) = BookData::parse_page(&w.finish()).unwrap();
+        assert_eq!((g, i), (0x8000_0010, 1));
+        assert_eq!(p.text.as_deref(), Some("Page two."));
     }
 }
 
@@ -1481,6 +1602,10 @@ pub mod action {
     /// Salvage with an Ust: tool guid, count, item guids (ACE names it
     /// after the retail client's "create tinkering tool" verb).
     pub const CREATE_TINKERING_TOOL: u32 = 0x027D;
+    /// Books: ask for a carried book's data (guid) and for one page
+    /// (guid, page index).
+    pub const BOOK_DATA: u32 = 0x00AA;
+    pub const BOOK_PAGE_DATA: u32 = 0x00AE;
     /// Stacks: merge (from, to, amount), split into a container (stack,
     /// container, placement, amount), onto the ground (stack, amount)
     /// or into a wield slot (stack, EquipMask, amount).
