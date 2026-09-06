@@ -146,6 +146,11 @@ pub struct Client {
     pub salvage_open: bool,
     /// A jump asked for by a script or the bot, done on the next tick.
     pub pending_jump: Option<f32>,
+    /// Appraisals received, by object guid (the last one is the panel's).
+    pub appraisals: std::collections::HashMap<u32, ac_net::messages::Appraisal>,
+    /// The guid of the latest appraisal and a counter bumped with each.
+    pub last_appraisal: Option<u32>,
+    pub appraisal_seq: u64,
     /// Our allegiance's Turbine chat room (SetTurbineChatChannels), 0
     /// without one.
     pub allegiance_room: u32,
@@ -235,6 +240,9 @@ impl Client {
             selected: None,
             salvage_open: false,
             pending_jump: None,
+            appraisals: std::collections::HashMap::new(),
+            last_appraisal: None,
+            appraisal_seq: 0,
             allegiance_room: 0,
             turbine_context: 1,
             last_click: None,
@@ -1321,6 +1329,18 @@ impl Client {
         for l in lines {
             self.events.push(Event::Chat { text: l, kind: 1 });
         }
+        self.last_appraisal = Some(a.guid);
+        self.appraisal_seq += 1;
+        self.appraisals.insert(a.guid, a);
+    }
+
+    /// Ask the server to appraise an object (IdentifyObject 0x00C8); the
+    /// answer lands in `appraisals` and opens the appraisal panel.
+    pub fn appraise(&mut self, guid: u32) {
+        self.session.send_action(
+            ac_net::messages::action::IDENTIFY_OBJECT,
+            &guid.to_le_bytes(),
+        );
     }
 
     pub fn tick_loot(&mut self) {

@@ -519,6 +519,10 @@ mod tests {
         fn put_in(&mut self, _i: i64, _c: i64) -> bool {
             false
         }
+        fn appraise(&mut self, _g: i64) {}
+        fn appraisal(&mut self, _g: i64) -> Dynamic {
+            Dynamic::UNIT
+        }
         fn split(&mut self, _i: i64, _n: i64) -> bool {
             false
         }

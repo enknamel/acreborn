@@ -9,6 +9,7 @@ license.workspace = true
 ac-bus = { path = "../ac-bus" }
 ac-client = { path = "../ac-client" }
 ac-formats = { path = "../ac-formats" }
+ac-net = { path = "../ac-net" }
 ac-world = { path = "../ac-world" }
 ac-scene = { path = "../ac-scene" }
 egui = "0.36"

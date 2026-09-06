@@ -21,6 +21,7 @@
 //! set; [`live`] the real one.
 
 pub mod allegiance;
+pub mod appraisal;
 pub mod buffs;
 pub mod combat;
 pub mod components;
@@ -226,6 +227,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(allegiance::Allegiance::default()),
         Box::new(salvage::Salvage::default()),
         Box::new(housing::Housing::default()),
+        Box::new(appraisal::AppraisalPanel::default()),
         Box::new(confirm::Confirm::default()),
         Box::new(options::Options::default()),
         Box::new(combat::Combat::default()),
@@ -254,6 +256,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         Box::new(allegiance::Allegiance::demo()),
         Box::new(salvage::Salvage::demo()),
         Box::new(housing::Housing::demo()),
+        Box::new(appraisal::AppraisalPanel::demo()),
         Box::new(confirm::Confirm::demo()),
         Box::new(options::Options::demo()),
         Box::new(combat::Combat::demo()),

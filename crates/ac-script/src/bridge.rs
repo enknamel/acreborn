@@ -673,6 +673,76 @@ impl Api for CtxApi<'_, '_> {
         c.put_in_container(item as u32, container)
     }
 
+    fn appraise(&mut self, guid: i64) {
+        self.client().appraise(guid as u32);
+    }
+
+    fn appraisal(&mut self, guid: i64) -> Dynamic {
+        let c = self.client();
+        let Some(a) = c.appraisals.get(&(guid as u32)) else {
+            return Dynamic::UNIT;
+        };
+        let mut m = Map::new();
+        let name = c
+            .world
+            .objects
+            .get(&a.guid)
+            .map(|o| o.name.clone())
+            .unwrap_or_default();
+        m.insert("name".into(), name.into());
+        // "use" is a Rhai keyword, so the use line is "usage".
+        for (key, id) in [
+            ("usage", 14u32),
+            ("short_desc", 15),
+            ("long_desc", 16),
+            ("inscription", 7),
+        ] {
+            m.insert(key.into(), a.string(id).unwrap_or("").into());
+        }
+        for (key, id) in [
+            ("value", 19u32),
+            ("burden", 5),
+            ("workmanship", 105),
+            ("armor_level", 28),
+            ("spellcraft", 106),
+            ("mana", 107),
+            ("mana_max", 108),
+            ("wield_skill", 159),
+            ("wield_level", 160),
+            ("level", 25),
+            ("tinkers", 171),
+        ] {
+            m.insert(key.into(), a.int(id).map(int).unwrap_or(Dynamic::UNIT));
+        }
+        if let Some(w) = &a.weapon {
+            m.insert("damage".into(), int(w.damage));
+            m.insert(
+                "damage_min".into(),
+                int((w.damage as f64 * (1.0 - w.variance)).round() as i64),
+            );
+            m.insert("speed".into(), int(w.speed));
+            m.insert("weapon_skill".into(), int(w.skill));
+            m.insert("offense".into(), float(w.offense as f32));
+        }
+        if let Some(cp) = &a.creature {
+            m.insert("health".into(), int(cp.health));
+            m.insert("health_max".into(), int(cp.health_max));
+        }
+        let spells: Array = a.spells.iter().map(|s| int(*s)).collect();
+        m.insert("spells".into(), spells.into());
+        let mut ints = Map::new();
+        for (k, v) in &a.ints {
+            ints.insert(k.to_string().into(), int(*v));
+        }
+        m.insert("ints".into(), Dynamic::from_map(ints));
+        let mut floats = Map::new();
+        for (k, v) in &a.floats {
+            floats.insert(k.to_string().into(), float(*v as f32));
+        }
+        m.insert("floats".into(), Dynamic::from_map(floats));
+        Dynamic::from_map(m)
+    }
+
     fn split(&mut self, item: i64, amount: i64) -> bool {
         self.client()
             .split_stack(item as u32, None, amount.max(0) as u32)

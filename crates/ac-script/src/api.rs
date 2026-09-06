@@ -151,6 +151,12 @@ pub trait Api {
     fn put_in(&mut self, item: i64, container: i64) -> bool;
     /// Split `amount` off a stack into the main pack; merge one stack into another of the same kind.
     fn split(&mut self, item: i64, amount: i64) -> bool;
+    /// Ask for an appraisal; `appraisal(guid)` returns the last one received for it as a map
+    /// (name, usage, short_desc, long_desc, value, burden, workmanship, armor_level, damage,
+    /// damage_min, speed, weapon_skill, offense, spells, spellcraft, mana, mana_max, wield_skill,
+    /// wield_level, level, health, health_max, ints: #{id: v}, floats: #{id: v}) or unit.
+    fn appraise(&mut self, guid: i64);
+    fn appraisal(&mut self, guid: i64) -> Dynamic;
     fn merge(&mut self, from: i64, to: i64) -> bool;
     /// Queue everything in the open container; returns how many.
     fn take_all(&mut self) -> i64;
@@ -340,6 +346,8 @@ pub fn register(engine: &mut Engine) {
     });
     engine.register_fn("put_in", |i: i64, c: i64| with_api(|a| a.put_in(i, c)));
     engine.register_fn("split", |i: i64, n: i64| with_api(|a| a.split(i, n)));
+    engine.register_fn("appraise", |g: i64| with_api(|a| a.appraise(g)));
+    engine.register_fn("appraisal", |g: i64| with_api(|a| a.appraisal(g)));
     engine.register_fn("merge", |f: i64, t: i64| with_api(|a| a.merge(f, t)));
     engine.register_fn("take_all", || with_api(|a| a.take_all()));
     engine.register_fn("close_container", || with_api(|a| a.close_container()));

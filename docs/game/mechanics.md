@@ -567,6 +567,20 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   armor level and per-damage-type protections, weapon damage / speed /
   modifiers, and for creatures and players level, attributes, allegiance,
   titles and armor levels.
+* **Appraisal** (IdentifyObject 0x00C8 on selecting; IdentifyObjectResponse
+  0x00C9): a flags word, success, then by flag the int, int64, bool,
+  float, string and data-id property tables (PackableHashTables of id,
+  value), the spell id list, the armor profile (8 f32 multipliers of the
+  armor level per damage type), the creature profile (flags, health and
+  max; with flag 8 the six attributes and stamina, mana and their maxima;
+  with flag 1 the buff/debuff marks), the weapon profile (damage type
+  bits, speed, skill, damage, variance, damage mod, length, max
+  velocity, offense multiplier, estimated range), the hook profile, the
+  enchantment highlight/colour masks for armor, weapon and resistances,
+  and a creature's armor by location. The client keeps every appraisal
+  by guid and shows the latest in the appraisal window; scripts read it
+  with `appraisal(guid)`. Verified live on a healing kit, a lifestone
+  (its Use text) and a barkeeper (level, health).
 * Mana stones charge wielded items; healing kits heal (Healing skill,
   difficulty = missing health × 2, harder in combat, 1 stamina per 5
   health); potions and food restore vitals.
