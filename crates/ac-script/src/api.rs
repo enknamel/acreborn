@@ -155,6 +155,8 @@ pub trait Api {
     fn buy(&mut self, name: &str) -> bool;
     fn sell(&mut self, name: &str) -> bool;
     fn combat(&mut self, on: bool);
+    /// Jump with power 0..=1 (1 = a fully charged jump); stamina caps it.
+    fn jump(&mut self, power: f64);
     fn select(&mut self, guid: i64);
     fn log(&mut self, text: &str);
     fn post(&mut self, topic: &str, value: Value);
@@ -339,6 +341,8 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("buy", |n: &str| with_api(|a| a.buy(n)));
     engine.register_fn("sell", |n: &str| with_api(|a| a.sell(n)));
     engine.register_fn("combat", |on: bool| with_api(|a| a.combat(on)));
+    engine.register_fn("jump", |p: f64| with_api(|a| a.jump(p)));
+    engine.register_fn("jump", |p: i64| with_api(|a| a.jump(p as f64)));
     engine.register_fn("select", |g: i64| with_api(|a| a.select(g)));
     engine.register_fn("log", |t: &str| with_api(|a| a.log(t)));
     engine.register_fn("log", |d: Dynamic| with_api(|a| a.log(&d.to_string())));

@@ -537,6 +537,9 @@ mod tests {
         fn combat(&mut self, on: bool) {
             self.record(format!("combat {on}"));
         }
+        fn jump(&mut self, p: f64) {
+            self.record(format!("jump {p}"));
+        }
         fn select(&mut self, guid: i64) {
             self.record(format!("select #{guid}"));
         }

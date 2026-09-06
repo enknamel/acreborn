@@ -169,7 +169,7 @@ Vec<u32>` (known spell ids), `enchantments`, `inventory`, `wielded`,
 | `buy(guid)`, `sell(guid)`, `close_vendor()` | Trade with `world.open_vendor`. |
 | `disconnect(now)` | Clean disconnect. |
 
-`player::Input { forward: f32, strafe: f32, run: bool, jump: bool }` is
+`player::Input { forward: f32, strafe: f32, run: bool, jump: bool, jump_held: bool }` (`jump` is a full-power jump this frame, `jump_held` charges one while true and leaps when it goes false) is
 what the host builds from the keys for the active session; a plugin cannot
 steer the character directly yet, but `client.player.heading` and
 `client.move_to` are public, and setting `move_to = Some(MoveTarget::

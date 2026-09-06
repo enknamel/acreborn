@@ -21,8 +21,27 @@ pub struct Input {
     pub forward: f32,
     pub strafe: f32,
     pub run: bool,
-    /// Edge: true on the frame a jump is requested (full power).
+    /// Edge: true on the frame a full-power jump is requested (bots,
+    /// `--jump`).
     pub jump: bool,
+    /// The jump key is down: the jump charges while it is held and
+    /// leaps when it is released (see `JUMP_CHARGE_SECS`).
+    pub jump_held: bool,
+}
+
+/// Holding the jump key this long gives a full-power jump.
+pub const JUMP_CHARGE_SECS: f32 = 1.0;
+
+/// The power a jump may have with `stamina` left and no burden (ACE
+/// `MovementSystem.GetJumpPower`, the inverse of the stamina cost
+/// `ceil((burden + 0.5) * power * 8 + 2)`): below 2 stamina, no jump.
+pub fn max_jump_power(stamina: u32, burden: f32) -> f32 {
+    ((stamina as f32 - 2.0) / (burden * 8.0 + 4.0)).clamp(0.0, 1.0)
+}
+
+/// The stamina a jump of `power` costs (ACE `JumpStaminaCost`).
+pub fn jump_stamina_cost(power: f32, burden: f32) -> u32 {
+    ((burden + 0.5) * power.clamp(0.0, 1.0) * 8.0 + 2.0).ceil() as u32
 }
 
 /// The launch of a jump, for the Jump game action (0xF61B).
@@ -92,6 +111,11 @@ pub struct Player {
     /// The most recent take-off, left for the main loop to report; take it
     /// with `Option::take`.
     pub last_jump: Option<Jump>,
+    /// Seconds the jump key has been held on the ground, while charging.
+    jump_charge: Option<f32>,
+    /// The most power the character can put into a jump right now
+    /// (stamina); the main loop keeps it current.
+    pub max_jump_power: f32,
 }
 
 impl Player {
@@ -127,6 +151,8 @@ impl Player {
             ground_velocity: Vec3::ZERO,
             jump_skill: 100,
             last_jump: None,
+            jump_charge: None,
+            max_jump_power: 1.0,
         }
     }
 
@@ -143,7 +169,11 @@ impl Player {
         if self.airborne {
             return false;
         }
-        let power = power.clamp(0.0, 1.0);
+        self.jump_charge = None;
+        if self.max_jump_power <= 0.0 {
+            return false;
+        }
+        let power = power.clamp(0.0, self.max_jump_power);
         let skill = self.jump_skill as f32;
         let height = ((skill / (skill + 1300.0) * 22.2 + 0.05) * power).max(0.35);
         self.vz = (2.0 * GRAVITY * height).sqrt();
@@ -157,6 +187,12 @@ impl Player {
         self.moving = true;
         self.dirty = true;
         true
+    }
+
+    /// The jump charge as power 0..=1 while the key is held, else None.
+    pub fn jump_charge(&self) -> Option<f32> {
+        self.jump_charge
+            .map(|c| (c / JUMP_CHARGE_SECS).min(self.max_jump_power))
     }
 
     /// Attach the character's motion table and start idling. Walk and run
@@ -510,7 +546,15 @@ impl Player {
             };
             if input.jump {
                 self.jump(1.0);
+            } else if input.jump_held {
+                // Charging: the longer the key is held, the higher the leap.
+                let c = self.jump_charge.unwrap_or(0.0) + dt;
+                self.jump_charge = Some(c.min(JUMP_CHARGE_SECS));
+            } else if let Some(c) = self.jump_charge.take() {
+                self.jump(c / JUMP_CHARGE_SECS);
             }
+        } else {
+            self.jump_charge = None;
         }
         if !self.airborne && !steering {
             self.moving = false;
@@ -738,5 +782,21 @@ impl Player {
             );
             self.last_auto = now;
         }
+    }
+}
+
+#[cfg(test)]
+mod jump_tests {
+    use super::*;
+
+    #[test]
+    fn stamina_bounds_the_jump() {
+        assert_eq!(jump_stamina_cost(1.0, 0.0), 6);
+        assert_eq!(jump_stamina_cost(0.0, 0.0), 2);
+        assert_eq!(jump_stamina_cost(1.0, 1.0), 14);
+        assert!((max_jump_power(6, 0.0) - 1.0).abs() < 1e-6);
+        assert!((max_jump_power(4, 0.0) - 0.5).abs() < 1e-6);
+        assert_eq!(max_jump_power(1, 0.0), 0.0);
+        assert_eq!(max_jump_power(100, 0.0), 1.0);
     }
 }

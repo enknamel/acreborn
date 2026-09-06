@@ -144,6 +144,8 @@ pub struct Client {
     pub selected: Option<u32>,
     /// The salvage window is open (an Ust was used); the panel closes it.
     pub salvage_open: bool,
+    /// A jump asked for by a script or the bot, done on the next tick.
+    pub pending_jump: Option<f32>,
     /// Our allegiance's Turbine chat room (SetTurbineChatChannels), 0
     /// without one.
     pub allegiance_room: u32,
@@ -232,6 +234,7 @@ impl Client {
             loot_inflight: None,
             selected: None,
             salvage_open: false,
+            pending_jump: None,
             allegiance_room: 0,
             turbine_context: 1,
             last_click: None,
@@ -635,6 +638,23 @@ impl Client {
                         input.run = true;
                     }
                 }
+            }
+            // Stamina caps the jump (ACE refuses nothing but retail
+            // greyed the charge bar; we cap the power at what is left).
+            pl.max_jump_power = player::max_jump_power(self.world.stats.vitals[1].current, 0.0);
+            // The Jump skill (id 4) from the sheet drives the height.
+            if let Some(sk) = self.world.stats.skill(4) {
+                let table = self.assets.skill_table().ok();
+                let value = self
+                    .world
+                    .stats
+                    .skill_value(sk, table.as_ref().and_then(|t| t.get(4)));
+                if value > 0 {
+                    pl.jump_skill = value;
+                }
+            }
+            if let Some(p) = self.pending_jump.take() {
+                pl.jump(p);
             }
             pl.update(&self.assets, &input, dt);
             if let Some(j) = pl.last_jump.take() {
@@ -1518,6 +1538,18 @@ impl Client {
         self.session
             .send_action(ac_net::messages::action::CREATE_TINKERING_TOOL, &w.finish());
         true
+    }
+
+    /// Jump on the next tick with `power` 0..=1 (a script's or bot's
+    /// jump; the window charges one by holding the key). Capped by the
+    /// stamina left; nothing happens in the air.
+    pub fn jump(&mut self, power: f32) {
+        self.pending_jump = Some(power.clamp(0.0, 1.0));
+    }
+
+    /// The jump charge while the key is held, as power 0..=1.
+    pub fn jump_charge(&self) -> Option<f32> {
+        self.player.as_ref().and_then(|p| p.jump_charge())
     }
 
     /// Ask the server about our house (HouseQuery 0x021E): HouseData

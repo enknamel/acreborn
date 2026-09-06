@@ -12,11 +12,13 @@ pub struct VitalBar {
     pub max: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VitalsView {
     pub name: String,
     pub level: i32,
     pub bars: Vec<VitalBar>,
+    /// The jump charge while Space is held, as power 0..=1.
+    pub jump_charge: Option<f32>,
 }
 
 /// How full a bar is, 0..=1; empty when the maximum is unknown.
@@ -37,6 +39,7 @@ pub fn view(c: &Client) -> Option<VitalsView> {
     Some(VitalsView {
         name: st.name.clone(),
         level: st.level,
+        jump_charge: c.jump_charge(),
         bars: (0..3)
             .map(|i| VitalBar {
                 name: ac_world::stats::VITAL_NAMES[i],
@@ -84,6 +87,15 @@ pub fn draw(egui: &egui::Context, v: &VitalsView) -> Option<u32> {
                             egui::Color32::WHITE,
                         );
                     }
+                    if let Some(charge) = v.jump_charge {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(220.0, 8.0), egui::Sense::hover());
+                        let p = ui.painter();
+                        p.rect_filled(rect, 2.0, egui::Color32::from_gray(40));
+                        let mut fill = rect;
+                        fill.set_width(rect.width() * charge.clamp(0.0, 1.0));
+                        p.rect_filled(fill, 2.0, egui::Color32::from_rgb(120, 220, 120));
+                    }
                 });
             });
             if let Some(p) = zone.response.dnd_release_payload::<ItemDrag>() {
@@ -104,6 +116,7 @@ impl Vitals {
             source: Source::Demo(VitalsView {
                 name: "Demo".into(),
                 level: 1,
+                jump_charge: Some(0.6),
                 bars: vec![
                     VitalBar {
                         name: "Health",

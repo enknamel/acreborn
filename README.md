@@ -93,7 +93,9 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # double-click another player (in peace mode) to open a secure trade: drag
 # items into your offer, Accept on both sides swaps them;
 # double-click a creature to attack it until it dies; double-click its corpse
-# to loot (Take all / Close). Space jumps. Sounds play unless --mute.
+# to loot (Take all / Close). Hold Space to charge a jump (a green bar
+# under the vitals; a second fills it) and release to leap; stamina caps
+# the power. Sounds play unless --mute.
 # Character select and creation: without --character the window shows the
 # account's characters after login (Up/Down highlight, Enter enters; Delete
 # asks first and the server keeps the character for a while with Restore

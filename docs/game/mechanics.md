@@ -522,6 +522,15 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
 * **Burden**: capacity = Strength × 150 units at 100%. Over 100% Run,
   Jump, Melee and Missile Defense drop 10% per 10% over; at 200% no
   jumping and walking drains stamina; 300% is the hard cap.
+* **Jumping** is charged: holding the jump key fills a bar (a second to
+  full) and releasing it leaps with that power. The client computes the
+  launch velocity itself and sends Jump 0xF61B (power, local velocity,
+  sequences); height = burden mod × (Jump skill / (skill + 1300) × 22.2
+  + 0.05) × power, at least 0.35 m, and the horizontal speed at take-off
+  is kept in the air. Stamina cost = ceil((burden + 0.5) × power × 8 +
+  2) (PK: (power + 1) × 100); the server deducts it and would send the
+  character falling anyway, so the client caps the power at
+  (stamina − 2) / (burden × 8 + 4) and refuses below 2 stamina.
 * Moving items: DropItem (0x001B: item) puts a carried item on the
   ground in front of the character (the server answers with
   InventoryPutObjectIn3D and creates the object); PutItemInContainer
