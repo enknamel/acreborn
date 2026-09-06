@@ -177,10 +177,19 @@ pub fn plan_for(
     // the start, or where a portal comes out. Only the ones this
     // character may take are in the search: walking to a portal that
     // turns us away wastes the whole trip.
+    // Landblocks that have a portal standing in them: coming out inside
+    // one of those is safe, because there is a way on. A portal whose
+    // exit is indoors somewhere with no portal of its own is a one-way
+    // trip into a dungeon the planner cannot walk out of.
+    let mut has_portal = std::collections::HashSet::new();
+    for p in portals::all() {
+        has_portal.insert(p.from_cell & 0xFFFF_0000);
+    }
     let usable: Vec<&Portal> = portals::all()
         .iter()
         .filter(|p| level == 0 || p.usable_by(level, quests_done))
         .filter(|p| !avoid.iter().any(|a| a.distance(p.from_xy()) < 2.0))
+        .filter(|p| p.exit_outdoors() || has_portal.contains(&(p.to_cell & 0xFFFF_0000)))
         .collect();
     let portals = &usable[..];
     let mut nodes = vec![Node {

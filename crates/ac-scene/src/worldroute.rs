@@ -85,9 +85,10 @@ pub fn find(grid: &WorldGrid, region: &Region, from: Vec2, to: Vec2) -> Option<V
 }
 
 /// How dearly a route pays to pass near something in `avoid`.
-pub const AVOID_FACTOR: f32 = 12.0;
-/// How close counts as near it, metres.
-pub const AVOID_RADIUS: f32 = 14.0;
+pub const AVOID_FACTOR: f32 = 25.0;
+/// How close counts as near it, metres. Wider than the lattice spacing,
+/// so a portal sitting between two vertices still makes both dear.
+pub const AVOID_RADIUS: f32 = 34.0;
 
 /// [`find`], keeping away from the spots in `avoid` where it can. A
 /// portal swallows whoever walks into it, so a route that is not meant
@@ -226,8 +227,10 @@ impl Land<'_> {
             cost *= FRESH_WATER_FACTOR;
         }
         if !self.avoid.is_empty() {
+            let aw = WorldGrid::vertex_world(a.0, a.1);
             let bw = WorldGrid::vertex_world(b.0, b.1);
-            if self.avoid.iter().any(|p| p.distance(bw) < AVOID_RADIUS) {
+            let near = |p: &Vec2| p.distance(aw) < AVOID_RADIUS || p.distance(bw) < AVOID_RADIUS;
+            if self.avoid.iter().any(near) {
                 cost *= AVOID_FACTOR;
             }
         }
