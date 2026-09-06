@@ -329,9 +329,13 @@ impl World {
             return Applied::Ignored;
         };
         match op {
-            opcode::OBJECT_CREATE => match ObjectCreate::parse(body) {
+            // UpdateObject carries the same description as CreateObject:
+            // the object re-described (a hook that now shows the item hung
+            // on it, a changed appearance). Runtime state stays.
+            opcode::OBJECT_CREATE | opcode::UPDATE_OBJECT => match ObjectCreate::parse(body) {
                 Ok(oc) => {
                     let is_player = self.player_guid == Some(oc.guid);
+                    let previous = self.objects.remove(&oc.guid);
                     if oc.object_desc_flags & object_desc_flags::PLAYER != 0 {
                         tracing::debug!(
                             "player object {} ({:#010x}): position {:?} setup {:#010x} no_draw {} parent {:?}",
@@ -373,13 +377,13 @@ impl World {
                         wielder: oc.wielder,
                         valid_locations: oc.valid_locations,
                         wielded_location: oc.wielded_location,
-                        health: None,
+                        health: previous.as_ref().and_then(|o| o.health),
                         palette_id: oc.palette_id,
                         sub_palettes: oc.sub_palettes,
                         texture_changes: oc.texture_changes,
                         anim_part_changes: oc.anim_part_changes,
-                        motion: Motion::default(),
-                        commands: CommandQueue::default(),
+                        motion: previous.as_ref().map(|o| o.motion).unwrap_or_default(),
+                        commands: previous.map(|o| o.commands).unwrap_or_default(),
                         display: oc.position,
                         target: None,
                     };
@@ -544,6 +548,10 @@ impl World {
                             if let Some((c, items)) = &mut self.open_container {
                                 if *c != container {
                                     items.retain(|g| *g != item);
+                                } else if !items.contains(&item) {
+                                    // Stored into the chest (or hook) we are
+                                    // looking into: it shows up there.
+                                    items.push(item);
                                 }
                             }
                             Applied::Inventory

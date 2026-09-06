@@ -854,6 +854,20 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   WeenieDesc (flag 0x4000000: version, open, monarch, hash table of
   guid to permission), re-sent to nearby players as
   HouseUpdateRestrictions 0x0248 when it changes.
+* **Hooks and storage**: both are containers (ItemType 0x200) standing
+  in the house. Hooks carry one item: use the hook (it opens like a
+  chest, empty) and PutItemInContainer (item, hook) hangs it; the server
+  answers "The container is closed" (0x3EE) when the hook was not opened
+  first, so the client opens a world container and stores once its
+  contents arrive. A hooked item re-models the hook (UpdateObject with
+  the item's setup and name, the item itself stays hidden inside);
+  using the hook again shows the item as the hook's contents, and taking
+  it puts it back in the pack. Storage chests open for the owner and
+  guests with storage permission ("You do not have permission to access
+  Storage" otherwise) and hold up to their capacity. Dropping a carried
+  item onto a hook or chest in the world does the whole sequence; the
+  script `put_in(item, container)` does too. Verified in the Holtburg
+  apartment: dagger hooked and taken back, scarab stored and retrieved.
 * `/house` (TeleToHouse 0x0262) recalls to the house, `/mansion`
   (0x0278) to the allegiance's; both refused while the Training Academy
   recall lock is set.

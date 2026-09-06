@@ -673,12 +673,25 @@ impl Api for CtxApi<'_, '_> {
 
     fn put_in(&mut self, item: i64, container: i64) -> bool {
         let c = self.client();
+        let me = c.world.player_guid;
         let container = if container == 0 {
-            c.world.player_guid.unwrap_or(0)
+            me.unwrap_or(0)
         } else {
             container as u32
         };
-        c.put_in_container(item as u32, container)
+        let item = item as u32;
+        // Our own packs take the item directly; a container in the world
+        // is opened first when needed.
+        let carried_pack = Some(container) == me
+            || c.world
+                .objects
+                .get(&container)
+                .is_some_and(|o| o.container == me);
+        if carried_pack {
+            c.put_in_container(item, container)
+        } else {
+            c.store_in(item, container)
+        }
     }
 
     fn friends(&mut self) -> Array {

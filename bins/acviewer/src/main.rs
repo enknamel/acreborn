@@ -492,10 +492,20 @@ impl App {
             .objects
             .get(&item)
             .is_some_and(|o| o.item_type & item_type::USABLE_ON_TARGET != 0);
+        // A chest, a house hook or a storage chest in the world takes the
+        // item (PutItemInContainer); creatures are handed it.
+        let container = target.filter(|g| {
+            c.world.objects.get(g).is_some_and(|o| {
+                o.item_type & item_type::CONTAINER != 0 && o.item_type & item_type::CREATURE == 0
+            })
+        });
         match (receiver, target) {
             // A kit on a player, a key on a chest, a stone on an item.
             (_, Some(t)) if usable => {
                 c.use_on(item, t);
+            }
+            (_, Some(t)) if container == Some(t) => {
+                c.store_in(item, t);
             }
             (Some(t), _) => {
                 c.give(t, item, None);

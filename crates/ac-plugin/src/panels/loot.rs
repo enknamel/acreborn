@@ -147,7 +147,7 @@ impl Plugin for Loot {
             }
             if let Some(container) = c.world.open_container.as_ref().map(|(g, _)| *g) {
                 for item in actions.store {
-                    c.put_in_container(item, container);
+                    c.store_in(item, container);
                 }
             }
             if actions.close {

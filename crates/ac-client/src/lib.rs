@@ -142,6 +142,9 @@ pub struct Client {
     /// server refuses a second pickup while one is in progress).
     pub loot_queue: std::collections::VecDeque<u32>,
     pub loot_inflight: Option<(u32, Instant)>,
+    /// An item to put into a world container (chest, hook, storage) once
+    /// the server has opened it for us: (item, container, asked at).
+    pub pending_store: Option<(u32, u32, Instant)>,
     pub selected: Option<u32>,
     /// The salvage window is open (an Ust was used); the panel closes it.
     pub salvage_open: bool,
@@ -238,6 +241,7 @@ impl Client {
             waves: Default::default(),
             loot_queue: Default::default(),
             loot_inflight: None,
+            pending_store: None,
             selected: None,
             salvage_open: false,
             pending_jump: None,
@@ -520,6 +524,7 @@ impl Client {
         }
         self.tick_combat();
         self.tick_loot();
+        self.tick_store();
         // Build the static scene once the player is placed.
         if self.scene_block.is_none() {
             if let Some(p) = self.world.player().and_then(|o| o.position) {
@@ -1454,6 +1459,45 @@ impl Client {
         self.session
             .send_action(action::PUT_ITEM_IN_CONTAINER, &w.finish());
         true
+    }
+
+    /// Put a carried item into a container standing in the world (a chest,
+    /// a house hook or a storage chest). The server only takes items into
+    /// an open container ("The container is closed" otherwise), so when it
+    /// is not the one we are looking into this uses it first and stores
+    /// the item once its contents arrive. False when the item is not ours.
+    pub fn store_in(&mut self, item: u32, container: u32) -> bool {
+        let me = self.world.player_guid;
+        let ours = self
+            .world
+            .objects
+            .get(&item)
+            .is_some_and(|o| me.is_some() && (o.container == me || o.wielder == me));
+        if !ours {
+            return false;
+        }
+        if self.world.open_container.as_ref().map(|(g, _)| *g) == Some(container) {
+            return self.put_in_container(item, container);
+        }
+        tracing::info!("store {item:#010x} in {container:#010x}: opening it first");
+        self.pending_store = Some((item, container, Instant::now()));
+        self.interact(container);
+        true
+    }
+
+    /// Finish a `store_in` once its container is open; give up after a
+    /// few seconds (out of reach, no permission).
+    fn tick_store(&mut self) {
+        let Some((item, container, since)) = self.pending_store else {
+            return;
+        };
+        if self.world.open_container.as_ref().map(|(g, _)| *g) == Some(container) {
+            self.pending_store = None;
+            self.put_in_container(item, container);
+        } else if since.elapsed() > Duration::from_secs(5) {
+            tracing::info!("store {item:#010x}: {container:#010x} did not open");
+            self.pending_store = None;
+        }
     }
 
     /// Hand a carried item (or `amount` of a stack; the whole stack when
