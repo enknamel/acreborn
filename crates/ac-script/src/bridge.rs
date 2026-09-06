@@ -673,6 +673,15 @@ impl Api for CtxApi<'_, '_> {
         c.put_in_container(item as u32, container)
     }
 
+    fn split(&mut self, item: i64, amount: i64) -> bool {
+        self.client()
+            .split_stack(item as u32, None, amount.max(0) as u32)
+    }
+
+    fn merge(&mut self, from: i64, to: i64) -> bool {
+        self.client().merge_stacks(from as u32, to as u32, None)
+    }
+
     fn take_all(&mut self) -> i64 {
         let c = self.client();
         let items: Vec<u32> = c

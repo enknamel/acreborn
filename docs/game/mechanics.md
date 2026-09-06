@@ -543,10 +543,18 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   Iron Scarabs" / "X gives you 50 Iron Scarabs"; the receiver must allow
   gifts in their character options and be within reach).
 * Picking up: `R` on an object, `F` moves the selected item into the
-  preferred pack (the last opened pack, or the main pack). Stacks merge
-  automatically; splitting uses a slider or amount box on the selected
-  target bar (StackableMerge 0x0054, StackableSplitToContainer 0x0055,
-  StackableSplitTo3D 0x0056, StackableSplitToWield 0x019B).
+  preferred pack (the last opened pack, or the main pack). Stacks:
+  StackableMerge 0x0054 (from, to, amount) moves part or all of one
+  stack into another of the same weenie (capped at the target's maximum
+  stack size, the WeenieDesc's MaxStackSize; the rest stays),
+  StackableSplitToContainer 0x0055 (stack, container, placement, amount)
+  makes a new stack in a pack, StackableSplitTo3D 0x0056 (stack, amount)
+  drops part of one, StackableSplitToWield 0x019B (stack, EquipMask,
+  amount) wields part (ammo). The server answers with the new object and
+  SetStackSize / InventoryServerSaveFailed ("Split amount not valid!").
+  In the client: right-click a stack in the pack for a split slider,
+  drag a stack onto another of its kind to merge; scripts `split(guid,
+  n)` and `merge(from, to)`.
 * **Shortcut slots**: 9 numbered slots at the bottom of the inventory
   panel, one item each, used with the number keys (Ctrl+number while a
   spell bar is up). Persisted server side: AddShortCut (0x019C) /

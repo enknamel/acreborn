@@ -98,6 +98,10 @@ pub struct Item {
     /// A side pack: other items can be dropped into it.
     pub container: bool,
     pub icon: IconLayers,
+    pub wcid: u32,
+    /// Largest stack of this item; above 1, another stack of the same
+    /// kind dropped on it merges.
+    pub max_stack: u32,
 }
 
 /// A carried item being dragged (egui drag-and-drop payload). Drop it on
@@ -121,6 +125,8 @@ impl Item {
             wielded,
             container: o.item_type & ac_world::item_type::CONTAINER != 0,
             icon: IconLayers::of(o),
+            wcid: o.weenie_class_id,
+            max_stack: o.max_stack_size,
         }
     }
 

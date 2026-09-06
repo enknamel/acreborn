@@ -37,6 +37,10 @@ pub struct Actions {
     /// An item dragged onto another item: (item, target), used on it
     /// (a salvage bag tinkers, a mana stone charges, a key unlocks).
     pub apply: Vec<(u32, u32)>,
+    /// A stack dragged onto a stack of the same kind: (from, to).
+    pub merge: Vec<(u32, u32)>,
+    /// Right-clicked stack: open the split popup for it.
+    pub split_of: Option<u32>,
 }
 
 /// Draw the panel: double-click uses an item, dragging one onto a side
@@ -111,9 +115,18 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, items: &[Item]) -> Acti
                         if r.inner.double_clicked() {
                             actions.activated.push(it.guid);
                         }
+                        if r.inner.secondary_clicked() && it.stack > 1 {
+                            actions.split_of = Some(it.guid);
+                        }
                         if let Some(p) = dropped {
                             if p.0 != it.guid {
-                                actions.apply.push((p.0, it.guid));
+                                let same_kind = it.max_stack > 1
+                                    && items.iter().any(|o| o.guid == p.0 && o.wcid == it.wcid);
+                                if same_kind {
+                                    actions.merge.push((p.0, it.guid));
+                                } else {
+                                    actions.apply.push((p.0, it.guid));
+                                }
                             }
                         }
                     }
@@ -127,6 +140,46 @@ pub struct Inventory {
     source: Source<Vec<Item>>,
     /// Open (I toggles it). Starts open.
     pub show: bool,
+    /// The split popup: (stack guid, amount chosen so far).
+    split: Option<(u32, u32)>,
+}
+
+/// The split popup: a slider from 1 to stack - 1 and a Split button.
+/// Returns Some(amount) when confirmed, and clears `split` on cancel.
+pub fn draw_split(
+    egui: &egui::Context,
+    item: &Item,
+    split: &mut Option<(u32, u32)>,
+) -> Option<u32> {
+    let mut result = None;
+    let rect = egui.viewport_rect();
+    let Some((_, amount)) = split.as_mut() else {
+        return None;
+    };
+    let mut open = true;
+    egui::Window::new("split_stack")
+        .title_bar(false)
+        .resizable(false)
+        .fade_in(false)
+        .frame(super::frame(220, 10))
+        .fixed_pos(egui::pos2(rect.width() * 0.5 - 140.0, rect.height() * 0.4))
+        .show(egui, |ui| {
+            title(ui, format!("Split {} ({})", item.name, item.stack));
+            ui.add(egui::Slider::new(amount, 1..=item.stack.saturating_sub(1).max(1)).text("take"));
+            ui.horizontal(|ui| {
+                if ui.button("Split").clicked() {
+                    result = Some(*amount);
+                    open = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    open = false;
+                }
+            });
+        });
+    if !open {
+        *split = None;
+    }
+    result
 }
 
 impl Default for Inventory {
@@ -134,6 +187,7 @@ impl Default for Inventory {
         Inventory {
             source: Source::Live,
             show: true,
+            split: None,
         }
     }
 }
@@ -147,6 +201,8 @@ pub fn demo_item(guid: u32, name: &str, stack: u32, wielded: bool, icon: u32) ->
         wielded,
         container: false,
         icon: IconLayers::single(icon),
+        wcid: 0,
+        max_stack: if stack > 1 { 100 } else { 1 },
     }
 }
 
@@ -165,6 +221,7 @@ impl Inventory {
                 demo_item(8, "Demo item 0x0600321E", 1, false, 0x0600_321E),
             ]),
             show: true,
+            split: None,
         }
     }
 }
@@ -184,9 +241,36 @@ impl Plugin for Inventory {
         };
         let Some(items) = items else { return };
         let actions = draw(egui, cx.icons(), &items);
+        if let Some(g) = actions.split_of {
+            let stack = items
+                .iter()
+                .find(|i| i.guid == g)
+                .map(|i| i.stack)
+                .unwrap_or(0);
+            if stack > 1 {
+                self.split = Some((g, (stack / 2).max(1)));
+            }
+        }
+        let mut split_now = None;
+        if let Some((g, _)) = self.split {
+            match items.iter().find(|i| i.guid == g) {
+                Some(it) => {
+                    if let Some(n) = draw_split(egui, it, &mut self.split) {
+                        split_now = Some((g, n));
+                    }
+                }
+                None => self.split = None,
+            }
+        }
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
+            if let Some((g, n)) = split_now {
+                c.split_stack(g, None, n);
+            }
             for g in actions.activated {
                 c.interact(g);
+            }
+            for (from, to) in actions.merge {
+                c.merge_stacks(from, to, None);
             }
             for (item, target) in actions.apply {
                 c.use_on(item, target);

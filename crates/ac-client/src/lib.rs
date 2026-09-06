@@ -1540,6 +1540,87 @@ impl Client {
         true
     }
 
+    /// Split `amount` off a carried stack into a container (our main
+    /// pack when None; StackableSplitToContainer 0x0055). The server
+    /// creates the new stack and updates the old one's size. False when
+    /// the amount is not below the stack size.
+    pub fn split_stack(&mut self, item: u32, container: Option<u32>, amount: u32) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let Some(o) = self.world.objects.get(&item) else {
+            return false;
+        };
+        if me.is_none() || o.container != me && o.wielder != me {
+            return false;
+        }
+        if amount == 0 || amount >= o.stack_size {
+            return false;
+        }
+        let target = container.or(me).unwrap_or(0);
+        tracing::info!(
+            "split {} off {} ({item:#010x}) into {target:#010x}",
+            amount,
+            o.name
+        );
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(item).u32(target).i32(0).i32(amount as i32);
+        self.session
+            .send_action(action::STACKABLE_SPLIT_TO_CONTAINER, &w.finish());
+        true
+    }
+
+    /// Drop `amount` of a carried stack on the ground
+    /// (StackableSplitTo3D 0x0056); the whole stack goes with `drop_item`.
+    pub fn split_to_ground(&mut self, item: u32, amount: u32) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let Some(o) = self.world.objects.get(&item) else {
+            return false;
+        };
+        if me.is_none() || o.container != me || amount == 0 || amount >= o.stack_size {
+            return false;
+        }
+        tracing::info!("drop {} of {} ({item:#010x})", amount, o.name);
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(item).i32(amount as i32);
+        self.session
+            .send_action(action::STACKABLE_SPLIT_TO_3D, &w.finish());
+        true
+    }
+
+    /// Merge a carried stack into another of the same kind
+    /// (StackableMerge 0x0054: from, to, amount; the whole source when
+    /// `amount` is None). The server caps at the target's maximum stack
+    /// and leaves the rest in the source.
+    pub fn merge_stacks(&mut self, from: u32, to: u32, amount: Option<u32>) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let (Some(a), Some(b)) = (self.world.objects.get(&from), self.world.objects.get(&to))
+        else {
+            return false;
+        };
+        if me.is_none()
+            || from == to
+            || a.container != me
+            || (b.container != me && b.wielder != me)
+            || a.weenie_class_id != b.weenie_class_id
+            || b.max_stack_size <= 1
+        {
+            return false;
+        }
+        let amount = amount.unwrap_or(a.stack_size).clamp(1, a.stack_size);
+        tracing::info!(
+            "merge {} of {} ({from:#010x}) into {to:#010x}",
+            amount,
+            a.name
+        );
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(from).u32(to).i32(amount as i32);
+        self.session
+            .send_action(action::STACKABLE_MERGE, &w.finish());
+        true
+    }
+
     /// Jump on the next tick with `power` 0..=1 (a script's or bot's
     /// jump; the window charges one by holding the key). Capped by the
     /// stamina left; nothing happens in the air.

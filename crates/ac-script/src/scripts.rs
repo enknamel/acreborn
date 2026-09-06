@@ -519,6 +519,12 @@ mod tests {
         fn put_in(&mut self, _i: i64, _c: i64) -> bool {
             false
         }
+        fn split(&mut self, _i: i64, _n: i64) -> bool {
+            false
+        }
+        fn merge(&mut self, _f: i64, _t: i64) -> bool {
+            false
+        }
         fn take_all(&mut self) -> i64 {
             self.record("take_all");
             0

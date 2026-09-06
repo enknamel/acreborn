@@ -1234,6 +1234,13 @@ pub mod action {
     /// Salvage with an Ust: tool guid, count, item guids (ACE names it
     /// after the retail client's "create tinkering tool" verb).
     pub const CREATE_TINKERING_TOOL: u32 = 0x027D;
+    /// Stacks: merge (from, to, amount), split into a container (stack,
+    /// container, placement, amount), onto the ground (stack, amount)
+    /// or into a wield slot (stack, EquipMask, amount).
+    pub const STACKABLE_MERGE: u32 = 0x0054;
+    pub const STACKABLE_SPLIT_TO_CONTAINER: u32 = 0x0055;
+    pub const STACKABLE_SPLIT_TO_3D: u32 = 0x0056;
+    pub const STACKABLE_SPLIT_TO_WIELD: u32 = 0x019B;
     /// Housing (see docs/game/mechanics.md, section 9).
     pub const BUY_HOUSE: u32 = 0x021C;
     pub const HOUSE_QUERY: u32 = 0x021E;

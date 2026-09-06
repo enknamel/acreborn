@@ -166,6 +166,8 @@ pub struct ObjectCreate {
     /// Structure (uses left, salvage units) and its maximum, 0 unless sent.
     pub structure: u32,
     pub max_structure: u32,
+    /// Largest stack of this item (1 for unstackable things).
+    pub max_stack_size: u32,
     /// EquipMask bits the item can be wielded in.
     pub valid_locations: u32,
     pub wielded_location: u32,
@@ -268,6 +270,8 @@ pub struct WeenieDesc {
     /// Structure (uses left, salvage units) and its maximum, 0 unless sent.
     pub structure: u32,
     pub max_structure: u32,
+    /// Largest stack of this item (1 for unstackable things).
+    pub max_stack_size: u32,
 }
 
 impl WeenieDesc {
@@ -332,9 +336,11 @@ impl WeenieDesc {
         } else {
             1
         };
-        if weenie_flags & MAX_STACK_SIZE != 0 {
-            r.u16()?;
-        }
+        let max_stack_size = if weenie_flags & MAX_STACK_SIZE != 0 {
+            (r.u16()? as u32).max(1)
+        } else {
+            1
+        };
         let container = if weenie_flags & CONTAINER != 0 {
             Some(r.u32()?).filter(|&c| c != 0)
         } else {
@@ -453,6 +459,7 @@ impl WeenieDesc {
             workmanship,
             structure,
             max_structure,
+            max_stack_size,
         })
     }
 }
@@ -644,6 +651,7 @@ impl ObjectCreate {
             workmanship,
             structure,
             max_structure,
+            max_stack_size,
         } = WeenieDesc::parse(&mut r)?;
         Ok(ObjectCreate {
             guid,
@@ -682,6 +690,7 @@ impl ObjectCreate {
             workmanship,
             structure,
             max_structure,
+            max_stack_size,
             valid_locations,
             wielded_location,
             no_draw: physics_state & (PHYSICS_STATE_NO_DRAW | PHYSICS_STATE_HIDDEN) != 0,

@@ -41,6 +41,8 @@ pub fn view(c: &Client) -> Option<TradeView> {
                 wielded: false,
                 container: false,
                 icon: Default::default(),
+                wcid: 0,
+                max_stack: 1,
             })
     };
     Some(TradeView {
@@ -168,6 +170,8 @@ impl Trade {
             wielded: false,
             container: false,
             icon: crate::icons::IconLayers::single(icon),
+            wcid: 0,
+            max_stack: 1,
         };
         Trade {
             source: Source::Demo(TradeView {

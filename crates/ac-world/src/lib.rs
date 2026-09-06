@@ -111,6 +111,8 @@ pub struct WorldObject {
     /// Uses left (a salvage bag's units), and the maximum.
     pub structure: u32,
     pub max_structure: u32,
+    /// Largest stack of this item, 1 when it does not stack.
+    pub max_stack_size: u32,
     /// Container holding this item (a pack, or a creature's inventory).
     pub container: Option<u32>,
     /// Creature wielding this item.
@@ -334,6 +336,7 @@ impl World {
                         workmanship: oc.workmanship,
                         structure: oc.structure,
                         max_structure: oc.max_structure,
+                        max_stack_size: oc.max_stack_size,
                         container: oc.container,
                         wielder: oc.wielder,
                         valid_locations: oc.valid_locations,
