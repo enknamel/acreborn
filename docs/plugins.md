@@ -267,7 +267,8 @@ shown"),
 plaque), `appraisal` (Z; shows the last thing assessed, and never opens by
 itself), `salvage`
 (opens when the Ust is used), `confirm` (the
-server's Yes/No questions), `options` (X), `combat` (the height/power bar). Each
+server's Yes/No questions), `options` (X), `combat` (the height/power bar),
+`autoplay` (J; see below). Each
 has the same three parts, so any of them is a template for a UI plugin:
 
 * `view(&Client) -> View`: a plain struct of what to draw, built from the
@@ -298,8 +299,26 @@ no server; `Ctx::try_client()` is `None` there. To replace a panel,
 register your own plugin instead of it in `builtin()`; the skills panel
 publishes whether it is open on the blackboard (`panels::skills::OPEN_KEY`)
 so the spellbook can sit beside it, a small example of panels talking. The
-spellbook and spell bar do the same (`panels::spellbook::OPEN_KEY`,
+spellbook, components, spell bar and autoplay panels do the same
+(`panels::spellbook::OPEN_KEY`, `panels::components::OPEN_KEY`,
 `panels::spellbar::{SHOWN_KEY, VISIBLE_KEY}`).
+
+**autoplay** (J) is the panel over `ac_client::autoplay`, the rules the
+character follows when nobody is at the keyboard: a "Play on its own"
+checkbox on `client.autoplay.config.enabled`, a line reading
+`autoplay.doing.label()` and `autoplay.status` ("fighting Drudge
+Skulker"), and a section per rule group — Stay alive (heal and break-off
+health as percentage sliders, healing kits, the healing spell), Buffs (the
+spells to keep up, how many seconds before they run out to recast, whether
+to bother in combat), Fight (radius, and the names to take on or leave
+alone) and Loot (searches in the inventory's own language, plus names
+always or never taken). The five editable lists share one helper (a row
+per entry with an `x`, and an add line); beside each loot search is the
+number of carried items it matches right now (`client.item_stats()` run
+through `ac_client::items::Query`, counted once a frame), so a rule can be
+checked before it is trusted. The whole `Config` is edited in place on the
+session and stored under `autoplay.config`, then handed to each session as
+it appears, so the rules survive a restart.
 
 The magic panels follow `docs/game/mechanics.md` (section 1) and build on
 `ac_client::magic`:

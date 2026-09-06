@@ -118,7 +118,11 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # *cheer* and some seventy other emotes typed between asterisks, or as
 # /wave, animate and say the line), H housing (your house, guests,
 # recall; use a house sign to see its price and buy it), N the social
-# panel (your title, friends with who is online, squelches), X the character
+# panel (your title, friends with who is online, squelches), J the rules
+# for playing on its own (heal and break off at a health you set, keep
+# buffs up, fight what you name and skip what you do not, take the loot
+# that matches an inventory search, each search counting the carried items
+# it would take; a line says what it is doing), X the character
 # options (every panel can be dragged anywhere by its empty space; the
 # options panel's "Reset window layout" puts them all back); server
 # questions such as a fellowship invitation or an oath pop up with Yes/No;

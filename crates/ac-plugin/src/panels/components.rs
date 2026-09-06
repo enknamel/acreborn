@@ -19,6 +19,10 @@ use super::{caption, has_sheet, title, window, Source};
 use crate::icons::{IconCache, IconLayers};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
+/// Whether this panel is open, on the bus: the panels that share the
+/// left column (see [`super::autoplay`]) step aside for it.
+pub const OPEN_KEY: &str = "panels.components_open";
+
 /// Highest desired quantity the server accepts.
 pub const MAX_DESIRED: u32 = 999;
 
@@ -366,6 +370,7 @@ impl Plugin for Components {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        cx.board.set(OPEN_KEY, self.show);
         if !self.show {
             return;
         }
