@@ -149,3 +149,53 @@ fn air_cells_above_the_meeting_hall_have_no_floor() {
     assert!(!pl.is_airborne(), "still airborne at {end}");
     assert!(end.z.abs() < 0.05 && end.y > -35.0, "ended at {end}");
 }
+
+/// A jump off a Holtburg hill must land on the ground, not under it, and
+/// walking out of a building and jumping must not fall for ever (the
+/// character still carries the building's interior cell id, which used to
+/// stop the terrain from catching them).
+#[test]
+fn jumps_on_holtburg_hills_land_on_the_ground() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(std::path::Path::new(&dir)).unwrap();
+    let block = 0xA9B4_0000;
+    let scene = landblock::load(&assets, block).unwrap();
+    let mut bad = Vec::new();
+    for (x, y) in [(76.0, 88.0), (16.0, 100.0), (28.0, 136.0), (100.0, 36.0)] {
+        let z = scene.terrain.height_at(Vec3::new(x, y, 0.0)).unwrap();
+        for deg in (0..360).step_by(45) {
+            let start = Vec3::new(x, y, z);
+            let cell = ac_world::outdoor_cell(block, start);
+            let mut pl = Player::new(
+                &assets,
+                cell,
+                start,
+                Quat::from_rotation_z((deg as f32).to_radians()),
+            );
+            pl.set_motion_table(&assets, 0x0200_0001, 0x0900_0001);
+            pl.max_jump_power = 1.0;
+            for frame in 0..300 {
+                let input = Input {
+                    forward: 1.0,
+                    strafe: 0.0,
+                    run: true,
+                    jump: false,
+                    jump_held: false,
+                };
+                if frame == 30 {
+                    pl.jump(1.0);
+                }
+                pl.update(&assets, &input, 1.0 / 60.0);
+            }
+            let end = pl.world_position() - ac_scene::lbid::world_origin(block);
+            let ground = scene.terrain.height_at(Vec3::new(end.x, end.y, 0.0));
+            let under = ground.map(|g| g - end.z).unwrap_or(0.0);
+            if pl.is_airborne() || under > 2.0 {
+                bad.push((x, y, deg, end, ground, pl.is_airborne()));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "ended under the ground: {bad:?}");
+}

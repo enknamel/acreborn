@@ -856,6 +856,22 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   and a jump from the balcony or the stair top ended standing on it,
   boxed in: "stuck at the floor's level in the air above the stairs".
   `ac-scene --example env_survey` counts such cells.
+* **One terrain surface.** Each terrain cell is two triangles, and which
+  diagonal splits it comes from the original's hash of the block and cell
+  coordinates (`terrain::split_dir`): true cuts from the lower right to
+  the top left, false from the lower left to the top right. The physics
+  sampler used the opposite diagonal from the drawn mesh, so on any cell
+  whose four corners are not level the character walked at a height the
+  ground was not drawn at, and a jump off a Holtburg hill ended metres
+  under it. A test now checks the two agree over four landblocks, and
+  `ac-client --example fall_scan BLOCK` jumps from a grid of spots and
+  reports any ending below the ground.
+* **Terrain is the last resort outdoors.** A falling character is caught
+  by the terrain unless they are in a dungeon or standing on an interior
+  floor. A character who walks out of a building still carries its cell
+  id, so "indoors" alone must not stop the catch: with no floor under
+  them at all the terrain takes them, while a cellar's own floor still
+  wins.
 * **Landing and headroom.** A falling character lands on any floor up
   to a step (0.6 m) above its feet, so a jump that arrives a few
   centimetres under a ledge's top stands on the ledge instead of passing

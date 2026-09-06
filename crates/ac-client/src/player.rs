@@ -725,7 +725,15 @@ impl Player {
             }
             // Terrain catches us outdoors (or when the floor we would land
             // on is outdoor geometry below the ground).
-            if dz < 0.0 && !dungeon && (!indoors || landed.map(|(_, c)| c == 0).unwrap_or(false)) {
+            // Terrain is the last resort outside a dungeon: it catches us
+            // when we are not in an interior cell, when the floor we would
+            // land on is outdoor geometry, and when there is no floor at
+            // all. That last case is a character who walked out of a
+            // building (still carrying its cell id) and jumped: with only
+            // the first two rules nothing caught them and they fell
+            // through the ground for ever. A cellar's own floor still wins,
+            // so being under the terrain indoors is unaffected.
+            if dz < 0.0 && !dungeon && (!indoors || landed.is_none_or(|(_, c)| c == 0)) {
                 if let Some(t) = self.terrain_at(assets, world) {
                     let above_landing = landed.map(|(l, _)| t > l.z).unwrap_or(true);
                     if t >= world.z + dz && above_landing {

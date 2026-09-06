@@ -161,24 +161,31 @@ impl<'a> TerrainSampler<'a> {
         let lr = self.vertex(cx + 1, cy);
         let tl = self.vertex(cx, cy + 1);
         let tr = self.vertex(cx + 1, cy + 1);
+        // The same two triangles the mesh draws (`terrain::build`), which
+        // is also how the original splits a cell: `split_dir` true cuts
+        // from the lower right to the top left, false from the lower left
+        // to the top right. These used to be the other way round, so on
+        // any cell whose corners are not level the character walked at a
+        // height the ground was not drawn at, and off a hill it ended up
+        // metres under it.
         let tri = if split_dir(
             lbid::block_x(self.lb.id),
             lbid::block_y(self.lb.id),
             cx as u32,
             cy as u32,
         ) {
-            // Diagonal TL-LR: lower-right triangle when fx > fy.
-            if fx > fy {
-                [ll, lr, tr]
-            } else {
-                [ll, tr, tl]
-            }
-        } else {
-            // Diagonal LL-TR... the other split: triangles (ll, lr, tl) and (lr, tr, tl).
+            // Diagonal LR-TL: the lower-left triangle when fx + fy < 1.
             if fx + fy < 1.0 {
                 [ll, lr, tl]
             } else {
                 [lr, tr, tl]
+            }
+        } else {
+            // Diagonal LL-TR: the lower-right triangle when fx > fy.
+            if fx > fy {
+                [ll, lr, tr]
+            } else {
+                [ll, tr, tl]
             }
         };
         let n = (tri[1] - tri[0])

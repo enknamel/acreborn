@@ -329,3 +329,45 @@ fn world_grid_matches_the_terrain_mesh() {
         grid.height(0xA9 * 8 + 4, 0xB4 * 8 + 4)
     );
 }
+
+/// The terrain the character walks on and the terrain that is drawn must
+/// be the same surface. Each cell is two triangles and which diagonal
+/// splits it comes from `split_dir`; the sampler used to pick the other
+/// one, so on any cell whose corners are not level the two disagreed by
+/// metres and a jump off a Holtburg hill ended under the ground.
+#[test]
+fn the_terrain_sampler_agrees_with_the_drawn_mesh() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(dir).unwrap();
+    let region = assets.region().unwrap();
+    let table = &region.land_defs.land_height_table;
+    // Holtburg's hills, the Shoushi coast and the academy.
+    for block in [0xA9B4_0000u32, 0xDA55_0000, 0x8602_0000, 0xC6A9_0000] {
+        let lb = ac_formats::landblock::CellLandblock::parse(
+            block | 0xFFFF,
+            &assets.cell.read(block | 0xFFFF).unwrap(),
+        )
+        .unwrap();
+        let mesh = ac_scene::terrain::build(&lb, table);
+        let sampler = ac_scene::scenery::TerrainSampler::new(&lb, table);
+        let mut checked = 0;
+        for i in 0..=40 {
+            for j in 0..=40 {
+                let p = Vec3::new(i as f32 * 4.7, j as f32 * 4.7, 0.0);
+                let (a, b) = (mesh.height_at(p), sampler.height_at(p));
+                if let (Some(a), Some(b)) = (a, b) {
+                    assert!(
+                        (a - b).abs() < 1e-3,
+                        "{block:#010x} at ({}, {}): mesh {a}, sampler {b}",
+                        p.x,
+                        p.y
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 1500, "{block:#010x}: only {checked} points");
+    }
+}
