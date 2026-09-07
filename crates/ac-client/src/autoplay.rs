@@ -72,7 +72,17 @@ impl Default for Survive {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Buffs {
-    /// Spell names to keep on the character.
+    /// Work the buffs out from the character itself: every Life and
+    /// Creature self-enchantment it knows for the skills it has trained,
+    /// the Item auras for the way it fights, and the armour spells on
+    /// each piece worn; the highest level of each (see `crate::buffs`).
+    pub auto: bool,
+    /// The lowest chance of a cast landing that is still worth the
+    /// mana: a level that fizzles more often than this is passed over
+    /// for the one below it. Half is the point where the school's skill
+    /// equals the spell's power.
+    pub least_chance: f32,
+    /// Spell names to keep on the character as well, by hand.
     pub spells: Vec<String>,
     /// Recast when this many seconds or fewer are left.
     pub recast_within: f32,
@@ -83,6 +93,8 @@ pub struct Buffs {
 impl Default for Buffs {
     fn default() -> Self {
         Buffs {
+            auto: true,
+            least_chance: 0.5,
             spells: Vec::new(),
             recast_within: 30.0,
             out_of_combat_only: true,
@@ -411,6 +423,10 @@ pub struct Autoplay {
     vulned: Vec<u32>,
     last_vuln: Option<Instant>,
     last_buff: Option<Instant>,
+    /// Enchantments put on items: `(item, category, when, seconds it
+    /// lasts)`. An item's enchantments are not reported the way the
+    /// character's own are, so the cast is remembered instead.
+    item_buffs: Vec<(u32, u32, Instant, f32)>,
     /// The corpse being looted and when we started.
     corpse: Option<(u32, Instant)>,
     /// Corpses already emptied.
@@ -479,6 +495,16 @@ impl Client {
 
     /// Seconds left on the enchantment of a spell family, if any is up.
     fn buff_left(&self, spell: u32) -> Option<f32> {
+        let table = self.assets.spell_table().ok();
+        let sp = table.as_ref().and_then(|t| t.get(spell));
+        match sp {
+            Some(sp) => self.category_left(sp.category, sp.power),
+            None => self.spell_left(spell),
+        }
+    }
+
+    /// Seconds left on this exact spell.
+    fn spell_left(&self, spell: u32) -> Option<f32> {
         let now = self.session.server_time()?;
         self.world
             .stats
@@ -489,6 +515,62 @@ impl Client {
             .fold(None, |acc: Option<f32>, left| {
                 Some(acc.map_or(left, |a| a.max(left)))
             })
+    }
+
+    /// Seconds left on any enchantment of this category at least as
+    /// strong as `power`: Strength Self VI already up means Strength
+    /// Self IV is not wanted, and the other way round it is.
+    fn category_left(&self, category: u32, power: u32) -> Option<f32> {
+        let now = self.session.server_time()?;
+        self.world
+            .stats
+            .enchantments
+            .iter()
+            .filter(|e| e.category as u32 == category && e.power >= power)
+            .map(|e| (e.start_time + e.duration - now) as f32)
+            .fold(None, |acc: Option<f32>, left| {
+                Some(acc.map_or(left, |a| a.max(left)))
+            })
+    }
+
+    /// Seconds left on an enchantment we put on an item, by category,
+    /// from when we cast it and how long the spell lasts.
+    fn item_buff_left(&self, item: u32, category: u32, now: Instant) -> Option<f32> {
+        self.autoplay
+            .item_buffs
+            .iter()
+            .filter(|(g, c, _, _)| *g == item && *c == category)
+            .map(|(_, _, when, lasts)| lasts - now.duration_since(*when).as_secs_f32())
+            .fold(None, |acc: Option<f32>, left| {
+                Some(acc.map_or(left, |a| a.max(left)))
+            })
+    }
+
+    /// The buffs this character should be wearing right now, worked out
+    /// from what it is (see `crate::buffs::wanted`).
+    pub fn wanted_buffs(&self) -> Vec<crate::buffs::Want> {
+        let Ok(table) = self.assets.spell_table() else {
+            return Vec::new();
+        };
+        let trained = crate::buffs::trained_skills(&self.world.stats.skills);
+        let armour: Vec<u32> = self
+            .world
+            .wielded()
+            .filter(|o| {
+                o.item_type & (ac_world::item_type::ARMOR | ac_world::item_type::CLOTHING) != 0
+            })
+            .map(|o| o.guid)
+            .collect();
+        let least = self.autoplay.config.buffs.least_chance;
+        let usable = |id: u32| self.cast_chance(id) >= least;
+        let me = crate::buffs::Character {
+            known: &self.world.stats.spells,
+            trained: &trained,
+            stance: self.combat_stance(),
+            armour: &armour,
+            usable: &usable,
+        };
+        crate::buffs::wanted(&table, &me)
     }
 
     /// Run the rules for this moment. Call it once a frame; it does at
@@ -1232,10 +1314,12 @@ impl Client {
     /// Put a buff back up. True when it cast one.
     fn autoplay_buff(&mut self, now: Instant) -> bool {
         let cfg = self.autoplay.config.buffs.clone();
-        if cfg.spells.is_empty() {
+        if cfg.spells.is_empty() && !cfg.auto {
             return false;
         }
-        if cfg.out_of_combat_only && self.attack_target.is_some() {
+        if cfg.out_of_combat_only
+            && (self.attack_target.is_some() || self.autoplay.casting_at.is_some())
+        {
             return false;
         }
         if self
@@ -1244,6 +1328,50 @@ impl Client {
             .is_some_and(|t| now.duration_since(t) < BUFF_EVERY)
         {
             return false;
+        }
+        if cfg.auto {
+            use crate::buffs::Target;
+            let table = self.assets.spell_table().ok();
+            for want in self.wanted_buffs() {
+                let left = match want.target {
+                    Target::Me => self.category_left(want.category, want.power),
+                    Target::Item(g) => self.item_buff_left(g, want.category, now),
+                };
+                if left.is_some_and(|l| l > cfg.recast_within) {
+                    continue;
+                }
+                if !matches!(self.can_cast(want.spell), crate::magic::CastCheck::Ok) {
+                    continue;
+                }
+                let sp = table.as_ref().and_then(|t| t.get(want.spell));
+                let name = sp.map(|s| s.name.clone()).unwrap_or_default();
+                match want.target {
+                    Target::Me => {
+                        self.cast(want.spell);
+                        self.autoplay.say(Doing::Buffing, format!("casting {name}"));
+                    }
+                    Target::Item(g) => {
+                        let lasts = sp.and_then(|s| s.duration()).unwrap_or(1800.0) as f32;
+                        self.cast_at(want.spell, g);
+                        self.autoplay
+                            .item_buffs
+                            .retain(|(i, c, _, _)| !(*i == g && *c == want.category));
+                        self.autoplay
+                            .item_buffs
+                            .push((g, want.category, now, lasts));
+                        let on = self
+                            .world
+                            .objects
+                            .get(&g)
+                            .map(|o| o.name.clone())
+                            .unwrap_or_default();
+                        self.autoplay
+                            .say(Doing::Buffing, format!("casting {name} on {on}"));
+                    }
+                }
+                self.autoplay.last_buff = Some(now);
+                return true;
+            }
         }
         for name in &cfg.spells {
             let Some(spell) = self.spell_by_name(name) else {

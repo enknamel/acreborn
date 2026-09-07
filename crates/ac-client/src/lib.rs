@@ -5,6 +5,7 @@
 pub mod advance;
 pub mod augmentations;
 pub mod autoplay;
+pub mod buffs;
 pub mod creation;
 pub mod daytime;
 pub mod emotes;
@@ -1246,6 +1247,17 @@ impl Client {
         CastCheck::Ok
     }
 
+    /// Cast `spell` on a particular thing rather than on whatever is
+    /// selected: an item being enchanted, a creature being softened.
+    /// The selection is left as it was.
+    pub fn cast_at(&mut self, spell: u32, target: u32) -> magic::CastCheck {
+        let was = self.selected;
+        self.selected = Some(target);
+        let r = self.try_cast(spell);
+        self.selected = was;
+        r
+    }
+
     pub fn attack(&mut self, guid: u32) {
         self.interrupt_travel("attacking");
         use ac_net::messages::action;
@@ -1395,12 +1407,19 @@ impl Client {
             .iter()
             .map(|s| {
                 let base = table.as_ref().and_then(|t| t.get(s.id));
-                (s.id, stats.skill_value(s, base), s.advancement)
+                (
+                    s.id,
+                    stats.skill_value(s, base),
+                    stats.skill_current(s, base),
+                    s.advancement,
+                )
             })
             .collect();
         let mut attributes = [0u32; 6];
+        let mut attributes_current = [0u32; 6];
         for (i, a) in stats.attributes.iter().enumerate() {
             attributes[i] = a.value();
+            attributes_current[i] = stats.attribute_current(i as u32 + 1);
         }
         let mut vitals = [0u32; 3];
         for i in 0..3 {
@@ -1410,6 +1429,7 @@ impl Client {
             level: stats.level.max(0) as u32,
             skills,
             attributes,
+            attributes_current,
             vitals,
         }
     }

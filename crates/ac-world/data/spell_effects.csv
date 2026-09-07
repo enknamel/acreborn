@@ -1,0 +1,4406 @@
+# What each enchantment changes on whatever it lands on.
+# spell_id,mod_type,mod_key,mod_val,name
+# mod_type is the server's EnchantmentTypeFlags word; its low byte says
+# what kind of statistic (1 attribute, 2 vital, 4 int, 8 float, 0x10
+# skill, 0x80 body armour) and mod_key which one (a skill id, an
+# attribute id, a float property such as a resistance). The name is
+# there to read by; the client matches on the id.
+# Regenerate with reference/scripts/data/spell_effects.sh (reads the
+# ACE world database, the community's reconstruction of retail's server
+# data; the client's SpellTable does not carry the effect).
+1,36865,1,10,Strength Other I
+2,36865,1,10,Strength Self I
+3,36865,1,-10,Weakness Other I
+4,36865,1,-10,Weakness Self I
+15,36880,6,-10,Vulnerability Other I
+16,36880,6,-10,Vulnerability Self I
+17,36880,6,10,Invulnerability Other I
+18,36880,6,10,Invulnerability Self I
+19,20488,67,0.91,Fire Protection Other I
+20,20488,67,0.91,Fire Protection Self I
+21,20488,67,1.1,Fire Vulnerability Other I
+22,20488,67,1.1,Fire Vulnerability Self I
+23,41088,0,20,Armor Other I
+24,41088,0,20,Armor Self I
+25,41088,0,-20,Imperil Other I
+26,41088,0,-20,Imperil Self I
+35,33591300,360,2,Aura of Blood Drinker Self I
+36,36868,44,-2,Blood Loather I
+37,36872,13,0.111,Blade Bane I
+38,36872,13,-0.111,Blade Lure I
+49,33591300,361,-10,Aura of Swift Killer Self I
+50,36868,49,10,Leaden Weapon I
+51,36868,28,20,Impenetrability I
+53,20488,4,1.1,Rejuvenation Other I
+54,20488,4,1.1,Rejuvenation Self I
+159,20488,3,1.1,Regeneration Other I
+160,20488,3,1.25,Regeneration Other II
+161,20488,3,1.4,Regeneration Other III
+162,20488,3,1.55,Regeneration Other IV
+163,20488,3,1.7,Regeneration Other V
+164,20488,3,1.85,Regeneration Other VI
+165,20488,3,1.1,Regeneration Self I
+166,20488,3,1.25,Regeneration Self II
+167,20488,3,1.4,Regeneration Self III
+168,20488,3,1.55,Regeneration Self IV
+169,20488,3,1.7,Regeneration Self V
+170,20488,3,1.85,Regeneration Self VI
+171,20488,3,0.91,Fester Other I
+172,20488,3,0.8,Fester Other II
+173,20488,3,0.71,Fester Other III
+174,20488,3,0.65,Fester Other IV
+175,20488,3,0.59,Fester Other V
+176,20488,3,0.54,Fester Other VI
+178,20488,3,0.91,Fester Self I
+179,20488,3,0.8,Fester Self II
+180,20488,3,0.71,Fester Self III
+181,20488,3,0.65,Fester Self IV
+182,20488,3,0.59,Fester Self V
+183,20488,3,0.54,Fester Self VI
+184,20488,4,1.25,Rejuvenation Other II
+185,20488,4,1.4,Rejuvenation Other III
+186,20488,4,1.55,Rejuvenation Other IV
+187,20488,4,1.7,Rejuvenation Other V
+188,20488,4,1.85,Rejuvenation Other VI
+189,20488,4,1.25,Rejuvenation Self II
+190,20488,4,1.4,Rejuvenation Self III
+191,20488,4,1.55,Rejuvenation Self IV
+192,20488,4,1.7,Rejuvenation Self V
+193,20488,4,1.85,Rejuvenation Self VI
+194,20488,4,0.91,Exhaustion Other I
+195,20488,4,0.8,Exhaustion Other II
+196,20488,4,0.71,Exhaustion Other III
+197,20488,4,0.65,Exhaustion Other IV
+198,20488,4,0.59,Exhaustion Other V
+199,20488,4,0.54,Exhaustion Other VI
+200,20488,4,0.91,Exhaustion Self I
+201,20488,4,0.8,Exhaustion Self II
+202,20488,4,0.71,Exhaustion Self III
+203,20488,4,0.65,Exhaustion Self IV
+204,20488,4,0.59,Exhaustion Self V
+205,20488,4,0.54,Exhaustion Self VI
+206,20488,5,1.1,Mana Renewal Other I
+207,20488,5,1.25,Mana Renewal Other II
+208,20488,5,1.4,Mana Renewal Other III
+209,20488,5,1.55,Mana Renewal Other IV
+210,20488,5,1.7,Mana Renewal Other V
+211,20488,5,1.85,Mana Renewal Other VI
+212,20488,5,1.1,Mana Renewal Self I
+213,20488,5,1.25,Mana Renewal Self II
+214,20488,5,1.4,Mana Renewal Self III
+215,20488,5,1.55,Mana Renewal Self IV
+216,20488,5,1.7,Mana Renewal Self V
+217,20488,5,1.85,Mana Renewal Self VI
+218,20488,5,0.91,Mana Depletion Other I
+219,20488,5,0.8,Mana Depletion Other II
+220,20488,5,0.71,Mana Depletion Other III
+221,20488,5,0.65,Mana Depletion Other IV
+222,20488,5,0.59,Mana Depletion Other V
+223,20488,5,0.54,Mana Depletion Other VI
+224,20488,5,0.91,Mana Depletion Self I
+225,20488,5,0.8,Mana Depletion Self II
+226,20488,5,0.71,Mana Depletion Self III
+227,20488,5,0.65,Mana Depletion Self IV
+228,20488,5,0.59,Mana Depletion Self V
+229,20488,5,0.54,Mana Depletion Self VI
+230,36880,6,-15,Vulnerability Other II
+231,36880,6,-20,Vulnerability Other III
+232,36880,6,-25,Vulnerability Other IV
+233,36880,6,-30,Vulnerability Other V
+234,36880,6,-35,Vulnerability Other VI
+235,36880,6,-15,Vulnerability Self II
+236,36880,6,-20,Vulnerability Self III
+237,36880,6,-25,Vulnerability Self IV
+238,36880,6,-30,Vulnerability Self V
+239,36880,6,-35,Vulnerability Self VI
+240,36880,6,15,Invulnerability Other II
+241,36880,6,20,Invulnerability Other III
+242,36880,6,25,Invulnerability Other IV
+243,36880,6,30,Invulnerability Other V
+244,36880,6,35,Invulnerability Other VI
+245,36880,6,15,Invulnerability Self II
+246,36880,6,20,Invulnerability Self III
+247,36880,6,25,Invulnerability Self IV
+248,36880,6,30,Invulnerability Self V
+249,36880,6,35,Invulnerability Self VI
+250,36880,7,10,Impregnability Other I
+251,36880,7,15,Impregnability Other II
+252,36880,7,20,Impregnability Other III
+253,36880,7,25,Impregnability Other IV
+254,36880,7,30,Impregnability Other V
+255,36880,7,35,Impregnability Other VI
+256,36880,7,10,Impregnability Self I
+257,36880,7,15,Impregnability Self II
+258,36880,7,20,Impregnability Self III
+259,36880,7,25,Impregnability Self IV
+260,36880,7,30,Impregnability Self V
+261,36880,7,35,Impregnability Self VI
+262,36880,7,-10,Defenselessness Other I
+263,36880,7,-15,Defenselessness Other II
+264,36880,7,-20,Defenselessness Other III
+265,36880,7,-25,Defenselessness Other IV
+266,36880,7,-30,Defenselessness Other V
+267,36880,7,-35,Defenselessness Other VI
+268,36880,15,10,Magic Resistance Other I
+269,36880,15,15,Magic Resistance Other II
+270,36880,15,20,Magic Resistance Other III
+271,36880,15,25,Magic Resistance Other IV
+272,36880,15,30,Magic Resistance Other V
+273,36880,15,35,Magic Resistance Other VI
+274,36880,15,10,Magic Resistance Self I
+275,36880,15,15,Magic Resistance Self II
+276,36880,15,20,Magic Resistance Self III
+277,36880,15,25,Magic Resistance Self IV
+278,36880,15,30,Magic Resistance Self V
+279,36880,15,35,Magic Resistance Self VI
+280,36880,15,-10,Magic Yield Other I
+281,36880,15,-15,Magic Yield Other II
+282,36880,15,-20,Magic Yield Other III
+283,36880,15,-25,Magic Yield Other IV
+284,36880,15,-30,Magic Yield Other V
+285,36880,15,-35,Magic Yield Other VI
+286,36880,15,-10,Magic Yield Self I
+287,36880,15,-15,Magic Yield Self II
+288,36880,15,-20,Magic Yield Self III
+289,36880,15,-25,Magic Yield Self IV
+290,36880,15,-30,Magic Yield Self V
+291,36880,15,-35,Magic Yield Self VI
+292,36880,45,10,Light Weapon Mastery Other I
+293,36880,45,15,Light Weapon Mastery Other II
+294,36880,45,20,Light Weapon Mastery Other III
+295,36880,45,25,Light Weapon Mastery Other IV
+296,36880,45,30,Light Weapon Mastery Other V
+297,36880,45,35,Light Weapon Mastery Other VI
+298,36880,45,10,Light Weapon Mastery Self I
+299,36880,45,15,Light Weapon Mastery Self II
+300,36880,45,20,Light Weapon Mastery Self III
+301,36880,45,25,Light Weapon Mastery Self IV
+302,36880,45,30,Light Weapon Mastery Self V
+303,36880,45,35,Light Weapon Mastery Self VI
+304,36880,45,-10,Light Weapon Ineptitude Other I
+305,36880,45,-15,Light Weapon Ineptitude Other II
+306,36880,45,-20,Light Weapon Ineptitude Other III
+307,36880,45,-25,Light Weapon Ineptitude Other IV
+308,36880,45,-30,Light Weapon Ineptitude Other V
+309,36880,45,-35,Light Weapon Ineptitude Other VI
+310,36880,45,-10,Light Weapon Ineptitude Self I
+311,36880,45,-15,Light Weapon Ineptitude Self II
+312,36880,45,-20,Light Weapon Ineptitude Self III
+313,36880,45,-25,Light Weapon Ineptitude Self IV
+314,36880,45,-30,Light Weapon Ineptitude Self V
+315,36880,45,-35,Light Weapon Ineptitude Self VI
+316,36880,46,10,Finesse Weapon Mastery Other I
+317,36880,46,15,Finesse Weapon Mastery Other II
+318,36880,46,20,Finesse Weapon Mastery Other III
+319,36880,46,25,Finesse Weapon Mastery Other IV
+320,36880,46,30,Finesse Weapon Mastery Other V
+321,36880,46,35,Finesse Weapon Mastery Other VI
+322,36880,46,10,Finesse Weapon Mastery Self I
+323,36880,46,15,Finesse Weapon Mastery Self II
+324,36880,46,20,Finesse Weapon Mastery Self III
+325,36880,46,25,Finesse Weapon Mastery Self IV
+326,36880,46,30,Finesse Weapon Mastery Self V
+327,36880,46,35,Finesse Weapon Mastery Self VI
+328,36880,46,-10,Finesse Weapon Ineptitude Other I
+329,36880,46,-15,Finesse Weapon Ineptitude Other II
+330,36880,46,-20,Finesse Weapon Ineptitude Other III
+331,36880,46,-25,Finesse Weapon Ineptitude Other IV
+332,36880,46,-30,Finesse Weapon Ineptitude Other V
+333,36880,46,-35,Finesse Weapon Ineptitude Other VI
+334,36880,46,-10,Finesse Weapon Ineptitude Self I
+335,36880,46,-15,Finesse Weapon Ineptitude Self II
+336,36880,46,-20,Finesse Weapon Ineptitude Self III
+337,36880,46,-25,Finesse Weapon Ineptitude Self IV
+338,36880,46,-30,Finesse Weapon Ineptitude Self V
+339,36880,46,-35,Finesse Weapon Ineptitude Self VI
+340,36880,45,10,Light Weapon Mastery Other I
+341,36880,45,15,Light Weapon Mastery Other II
+342,36880,45,20,Light Weapon Mastery Other III
+343,36880,45,25,Light Weapon Mastery Other IV
+344,36880,45,30,Light Weapon Mastery Other V
+345,36880,45,35,Light Weapon Mastery Other VI
+346,36880,45,10,Light Weapon Mastery Self I
+347,36880,45,15,Light Weapon Mastery Self II
+348,36880,45,20,Light Weapon Mastery Self III
+349,36880,45,25,Light Weapon Mastery Self IV
+350,36880,45,30,Light Weapon Mastery Self V
+351,36880,45,35,Light Weapon Mastery Self VI
+352,36880,45,-10,Light Weapon Ineptitude Other I
+353,36880,45,-15,Light Weapon Ineptitude Other II
+354,36880,45,-20,Light Weapon Ineptitude Other III
+355,36880,45,-25,Light Weapon Ineptitude Other IV
+356,36880,45,-30,Light Weapon Ineptitude Other V
+357,36880,45,-35,Light Weapon Ineptitude Other VI
+358,36880,45,-10,Light Weapon Ineptitude Self I
+359,36880,45,-15,Light Weapon Ineptitude Self II
+360,36880,45,-20,Light Weapon Ineptitude Self III
+361,36880,45,-25,Light Weapon Ineptitude Self IV
+362,36880,45,-30,Light Weapon Ineptitude Self V
+363,36880,45,-35,Light Weapon Ineptitude Self VI
+364,36880,45,10,Light Weapon Mastery Other I
+365,36880,45,15,Light Weapon Mastery Other II
+366,36880,45,20,Light Weapon Mastery Other III
+367,36880,45,25,Light Weapon Mastery Other IV
+368,36880,45,30,Light Weapon Mastery Other V
+369,36880,45,35,Light Weapon Mastery Other VI
+370,36880,45,10,Light Weapon Mastery Self I
+371,36880,45,15,Light Weapon Mastery Self II
+372,36880,45,20,Light Weapon Mastery Self III
+373,36880,45,25,Light Weapon Mastery Self IV
+374,36880,45,30,Light Weapon Mastery Self V
+375,36880,45,35,Light Weapon Mastery Self VI
+376,36880,45,-10,Light Weapon Ineptitude Other I
+377,36880,45,-15,Light Weapon Ineptitude Other II
+378,36880,45,-20,Light Weapon Ineptitude Other III
+379,36880,45,-25,Light Weapon Ineptitude Other IV
+380,36880,45,-30,Light Weapon Ineptitude Other V
+381,36880,45,-35,Light Weapon Ineptitude Other VI
+382,36880,45,-10,Light Weapon Ineptitude Self I
+383,36880,45,-15,Light Weapon Ineptitude Self II
+384,36880,45,-20,Light Weapon Ineptitude Self III
+385,36880,45,-25,Light Weapon Ineptitude Self IV
+386,36880,45,-30,Light Weapon Ineptitude Self V
+387,36880,45,-35,Light Weapon Ineptitude Self VI
+388,36880,45,10,Light Weapon Mastery Other I
+389,36880,45,15,Light Weapon Mastery Other II
+390,36880,45,20,Light Weapon Mastery Other III
+391,36880,45,25,Light Weapon Mastery Other IV
+392,36880,45,30,Light Weapon Mastery Other V
+393,36880,45,35,Light Weapon Mastery Other VI
+394,36880,45,10,Light Weapon Mastery Self I
+395,36880,45,15,Light Weapon Mastery Self II
+396,36880,45,20,Light Weapon Mastery Self III
+397,36880,45,25,Light Weapon Mastery Self IV
+398,36880,45,30,Light Weapon Mastery Self V
+399,36880,45,35,Light Weapon Mastery Self VI
+400,36880,45,-10,Light Weapon Ineptitude Other I
+401,36880,45,-15,Light Weapon Ineptitude Other II
+402,36880,45,-20,Light Weapon Ineptitude Other III
+403,36880,45,-25,Light Weapon Ineptitude Other IV
+404,36880,45,-30,Light Weapon Ineptitude Other V
+405,36880,45,-35,Light Weapon Ineptitude Other VI
+406,36880,45,-10,Light Weapon Ineptitude Self I
+407,36880,45,-15,Light Weapon Ineptitude Self II
+408,36880,45,-20,Light Weapon Ineptitude Self III
+409,36880,45,-25,Light Weapon Ineptitude Self IV
+410,36880,45,-30,Light Weapon Ineptitude Self V
+411,36880,45,-35,Light Weapon Ineptitude Self VI
+412,36880,44,10,Heavy Weapon Mastery Other I
+413,36880,44,15,Heavy Weapon Mastery Other II
+414,36880,44,20,Heavy Weapon Mastery Other III
+415,36880,44,25,Heavy Weapon Mastery Other IV
+416,36880,44,30,Heavy Weapon Mastery Other V
+417,36880,44,35,Heavy Weapon Mastery Other VI
+418,36880,44,10,Heavy Weapon Mastery Self I
+419,36880,44,15,Heavy Weapon Mastery Self II
+420,36880,44,20,Heavy Weapon Mastery Self III
+421,36880,44,25,Heavy Weapon Mastery Self IV
+422,36880,44,30,Heavy Weapon Mastery Self V
+423,36880,44,35,Heavy Weapon Mastery Self VI
+424,36880,44,-10,Heavy Weapon Ineptitude Other I
+425,36880,44,-15,Heavy Weapon Ineptitude Other II
+426,36880,44,-20,Heavy Weapon Ineptitude Other III
+427,36880,44,-25,Heavy Weapon Ineptitude Other IV
+428,36880,44,-30,Heavy Weapon Ineptitude Other V
+429,36880,44,-35,Heavy Weapon Ineptitude Other VI
+430,36880,44,-10,Heavy Weapon Ineptitude Self I
+431,36880,44,-15,Heavy Weapon Ineptitude Self II
+432,36880,44,-20,Heavy Weapon Ineptitude Self III
+433,36880,44,-25,Heavy Weapon Ineptitude Self IV
+435,36880,44,-30,Heavy Weapon Ineptitude Self V
+436,36880,44,-35,Heavy Weapon Ineptitude Self VI
+437,36880,45,10,Light Weapon Mastery Other I
+438,36880,45,15,Light Weapon Mastery Other II
+439,36880,45,20,Light Weapon Mastery Other III
+440,36880,45,25,Light Weapon Mastery Other IV
+441,36880,45,30,Light Weapon Mastery Other V
+442,36880,45,35,Light Weapon Mastery Other VI
+443,36880,45,10,Light Weapon Mastery Self I
+444,36880,45,15,Light Weapon Mastery Self II
+445,36880,45,20,Light Weapon Mastery Self III
+446,36880,45,25,Light Weapon Mastery Self IV
+447,36880,45,30,Light Weapon Mastery Self V
+448,36880,45,35,Light Weapon Mastery Self VI
+449,36880,45,-10,Light Weapon Ineptitude Other I
+450,36880,45,-15,Light Weapon Ineptitude Other II
+451,36880,45,-20,Light Weapon Ineptitude Other III
+452,36880,45,-25,Light Weapon Ineptitude Other IV
+453,36880,45,-30,Light Weapon Ineptitude Other V
+454,36880,45,-35,Light Weapon Ineptitude Other VI
+455,36880,45,-10,Light Weapon Ineptitude Self I
+456,36880,45,-15,Light Weapon Ineptitude Self II
+457,36880,45,-20,Light Weapon Ineptitude Self III
+458,36880,45,-25,Light Weapon Ineptitude Self IV
+459,36880,45,-30,Light Weapon Ineptitude Self V
+460,36880,45,-35,Light Weapon Ineptitude Self VI
+461,36880,47,10,Missile Weapon Mastery Other I
+462,36880,47,15,Missile Weapon Mastery Other II
+463,36880,47,20,Missile Weapon Mastery Other III
+464,36880,47,25,Missile Weapon Mastery Other IV
+465,36880,47,30,Missile Weapon Mastery Other V
+466,36880,47,35,Missile Weapon Mastery Other VI
+467,36880,47,10,Missile Weapon Mastery Self I
+468,36880,47,15,Missile Weapon Mastery Self II
+469,36880,47,20,Missile Weapon Mastery Self III
+470,36880,47,25,Missile Weapon Mastery Self IV
+471,36880,47,30,Missile Weapon Mastery Self V
+472,36880,47,35,Missile Weapon Mastery Self VI
+473,36880,47,-10,Missile Weapon Ineptitude Other I
+474,36880,47,-15,Missile Weapon Ineptitude Other II
+475,36880,47,-20,Missile Weapon Ineptitude Other III
+476,36880,47,-25,Missile Weapon Ineptitude Other IV
+477,36880,47,-30,Missile Weapon Ineptitude Other V
+478,36880,47,-35,Missile Weapon Ineptitude Other VI
+479,36880,47,-10,Missile Weapon Ineptitude Self I
+480,36880,47,-15,Missile Weapon Ineptitude Self II
+481,36880,47,-20,Missile Weapon Ineptitude Self III
+482,36880,47,-25,Missile Weapon Ineptitude Self IV
+483,36880,47,-30,Missile Weapon Ineptitude Self V
+484,36880,47,-35,Missile Weapon Ineptitude Self VI
+485,36880,47,10,Missile Weapon Mastery Other I
+486,36880,47,15,Missile Weapon Mastery Other II
+487,36880,47,20,Missile Weapon Mastery Other III
+488,36880,47,25,Missile Weapon Mastery Other IV
+489,36880,47,30,Missile Weapon Mastery Other V
+490,36880,47,35,Missile Weapon Mastery Other VI
+491,36880,47,10,Missile Weapon Mastery Self I
+492,36880,47,15,Missile Weapon Mastery Self II
+493,36880,47,20,Missile Weapon Mastery Self III
+494,36880,47,25,Missile Weapon Mastery Self IV
+495,36880,47,30,Missile Weapon Mastery Self V
+496,36880,47,35,Missile Weapon Mastery Self VI
+497,36880,47,-10,Missile Weapon Ineptitude Other I
+498,36880,47,-15,Missile Weapon Ineptitude Other II
+499,36880,47,-20,Missile Weapon Ineptitude Other III
+500,36880,47,-25,Missile Weapon Ineptitude Other IV
+501,36880,47,-30,Missile Weapon Ineptitude Other V
+502,36880,47,-35,Missile Weapon Ineptitude Other VI
+503,36880,47,-10,Missile Weapon Ineptitude Self I
+504,36880,47,-15,Missile Weapon Ineptitude Self II
+505,36880,47,-20,Missile Weapon Ineptitude Self III
+506,36880,47,-25,Missile Weapon Ineptitude Self IV
+507,36880,47,-30,Missile Weapon Ineptitude Self V
+508,36880,47,-35,Missile Weapon Ineptitude Self VI
+509,20488,69,0.91,Acid Protection Other I
+510,20488,69,0.8,Acid Protection Other II
+511,20488,69,0.67,Acid Protection Other III
+512,20488,69,0.57,Acid Protection Other IV
+513,20488,69,0.5,Acid Protection Other V
+514,20488,69,0.4,Acid Protection Other VI
+515,20488,69,0.91,Acid Protection Self I
+516,20488,69,0.8,Acid Protection Self II
+517,20488,69,0.67,Acid Protection Self III
+518,20488,69,0.57,Acid Protection Self IV
+519,20488,69,0.5,Acid Protection Self V
+520,20488,69,0.4,Acid Protection Self VI
+521,20488,69,1.1,Acid Vulnerability Other I
+522,20488,69,1.25,Acid Vulnerability Other II
+523,20488,69,1.5,Acid Vulnerability Other III
+524,20488,69,1.75,Acid Vulnerability Other IV
+525,20488,69,2,Acid Vulnerability Other V
+526,20488,69,2.5,Acid Vulnerability Other VI
+527,20488,69,1.1,Acid Vulnerability Self I
+528,20488,69,1.25,Acid Vulnerability Self II
+529,20488,69,1.5,Acid Vulnerability Self III
+530,20488,69,1.75,Acid Vulnerability Self IV
+531,20488,69,2,Acid Vulnerability Self V
+532,20488,69,2.5,Acid Vulnerability Self VI
+533,36880,47,10,Missile Weapon Mastery Other I
+534,36880,47,15,Missile Weapon Mastery Other II
+535,36880,47,20,Missile Weapon Mastery Other III
+536,36880,47,25,Missile Weapon Mastery Other IV
+537,36880,47,30,Missile Weapon Mastery Other V
+538,36880,47,35,Missile Weapon Mastery Other VI
+539,36880,47,10,Missile Weapon Mastery Self I
+540,36880,47,15,Missile Weapon Mastery Self II
+541,36880,47,20,Missile Weapon Mastery Self III
+542,36880,47,25,Missile Weapon Mastery Self IV
+543,36880,47,30,Missile Weapon Mastery Self V
+544,36880,47,35,Missile Weapon Mastery Self VI
+545,36880,47,-10,Missile Weapon Ineptitude Other I
+546,36880,47,-15,Missile Weapon Ineptitude Other II
+547,36880,47,-20,Missile Weapon Ineptitude Other III
+548,36880,47,-25,Missile Weapon Ineptitude Other IV
+549,36880,47,-30,Missile Weapon Ineptitude Other V
+550,36880,47,-35,Missile Weapon Ineptitude Other VI
+551,36880,47,-10,Missile Weapon Ineptitude Self I
+552,36880,47,-15,Missile Weapon Ineptitude Self II
+553,36880,47,-20,Missile Weapon Ineptitude Self III
+554,36880,47,-25,Missile Weapon Ineptitude Self IV
+555,36880,47,-30,Missile Weapon Ineptitude Self V
+556,36880,47,-35,Missile Weapon Ineptitude Self VI
+557,36880,31,10,Creature Enchantment Mastery Self I
+558,36880,31,15,Creature Enchantment Mastery Self II
+559,36880,31,20,Creature Enchantment Mastery Self III
+560,36880,31,25,Creature Enchantment Mastery Self IV
+561,36880,31,30,Creature Enchantment Mastery Self V
+562,36880,31,35,Creature Enchantment Mastery Self VI
+563,36880,31,10,Creature Enchantment Mastery Other I
+564,36880,31,15,Creature Enchantment Mastery Other II
+565,36880,31,20,Creature Enchantment Mastery Other III
+566,36880,31,25,Creature Enchantment Mastery Other IV
+567,36880,31,30,Creature Enchantment Mastery Other V
+568,36880,31,35,Creature Enchantment Mastery Other VI
+569,36880,31,-10,Creature Enchantment Ineptitude Other I
+570,36880,31,-15,Creature Enchantment Ineptitude Other II
+571,36880,31,-20,Creature Enchantment Ineptitude Other III
+572,36880,31,-25,Creature Enchantment Ineptitude Other IV
+573,36880,31,-30,Creature Enchantment Ineptitude Other V
+574,36880,31,-35,Creature Enchantment Ineptitude Other VI
+575,36880,31,-10,Creature Enchantment Ineptitude Self I
+576,36880,31,-15,Creature Enchantment Ineptitude Self II
+577,36880,31,-20,Creature Enchantment Ineptitude Self III
+578,36880,31,-25,Creature Enchantment Ineptitude Self IV
+579,36880,31,-30,Creature Enchantment Ineptitude Self V
+580,36880,31,-35,Creature Enchantment Ineptitude Self VI
+581,36880,32,10,Item Enchantment Mastery Self I
+582,36880,32,15,Item Enchantment Mastery Self II
+583,36880,32,20,Item Enchantment Mastery Self III
+584,36880,32,25,Item Enchantment Mastery Self IV
+585,36880,32,30,Item Enchantment Mastery Self V
+586,36880,32,35,Item Enchantment Mastery Self VI
+587,36880,32,10,Item Enchantment Mastery Other I
+588,36880,32,15,Item Enchantment Mastery Other II
+589,36880,32,20,Item Enchantment Mastery Other III
+590,36880,32,25,Item Enchantment Mastery Other IV
+591,36880,32,30,Item Enchantment Mastery Other V
+592,36880,32,35,Item Enchantment Mastery Other VI
+593,36880,32,-10,Item Enchantment Ineptitude Other I
+594,36880,32,-15,Item Enchantment Ineptitude Other II
+595,36880,32,-20,Item Enchantment Ineptitude Other III
+596,36880,32,-25,Item Enchantment Ineptitude Other IV
+597,36880,32,-30,Item Enchantment Ineptitude Other V
+598,36880,32,-35,Item Enchantment Ineptitude Other VI
+599,36880,32,-10,Item Enchantment Ineptitude Self I
+600,36880,32,-15,Item Enchantment Ineptitude Self II
+601,36880,32,-20,Item Enchantment Ineptitude Self III
+602,36880,32,-25,Item Enchantment Ineptitude Self IV
+603,36880,32,-30,Item Enchantment Ineptitude Self V
+604,36880,32,-35,Item Enchantment Ineptitude Self VI
+605,36880,33,10,Life Magic Mastery Self I
+606,36880,33,15,Life Magic Mastery Self II
+607,36880,33,20,Life Magic Mastery Self III
+608,36880,33,25,Life Magic Mastery Self IV
+609,36880,33,30,Life Magic Mastery Self V
+610,36880,33,35,Life Magic Mastery Self VI
+611,36880,33,10,Life Magic Mastery Other I
+612,36880,33,15,Life Magic Mastery Other II
+613,36880,33,20,Life Magic Mastery Other III
+614,36880,33,25,Life Magic Mastery Other IV
+615,36880,33,30,Life Magic Mastery Other V
+616,36880,33,35,Life Magic Mastery Other VI
+617,36880,33,-10,Life Magic Ineptitude Self I
+618,36880,33,-15,Life Magic Ineptitude Self II
+619,36880,33,-20,Life Magic Ineptitude Self III
+620,36880,33,-25,Life Magic Ineptitude Self IV
+621,36880,33,-30,Life Magic Ineptitude Self V
+622,36880,33,-35,Life Magic Ineptitude Self VI
+623,36880,33,-10,Life Magic Ineptitude Other I
+624,36880,33,-15,Life Magic Ineptitude Other II
+625,36880,33,-20,Life Magic Ineptitude Other III
+626,36880,33,-25,Life Magic Ineptitude Other IV
+627,36880,33,-30,Life Magic Ineptitude Other V
+628,36880,33,-35,Life Magic Ineptitude Other VI
+629,36880,34,10,War Magic Mastery Self I
+630,36880,34,15,War Magic Mastery Self II
+631,36880,34,20,War Magic Mastery Self III
+632,36880,34,25,War Magic Mastery Self IV
+633,36880,34,30,War Magic Mastery Self V
+634,36880,34,35,War Magic Mastery Self VI
+635,36880,34,10,War Magic Mastery Other I
+636,36880,34,15,War Magic Mastery Other II
+637,36880,34,20,War Magic Mastery Other III
+638,36880,34,25,War Magic Mastery Other IV
+639,36880,34,30,War Magic Mastery Other V
+640,36880,34,35,War Magic Mastery Other VI
+641,36880,34,-10,War Magic Ineptitude Self I
+642,36880,34,-15,War Magic Ineptitude Self II
+643,36880,34,-20,War Magic Ineptitude Self III
+644,36880,34,-25,War Magic Ineptitude Self IV
+645,36880,34,-30,War Magic Ineptitude Self V
+646,36880,34,-35,War Magic Ineptitude Self VI
+647,36880,34,-10,War Magic Ineptitude Other I
+648,36880,34,-15,War Magic Ineptitude Other II
+649,36880,34,-20,War Magic Ineptitude Other III
+650,36880,34,-25,War Magic Ineptitude Other IV
+651,36880,34,-30,War Magic Ineptitude Other V
+652,36880,34,-35,War Magic Ineptitude Other VI
+653,36880,16,10,Mana Conversion Mastery Self I
+654,36880,16,15,Mana Conversion Mastery Self II
+655,36880,16,20,Mana Conversion Mastery Self III
+656,36880,16,25,Mana Conversion Mastery Self IV
+657,36880,16,30,Mana Conversion Mastery Self V
+658,36880,16,35,Mana Conversion Mastery Self VI
+659,36880,16,10,Mana Conversion Mastery Other I
+660,36880,16,15,Mana Conversion Mastery Other II
+661,36880,16,20,Mana Conversion Mastery Other III
+662,36880,16,25,Mana Conversion Mastery Other IV
+663,36880,16,30,Mana Conversion Mastery Other V
+664,36880,16,35,Mana Conversion Mastery Other VI
+665,36880,16,-10,Mana Conversion Ineptitude Self I
+666,10510354,0,1,Vitae
+667,36880,16,-15,Mana Conversion Ineptitude Self II
+668,36880,16,-20,Mana Conversion Ineptitude Self III
+669,36880,16,-25,Mana Conversion Ineptitude Self IV
+670,36880,16,-30,Mana Conversion Ineptitude Self V
+671,36880,16,-35,Mana Conversion Ineptitude Self VI
+672,36880,16,-10,Mana Conversion Ineptitude Other I
+673,36880,16,-15,Mana Conversion Ineptitude Other II
+674,36880,16,-20,Mana Conversion Ineptitude Other III
+675,36880,16,-25,Mana Conversion Ineptitude Other IV
+676,36880,16,-30,Mana Conversion Ineptitude Other V
+677,36880,16,-35,Mana Conversion Ineptitude Other VI
+678,36880,14,10,Arcane Enlightenment Self I
+679,36880,14,15,Arcane Enlightenment Self II
+680,36880,14,20,Arcane Enlightenment Self III
+681,36880,14,25,Arcane Enlightenment Self IV
+682,36880,14,30,Arcane Enlightenment Self V
+683,36880,14,35,Arcane Enlightenment Self VI
+684,36880,14,10,Arcane Enlightenment Other I
+685,36880,14,15,Arcane Enlightenment Other II
+686,36880,14,20,Arcane Enlightenment Other III
+687,36880,14,25,Arcane Enlightenment Other IV
+688,36880,14,30,Arcane Enlightenment Other V
+689,36880,14,35,Arcane Enlightenment Other VI
+690,36880,14,-10,Arcane Benightedness Self I
+691,36880,14,-15,Arcane Benightedness Self II
+692,36880,14,-20,Arcane Benightedness Self III
+693,36880,14,-25,Arcane Benightedness Self IV
+694,36880,14,-30,Arcane Benightedness Self V
+695,36880,14,-35,Arcane Benightedness Self VI
+696,36880,14,-10,Arcane Benightedness Other I
+697,36880,14,-15,Arcane Benightedness Other II
+698,36880,14,-20,Arcane Benightedness Other III
+699,36880,14,-25,Arcane Benightedness Other IV
+700,36880,14,-30,Arcane Benightedness Other V
+701,36880,14,-35,Arcane Benightedness Other VI
+702,36880,29,10,Armor Tinkering Expertise Self I
+703,36880,29,15,Armor Tinkering Expertise Self II
+704,36880,29,20,Armor Tinkering Expertise Self III
+705,36880,29,25,Armor Tinkering Expertise Self IV
+706,36880,29,30,Armor Tinkering Expertise Self V
+707,36880,29,35,Armor Tinkering Expertise Self VI
+708,36880,29,10,Armor Tinkering Expertise Other I
+709,36880,29,15,Armor Tinkering Expertise Other II
+710,36880,29,20,Armor Tinkering Expertise Other III
+711,36880,29,25,Armor Tinkering Expertise Other IV
+712,36880,29,30,Armor Tinkering Expertise Other V
+713,36880,29,35,Armor Tinkering Expertise Other VI
+714,36880,29,-10,Armor Tinkering Ignorance Self I
+715,36880,29,-15,Armor Tinkering Ignorance Self II
+716,36880,29,-20,Armor Tinkering Ignorance Self III
+717,36880,29,-25,Armor Tinkering Ignorance Self IV
+718,36880,29,-30,Armor Tinkering Ignorance Self V
+719,36880,29,-35,Armor Tinkering Ignorance Self VI
+720,36880,29,-10,Armor Tinkering Ignorance Other I
+721,36880,29,-15,Armor Tinkering Ignorance Other II
+722,36880,29,-20,Armor Tinkering Ignorance Other III
+723,36880,29,-25,Armor Tinkering Ignorance Other IV
+724,36880,29,-30,Armor Tinkering Ignorance Other V
+725,36880,29,-35,Armor Tinkering Ignorance Other VI
+726,36880,18,10,Item Tinkering Expertise Self I
+727,36880,18,15,Item Tinkering Expertise Self II
+728,36880,18,20,Item Tinkering Expertise Self III
+729,36880,18,25,Item Tinkering Expertise Self IV
+730,36880,18,30,Item Tinkering Expertise Self V
+731,36880,18,35,Item Tinkering Expertise Self VI
+732,36880,18,10,Item Tinkering Expertise Other I
+733,36880,18,15,Item Tinkering Expertise Other II
+734,36880,18,20,Item Tinkering Expertise Other III
+735,36880,18,25,Item Tinkering Expertise Other IV
+736,36880,18,30,Item Tinkering Expertise Other V
+737,36880,18,35,Item Tinkering Expertise Other VI
+738,36880,18,-10,Item Tinkering Ignorance Self I
+739,36880,18,-15,Item Tinkering Ignorance Self II
+740,36880,18,-20,Item Tinkering Ignorance Self III
+741,36880,18,-25,Item Tinkering Ignorance Self IV
+742,36880,18,-30,Item Tinkering Ignorance Self V
+743,36880,18,-35,Item Tinkering Ignorance Self VI
+744,36880,18,-10,Item Tinkering Ignorance Other I
+745,36880,18,-15,Item Tinkering Ignorance Other II
+746,36880,18,-20,Item Tinkering Ignorance Other III
+747,36880,18,-25,Item Tinkering Ignorance Other IV
+748,36880,18,-30,Item Tinkering Ignorance Other V
+749,36880,18,-35,Item Tinkering Ignorance Other VI
+750,36880,30,10,Magic Item Tinkering Expertise Self I
+751,36880,30,15,Magic Item Tinkering Expertise Self II
+752,36880,30,20,Magic Item Tinkering Expertise Self III
+753,36880,30,25,Magic Item Tinkering Expertise Self IV
+754,36880,30,30,Magic Item Tinkering Expertise Self V
+755,36880,30,35,Magic Item Tinkering Expertise Self VI
+756,36880,30,10,Magic Item Tinkering Expertise Other I
+757,36880,30,15,Magic Item Tinkering Expertise Other II
+758,36880,30,20,Magic Item Tinkering Expertise Other III
+759,36880,30,25,Magic Item Tinkering Expertise Other IV
+760,36880,30,30,Magic Item Tinkering Expertise Other V
+761,36880,30,35,Magic Item Tinkering Expertise Other VI
+762,36880,30,-10,Magic Item Tinkering Ignorance Self I
+763,36880,30,-15,Magic Item Tinkering Ignorance Self II
+764,36880,30,-20,Magic Item Tinkering Ignorance Self III
+765,36880,30,-25,Magic Item Tinkering Ignorance Self IV
+766,36880,30,-30,Magic Item Tinkering Ignorance Self V
+767,36880,30,-35,Magic Item Tinkering Ignorance Self VI
+768,36880,30,-10,Magic Item Tinkering Ignorance Other I
+769,36880,30,-15,Magic Item Tinkering Ignorance Other II
+770,36880,30,-20,Magic Item Tinkering Ignorance Other III
+771,36880,30,-25,Magic Item Tinkering Ignorance Other IV
+772,36880,30,-30,Magic Item Tinkering Ignorance Other V
+773,36880,30,-35,Magic Item Tinkering Ignorance Other VI
+774,36880,28,10,Weapon Tinkering Expertise Self I
+775,36880,28,15,Weapon Tinkering Expertise Self II
+776,36880,28,20,Weapon Tinkering Expertise Self III
+777,36880,28,25,Weapon Tinkering Expertise Self IV
+778,36880,28,30,Weapon Tinkering Expertise Self V
+779,36880,28,35,Weapon Tinkering Expertise Self VI
+780,36880,28,10,Weapon Tinkering Expertise Other I
+781,36880,28,15,Weapon Tinkering Expertise Other II
+782,36880,28,20,Weapon Tinkering Expertise Other III
+783,36880,28,25,Weapon Tinkering Expertise Other IV
+784,36880,28,30,Weapon Tinkering Expertise Other V
+785,36880,28,35,Weapon Tinkering Expertise Other VI
+786,36880,28,-10,Weapon Tinkering Ignorance Self I
+787,36880,28,-15,Weapon Tinkering Ignorance Self II
+788,36880,28,-20,Weapon Tinkering Ignorance Self III
+789,36880,28,-25,Weapon Tinkering Ignorance Self IV
+790,36880,28,-30,Weapon Tinkering Ignorance Self V
+791,36880,28,-35,Weapon Tinkering Ignorance Self VI
+792,36880,28,-10,Weapon Tinkering Ignorance Other I
+793,36880,28,-15,Weapon Tinkering Ignorance Other II
+794,36880,28,-20,Weapon Tinkering Ignorance Other III
+795,36880,28,-25,Weapon Tinkering Ignorance Other IV
+796,36880,28,-30,Weapon Tinkering Ignorance Other V
+797,36880,28,-35,Weapon Tinkering Ignorance Other VI
+798,36880,27,10,Monster Attunement Self I
+799,36880,27,15,Monster Attunement Self II
+800,36880,27,20,Monster Attunement Self III
+801,36880,27,25,Monster Attunement Self IV
+802,36880,27,30,Monster Attunement Self V
+803,36880,27,35,Monster Attunement Self VI
+804,36880,27,10,Monster Attunement Other I
+805,36880,27,15,Monster Attunement Other II
+806,36880,27,20,Monster Attunement Other III
+807,36880,27,25,Monster Attunement Other IV
+808,36880,27,30,Monster Attunement Other V
+809,36880,27,35,Monster Attunement Other VI
+810,20488,67,0.8,Fire Protection Other II
+811,36880,27,-10,Monster Unfamiliarity Self I
+812,36880,27,-15,Monster Unfamiliarity Self II
+813,36880,27,-20,Monster Unfamiliarity Self III
+814,36880,27,-25,Monster Unfamiliarity Self IV
+815,36880,27,-30,Monster Unfamiliarity Self V
+816,36880,27,-35,Monster Unfamiliarity Self VI
+817,36880,27,-10,Monster Unfamiliarity Other I
+818,36880,27,-15,Monster Unfamiliarity Other II
+819,36880,27,-20,Monster Unfamiliarity Other III
+820,36880,27,-25,Monster Unfamiliarity Other IV
+821,36880,27,-30,Monster Unfamiliarity Other V
+822,36880,27,-35,Monster Unfamiliarity Other VI
+824,36880,19,10,Person Attunement Self I
+825,36880,19,15,Person Attunement Self II
+826,36880,19,20,Person Attunement Self III
+827,36880,19,25,Person Attunement Self IV
+828,36880,19,30,Person Attunement Self V
+829,36880,19,35,Person Attunement Self VI
+830,36880,19,10,Person Attunement Other I
+831,36880,19,15,Person Attunement Other II
+832,36880,19,20,Person Attunement Other III
+833,36880,19,25,Person Attunement Other IV
+834,36880,19,30,Person Attunement Other V
+835,36880,19,35,Person Attunement Other VI
+836,20488,67,0.67,Fire Protection Other III
+837,36880,19,-10,Person Unfamiliarity Self I
+838,36880,19,-15,Person Unfamiliarity Self II
+839,36880,19,-20,Person Unfamiliarity Self III
+840,36880,19,-25,Person Unfamiliarity Self IV
+841,36880,19,-30,Person Unfamiliarity Self V
+842,36880,19,-35,Person Unfamiliarity Self VI
+843,36880,19,-10,Person Unfamiliarity Other I
+844,36880,19,-15,Person Unfamiliarity Other II
+845,36880,19,-20,Person Unfamiliarity Other III
+846,36880,19,-25,Person Unfamiliarity Other IV
+847,36880,19,-30,Person Unfamiliarity Other V
+848,36880,19,-35,Person Unfamiliarity Other VI
+849,20488,67,0.57,Fire Protection Other IV
+850,36880,20,10,Deception Mastery Self I
+851,36880,20,15,Deception Mastery Self II
+852,36880,20,20,Deception Mastery Self III
+853,36880,20,25,Deception Mastery Self IV
+854,36880,20,30,Deception Mastery Self V
+855,36880,20,35,Deception Mastery Self VI
+856,36880,20,10,Deception Mastery Other I
+857,36880,20,15,Deception Mastery Other II
+858,36880,20,20,Deception Mastery Other III
+859,36880,20,25,Deception Mastery Other IV
+860,36880,20,30,Deception Mastery Other V
+861,36880,20,35,Deception Mastery Other VI
+862,36880,20,-10,Deception Ineptitude Self I
+863,36880,20,-15,Deception Ineptitude Self II
+864,36880,20,-20,Deception Ineptitude Self III
+865,36880,20,-25,Deception Ineptitude Self IV
+866,36880,20,-30,Deception Ineptitude Self V
+867,36880,20,-35,Deception Ineptitude Self VI
+868,36880,20,-10,Deception Ineptitude Other I
+869,36880,20,-15,Deception Ineptitude Other II
+870,36880,20,-20,Deception Ineptitude Other III
+871,36880,20,-25,Deception Ineptitude Other IV
+872,36880,20,-30,Deception Ineptitude Other V
+873,36880,20,-35,Deception Ineptitude Other VI
+874,36880,21,10,Healing Mastery Self I
+875,36880,21,15,Healing Mastery Self II
+876,36880,21,20,Healing Mastery Self III
+877,36880,21,25,Healing Mastery Self IV
+878,36880,21,30,Healing Mastery Self V
+879,36880,21,35,Healing Mastery Self VI
+880,36880,21,10,Healing Mastery Other I
+881,36880,21,15,Healing Mastery Other II
+882,36880,21,20,Healing Mastery Other III
+883,36880,21,25,Healing Mastery Other IV
+884,36880,21,30,Healing Mastery Other V
+885,36880,21,35,Healing Mastery Other VI
+886,36880,21,-10,Healing Ineptitude Self I
+887,36880,21,-15,Healing Ineptitude Self II
+888,36880,21,-20,Healing Ineptitude Self III
+889,36880,21,-25,Healing Ineptitude Self IV
+890,36880,21,-30,Healing Ineptitude Self V
+891,36880,21,-35,Healing Ineptitude Self VI
+892,36880,21,-10,Healing Ineptitude Other I
+893,36880,21,-15,Healing Ineptitude Other II
+894,36880,21,-20,Healing Ineptitude Other III
+895,36880,21,-25,Healing Ineptitude Other IV
+896,36880,21,-30,Healing Ineptitude Other V
+897,36880,21,-35,Healing Ineptitude Other VI
+898,36880,35,10,Leadership Mastery Self I
+899,36880,35,15,Leadership Mastery Self II
+900,36880,35,20,Leadership Mastery Self III
+901,36880,35,25,Leadership Mastery Self IV
+902,36880,35,30,Leadership Mastery Self V
+903,36880,35,35,Leadership Mastery Self VI
+904,36880,35,10,Leadership Mastery Other I
+905,36880,35,15,Leadership Mastery Other II
+906,36880,35,20,Leadership Mastery Other III
+907,36880,35,25,Leadership Mastery Other IV
+908,36880,35,30,Leadership Mastery Other V
+909,36880,35,35,Leadership Mastery Other VI
+910,36880,35,-10,Leadership Ineptitude Self I
+911,36880,35,-15,Leadership Ineptitude Self II
+912,36880,35,-20,Leadership Ineptitude Self III
+913,36880,35,-25,Leadership Ineptitude Self IV
+914,36880,35,-30,Leadership Ineptitude Self V
+915,36880,35,-35,Leadership Ineptitude Self VI
+916,36880,35,-10,Leadership Ineptitude Other I
+917,36880,35,-15,Leadership Ineptitude Other II
+918,36880,35,-20,Leadership Ineptitude Other III
+919,36880,35,-25,Leadership Ineptitude Other IV
+920,36880,35,-30,Leadership Ineptitude Other V
+921,36880,35,-35,Leadership Ineptitude Other VI
+922,36880,23,10,Lockpick Mastery Self I
+923,36880,23,15,Lockpick Mastery Self II
+924,36880,23,20,Lockpick Mastery Self III
+925,36880,23,25,Lockpick Mastery Self IV
+926,36880,23,30,Lockpick Mastery Self V
+927,36880,23,35,Lockpick Mastery Self VI
+928,36880,23,10,Lockpick Mastery Other I
+929,36880,23,15,Lockpick Mastery Other II
+930,36880,23,20,Lockpick Mastery Other III
+931,36880,23,25,Lockpick Mastery Other IV
+932,36880,23,30,Lockpick Mastery Other V
+933,36880,23,35,Lockpick Mastery Other VI
+934,36880,23,-10,Lockpick Ineptitude Self I
+935,36880,23,-15,Lockpick Ineptitude Self II
+936,36880,23,-20,Lockpick Ineptitude Self III
+937,36880,23,-25,Lockpick Ineptitude Self IV
+938,36880,23,-30,Lockpick Ineptitude Self V
+939,36880,23,-35,Lockpick Ineptitude Self VI
+940,36880,23,-10,Lockpick Ineptitude Other I
+941,36880,23,-15,Lockpick Ineptitude Other II
+942,36880,23,-20,Lockpick Ineptitude Other III
+943,36880,23,-25,Lockpick Ineptitude Other IV
+944,36880,23,-30,Lockpick Ineptitude Other V
+945,36880,23,-35,Lockpick Ineptitude Other VI
+946,36880,36,10,Fealty Self I
+947,36880,36,15,Fealty Self II
+948,36880,36,20,Fealty Self III
+949,36880,36,25,Fealty Self IV
+950,36880,36,30,Fealty Self V
+951,36880,36,35,Fealty Self VI
+952,36880,36,10,Fealty Other I
+953,36880,36,15,Fealty Other II
+954,36880,36,20,Fealty Other III
+955,36880,36,25,Fealty Other IV
+956,36880,36,30,Fealty Other V
+957,36880,36,35,Fealty Other VI
+958,36880,36,-10,Faithlessness Self I
+959,36880,36,-15,Faithlessness Self II
+960,36880,36,-20,Faithlessness Self III
+961,36880,36,-25,Faithlessness Self IV
+962,36880,36,-30,Faithlessness Self V
+963,36880,36,-35,Faithlessness Self VI
+964,36880,36,-10,Faithlessness Other I
+965,36880,36,-15,Faithlessness Other II
+966,36880,36,-20,Faithlessness Other III
+967,36880,36,-25,Faithlessness Other IV
+968,36880,36,-30,Faithlessness Other V
+969,36880,36,-35,Faithlessness Other VI
+970,36880,22,10,Jumping Mastery Self I
+971,36880,22,15,Jumping Mastery Self II
+972,36880,22,20,Jumping Mastery Self III
+973,36880,22,25,Jumping Mastery Self IV
+974,36880,22,30,Jumping Mastery Self V
+975,36880,22,35,Jumping Mastery Self VI
+976,36880,22,10,Jumping Mastery Other I
+977,36880,22,15,Jumping Mastery Other II
+978,36880,22,20,Jumping Mastery Other III
+979,36880,22,25,Jumping Mastery Other IV
+980,36880,22,30,Jumping Mastery Other V
+981,36880,22,35,Jumping Mastery Other VI
+982,36880,24,10,Sprint Self I
+983,36880,24,15,Sprint Self II
+984,36880,24,20,Sprint Self III
+985,36880,24,25,Sprint Self IV
+986,36880,24,30,Sprint Self V
+987,36880,24,35,Sprint Self VI
+988,36880,24,10,Sprint Other I
+989,36880,24,15,Sprint Other II
+990,36880,24,20,Sprint Other III
+991,36880,24,25,Sprint Other IV
+992,36880,24,30,Sprint Other V
+993,36880,24,35,Sprint Other VI
+994,36880,24,-10,Leaden Feet Self I
+995,36880,24,-15,Leaden Feet Self II
+996,36880,24,-20,Leaden Feet Self III
+997,36880,24,-25,Leaden Feet Self IV
+998,36880,24,-30,Leaden Feet Self V
+999,36880,24,-35,Leaden Feet Self VI
+1000,36880,24,-10,Leaden Feet Other I
+1001,36880,24,-15,Leaden Feet Other II
+1002,36880,24,-20,Leaden Feet Other III
+1003,36880,24,-25,Leaden Feet Other IV
+1004,36880,24,-30,Leaden Feet Other V
+1005,36880,24,-35,Leaden Feet Other VI
+1006,36880,22,-10,Jumping Ineptitude Self I
+1007,36880,22,-15,Jumping Ineptitude Self II
+1008,36880,22,-20,Jumping Ineptitude Self III
+1009,36880,22,-25,Jumping Ineptitude Self IV
+1010,36880,22,-30,Jumping Ineptitude Self V
+1011,36880,22,-35,Jumping Ineptitude Self VI
+1012,36880,22,-10,Jumping Ineptitude Other I
+1013,36880,22,-15,Jumping Ineptitude Other II
+1014,36880,22,-20,Jumping Ineptitude Other III
+1015,36880,22,-25,Jumping Ineptitude Other IV
+1016,36880,22,-30,Jumping Ineptitude Other V
+1017,36880,22,-35,Jumping Ineptitude Other VI
+1018,20488,66,0.91,Bludgeoning Protection Self I
+1019,20488,66,0.8,Bludgeoning Protection Self II
+1020,20488,66,0.67,Bludgeoning Protection Self III
+1021,20488,66,0.57,Bludgeoning Protection Self IV
+1022,20488,66,0.5,Bludgeoning Protection Self V
+1023,20488,66,0.4,Bludgeoning Protection Self VI
+1024,20488,66,0.91,Bludgeoning Protection Other I
+1025,20488,66,0.8,Bludgeoning Protection Other II
+1026,20488,66,0.67,Bludgeoning Protection Other III
+1027,20488,66,0.57,Bludgeoning Protection Other IV
+1028,20488,66,0.5,Bludgeoning Protection Other V
+1029,20488,66,0.4,Bludgeoning Protection Other VI
+1030,20488,68,0.91,Cold Protection Self I
+1031,20488,68,0.8,Cold Protection Self II
+1032,20488,68,0.67,Cold Protection Self III
+1033,20488,68,0.57,Cold Protection Self IV
+1034,20488,68,0.5,Cold Protection Self V
+1035,20488,68,0.4,Cold Protection Self VI
+1036,20488,68,0.91,Cold Protection Other I
+1037,20488,68,0.8,Cold Protection Other II
+1038,20488,68,0.67,Cold Protection Other III
+1039,20488,68,0.57,Cold Protection Other IV
+1040,20488,68,0.5,Cold Protection Other V
+1041,20488,68,0.4,Cold Protection Other VI
+1042,20488,66,1.1,Bludgeoning Vulnerability Self I
+1043,20488,66,1.25,Bludgeoning Vulnerability Self II
+1044,20488,66,1.5,Bludgeoning Vulnerability Self III
+1045,20488,66,1.75,Bludgeoning Vulnerability Self IV
+1046,20488,66,2,Bludgeoning Vulnerability Self V
+1047,20488,66,2.5,Bludgeoning Vulnerability Self VI
+1048,20488,66,1.1,Bludgeoning Vulnerability Other I
+1049,20488,66,1.25,Bludgeoning Vulnerability Other II
+1050,20488,66,1.5,Bludgeoning Vulnerability Other III
+1051,20488,66,1.75,Bludgeoning Vulnerability Other IV
+1052,20488,66,2,Bludgeoning Vulnerability Other V
+1053,20488,66,2.5,Bludgeoning Vulnerability Other VI
+1054,20488,68,1.1,Cold Vulnerability Self I
+1055,20488,68,1.25,Cold Vulnerability Self II
+1056,20488,68,1.5,Cold Vulnerability Self III
+1057,20488,68,1.75,Cold Vulnerability Self IV
+1058,20488,68,2,Cold Vulnerability Self V
+1059,20488,68,2.5,Cold Vulnerability Self VI
+1060,20488,68,1.1,Cold Vulnerability Other I
+1061,20488,68,1.25,Cold Vulnerability Other II
+1062,20488,68,1.5,Cold Vulnerability Other III
+1063,20488,68,1.75,Cold Vulnerability Other IV
+1064,20488,68,2,Cold Vulnerability Other V
+1065,20488,68,2.5,Cold Vulnerability Other VI
+1066,20488,70,0.91,Lightning Protection Self I
+1067,20488,70,0.8,Lightning Protection Self II
+1068,20488,70,0.67,Lightning Protection Self III
+1069,20488,70,0.57,Lightning Protection Self IV
+1070,20488,70,0.5,Lightning Protection Self V
+1071,20488,70,0.4,Lightning Protection Self VI
+1072,20488,70,0.91,Lightning Protection Other I
+1073,20488,70,0.8,Lightning Protection Other II
+1074,20488,70,0.67,Lightning Protection Other III
+1075,20488,70,0.57,Lightning Protection Other IV
+1076,20488,70,0.5,Lightning Protection Other V
+1077,20488,70,0.4,Lightning Protection Other VI
+1078,20488,70,1.1,Lightning Vulnerability Self I
+1079,20488,70,1.25,Lightning Vulnerability Self II
+1080,20488,70,1.5,Lightning Vulnerability Self III
+1081,20488,70,1.75,Lightning Vulnerability Self IV
+1082,20488,70,2,Lightning Vulnerability Self V
+1083,20488,70,2.5,Lightning Vulnerability Self VI
+1084,20488,70,1.1,Lightning Vulnerability Other I
+1085,20488,70,1.25,Lightning Vulnerability Other II
+1086,20488,70,1.5,Lightning Vulnerability Other III
+1087,20488,70,1.75,Lightning Vulnerability Other IV
+1088,20488,70,2,Lightning Vulnerability Other V
+1089,20488,70,2.5,Lightning Vulnerability Other VI
+1090,20488,67,0.8,Fire Protection Self II
+1091,20488,67,0.67,Fire Protection Self III
+1092,20488,67,0.57,Fire Protection Self IV
+1093,20488,67,0.5,Fire Protection Self V
+1094,20488,67,0.4,Fire Protection Self VI
+1095,20488,67,0.5,Fire Protection Other V
+1096,20488,67,0.4,Fire Protection Other VI
+1098,20488,67,1.25,Fire Vulnerability Self II
+1099,20488,67,1.5,Fire Vulnerability Self III
+1100,20488,67,1.75,Fire Vulnerability Self IV
+1101,20488,67,2,Fire Vulnerability Self V
+1102,20488,67,2.5,Fire Vulnerability Self VI
+1104,20488,67,1.25,Fire Vulnerability Other II
+1105,20488,67,1.5,Fire Vulnerability Other III
+1106,20488,67,1.75,Fire Vulnerability Other IV
+1107,20488,67,2,Fire Vulnerability Other V
+1108,20488,67,2.5,Fire Vulnerability Other VI
+1109,20488,64,0.91,Blade Protection Self I
+1110,20488,64,0.8,Blade Protection Self II
+1111,20488,64,0.67,Blade Protection Self III
+1112,20488,64,0.57,Blade Protection Self IV
+1113,20488,64,0.5,Blade Protection Self V
+1114,20488,64,0.4,Blade Protection Self VI
+1115,20488,64,0.91,Blade Protection Other I
+1116,20488,64,0.8,Blade Protection Other II
+1117,20488,64,0.67,Blade Protection Other III
+1118,20488,64,0.57,Blade Protection Other IV
+1119,20488,64,0.5,Blade Protection Other V
+1120,20488,64,0.4,Blade Protection Other VI
+1121,20488,64,1.1,Blade Vulnerability Self I
+1122,20488,64,1.25,Blade Vulnerability Self II
+1123,20488,64,1.5,Blade Vulnerability Self III
+1124,20488,64,1.75,Blade Vulnerability Self IV
+1125,20488,64,2,Blade Vulnerability Self V
+1126,20488,64,2.5,Blade Vulnerability Self VI
+1127,20488,64,1.1,Blade Vulnerability Other I
+1128,20488,64,1.25,Blade Vulnerability Other II
+1129,20488,64,1.5,Blade Vulnerability Other III
+1130,20488,64,1.75,Blade Vulnerability Other IV
+1131,20488,64,2,Blade Vulnerability Other V
+1132,20488,64,2.5,Blade Vulnerability Other VI
+1133,20488,65,0.91,Piercing Protection Self I
+1134,20488,65,0.8,Piercing Protection Self II
+1135,20488,65,0.67,Piercing Protection Self III
+1136,20488,65,0.57,Piercing Protection Self IV
+1137,20488,65,0.5,Piercing Protection Self V
+1138,20488,65,0.4,Piercing Protection Self VI
+1139,20488,65,0.91,Piercing Protection Other I
+1140,20488,65,0.8,Piercing Protection Other II
+1141,20488,65,0.67,Piercing Protection Other III
+1142,20488,65,0.57,Piercing Protection Other IV
+1143,20488,65,0.5,Piercing Protection Other V
+1144,20488,65,0.4,Piercing Protection Other VI
+1145,20488,65,1.1,Piercing Vulnerability Self I
+1146,20488,65,1.25,Piercing Vulnerability Self II
+1147,20488,65,1.5,Piercing Vulnerability Self III
+1148,20488,65,1.75,Piercing Vulnerability Self IV
+1149,20488,65,2,Piercing Vulnerability Self V
+1150,20488,65,2.5,Piercing Vulnerability Self VI
+1151,20488,65,1.1,Piercing Vulnerability Other I
+1152,20488,65,1.25,Piercing Vulnerability Other II
+1153,20488,65,1.5,Piercing Vulnerability Other III
+1154,20488,65,1.75,Piercing Vulnerability Other IV
+1155,20488,65,2,Piercing Vulnerability Other V
+1156,20488,65,2.5,Piercing Vulnerability Other VI
+1308,41088,0,50,Armor Self II
+1309,41088,0,75,Armor Self III
+1310,41088,0,100,Armor Self IV
+1311,41088,0,150,Armor Self V
+1312,41088,0,200,Armor Self VI
+1313,41088,0,50,Armor Other II
+1314,41088,0,75,Armor Other III
+1315,41088,0,100,Armor Other IV
+1316,41088,0,150,Armor Other V
+1317,41088,0,200,Armor Other VI
+1318,41088,0,-50,Imperil Self II
+1319,41088,0,-75,Imperil Self III
+1320,41088,0,-100,Imperil Self IV
+1321,41088,0,-150,Imperil Self V
+1322,41088,0,-200,Imperil Self VI
+1323,41088,0,-50,Imperil Other II
+1324,41088,0,-75,Imperil Other III
+1325,41088,0,-100,Imperil Other IV
+1326,41088,0,-150,Imperil Other V
+1327,41088,0,-200,Imperil Other VI
+1328,36865,1,15,Strength Self II
+1329,36865,1,20,Strength Self III
+1330,36865,1,25,Strength Self IV
+1331,36865,1,30,Strength Self V
+1332,36865,1,35,Strength Self VI
+1333,36865,1,15,Strength Other II
+1334,36865,1,20,Strength Other III
+1335,36865,1,25,Strength Other IV
+1336,36865,1,30,Strength Other V
+1337,36865,1,35,Strength Other VI
+1339,36865,1,-15,Weakness Other II
+1340,36865,1,-20,Weakness Other III
+1341,36865,1,-25,Weakness Other IV
+1342,36865,1,-30,Weakness Other V
+1343,36865,1,-35,Weakness Other VI
+1344,36865,1,-15,Weakness Self II
+1345,36865,1,-20,Weakness Self III
+1346,36865,1,-25,Weakness Self IV
+1347,36865,1,-30,Weakness Self V
+1348,36865,1,-35,Weakness Self VI
+1349,36865,2,10,Endurance Self I
+1350,36865,2,15,Endurance Self II
+1351,36865,2,20,Endurance Self III
+1352,36865,2,25,Endurance Self IV
+1353,36865,2,30,Endurance Self V
+1354,36865,2,35,Endurance Self VI
+1355,36865,2,10,Endurance Other I
+1356,36865,2,15,Endurance Other II
+1357,36865,2,20,Endurance Other III
+1358,36865,2,25,Endurance Other IV
+1359,36865,2,30,Endurance Other V
+1360,36865,2,35,Endurance Other VI
+1361,36865,2,-10,Frailty Self I
+1362,36865,2,-15,Frailty Self II
+1363,36865,2,-20,Frailty Self III
+1364,36865,2,-25,Frailty Self IV
+1365,36865,2,-30,Frailty Self V
+1366,36865,2,-35,Frailty Self VI
+1367,36865,2,-10,Frailty Other I
+1368,36865,2,-15,Frailty Other II
+1369,36865,2,-20,Frailty Other III
+1370,36865,2,-25,Frailty Other IV
+1371,36865,2,-30,Frailty Other V
+1372,36865,2,-35,Frailty Other VI
+1373,36865,4,10,Coordination Self I
+1374,36865,4,15,Coordination Self II
+1375,36865,4,20,Coordination Self III
+1376,36865,4,25,Coordination Self IV
+1377,36865,4,30,Coordination Self V
+1378,36865,4,35,Coordination Self VI
+1379,36865,4,10,Coordination Other I
+1380,36865,4,15,Coordination Other II
+1381,36865,4,20,Coordination Other III
+1382,36865,4,25,Coordination Other IV
+1383,36865,4,30,Coordination Other V
+1384,36865,4,35,Coordination Other VI
+1385,36865,4,-10,Clumsiness Self I
+1386,36865,4,-15,Clumsiness Self II
+1387,36865,4,-20,Clumsiness Self III
+1388,36865,4,-25,Clumsiness Self IV
+1389,36865,4,-30,Clumsiness Self V
+1390,36865,4,-35,Clumsiness Self VI
+1391,36865,4,-10,Clumsiness Other I
+1392,36865,4,-15,Clumsiness Other II
+1393,36865,4,-20,Clumsiness Other III
+1394,36865,4,-25,Clumsiness Other IV
+1395,36865,4,-30,Clumsiness Other V
+1396,36865,4,-35,Clumsiness Other VI
+1397,36865,3,10,Quickness Self I
+1398,36865,3,15,Quickness Self II
+1399,36865,3,20,Quickness Self III
+1400,36865,3,25,Quickness Self IV
+1401,36865,3,30,Quickness Self V
+1402,36865,3,35,Quickness Self VI
+1403,36865,3,10,Quickness Other I
+1404,36865,3,15,Quickness Other II
+1405,36865,3,20,Quickness Other III
+1406,36865,3,25,Quickness Other IV
+1407,36865,3,30,Quickness Other V
+1408,36865,3,35,Quickness Other VI
+1409,36865,3,-10,Slowness Self I
+1410,36865,3,-15,Slowness Self II
+1411,36865,3,-20,Slowness Self III
+1412,36865,3,-25,Slowness Self IV
+1413,36865,3,-30,Slowness Self V
+1414,36865,3,-35,Slowness Self VI
+1415,36865,3,-10,Slowness Other I
+1416,36865,3,-15,Slowness Other II
+1417,36865,3,-20,Slowness Other III
+1418,36865,3,-25,Slowness Other IV
+1419,36865,3,-30,Slowness Other V
+1420,36865,3,-35,Slowness Other VI
+1421,36865,5,10,Focus Self I
+1422,36865,5,15,Focus Self II
+1423,36865,5,20,Focus Self III
+1424,36865,5,25,Focus Self IV
+1425,36865,5,30,Focus Self V
+1426,36865,5,35,Focus Self VI
+1427,36865,5,10,Focus Other I
+1428,36865,5,15,Focus Other II
+1429,36865,5,20,Focus Other III
+1430,36865,5,25,Focus Other IV
+1431,36865,5,30,Focus Other V
+1432,36865,5,35,Focus Other VI
+1433,36865,5,-10,Bafflement Self I
+1434,36865,5,-15,Bafflement Self II
+1435,36865,5,-20,Bafflement Self III
+1436,36865,5,-25,Bafflement Self IV
+1437,36865,5,-30,Bafflement Self V
+1438,36865,5,-35,Bafflement Self VI
+1439,36865,5,-10,Bafflement Other I
+1440,36865,5,-15,Bafflement Other II
+1441,36865,5,-20,Bafflement Other III
+1442,36865,5,-25,Bafflement Other IV
+1443,36865,5,-30,Bafflement Other V
+1444,36865,5,-35,Bafflement Other VI
+1445,36865,6,10,Willpower Self I
+1446,36865,6,15,Willpower Self II
+1447,36865,6,20,Willpower Self III
+1448,36865,6,25,Willpower Self IV
+1449,36865,6,30,Willpower Self V
+1450,36865,6,35,Willpower Self VI
+1451,36865,6,10,Willpower Other I
+1452,36865,6,15,Willpower Other II
+1453,36865,6,20,Willpower Other III
+1454,36865,6,25,Willpower Other IV
+1455,36865,6,30,Willpower Other V
+1456,36865,6,35,Willpower Other VI
+1457,36865,6,-10,Feeblemind Self I
+1458,36865,6,-15,Feeblemind Self II
+1459,36865,6,-20,Feeblemind Self III
+1460,36865,6,-25,Feeblemind Self IV
+1461,36865,6,-30,Feeblemind Self V
+1462,36865,6,-35,Feeblemind Self VI
+1463,36865,6,-10,Feeblemind Other I
+1464,36865,6,-15,Feeblemind Other II
+1465,36865,6,-20,Feeblemind Other III
+1466,36865,6,-25,Feeblemind Other IV
+1467,36865,6,-30,Feeblemind Other V
+1468,36865,6,-35,Feeblemind Other VI
+1469,20488,144,0.909,Hermetic Void I
+1470,20488,144,0.8333,Hermetic Void II
+1471,20488,144,0.7692,Hermetic Void III
+1472,20488,144,0.7143,Hermetic Void IV
+1473,20488,144,0.6667,Hermetic Void V
+1474,20488,144,0.625,Hermetic Void VI
+1475,33574920,171,1.1,Aura of Hermetic Link Self I
+1476,33574920,171,1.2,Aura of Hermetic Link Self II
+1477,33574920,171,1.3,Aura of Hermetic Link Self III
+1478,33574920,171,1.4,Aura of Hermetic Link Self IV
+1479,33574920,171,1.5,Aura of Hermetic Link Self V
+1480,33574920,171,1.6,Aura of Hermetic Link Self VI
+1482,36868,28,50,Impenetrability II
+1483,36868,28,75,Impenetrability III
+1484,36868,28,100,Impenetrability IV
+1485,36868,28,150,Impenetrability V
+1486,36868,28,200,Impenetrability VI
+1487,36868,28,-20,Brittlemail I
+1488,36868,28,-50,Brittlemail II
+1489,36868,28,-75,Brittlemail III
+1490,36868,28,-100,Brittlemail IV
+1491,36868,28,-150,Brittlemail V
+1492,36868,28,-200,Brittlemail VI
+1493,36872,18,0.111,Acid Bane I
+1494,36872,18,0.25,Acid Bane II
+1495,36872,18,0.5,Acid Bane III
+1496,36872,18,0.75,Acid Bane IV
+1497,36872,18,1,Acid Bane V
+1498,36872,18,1.5,Acid Bane VI
+1499,36872,18,-0.111,Acid Lure I
+1500,36872,18,-0.25,Acid Lure II
+1501,36872,18,-0.5,Acid Lure III
+1502,36872,18,-0.75,Acid Lure IV
+1503,36872,18,-1,Acid Lure V
+1504,36872,18,-1.5,Acid Lure VI
+1505,36872,15,-0.111,Bludgeon Lure I
+1506,36872,15,-0.25,Bludgeon Lure II
+1507,36872,15,-0.5,Bludgeon Lure III
+1508,36872,15,-0.75,Bludgeon Lure IV
+1509,36872,15,-1,Bludgeon Lure V
+1510,36872,15,-1.5,Bludgeon Lure VI
+1511,36872,15,0.111,Bludgeon Bane I
+1512,36872,15,0.25,Bludgeon Bane II
+1513,36872,15,0.5,Bludgeon Bane III
+1514,36872,15,0.75,Bludgeon Bane IV
+1515,36872,15,1,Bludgeon Bane V
+1516,36872,15,1.5,Bludgeon Bane VI
+1517,36872,16,-0.111,Frost Lure I
+1518,36872,16,-0.25,Frost Lure II
+1519,36872,16,-0.5,Frost Lure III
+1520,36872,16,-0.75,Frost Lure IV
+1521,36872,16,-1,Frost Lure V
+1522,36872,16,-1.5,Frost Lure VI
+1523,36872,16,0.111,Frost Bane I
+1524,36872,16,0.25,Frost Bane II
+1525,36872,16,0.5,Frost Bane III
+1526,36872,16,0.75,Frost Bane IV
+1527,36872,16,1,Frost Bane V
+1528,36872,16,1.5,Frost Bane VI
+1529,36872,19,-0.111,Lightning Lure I
+1530,36872,19,-0.25,Lightning Lure II
+1531,36872,19,-0.5,Lightning Lure III
+1532,36872,19,-0.75,Lightning Lure IV
+1533,36872,19,-1,Lightning Lure V
+1534,36872,19,-1.5,Lightning Lure VI
+1535,36872,19,0.111,Lightning Bane I
+1536,36872,19,0.25,Lightning Bane II
+1537,36872,19,0.5,Lightning Bane III
+1538,36872,19,0.75,Lightning Bane IV
+1539,36872,19,1,Lightning Bane V
+1540,36872,19,1.5,Lightning Bane VI
+1541,36872,17,-0.111,Flame Lure I
+1542,36872,17,-0.25,Flame Lure II
+1543,36872,17,-0.5,Flame Lure III
+1544,36872,17,-0.75,Flame Lure IV
+1545,36872,17,-1,Flame Lure V
+1546,36872,17,-1.5,Flame Lure VI
+1547,36872,17,0.111,Flame Bane I
+1548,36872,17,0.25,Flame Bane II
+1549,36872,17,0.5,Flame Bane III
+1550,36872,17,0.75,Flame Bane IV
+1551,36872,17,1,Flame Bane V
+1552,36872,17,1.5,Flame Bane VI
+1553,36872,13,-0.25,Blade Lure II
+1554,36872,13,-0.5,Blade Lure III
+1555,36872,13,-0.75,Blade Lure IV
+1556,36872,13,-1,Blade Lure V
+1557,36872,13,-1.5,Blade Lure VI
+1558,36872,13,0.25,Blade Bane II
+1559,36872,13,0.5,Blade Bane III
+1560,36872,13,0.75,Blade Bane IV
+1561,36872,13,1,Blade Bane V
+1562,36872,13,1.5,Blade Bane VI
+1563,36872,14,-0.111,Piercing Lure I
+1564,36872,14,-0.25,Piercing Lure II
+1565,36872,14,-0.5,Piercing Lure III
+1566,36872,14,-0.75,Piercing Lure IV
+1567,36872,14,-1,Piercing Lure V
+1568,36872,14,-1.5,Piercing Lure VI
+1569,36872,14,0.111,Piercing Bane I
+1570,36872,14,0.25,Piercing Bane II
+1571,36872,14,0.5,Piercing Bane III
+1572,36872,14,0.75,Piercing Bane IV
+1573,36872,14,1,Piercing Bane V
+1574,36872,14,1.5,Piercing Bane VI
+1575,36868,38,10,Strengthen Lock I
+1576,36868,38,25,Strengthen Lock II
+1577,36868,38,50,Strengthen Lock III
+1578,36868,38,75,Strengthen Lock IV
+1579,36868,38,100,Strengthen Lock V
+1580,36868,38,150,Strengthen Lock VI
+1581,36868,38,-10,Weaken Lock I
+1582,36868,38,-25,Weaken Lock II
+1583,36868,38,-50,Weaken Lock III
+1584,36868,38,-75,Weaken Lock IV
+1585,36868,38,-100,Weaken Lock V
+1586,36868,38,-150,Weaken Lock VI
+1587,33591304,168,0.03,Aura of Heart Seeker Self I
+1588,33591304,168,0.05,Aura of Heart Seeker Self II
+1589,33591304,168,0.07,Aura of Heart Seeker Self III
+1590,33591304,168,0.1,Aura of Heart Seeker Self IV
+1591,33591304,168,0.13,Aura of Heart Seeker Self V
+1592,33591304,168,0.15,Aura of Heart Seeker Self VI
+1593,36872,62,-0.03,Turn Blade I
+1594,36872,62,-0.05,Turn Blade II
+1595,36872,62,-0.07,Turn Blade III
+1596,36872,62,-0.1,Turn Blade IV
+1597,36872,62,-0.13,Turn Blade V
+1598,36872,62,-0.15,Turn Blade VI
+1599,36872,169,0.03,Aura of Defender Self I
+1601,36872,169,0.05,Aura of Defender Self II
+1602,36872,169,0.075,Aura of Defender Self III
+1603,36872,169,0.1,Aura of Defender Self IV
+1604,36872,169,0.13,Aura of Defender Self V
+1605,36872,169,0.15,Aura of Defender Self VI
+1606,36872,29,-0.03,Lure Blade I
+1607,36872,29,-0.05,Lure Blade II
+1608,36872,29,-0.075,Lure Blade III
+1609,36872,29,-0.1,Lure Blade IV
+1610,36872,29,-0.13,Lure Blade V
+1611,36872,29,-0.15,Lure Blade VI
+1612,33591300,360,4,Aura of Blood Drinker Self II
+1613,33591300,360,8,Aura of Blood Drinker Self III
+1614,33591300,360,12,Aura of Blood Drinker Self IV
+1615,33591300,360,16,Aura of Blood Drinker Self V
+1616,33591300,360,20,Aura of Blood Drinker Self VI
+1617,36868,44,-4,Blood Loather II
+1618,36868,44,-8,Blood Loather III
+1619,36868,44,-12,Blood Loather IV
+1620,36868,44,-16,Blood Loather V
+1621,36868,44,-20,Blood Loather VI
+1623,33591300,361,-20,Aura of Swift Killer Self II
+1624,33591300,361,-30,Aura of Swift Killer Self III
+1625,33591300,361,-40,Aura of Swift Killer Self IV
+1626,33591300,361,-50,Aura of Swift Killer Self V
+1627,33591300,361,-60,Aura of Swift Killer Self VI
+1629,36868,49,20,Leaden Weapon II
+1630,36868,49,30,Leaden Weapon III
+1631,36868,49,40,Leaden Weapon IV
+1632,36868,49,50,Leaden Weapon V
+1633,36868,49,60,Leaden Weapon VI
+1638,36880,7,-10,Defenselessness Self I
+1639,36880,7,-15,Defenselessness Self II
+1640,36880,7,-20,Defenselessness Self III
+1641,36880,7,-25,Defenselessness Self IV
+1642,36880,7,-30,Defenselessness Self V
+1643,36880,7,-35,Defenselessness Self VI
+1644,36880,24,330,The Gift of Sarneho
+1709,36880,39,10,Cooking Mastery Other I
+1710,36880,39,15,Cooking Mastery Other II
+1711,36880,39,20,Cooking Mastery Other III
+1712,36880,39,25,Cooking Mastery Other IV
+1713,36880,39,30,Cooking Mastery Other V
+1714,36880,39,35,Cooking Mastery Other VI
+1715,36880,39,10,Cooking Mastery Self I
+1716,36880,39,15,Cooking Mastery Self II
+1717,36880,39,20,Cooking Mastery Self III
+1718,36880,39,25,Cooking Mastery Self IV
+1719,36880,39,30,Cooking Mastery Self V
+1720,36880,39,35,Cooking Mastery Self VI
+1721,36880,39,-10,Cooking Ineptitude Other I
+1722,36880,39,-15,Cooking Ineptitude Other II
+1723,36880,39,-20,Cooking Ineptitude Other III
+1724,36880,39,-25,Cooking Ineptitude Other IV
+1725,36880,39,-30,Cooking Ineptitude Other V
+1726,36880,39,-35,Cooking Ineptitude Other VI
+1727,36880,39,-10,Cooking Ineptitude Self I
+1728,36880,39,-15,Cooking Ineptitude Self II
+1729,36880,39,-20,Cooking Ineptitude Self III
+1730,36880,39,-25,Cooking Ineptitude Self IV
+1731,36880,39,-30,Cooking Ineptitude Self V
+1732,36880,39,-35,Cooking Ineptitude Self VI
+1733,36880,37,10,Fletching Mastery Other I
+1734,36880,37,15,Fletching Mastery Other II
+1735,36880,37,20,Fletching Mastery Other III
+1736,36880,37,25,Fletching Mastery Other IV
+1737,36880,37,30,Fletching Mastery Other V
+1738,36880,37,35,Fletching Mastery Other VI
+1739,36880,37,10,Fletching Mastery Self I
+1740,36880,37,15,Fletching Mastery Self II
+1741,36880,37,20,Fletching Mastery Self III
+1742,36880,37,25,Fletching Mastery Self IV
+1743,36880,37,30,Fletching Mastery Self V
+1744,36880,37,35,Fletching Mastery Self VI
+1745,36880,37,-10,Fletching Ineptitude Other I
+1746,36880,37,-15,Fletching Ineptitude Other II
+1747,36880,37,-20,Fletching Ineptitude Other III
+1748,36880,37,-25,Fletching Ineptitude Other IV
+1749,36880,37,-30,Fletching Ineptitude Other V
+1750,36880,37,-35,Fletching Ineptitude Other VI
+1751,36880,37,-10,Fletching Ineptitude Self I
+1752,36880,37,-15,Fletching Ineptitude Self II
+1753,36880,37,-20,Fletching Ineptitude Self III
+1754,36880,37,-25,Fletching Ineptitude Self IV
+1755,36880,37,-30,Fletching Ineptitude Self V
+1756,36880,37,-35,Fletching Ineptitude Self VI
+1757,36880,38,10,Alchemy Mastery Other I
+1758,36880,38,15,Alchemy Mastery Other II
+1759,36880,38,20,Alchemy Mastery Other III
+1760,36880,38,25,Alchemy Mastery Other IV
+1761,36880,38,30,Alchemy Mastery Other V
+1762,36880,38,35,Alchemy Mastery Other VI
+1763,36880,38,10,Alchemy Mastery Self I
+1764,36880,38,15,Alchemy Mastery Self II
+1765,36880,38,20,Alchemy Mastery Self III
+1766,36880,38,25,Alchemy Mastery Self IV
+1767,36880,38,30,Alchemy Mastery Self V
+1768,36880,38,35,Alchemy Mastery Self VI
+1769,36880,38,-10,Alchemy Ineptitude Other I
+1770,36880,38,-15,Alchemy Ineptitude Other II
+1771,36880,38,-20,Alchemy Ineptitude Other III
+1772,36880,38,-25,Alchemy Ineptitude Other IV
+1773,36880,38,-30,Alchemy Ineptitude Other V
+1774,36880,38,-35,Alchemy Ineptitude Other VI
+1775,36880,38,-10,Alchemy Ineptitude Self I
+1776,36880,38,-15,Alchemy Ineptitude Self II
+1777,36880,38,-20,Alchemy Ineptitude Self III
+1778,36880,38,-25,Alchemy Ineptitude Self IV
+1779,36880,38,-30,Alchemy Ineptitude Self V
+1780,36880,38,-35,Alchemy Ineptitude Self VI
+1782,36880,36,-30,Gertarh's Curse
+1846,36880,15,-10,Curse of Black Fire
+1992,36880,38,1,Camping Mastery
+1993,36880,38,-1,Camping Ineptitude
+1994,33591300,360,25,Aura of Wound Twister
+1995,33591300,361,-20,Aura of Alacrity
+1996,33591304,168,0.1,Aura of Soul Hunter
+1997,36866,1,15,Life Giver
+1998,36866,3,15,Stamina Giver
+1999,36866,5,15,Mana Giver
+2003,36866,1,5,Warrior's Lesser Vitality
+2004,36866,1,10,Warrior's Vitality
+2005,36866,1,15,Warrior's Greater Vitality
+2006,36866,1,20,Warrior's Ultimate Vitality
+2007,36866,3,10,Warrior's Lesser Vigor
+2008,36866,3,20,Warrior's Vigor
+2009,36866,3,30,Warrior's Greater Vigor
+2010,36866,3,40,Warrior's Ultimate Vigor
+2011,36866,5,10,Wizard's Lesser Intellect
+2012,36866,5,15,Wizard's Intellect
+2013,36866,5,20,Wizard's Greater Intellect
+2014,36866,5,30,Wizard's Ultimate Intellect
+2015,36868,28,220,Aerfalle's Ward
+2016,36866,5,100,Impulse
+2043,36865,1,-800,Weight of Eternity
+2044,36880,32,-3500,Item Befoulment
+2047,41088,0,2000,Demonskin
+2048,36880,15,200,Boon of the Demon
+2049,33591300,360,60,Bile of the Hopeslayer
+2052,41088,0,225,Executor's Boon
+2053,41088,0,225,Executor's Blessing
+2054,36865,5,-40,Synaptic Misfire
+2055,36865,5,-40,Bafflement Self VII
+2056,36865,4,-40,Ataxia
+2057,36865,4,-40,Clumsiness Self VII
+2058,36865,4,40,Boon of Refinement
+2059,36865,4,40,Honed Control
+2060,36865,2,40,Temeritous Touch
+2061,36865,2,40,Perseverance
+2064,36865,6,-40,Self Loathing
+2065,36865,6,-40,Feeblemind Self VII
+2066,36865,5,40,Calming Gaze
+2067,36865,5,40,Inner Calm
+2068,36865,2,-40,Brittle Bones
+2069,36865,2,-40,Frailty Self VII
+2074,41088,0,-225,Gossamer Flesh
+2075,41088,0,-225,Imperil Self VII
+2080,36865,3,40,Ogfoot
+2081,36865,3,40,Hastening
+2084,36865,3,-40,Belly of Lead
+2085,36865,3,-40,Slowness Self VII
+2086,36865,1,40,Might of the 5 Mules
+2087,36865,1,40,Might of the Lugians
+2088,36865,1,-40,Senescence
+2089,36865,1,-40,Weakness Self VII
+2090,36865,6,40,Bolstered Will
+2091,36865,6,40,Mind Blossom
+2092,36872,18,1.7,Olthoi's Bane
+2093,36872,18,-1.7,Olthoi Bait
+2094,36872,13,1.7,Swordsman's Bane
+2095,36872,13,-1.7,Swordsman Bait
+2096,33591300,360,22,Aura of Infected Caress
+2097,36868,44,-22,Pacification
+2098,36872,15,1.7,Tusker's Bane
+2099,36872,15,-1.7,Tusker Bait
+2100,36868,28,-220,Tattercoat
+2101,36872,169,0.17,Aura of Cragstone's Will
+2102,36872,17,1.7,Inferno's Bane
+2103,36872,17,-1.7,Inferno Bait
+2104,36872,16,1.7,Gelidite's Bane
+2105,36872,16,-1.7,Gelidite Bait
+2106,33591304,168,0.17,Aura of Elysa's Sight
+2107,20488,144,0.5882,Cabalistic Ostracism
+2108,36868,28,220,Brogard's Defiance
+2109,36868,49,70,Lugian's Speed
+2110,36872,19,1.7,Astyrrian's Bane
+2111,36872,19,-1.7,Astyrrian Bait
+2112,36872,29,-0.17,Wi's Folly
+2113,36872,14,1.7,Archer's Bane
+2114,36872,14,-1.7,Archer Bait
+2115,36868,38,200,Fortified Lock
+2116,33591300,361,-70,Aura of Atlan's Alacrity
+2117,20488,171,1.7,Aura of Mystic's Blessing
+2118,36872,62,-0.17,Clouded Motives
+2119,36868,38,-200,Vagabond's Gift
+2148,20488,69,0.35,Caustic Boon
+2149,20488,69,0.35,Caustic Blessing
+2150,20488,64,0.35,Boon of the Blade Turner
+2151,20488,64,0.35,Blessing of the Blade Turner
+2152,20488,66,0.35,Boon of the Mace Turner
+2153,20488,66,0.35,Blessing of the Mace Turner
+2154,20488,68,0.35,Icy Boon
+2155,20488,68,0.35,Icy Blessing
+2156,20488,67,0.35,Fiery Boon
+2157,20488,67,0.35,Fiery Blessing
+2158,20488,70,0.35,Storm's Boon
+2159,20488,70,0.35,Storm's Blessing
+2160,20488,65,0.35,Boon of the Arrow Turner
+2161,20488,65,0.35,Blessing of the Arrow Turner
+2162,20488,69,2.85,Olthoi's Gift
+2163,20488,69,2.85,Acid Vulnerability Self VII
+2164,20488,64,2.85,Swordsman's Gift
+2165,20488,64,2.85,Blade Vulnerability Self VII
+2166,20488,66,2.85,Tusker's Gift
+2167,20488,66,2.85,Bludgeoning Vulnerability Self VII
+2168,20488,68,2.85,Gelidite's Gift
+2169,20488,68,2.85,Cold Vulnerability Self VII
+2170,20488,67,2.85,Inferno's Gift
+2171,20488,67,2.85,Fire Vulnerability Self VII
+2172,20488,70,2.85,Astyrrian's Gift
+2173,20488,70,2.85,Lightning Vulnerability Self VII
+2174,20488,65,2.85,Archer's Gift
+2175,20488,65,2.85,Piercing Vulnerability Self VII
+2176,20488,4,0.4,Enervation
+2177,20488,4,0.4,Exhaustion Self VII
+2178,20488,3,0.4,Decrepitude's Grasp
+2179,20488,3,0.4,Fester Self VII
+2180,20488,5,0.4,Energy Flux
+2181,20488,5,0.4,Mana Depletion Self VII
+2182,20488,5,2.15,Battlemage's Boon
+2183,20488,5,2.15,Battlemage's Blessing
+2184,20488,3,2.15,Hydra's Head
+2185,20488,3,2.15,Robustify
+2186,20488,4,2.15,Tenaciousness
+2187,20488,4,2.15,Unflinching Persistence
+2188,36880,38,-40,Bottle Breaker
+2189,36880,38,-40,Alchemy Ineptitude Self VII
+2190,36880,38,40,Silencia's Boon
+2191,36880,38,40,Silencia's Blessing
+2192,36880,14,-40,Hands of Chorizite
+2193,36880,14,-40,Arcane Benightedness Self VII
+2194,36880,14,40,Aliester's Boon
+2195,36880,14,40,Aliester's Blessing
+2196,36880,29,40,Jibril's Boon
+2197,36880,29,40,Jibril's Blessing
+2198,36880,29,-40,Jibril's Vitae
+2199,36880,29,-40,Armor Tinkering Ignorance Self VII
+2200,36880,45,-40,Light Weapon Ineptitude Other VII
+2201,36880,45,-40,Light Weapon Ineptitude Self VII
+2202,36880,45,40,Light Weapon Mastery Other VII
+2203,36880,45,40,Light Weapon Mastery Self VII
+2204,36880,47,-40,Missile Weapon Ineptitude Other VII
+2205,36880,47,-40,Missile Weapon Ineptitude Self VII
+2206,36880,47,40,Missile Weapon Mastery Other VII
+2207,36880,47,40,Missile Weapon Mastery Self VII
+2208,36880,39,-40,Challenger's Legacy
+2209,36880,39,-40,Cooking Ineptitude Self VII
+2210,36880,39,40,Morimoto's Boon
+2211,36880,39,40,Morimoto's Blessing
+2212,36880,31,-40,Wrath of Adja
+2213,36880,31,-40,Creature Enchantment Ineptitude Self VII
+2214,36880,31,40,Adja's Boon
+2215,36880,31,40,Adja's Blessing
+2216,36880,47,-40,Missile Weapon Ineptitude Other VII
+2217,36880,47,-40,Missile Weapon Ineptitude Self VII
+2218,36880,47,40,Missile Weapon Mastery Other VII
+2219,36880,47,40,Missile Weapon Mastery Self VII
+2220,36880,46,-40,Finesse Weapon Ineptitude Other VII
+2221,36880,46,-40,Finesse Weapon Ineptitude Self VII
+2222,36880,46,40,Finesse Weapon Mastery Other VII
+2223,36880,46,40,Finesse Weapon Mastery Self VII
+2224,36880,20,-40,Hearts on Sleeves
+2225,36880,20,-40,Deception Ineptitude Self VII
+2226,36880,20,40,Ketnan's Boon
+2227,36880,20,40,Ketnan's Blessing
+2228,36880,7,-40,Broadside of a Barn
+2229,36880,7,-40,Defenselessness Self VII
+2230,36880,36,-40,Sashi Mu's Kiss
+2231,36880,36,-40,Faithlessness Self VII
+2232,36880,36,40,Odif's Boon
+2233,36880,36,40,Odif's Blessing
+2234,36880,37,-40,Twisted Digits
+2235,36880,37,-40,Fletching Ineptitude Self VII
+2236,36880,37,40,Lilitha's Boon
+2237,36880,37,40,Lilitha's Blessing
+2238,36880,21,-40,Unsteady Hands
+2239,36880,21,-40,Healing Ineptitude Self VII
+2240,36880,21,40,Avalenne's Boon
+2241,36880,21,40,Avalenne's Blessing
+2242,36880,7,40,Web of Deflection
+2243,36880,7,40,Aura of Deflection
+2244,36880,6,40,Web of Defense
+2245,36880,6,40,Aura of Defense
+2246,36880,32,-40,Wrath of Celcynd
+2247,36880,32,-40,Item Enchantment Ineptitude Self VII
+2248,36880,32,40,Celcynd's Boon
+2249,36880,32,40,Celcynd's Blessing
+2250,36880,18,40,Yoshi's Boon
+2251,36880,18,40,Yoshi's Blessing
+2252,36880,18,-40,Unfortunate Appraisal
+2253,36880,18,-40,Item Tinkering Ignorance Self VII
+2254,36880,22,-40,Feat of Radaz
+2255,36880,22,-40,Jumping Ineptitude Self VII
+2256,36880,22,40,Jahannan's Boon
+2257,36880,22,40,Jahannan's Blessing
+2258,36880,24,-40,Gears Unwound
+2259,36880,24,-40,Leaden Feet Self VII
+2260,36880,35,-40,Kwipetian Vision
+2261,36880,35,-40,Leadership Ineptitude Self VII
+2262,36880,35,40,Ar-Pei's Boon
+2263,36880,35,40,Ar-Pei's Blessing
+2264,36880,33,-40,Wrath of Harlune
+2265,36880,33,-40,Life Magic Ineptitude Self VII
+2266,36880,33,40,Harlune's Boon
+2267,36880,33,40,Harlune's Blessing
+2268,36880,23,-40,Fat Fingers
+2269,36880,23,-40,Lockpick Ineptitude Self VII
+2270,36880,23,40,Oswald's Boon
+2271,36880,23,40,Oswald's Blessing
+2272,36880,45,-40,Light Weapon Ineptitude Other VII
+2273,36880,45,-40,Light Weapon Ineptitude Self VII
+2274,36880,45,40,Light Weapon Mastery Other VII
+2275,36880,45,40,Light Weapon Mastery Self VII
+2276,36880,30,40,Celdiseth's Boon
+2277,36880,30,40,Celdiseth's Blessing
+2278,36880,30,-40,Eyes Clouded
+2279,36880,30,-40,Magic Item Tinkering Ignorance Self VII
+2280,36880,15,40,Web of Resistance
+2281,36880,15,40,Aura of Resistance
+2282,36880,15,-40,Futility
+2283,36880,15,-40,Magic Yield Self VII
+2284,36880,16,-40,Inefficient Investment
+2285,36880,16,-40,Mana Conversion Ineptitude Self VII
+2286,36880,16,40,Nuhmudira's Boon
+2287,36880,16,40,Nuhmudira's Blessing
+2288,36880,27,40,Topheron's Boon
+2289,36880,27,40,Topheron's Blessing
+2290,36880,27,-40,Ignorance's Bliss
+2291,36880,27,-40,Monster Unfamiliarity Self VII
+2292,36880,19,40,Kaluhc's Boon
+2293,36880,19,40,Kaluhc's Blessing
+2294,36880,19,-40,Introversion
+2295,36880,19,-40,Person Unfamiliarity Self VII
+2296,36880,45,-40,Light Weapon Ineptitude Other VII
+2297,36880,45,-40,Light Weapon Ineptitude Self VII
+2298,36880,45,40,Light Weapon Mastery Other VII
+2299,36880,45,40,Light Weapon Mastery Self VII
+2300,36880,24,40,Saladur's Boon
+2301,36880,24,40,Saladur's Blessing
+2302,36880,45,-40,Light Weapon Ineptitude Other VII
+2303,36880,45,-40,Light Weapon Ineptitude Self VII
+2304,36880,45,40,Light Weapon Mastery Other VII
+2305,36880,45,40,Light Weapon Mastery Self VII
+2306,36880,44,-40,Heavy Weapon Ineptitude Other VII
+2307,36880,44,-40,Heavy Weapon Ineptitude Self VII
+2308,36880,44,40,Heavy Weapon Mastery Other VII
+2309,36880,44,40,Heavy Weapon Mastery Self VII
+2310,36880,47,-40,Missile Weapon Ineptitude Other VII
+2311,36880,47,-40,Missile Weapon Ineptitude Self VII
+2312,36880,47,40,Missile Weapon Mastery Other VII
+2313,36880,47,40,Missile Weapon Mastery Self VII
+2314,36880,45,-40,Light Weapon Ineptitude Other VII
+2315,36880,45,40,Light Weapon Mastery Other VII
+2316,36880,45,40,Light Weapon Mastery Self VII
+2317,36880,45,-40,Light Weapon Ineptitude Other VII
+2318,36880,6,-40,Gravity Well
+2319,36880,6,-40,Vulnerability Self VII
+2320,36880,34,-40,Wrath of the Hieromancer
+2321,36880,34,-40,War Magic Ineptitude Self VII
+2322,36880,34,40,Hieromancer's Boon
+2323,36880,34,40,Hieromancer's Blessing
+2324,36880,28,40,Koga's Boon
+2325,36880,28,40,Koga's Blessing
+2326,36880,28,-40,Eye of the Grunt
+2327,36880,28,-40,Weapon Tinkering Ignorance Self VII
+2346,36866,5,-50,Malediction
+2347,36865,5,25,Concentration
+2348,36865,5,50,Brilliance
+2349,36868,28,170,Hieromancer's Ward
+2350,36872,18,1,Greater Decay Durance
+2351,36872,17,1,Greater Consumption Durance
+2352,36872,16,1,Greater Stasis Durance
+2353,36872,19,1,Greater Stimulation Durance
+2354,36872,14,0.25,Lesser Piercing Durance
+2355,36872,13,0.25,Lesser Slashing Durance
+2356,36872,15,0.25,Lesser Bludgeoning Durance
+2357,36880,27,60,Fauna Perlustration
+2370,20488,69,4,Gift of Rotting Flesh
+2371,20488,67,4,Curse of Mortal Flesh
+2372,20488,3,0,Price of Immortality
+2373,36866,1,-50,Enervation of the Heart
+2374,36866,3,-50,Enervation of the Limb
+2375,36866,5,-50,Enervation of the Mind
+2376,36880,34,5,Glimpse of Annihilation
+2377,36880,34,10,Vision of Annihilation
+2378,36880,31,10,Beast Murmur
+2379,36880,31,5,Beast Whisper
+2380,36880,32,10,Grip of Instrumentality
+2381,36880,32,5,Touch of Instrumentality
+2382,20488,3,2,Unnatural Persistence
+2384,20488,5,2,Arcane Restoration
+2385,20488,4,2,Vigilance
+2386,20488,3,3,Indomitability
+2387,36865,5,10,Determination
+2388,36865,4,10,Caution
+2389,36865,2,10,Vigor
+2390,36865,3,10,Haste
+2391,36865,1,10,Prowess
+2392,36865,6,10,Serenity
+2393,41088,0,75,Force Armor
+2394,20488,69,0.67,Acid Shield
+2395,20488,70,0.67,Electric Shield
+2396,20488,67,0.67,Flame Shield
+2397,20488,68,0.67,Ice Shield
+2398,20488,66,0.67,Bludgeon Shield
+2399,20488,65,0.67,Piercing Shield
+2400,20488,64,0.67,Slashing Shield
+2402,20488,5,0.6,Essence Lull
+2403,36865,1,35,Balanced breakfast
+2404,20488,69,0.1,Collector Acid Protection
+2405,20488,64,0.1,Collector Blade Protection
+2406,20488,66,0.1,Collector Bludgeoning Protection
+2407,20488,68,0.1,Collector Cold Protection
+2408,20488,67,0.1,Collector Fire Protection
+2409,20488,70,0.1,Collector Lightning Protection
+2410,20488,65,0.1,Collector Piercing Protection
+2411,33591300,360,30,Discipline
+2412,36865,4,35,Enduring Coordination
+2413,36865,5,35,Enduring Focus
+2414,36865,2,35,Enduring Stoicism
+2415,36872,63,0.25,Eye of the Hunter
+2416,36872,63,0.2,High Tension String
+2417,36880,35,10,Obedience
+2418,20488,5,2,Occult Potence
+2419,36865,4,-800,Panic Attack
+2420,41088,0,200,Panoply of the Queenslayer
+2421,36865,3,-800,Paralyzing Fear
+2423,36880,2,10,Precise
+2424,36865,5,50,Rabbit's Eye
+2425,36865,2,50,Stone Wall
+2426,36868,60,15,Strong Pull
+2427,36865,4,50,Sugar Rush
+2428,36880,15,10,Timaru's Shelter
+2429,41088,0,30,Timaru's Shelter
+2430,36865,3,10,Timaru's Shelter
+2431,20488,3,2,Vivification
+2432,20488,69,0.8,Acid Ward
+2433,20488,67,0.8,Flame Ward
+2434,20488,68,0.8,Frost Ward
+2435,20488,70,0.8,Lightning Ward
+2436,36880,21,25,Laying on of Hands
+2437,33591304,168,0.05,Greater Rockslide
+2438,33591304,168,0.01,Lesser Rockslide
+2439,33591304,168,0.03,Rockslide
+2440,36880,6,15,Greater Stone Cliffs
+2441,36880,6,8,Lesser Stone Cliffs
+2442,36880,6,12,Stone Cliffs
+2443,36865,1,15,Greater Strength of Earth
+2444,36865,1,8,Lesser Strength of Earth
+2445,36865,1,12,Strength of Earth
+2446,20488,3,1.75,Greater Growth
+2447,20488,3,1.25,Lesser Growth
+2448,20488,3,1.5,Growth
+2449,36865,4,15,Greater Hunter's Acumen
+2450,36865,4,8,Lesser Hunter's Acumen
+2451,36865,4,12,Hunter's Acumen
+2452,33591300,360,6,Greater Thorns
+2453,33591300,360,2,Lesser Thorns
+2454,33591300,360,4,Thorns
+2455,36880,45,15,Greater Cascade
+2456,36880,45,8,Lesser Cascade
+2457,36880,45,12,Cascade
+2458,36880,46,15,Greater Cascade
+2459,36880,46,8,Lesser Cascade
+2460,36880,46,12,Cascade
+2461,36880,45,15,Greater Cascade
+2462,36880,45,8,Lesser Cascade
+2463,36880,45,12,Cascade
+2464,36880,45,15,Greater Cascade
+2465,36880,45,8,Lesser Cascade
+2466,36880,45,12,Cascade
+2467,36880,45,15,Greater Cascade
+2468,36880,45,8,Lesser Cascade
+2469,36880,45,12,Cascade
+2470,36865,2,15,Greater Still Water
+2471,36865,2,8,Lesser Still Water
+2472,36865,2,12,Still Water
+2473,36865,3,15,Greater Torrent
+2474,36865,3,8,Lesser Torrent
+2475,36865,3,12,Torrent
+2486,36868,44,2,Blood Thirst
+2487,33591300,360,2,Spirit Strike
+2488,36872,169,0.08,Weapon Familiarity
+2501,36880,38,15,Major Alchemical Prowess
+2502,36880,14,15,Major Arcane Prowess
+2503,36880,29,15,Major Armor Tinkering Expertise
+2504,36880,45,15,Major Light Weapon Aptitude
+2505,36880,47,15,Major Missile Weapon Aptitude
+2506,36880,39,15,Major Cooking Prowess
+2507,36880,31,15,Major Creature Enchantment Aptitude
+2508,36880,47,15,Major Missile Weapon Aptitude
+2509,36880,46,15,Major Finesse Weapon Aptitude
+2510,36880,20,15,Major Deception Prowess
+2511,36880,36,15,Major Fealty
+2512,36880,37,15,Major Fletching Prowess
+2513,36880,21,15,Major Healing Prowess
+2514,36880,7,15,Major Impregnability
+2515,36880,6,15,Major Invulnerability
+2516,36880,32,15,Major Item Enchantment Aptitude
+2517,36880,18,15,Major Item Tinkering Expertise
+2518,36880,22,15,Major Jumping Prowess
+2519,36880,35,15,Major Leadership
+2520,36880,33,15,Major Life Magic Aptitude
+2521,36880,23,15,Major Lockpick Prowess
+2522,36880,45,15,Major Light Weapon Aptitude
+2523,36880,30,15,Major Magic Item Tinkering Expertise
+2524,36880,15,15,Major Magic Resistance
+2525,36880,16,15,Major Mana Conversion Prowess
+2526,36880,27,15,Major Monster Attunement
+2527,36880,19,15,Major Person Attunement
+2528,36880,45,15,Major Light Weapon Aptitude
+2529,36880,24,15,Major Sprint
+2530,36880,45,15,Major Light Weapon Aptitude
+2531,36880,44,15,Major Heavy Weapon Aptitude
+2532,36880,47,15,Major Missile Weapon Aptitude
+2533,36880,45,15,Major Light Weapon Aptitude
+2534,36880,34,15,Major War Magic Aptitude
+2535,36880,28,15,Major Weapon Tinkering Expertise
+2536,36880,38,5,Minor Alchemical Prowess
+2537,36880,14,5,Minor Arcane Prowess
+2538,36880,29,5,Minor Armor Tinkering Expertise
+2539,36880,45,5,Minor Light Weapon Aptitude
+2540,36880,47,5,Minor Missile Weapon Aptitude
+2541,36880,39,5,Minor Cooking Prowess
+2542,36880,31,5,Minor Creature Enchantment Aptitude
+2543,36880,47,5,Minor Missile Weapon Aptitude
+2544,36880,46,5,Minor Finesse Weapon Aptitude
+2545,36880,20,5,Minor Deception Prowess
+2546,36880,36,5,Minor Fealty
+2547,36880,37,5,Minor Fletching Prowess
+2548,36880,21,5,Minor Healing Prowess
+2549,36880,7,5,Minor Impregnability
+2550,36880,6,5,Minor Invulnerability
+2551,36880,32,5,Minor Item Enchantment Aptitude
+2552,36880,18,5,Minor Item Tinkering Expertise
+2553,36880,22,5,Minor Jumping Prowess
+2554,36880,35,5,Minor Leadership
+2555,36880,33,5,Minor Life Magic Aptitude
+2556,36880,23,5,Minor Lockpick Prowess
+2557,36880,45,5,Minor Light Weapon Aptitude
+2558,36880,30,5,Minor Magic Item Tinkering Expertise
+2559,36880,15,5,Minor Magic Resistance
+2560,36880,16,5,Minor Mana Conversion Prowess
+2561,36880,27,5,Minor Monster Attunement
+2562,36880,19,5,Minor Person Attunement
+2563,36880,45,5,Minor Light Weapon Aptitude
+2564,36880,24,5,Minor Sprint
+2565,36880,45,5,Minor Light Weapon Aptitude
+2566,36880,44,5,Minor Heavy Weapon Aptitude
+2567,36880,47,5,Minor Missile Weapon Aptitude
+2568,36880,45,5,Minor Light Weapon Aptitude
+2569,36880,34,5,Minor War Magic Aptitude
+2570,36880,28,5,Minor Weapon Tinkering Expertise
+2571,41088,0,40,Major Armor
+2572,36865,4,15,Major Coordination
+2573,36865,2,15,Major Endurance
+2574,36865,5,15,Major Focus
+2575,36865,3,15,Major Quickness
+2576,36865,1,15,Major Strength
+2577,36865,6,15,Major Willpower
+2578,41088,0,20,Minor Armor
+2579,36865,4,5,Minor Coordination
+2580,36865,2,5,Minor Endurance
+2581,36865,5,5,Minor Focus
+2582,36865,3,5,Minor Quickness
+2583,36865,1,5,Minor Strength
+2584,36865,6,5,Minor Willpower
+2585,36872,18,0.15,Major Acid Bane
+2586,36868,44,4,Major Blood Thirst
+2587,36872,15,0.15,Major Bludgeoning Bane
+2588,36872,169,0.05,Major Defender
+2589,36872,17,0.15,Major Flame Bane
+2590,36872,16,0.15,Major Frost Bane
+2591,33591304,168,0.05,Major Heart Thirst
+2592,36868,28,40,Major Impenetrability
+2593,36872,14,0.15,Major Piercing Bane
+2594,36872,13,0.15,Major Slashing Bane
+2595,36872,19,0.15,Major Storm Bane
+2596,33591300,361,-20,Major Swift Hunter
+2597,36872,18,0.1,Minor Acid Bane
+2598,36868,44,2,Minor Blood Thirst
+2599,36872,15,0.1,Minor Bludgeoning Bane
+2600,36872,169,0.03,Minor Defender
+2601,36872,17,0.1,Minor Flame Bane
+2602,36872,16,0.1,Minor Frost Bane
+2603,33591304,168,0.03,Minor Heart Thirst
+2604,36868,28,20,Minor Impenetrability
+2605,36872,14,0.1,Minor Piercing Bane
+2606,36872,13,0.1,Minor Slashing Bane
+2607,36872,19,0.1,Minor Storm Bane
+2608,33591300,361,-10,Minor Swift Hunter
+2609,20488,69,0.85,Major Acid Ward
+2610,20488,66,0.85,Major Bludgeoning Ward
+2611,20488,67,0.85,Major Flame Ward
+2612,20488,68,0.85,Major Frost Ward
+2613,20488,65,0.85,Major Piercing Ward
+2614,20488,64,0.85,Major Slashing Ward
+2615,20488,70,0.85,Major Storm Ward
+2616,20488,69,0.9,Minor Acid Ward
+2617,20488,66,0.9,Minor Bludgeoning Ward
+2618,20488,67,0.9,Minor Flame Ward
+2619,20488,68,0.9,Minor Frost Ward
+2620,20488,65,0.9,Minor Piercing Ward
+2621,20488,64,0.9,Minor Slashing Ward
+2622,20488,70,0.9,Minor Storm Ward
+2623,20488,3,1.3,Major Health Gain
+2624,20488,5,1.3,Major Mana Gain
+2625,20488,4,1.3,Major Stamina Gain
+2626,20488,3,1.15,Minor Health Gain
+2627,20488,5,1.15,Minor Mana Gain
+2628,20488,4,1.15,Minor Stamina Gain
+2629,33591300,360,5,Huntress' Boon
+2630,36872,62,0.06,Prey's Reflex
+2636,36880,23,-40,Karenua's Curse
+2638,36865,6,20,Heart of Oak
+2639,36866,5,-20,Repulsion
+2640,36866,5,-20,Devourer
+2641,36866,5,-100,Force to Arms
+2642,36866,5,-20,Consumption
+2643,36866,5,-20,Stasis
+2653,36865,6,3,Feeble Willpower
+2654,36865,2,3,Feeble Endurance
+2655,36865,5,3,Feeble Focus
+2656,36865,3,3,Feeble Quickness
+2657,36865,1,3,Feeble Strength
+2658,36865,4,3,Feeble Coordination
+2659,36865,4,10,Moderate Coordination
+2660,36865,2,10,Moderate Endurance
+2661,36865,5,10,Moderate Focus
+2662,36865,3,10,Moderate Quickness
+2663,36865,1,10,Moderate Strength
+2664,36865,6,10,Moderate Willpower
+2665,36866,1,25,Essence Sluice
+2666,36866,1,30,Essence Glutton
+2667,36866,1,20,Essence Spike
+2668,36880,15,5,Nuhmudiras Benefaction
+2669,36880,15,15,Nuhmudiras Bestowment
+2670,36880,15,10,Nuhmudiras Endowment
+2675,36880,45,3,Feeble Light Weapon Aptitude
+2676,36880,47,3,Feeble Missile Weapon Aptitude
+2677,36880,47,3,Feeble Missile Weapon Aptitude
+2678,36880,46,3,Feeble Finesse Weapon Aptitude
+2679,36880,45,3,Feeble Light Weapon Aptitude
+2680,36880,16,3,Feeble Mana Conversion Prowess
+2681,36880,45,3,Feeble Light Weapon Aptitude
+2682,36880,45,3,Feeble Light Weapon Aptitude
+2683,36880,44,3,Feeble Heavy Weapon Aptitude
+2684,36880,47,3,Feeble Missile Weapon Aptitude
+2685,36880,45,3,Feeble Light Weapon Aptitude
+2686,36880,45,10,Moderate Light Weapon Aptitude
+2687,36880,47,10,Moderate Missile Weapon Aptitude
+2688,36880,47,10,Moderate Missile Weapon Aptitude
+2689,36880,46,10,Moderate Finesse Weapon Aptitude
+2690,36880,45,10,Moderate Light Weapon Aptitude
+2691,36880,16,10,Moderate Mana Conversion Prowess
+2692,36880,45,10,Moderate Light Weapon Aptitude
+2693,36880,45,10,Moderate Light Weapon Aptitude
+2694,36880,44,10,Moderate Heavy Weapon Aptitude
+2695,36880,47,10,Moderate Missile Weapon Aptitude
+2696,36880,45,10,Moderate Light Weapon Aptitude
+2697,40961,0,-45,Aerfalle's Touch
+2698,40961,0,-45,Aerfalle's Embrace
+2705,40976,0,-45,Aerfalle's Enforcement
+2706,40976,0,-45,Aerfalle's Gaze
+2708,40961,0,-50,Stasis Field
+2785,40961,0,-20,Lesser Stasis Field
+2786,36865,5,-5,Madness
+2787,36868,30,1,Supremacy
+2790,36865,1,-800,Weight of the World
+2809,36880,14,10,Moderate Arcane Prowess
+2810,36880,33,10,Moderate Life Magic Aptitude
+2811,36880,15,10,Moderate Magic Resistance
+2812,36880,34,10,Moderate War Magic Aptitude
+2928,41088,0,200,Tusker Hide
+2929,36865,1,35,Tusker Might
+2930,36868,28,200,Tusker Skin
+2932,36880,22,100,Tusker Leap
+2933,36880,24,100,Tusker Sprint
+2937,36880,7,10,Moderate Impregnability
+2938,36880,6,10,Moderate Invulnerability
+2946,36880,31,10,Moderate Creature Magic Aptitude
+2948,36868,28,220,Hieromancer's Great Ward
+2949,33591300,360,21,Lightbringer's Way
+2950,36866,1,30,Maiden's Kiss
+2958,36880,33,5,Blessing of the Priestess
+2959,36880,33,10,Mark of the Priestess
+2960,36872,15,1,Greater Bludgeoning Durance
+2961,36872,14,1,Greater Piercing Durance
+2962,36872,13,1,Greater Slashing Durance
+2963,33591304,168,0.18,Aura of Hunter's Cunning
+2964,36872,169,0.18,Aura of Hunter's Mark
+2965,33574920,171,1.8,Aura of Murderous Intent
+2966,33591300,360,26,Aura of Murderous Thirst
+2967,33591300,361,-30,Aura of The Speedy Hunter
+2968,36872,63,0.18,Vision of the Hunter
+2969,36866,1,25,Mother's Blessing
+2975,36880,32,10,Moderate Item Enchantment Aptitude
+2979,36866,5,100,Destiny's Wind
+2980,36866,3,100,Endless Vigor
+2982,36880,38,10,Fellowship Alchemy Mastery I
+2985,36866,1,15,Ardence
+2986,36866,3,15,Vim
+2987,36866,5,15,Volition
+2991,20488,68,0.87,Winter's Kiss
+2992,20482,5,0.5,Depletion
+2993,36865,4,2,Grace of the Unicorn
+2994,20482,1,0.5,Plague
+2995,36865,1,2,Power of the Dragon
+2996,20482,3,0.5,Scourge
+2997,36865,5,2,Splendor of the Firebird
+2999,36865,2,2,Endurance of the Abyss
+3000,41088,0,-500,Ire of the Dark Prince
+3001,40961,0,-25,Puppet String
+3002,36865,6,2,Will of the Quiddity
+3003,20482,1,0.5,Dark Wave
+3004,40961,0,-25,Puppet Strings
+3005,20496,15,1.01,Dispersion
+3006,20496,7,1.01,Foresight
+3007,20496,6,1.01,Uncanny Dodge
+3008,36865,4,8,Finesse
+3009,36865,1,8,Thew
+3010,36865,2,8,Zeal
+3011,36880,3,8,Endless Sight
+3012,36880,47,8,Far Sight
+3013,20488,3,1.2,Fruit of the Oasis
+3014,20488,5,1.2,Water of the Oasis
+3015,20488,4,1.2,Shade of the Oasis
+3016,36880,12,8,Raptor's Sight
+3034,36866,1,7,Benediction of Immortality
+3035,36880,32,3,Closing of the Great Divide
+3042,24592,0,0.01,Grip of Death
+3043,20482,3,0.5,Kiss of the Grave
+3044,36866,1,3,Lesser Benediction of Immortality
+3045,36880,32,1,Lesser Closing of the Great Divide
+3046,41088,0,195,Lesser Mists of Bur
+3048,36866,1,5,Minor Benediction of Immortality
+3049,36880,32,2,Minor Closing of the Great Divide
+3050,41088,0,205,Minor Mists of Bur
+3051,20496,24,0.05,Mire Foot
+3052,41088,0,230,Mists of Bur
+3053,24577,0,0.01,Paralyzing Touch
+3055,40961,0,-30,Asphyxiation
+3056,20482,1,0.5,Death's Vice
+3057,20482,3,0.8,Enervation
+3058,40961,0,-40,Asphyiaxtion
+3059,20482,3,0.7,Enervation
+3060,20482,1,0.7,Poison Blood
+3061,20482,5,0.7,Taint Mana
+3062,40961,0,-20,Asphyxiation
+3063,20482,3,0.9,Enervation
+3064,20482,1,0.9,Poison Blood
+3065,20482,5,0.9,Taint Mana
+3066,20488,3,2,Lesser Ward of Rebirth
+3067,20482,5,0.5,Matron's Curse
+3068,20488,3,2.25,Minor Ward of Rebirth
+3069,20482,1,0.8,Poison Blood
+3070,20482,5,0.8,Taint Mana
+3071,20488,3,2.5,Ward of Rebirth
+3074,20488,66,2,Bruised Flesh
+3075,20488,64,2,Flesh of Cloth
+3076,20488,69,2,Exposed Flesh
+3077,20488,67,2,Flesh of Flint
+3078,20488,65,2,Weaken Flesh
+3079,41088,0,-145,Thin Skin
+3080,20488,66,2.9,Bruised Flesh
+3081,20488,64,2.6,Flesh of Cloth
+3082,20488,69,2.9,Exposed Flesh
+3083,20488,67,2.9,Flesh of Flint
+3084,20488,65,2.9,Weaken Flesh
+3085,20488,66,2.6,Bruised Flesh
+3086,20488,64,2.6,Flesh of Cloth
+3087,20488,69,2.6,Exposed Flesh
+3088,20488,67,2.6,Flesh of Flint
+3089,20488,65,2.6,Weaken Flesh
+3090,41088,0,-210,Thin Skin
+3091,41088,0,-230,Thin Skin
+3092,36868,28,180,Lesser Skin of the Fiazhat
+3093,36868,28,205,Minor Skin of the Fiazhat
+3094,36868,28,225,Skin of the Fiazhat
+3124,20482,5,0.8,Blight Mana
+3125,20482,3,0.8,EnervateBeing
+3126,20482,1,0.8,Poison Health
+3127,20482,3,0.8,Fell Wind
+3128,20482,1,0.8,Infected Blood
+3129,20482,5,0.8,Infirmed Mana
+3152,20488,64,0.48,Inferior Scythe Aegis
+3153,20488,64,0.55,Lesser Scythe Aegis
+3154,20488,64,0.38,Scythe Aegis
+3155,36865,4,25,Lesser Alacrity of the Conclave
+3156,36865,4,30,Alacrity of the Conclave
+3157,36865,4,35,Greater Alacrity of the Conclave
+3158,36865,4,40,Superior Alacrity of the Conclave
+3159,36865,2,25,Lesser Vivify the Conclave
+3160,36865,2,30,Vivify the Conclave
+3161,36865,2,35,Greater Vivify the Conclave
+3162,36865,2,40,Superior Vivify the Conclave
+3163,36865,5,25,Lesser Acumen of the Conclave
+3164,36865,5,30,Acumen of the Conclave
+3165,36865,5,35,Greater Acumen of the Conclave
+3166,36865,5,40,Superior Acumen of the Conclave
+3167,36865,3,25,Lesser Speed the Conclave
+3168,36865,3,30,Speed the Conclave
+3169,36865,3,35,Greater Speed the Conclave
+3170,36865,3,40,Superior Speed the Conclave
+3171,36865,6,25,Lesser Volition of the Conclave
+3172,36865,6,30,Volition of the Conclave
+3173,36865,6,35,Greater Volition of the Conclave
+3174,36865,6,40,Superior Volition of the Conclave
+3175,36865,1,25,Lesser Empowering the Conclave
+3176,36865,1,30,Empowering the Conclave
+3177,36865,1,35,Greater Empowering the Conclave
+3178,36865,1,40,Superior Empowering the Conclave
+3199,33574920,171,1.1,Minor Hermetic Link
+3200,33574920,171,1.2,Major Hermetic Link
+3201,33574920,171,1.05,Feeble Hermetic Link
+3202,33574920,171,1.15,Moderate Hermetic Link
+3204,36866,1,50,Blazing Heart
+3205,36880,6,10,Good Eating
+3206,36866,5,100,Enliven
+3207,36880,15,10,Ore Fire
+3208,36866,3,200,Innervate
+3209,36880,7,10,Refreshment
+3210,20481,1,0.85,Agitate
+3211,20481,2,0.85,Annoyance
+3212,20481,4,0.85,Guilt Trip
+3213,20481,6,0.85,Heart Ache
+3214,20481,5,0.85,Sorrow
+3215,20481,3,0.85,Underfoot
+3217,36880,47,12,Cascade
+3218,36880,47,15,Greater Cascade
+3219,36880,47,8,Lesser Cascade
+3220,36880,47,12,Cascade
+3221,36880,47,15,Greater Cascade
+3222,36880,47,8,Lesser Cascade
+3223,36880,16,12,Cascade
+3224,36880,16,15,Greater Cascade
+3225,36880,16,8,Lesser Cascade
+3226,36880,44,12,Cascade
+3227,36880,44,15,Greater Cascade
+3228,36880,44,8,Lesser Cascade
+3229,36880,45,12,Cascade
+3230,36880,45,15,Greater Cascade
+3231,36880,45,8,Lesser Cascade
+3232,36880,47,12,Cascade
+3233,36880,47,15,Greater Cascade
+3234,36880,47,8,Lesser Cascade
+3235,36865,6,2,Dark Power
+3237,36880,34,2,Fanaticism
+3239,36865,6,32,Insight of the Khe
+3240,36865,5,32,Wisdom of the Khe
+3242,36880,15,2,Weave of Chorizite
+3243,36880,32,2,Consecration
+3244,36880,31,2,Divine Manipulation
+3245,36880,33,2,Sacrosanct Touch
+3246,20488,3,1.5,Adja's Benefaction
+3247,20488,4,1.5,Adja's Favor
+3248,20488,5,1.5,Adja's Grace
+3249,20488,5,3,Ghostly Chorus
+3250,33591304,170,0.03,Major Spirit Thirst
+3251,33591304,170,0.01,Minor Spirit Thirst
+3252,33591304,170,0.02,Spirit Thirst
+3253,33591304,170,0.01,Aura of Spirit Drinker Self I
+3254,33591304,170,0.02,Aura of Spirit Drinker Self II
+3255,33591304,170,0.03,Aura of Spirit Drinker Self III
+3256,33591304,170,0.04,Aura of Spirit Drinker Self IV
+3257,33591304,170,0.05,Aura of Spirit Drinker Self V
+3258,33591304,170,0.06,Aura of Spirit Drinker Self VI
+3259,36872,170,0.07,Aura of Infected Spirit Caress
+3260,36872,152,-0.01,Spirit Loather I
+3261,36872,152,-0.02,Spirit Loather II
+3262,36872,152,-0.03,Spirit Loather III
+3263,36872,152,-0.04,Spirit Loather IV
+3264,36872,152,-0.05,Spirit Loather V
+3265,36872,152,-0.06,Spirit Loather VI
+3266,36872,152,-0.07,Spirit Pacification
+3267,20481,6,0.25,Bit Between Teeth
+3268,20482,1,0.6,Biting Bonds
+3269,41088,0,-250,Under The Lash
+3308,20488,66,0.38,Flange Aegis
+3309,20488,66,0.48,Inferior Flange Aegis
+3310,20488,65,0.48,Inferior Lance Aegis
+3311,20488,65,0.38,Lance Aegis
+3312,20488,66,0.55,Lesser Flange Aegis
+3313,20488,65,0.55,Lesser Lance Aegis
+3314,20496,22,0.5,Chained to the Wall
+3320,20488,69,0.57,Lesser Corrosive Ward
+3321,20488,69,0.5,Corrosive Ward
+3322,20488,69,0.4,Greater Corrosive Ward
+3323,20488,69,0.35,Superior Corrosive Ward
+3324,20488,64,0.57,Lesser Scythe Ward
+3325,20488,64,0.5,Scythe Ward
+3326,20488,64,0.4,Greater Scythe Ward
+3327,20488,64,0.35,Superior Scythe Ward
+3328,20488,66,0.57,Lesser Flange Ward
+3329,20488,66,0.5,Flange Ward
+3330,20488,66,0.4,Greater Flange Ward
+3331,20488,66,0.35,Superior Flange Ward
+3332,20488,68,0.57,Lesser Frore Ward
+3333,20488,68,0.5,Frore Ward
+3334,20488,68,0.4,Greater Frore Ward
+3335,20488,68,0.35,Superior Frore Ward
+3336,20488,67,0.57,Lesser Inferno Ward
+3337,20488,67,0.5,Inferno Ward
+3338,20488,67,0.4,Greater Inferno Ward
+3339,20488,67,0.35,Superior Inferno Ward
+3340,20488,70,0.57,Lesser Voltaic Ward
+3341,20488,70,0.5,Voltaic Ward
+3342,20488,70,0.4,Greater Voltaic Ward
+3343,20488,70,0.35,Superior Voltaic Ward
+3344,20488,65,0.57,Lesser Lance Ward
+3345,20488,65,0.5,Lance Ward
+3346,20488,65,0.4,Greater Lance Ward
+3347,20488,65,0.35,Superior Lance Ward
+3348,36880,7,25,Lesser Warden of the Clutch
+3349,36880,7,30,Inferior Warden of the Clutch
+3350,36880,7,35,Warden of the Clutch
+3351,36880,7,40,Potent Warden of the Clutch
+3352,36880,6,25,Lesser Guardian of the Clutch
+3353,36880,6,30,Inferior Guardian of the Clutch
+3354,36880,6,35,Guardian of the Clutch
+3355,36880,6,40,Potent Guardian of the Clutch
+3356,36880,15,25,Lesser Sanctifier of the Clutch
+3357,36880,15,30,Inferior Sanctifier of the Clutch
+3358,36880,15,35,Sanctifier of the Clutch
+3359,36880,15,40,Potent Sanctifier of the Clutch
+3361,20496,34,1.11,The Art of Destruction
+3362,36880,15,8,Blessing of the Horn
+3363,36880,6,8,Blessing of the Scale
+3364,36880,7,8,Blessing of the Wing
+3365,20496,31,1.11,Gift of Enhancement
+3366,20496,33,1.11,The Heart's Touch
+3367,20496,22,1.11,Leaping Legs
+3368,20496,16,1.11,Mage's Understanding
+3369,20496,24,1.11,On the Run
+3370,20496,32,1.11,Power of Enchantment
+3371,36866,1,25,Greater Life Giver
+3375,20482,1,0.5,Fungal Bloom
+3376,36865,6,1,Lesser Vision Beyond the Grave
+3377,36865,6,2,Minor Vision Beyond the Grave
+3378,36865,6,3,Vision Beyond the Grave
+3379,10510354,0,1,Vitae
+3380,10510354,0,1,Vitae
+3383,20482,1,0.5,Fungal Bloom
+3384,36880,31,25,Lesser Conjurant Chant
+3385,36880,31,30,Conjurant Chant
+3386,36880,31,35,Greater Conjurant Chant
+3387,36880,31,40,Superior Conjurant Chant
+3388,36880,32,25,Lesser Artificant Chant
+3389,36880,32,30,Artificant Chant
+3390,36880,32,35,Greater Artificant Chant
+3391,36880,32,40,Superior Artificant Chant
+3392,36880,33,25,Lesser Vitaeic Chant
+3393,36880,33,30,Vitaeic Chant
+3394,36880,33,40,Greater Vitaeic Chant
+3395,36880,33,40,Superior Vitaeic Chant
+3396,36880,16,25,Lesser Conveyic Chant
+3397,36880,16,30,Conveyic Chant
+3398,36880,16,35,Greater Conveyic Chant
+3399,36880,16,40,Superior Conveyic Chant
+3400,36880,34,25,Lesser Hieromantic Chant
+3401,36880,34,30,Hieromantic Chant
+3402,36880,34,35,Greater Hieromantic Chant
+3403,36880,34,40,Superior Hieromantic Chant
+3404,36866,1,-10,Evil Thirst
+3405,36866,5,15,Gift of the Fiazhat
+3406,36880,20,1,Kivik Lir's Boon
+3407,36866,1,-5,Lesser Evil Thirst
+3408,36866,5,5,Lesser Gift of the Fiazhat
+3409,36866,1,-8,Minor Evil Thirst
+3410,36866,5,10,Minor Gift of the Fiazhat
+3429,41088,0,-200,Kivik Lir's Venom
+3430,20488,69,0.48,Inferior Scourge Aegis
+3431,20488,69,0.55,Lesser Scourge Aegis
+3432,20488,69,0.38,Scourge Aegis
+3433,20488,3,0,Decay
+3434,36880,31,3,Eyes Beyond the Mist
+3435,24592,0,0.5,Greater Mucor Blight
+3436,36880,31,1,Lesser Eyes Beyond the Mist
+3437,24592,0,0.9,Lesser Mucor Blight
+3438,36880,31,2,Minor Eyes Beyond the Mist
+3439,24592,0,0.8,Mucor Blight
+3440,20488,3,2.25,Health of the Lugian
+3441,20488,5,2.25,Insight of the Lugian
+3442,20488,4,2.25,Stamina of the Lugian
+3443,24578,0,0.6,Blight of the Swamp
+3446,24578,0,0.6,Wrath of the Swamp
+3447,36872,4,-5,Asphyxiating Spore Cloud
+3448,36872,3,-5,Mass Blood Affliction
+3449,36872,3,-10,Mass Blood Disease
+3450,36872,4,-10,Cloud of Mold Spores
+3461,20488,66,3,Batter Flesh
+3462,20488,69,3,Canker Flesh
+3463,20488,67,3,Char Flesh
+3464,20488,68,3,Numb Flesh
+3465,36872,3,-5,Blood Affliction
+3466,36872,3,-10,Blood Disease
+3467,36872,4,-5,Choking Spores
+3468,36872,4,-10,Mold Spores
+3469,36872,3,-2,Parasitic Affliction
+3470,20488,5,1.55,Lesser Endless Well
+3471,20488,5,1.7,The Endless Well
+3472,20488,5,1.85,Greater Endless Well
+3473,20488,5,2.15,Superior Endless Well
+3474,20488,3,1.55,Lesser Soothing Wind
+3475,20488,3,1.7,The Soothing Wind
+3476,20488,3,1.85,Greater Soothing Wind
+3477,20488,3,2.15,Superior Soothing Wind
+3478,20488,4,1.55,Lesser Golden Wind
+3479,20488,4,1.7,The Golden Wind
+3480,20488,4,1.85,Greater Golden Wind
+3481,20488,4,2.15,Superior Golden Wind
+3499,36880,40,10,Arcanum Salvaging Self I
+3500,36880,40,15,Arcanum Salvaging Self II
+3501,36880,40,20,Arcanum Salvaging Self III
+3502,36880,40,25,Arcanum Salvaging Self IV
+3503,36880,40,30,Arcanum Salvaging Self V
+3504,36880,40,35,Arcanum Salvaging Self VI
+3505,36880,40,40,Arcanum Salvaging VII
+3506,36880,40,10,Arcanum Enlightenment I
+3507,36880,40,15,Arcanum Enlightenment II
+3508,36880,40,20,Arcanum Enlightenment III
+3509,36880,40,25,Arcanum Enlightenment IV
+3510,36880,40,30,Arcanum Enlightenment V
+3511,36880,40,35,Arcanum Enlightenment VI
+3512,36880,40,40,Arcanum Enlightenment VII
+3513,36880,40,10,Nuhmudira's Wisdom I
+3514,36880,40,15,Nuhmudira's Wisdom II
+3515,36880,40,20,Nuhmudira's Wisdom III
+3516,36880,40,25,Nuhmudira's Wisdom IV
+3517,36880,40,30,Nuhmudira's Wisdom V
+3518,36880,40,35,Nuhmudira's Wisdom VI
+3519,36880,40,40,Nuhmudira's Wisdom VII
+3520,36880,40,10,Nuhmudira's Enlightenment I
+3521,36880,40,15,Nuhmudira's Enlightenment II
+3522,36880,40,20,Nuhmudira's Enlightenment III
+3523,36880,40,25,Nuhmudira's Enlightenment IV
+3524,36880,40,30,Nuhmudira's Enlightenment V
+3525,36880,40,35,Nuhmudira Enlightenment VI
+3526,36880,40,40,Nuhmudira's Enlightenment
+3527,36865,4,-20,Intoxication I
+3528,36865,4,-30,Intoxication II
+3529,36865,4,-40,Intoxication III
+3530,36865,5,50,Ketnan's Eye
+3531,36865,3,50,Bobo's Quickening
+3532,36865,5,25,Bobo's Focused Blessing
+3533,36865,4,50,Brighteyes' Favor
+3567,36880,24,15,Fiun Flee
+3568,36880,16,10,Fiun Efficiency
+3569,20482,5,1.1,Mana Boost
+3570,20482,3,1.1,Stamina Boost
+3571,20482,1,1.1,Health Boost
+3572,36865,5,12,Inner Brilliance
+3573,36865,1,12,Inner Might
+3574,36865,6,12,Inner Will
+3575,36865,4,12,Perfect Balance
+3576,36865,2,12,Perfect Health
+3577,36865,3,12,Perfect Speed
+3636,36880,45,2,Kern's Boon
+3637,36880,47,2,Ranger's Boon
+3638,36880,47,2,Ranger's Boon
+3639,36880,47,2,Ranger's Boon
+3640,36880,31,2,Enchanter's Boon
+3641,36880,34,2,Hieromancer's Boon
+3642,36880,46,2,Fencer's Boon
+3643,36880,33,2,Life Giver's Boon
+3644,36880,45,2,Kern's Boon
+3645,36880,45,2,Kern's Boon
+3646,36880,45,2,Kern's Boon
+3647,36880,45,2,Kern's Boon
+3648,36880,44,2,Soldier's Boon
+3649,40961,0,-45,Aerfalle's Embrace
+3650,40976,0,-45,Aerfalle's Enforcement
+3651,40976,0,-45,Aerfalle's Gaze
+3652,40961,0,-45,Aerfalle's Touch
+3679,36872,18,5,Prodigal Acid Bane
+3680,20488,69,0.001,Prodigal Acid Protection
+3681,36880,38,250,Prodigal Alchemy Mastery
+3682,36880,14,250,Prodigal Arcane Enlightenment
+3683,36880,29,250,Prodigal Armor Expertise
+3684,41088,0,1000,Prodigal Armor
+3685,36880,45,250,Prodigal Light Weapon Mastery
+3686,36872,13,5,Prodigal Blade Bane
+3687,20488,64,0.001,Prodigal Blade Protection
+3688,33591300,360,50,Prodigal Blood Drinker
+3689,36872,15,5,Prodigal Bludgeon Bane
+3690,20488,66,0.001,Prodigal Bludgeon Protection
+3691,36880,47,250,Prodigal Missile Weapon Mastery
+3692,20488,68,0.001,Prodigal Cold Protection
+3693,36880,39,250,Prodigal Cooking Mastery
+3694,36865,4,250,Prodigal Coordination
+3695,36880,31,250,Prodigal Creature Enchantment Mastery
+3696,36880,47,250,Prodigal Missile Weapon Mastery
+3697,36880,46,250,Prodigal Finesse Weapon Mastery
+3698,36880,20,250,Prodigal Deception Mastery
+3699,36872,169,0.25,Prodigal Defender
+3700,36865,2,250,Prodigal Endurance
+3701,36880,36,250,Prodigal Fealty
+3702,20488,67,0.001,Prodigal Fire Protection
+3703,36872,17,5,Prodigal Flame Bane
+3704,36880,37,250,Prodigal Fletching Mastery
+3705,36865,5,250,Prodigal Focus
+3706,36872,16,5,Prodigal Frost Bane
+3707,36880,21,250,Prodigal Healing Mastery
+3708,33591304,168,0.25,Prodigal Heart Seeker
+3709,33574920,171,2,Prodigal Hermetic Link
+3710,36868,28,1000,Prodigal Impenetrability
+3711,36880,7,250,Prodigal Impregnability
+3712,36880,6,250,Prodigal Invulnerability
+3713,36880,32,250,Prodigal Item Enchantment Mastery
+3714,36880,18,250,Prodigal Item Expertise
+3715,36880,22,250,Prodigal Jumping Mastery
+3716,36880,35,250,Prodigal Leadership Mastery
+3717,36880,33,250,Prodigal Life Magic Mastery
+3718,36872,19,5,Prodigal Lightning Bane
+3719,20488,70,0.001,Prodigal Lightning Protection
+3720,36880,23,250,Prodigal Lockpick Mastery
+3721,36880,45,250,Prodigal Light Weapon Mastery
+3722,36880,30,250,Prodigal Magic Item Expertise
+3723,36880,15,250,Prodigal Magic Resistance
+3724,36880,16,250,Prodigal Mana Conversion Mastery
+3725,20488,5,10,Prodigal Mana Renewal
+3726,36880,27,250,Prodigal Monster Attunement
+3727,36880,19,250,Prodigal Person Attunement
+3728,36872,14,5,Prodigal Piercing Bane
+3729,20488,65,0.001,Prodigal Piercing Protection
+3730,36865,3,250,Prodigal Quickness
+3731,20488,3,10,Prodigal Regeneration
+3732,20488,4,10,Prodigal Rejuvenation
+3733,36865,6,250,Prodigal Willpower
+3734,36880,45,250,Prodigal Light Weapon Mastery
+3735,33591304,170,0.15,Prodigal Spirit Drinker
+3736,36880,24,250,Prodigal Sprint
+3737,36880,45,250,Prodigal Light Weapon Mastery
+3738,36865,1,250,Prodigal Strength
+3739,33591300,361,-1000,Prodigal Swift Killer
+3740,36880,44,250,Prodigal Heavy Weapon Mastery
+3741,36880,47,250,Prodigal Missile Weapon Mastery
+3742,36880,45,250,Prodigal Light Weapon Mastery
+3743,36880,34,250,Prodigal War Magic Mastery
+3744,36880,28,250,Prodigal Weapon Expertise
+3745,20488,67,0.48,Inferior Inferno Aegis
+3746,20488,67,0.38,Inferno Aegis
+3747,20488,67,0.55,Lesser Inferno Aegis
+3748,36880,40,45,Master Salvager's Greater Boon
+3749,36880,38,45,Master Alchemist's Boon
+3750,36880,38,45,Master Alchemist's Greater Boon
+3751,36880,39,45,Master Chef's Boon
+3752,36880,39,45,Master Chef's Greater Boon
+3753,36880,37,45,Fletching Master's Boon
+3754,36880,37,45,Fletching Master's Greater Boon
+3755,36880,23,45,Master Lockpicker's Boon
+3756,36880,23,45,Master Lockpicker's Greater Boon
+3757,36880,40,45,Master Salvager's Boon
+3758,41088,0,5,Inky Armor
+3759,36866,5,15,Mana Giver
+3760,24578,0,0.6,Culinary Ecstasy
+3761,36880,15,5,Fiun Resistance
+3800,40961,0,2,Burning Spirit
+3801,36880,6,3,Shadow Touch
+3802,36880,34,3,Shadow Reek
+3803,36880,2,3,Shadow Shot
+3804,36880,47,3,Shadow Shot
+3809,36880,40,5,Minor Salvaging Aptitude
+3810,20482,1,1.1,Asheron's Benediction
+3811,41088,0,50,Blackmoor's Favor
+3816,36880,47,10,Marksman's Ken
+3817,41088,0,30,Hunter's Ward
+3819,36865,1,10,Conscript's Might
+3820,41088,0,30,Conscript's Ward
+3821,36865,6,10,Augur's Will
+3822,36865,5,10,Augur's Glare
+3823,41088,0,30,Augur's Ward
+3824,36880,47,10,Marksman's Ken
+3825,36880,47,10,Marksman's Ken
+3827,36868,28,500,Lunnum's Embrace
+3828,33591300,360,3,Rage of Grael
+3829,20488,5,1.25,Blessing of the Sundew
+3830,20488,3,1.25,Blessing of the Fly Trap
+3831,20488,4,1.25,Blessing of the Pitcher Plant
+3832,36865,5,10,Master's Voice
+3833,36880,40,5,Minor Salvaging Aptitude
+3834,36880,40,15,Major Salvaging Aptitude
+3848,20488,3,2.3,Combat Medication
+3849,36880,24,40,Night Runner
+3850,36866,1,-8,Selflessness
+3851,36865,5,10,Corrupted Essence
+3852,36866,1,-8,Ravenous Armor
+3853,36880,6,5,Ardent Defense
+3854,36880,36,15,True Loyalty
+3855,36880,21,15,Flight of Bats
+3860,36880,24,100,Sweet Speed
+3861,36880,28,15,Taste for Blood
+3862,36865,6,50,Duke Raoul's Pride
+3863,36865,2,50,Hunter's Hardiness
+3864,36865,1,50,Zongo's Fist
+3866,36880,24,-200,Glacial Speed
+3867,20488,68,0.88,Embrace of the Chill Shadow
+3869,33591304,168,0.1,Invocation of the Black Book
+3875,20488,69,2.85,Acidic Curse
+3876,20488,64,2.85,Curse of the Blades
+3886,36880,15,-200,Magic Disarmament
+3890,36865,6,10,Will of the People
+3891,36880,36,10,Honor of the Bull
+3894,36865,2,3,Dark Persistence
+3895,36865,3,3,Dark Reflexes
+3896,36865,4,3,Dark Equilibrium
+3897,36865,6,3,Dark Purpose
+3909,20488,5,0,Mana Syphon
+3910,24592,0,0.5,Brain Freeze
+3913,41088,0,150,Aegis of the Golden Flame
+3915,24592,0,0.7,Black Madness
+3916,41088,0,-500,Flayed Flesh
+3917,20488,68,2.85,Numbing Chill
+3918,20488,67,2.85,Flammable
+3919,20488,70,2.85,Lightning Rod
+3927,20488,70,3,Charge Flesh
+3928,36880,6,-200,Disarmament
+3953,33574914,1,1.1,Carraida's Benediction
+3955,20488,66,0.8,Epic Bludgeon Ward
+3956,20488,65,0.8,Epic Piercing Ward
+3957,20488,64,0.8,Epic Slashing Ward
+3960,33591300,360,60,Authority
+3961,36872,169,0.6,Defense of the Just
+3962,36880,6,-60,Bound to the Law
+3963,36865,4,25,Epic Coordination
+3964,36865,5,25,Epic Focus
+3965,36865,1,25,Epic Strength
+3976,33595520,0,250,Incantation of Armor Other
+3977,36865,4,45,Coordination Other Incantation
+3978,36865,5,45,Focus Other Incantation
+3979,36865,1,45,Strength Other Incantation
+3980,36868,28,240,Impenetrability Incantation
+3981,20488,5,2.45,Mana Renewal Other Incantation
+3982,20488,3,2.45,Regeneration Other Incantation
+3983,20488,4,2.45,Rejuvenation Other Incantation
+3984,33591304,168,0.04,Mukkir's Ferocity
+3985,36872,169,0.04,Mukkir Sense
+4015,41088,0,5,Ruschk Skin
+4016,36880,21,15,Shadow's Heart
+4017,36880,47,800,Phial's Accuracy
+4018,36868,28,350,Permafrost
+4019,36865,3,25,Epic Quickness
+4020,33591312,20,25,Epic Deception Prowess
+4022,20488,3,3,Zombies Persistence
+4024,20482,1,1.1,Asheron's Lesser Benediction
+4025,36866,3,50,Cast Iron Stomach
+4026,36866,1,25,Hematic Verdure
+4027,36880,24,15,Messenger's Stride
+4040,20488,3,11,Master's Innervation
+4043,41088,0,150,Kukuur Hide
+4047,36880,38,30,Artisan Alchemist's Inspiration
+4048,36880,39,30,Artisan Cook's Inspiration
+4049,36880,37,30,Artisan Fletcher's Inspiration
+4050,36880,23,30,Artisan Lockpicker's Inspiration
+4051,36880,38,20,Master Alchemist's Inspiration
+4052,36880,39,20,Master Cook's Inspiration
+4053,36880,37,20,Master Fletcher's Inspiration
+4054,36880,23,20,Master Lockpicker's Inspiration
+4055,36880,38,10,Journeyman Alchemist's Inspiration
+4056,36880,39,10,Journeyman Cook's Inspiration
+4057,36880,37,10,Journeyman Fletcher's Inspiration
+4058,36880,23,10,Journeyman Lockpicker's Inspiration
+4059,36865,2,45,Endurance Other Incantation
+4060,36865,3,45,Quickness Other Incantation
+4061,36865,6,45,Willpower Other Incantation
+4062,36868,28,500,Empyrean Aegis
+4068,20488,5,2,Mucor Mana Well
+4070,36866,5,100,Empyrean Mana Absorbtion
+4071,36866,3,100,Empyrean Stamina Absorbtion
+4072,20488,4,1.2,Aurlanaa's Resolve
+4073,20488,3,1.5,Empyrean Regeneration
+4074,20488,4,1.5,Empyrean Rejuvenation
+4075,20488,5,1.5,Empyrean Mana Renewal
+4076,36880,14,60,Empyrean Enlightenment
+4077,36880,16,45,Mana Conversion Mastery Incantation
+4086,41088,0,20,Icy Shield
+4087,41088,0,-210,Armor Breach
+4088,20488,3,0.25,Withering Poison
+4089,36880,20,100,Assassin's Gift
+4090,41088,0,260,Scarab's Shell
+4093,20488,66,0.88,Don't Bite Me
+4094,20488,67,0.88,Don't Burn Me
+4095,20488,65,0.88,Don't Stab Me
+4099,36865,1,45,Strength of Diemos
+4101,36880,6,-125,Champion's Skullduggery
+4102,36880,15,-125,Champion's Clever Ruse
+4107,24577,0,0.9,Marrow Blight
+4108,36865,1,-250,Apathy
+4109,24577,0,0.5,Greater Marrow Blight
+4111,41088,0,150,Lesser Tusker Hide
+4112,36868,44,-2,Spirit Nullification
+4114,36880,6,-10,Hypnotic Suggestion
+4115,24592,0,0.8,Mesmerizing Gaze
+4116,36880,15,-200,Trance
+4117,20488,69,0.67,Dark Shield
+4118,20488,70,0.5,Dark Shield
+4119,20488,67,0.91,Dark Shield
+4120,20488,68,0.91,Dark Shield
+4121,20488,66,0.91,Dark Shield
+4122,20488,65,0.8,Dark Shield
+4123,20488,64,0.57,Dark Shield
+4131,36880,45,150,Spectral Light Weapon Mastery
+4132,33591300,360,30,Spectral Blood Drinker
+4133,36880,47,150,Spectral Missile Weapon Mastery
+4134,36880,47,150,Spectral Missile Weapon Mastery
+4135,36880,46,150,Spectral Finesse Weapon Mastery
+4136,36880,45,150,Spectral Light Weapon Mastery
+4137,36880,45,150,Spectral Light Weapon Mastery
+4138,36880,45,150,Spectral Light Weapon Mastery
+4139,36880,44,150,Spectral Heavy Weapon Mastery
+4140,36880,47,150,Spectral Missile Weapon Mastery
+4141,36880,45,150,Spectral Light Weapon Mastery
+4142,36880,34,150,Spectral War Magic Mastery
+4169,41088,0,300,Harbinger Blood Infusion
+4170,36865,4,1,Harbinger's Coordination
+4171,36865,2,1,Harbinger's Endurance
+4172,36865,5,1,Harbinger's Focus
+4173,36865,3,1,Harbinger's Quickness
+4174,36865,1,1,Harbinger's Strength
+4175,36865,6,1,Harbinger's Willpower
+4189,20488,69,0.67,Harbinger Acid Protection
+4190,20488,68,0.91,Harbinger Cold Protection
+4191,20488,67,0.91,Harbinger Flame Protection
+4192,20488,70,0.5,Harbinger Lightning Protection
+4193,36880,15,10,Harbinger Magic Defense
+4194,36880,15,-350,Magical Void
+4195,36880,6,10,Harbinger Melee Defense
+4196,36880,7,30,Harbinger Missile Defense
+4197,36880,6,-10,Naked to the Elements
+4199,41088,0,260,Frozen Armor
+4201,20488,68,2,Numbing Chill
+4209,36880,15,100,Gummy Shield
+4210,36880,7,100,The Jitters
+4211,36880,22,100,Licorice Leap
+4212,36880,6,100,Sticky Melee
+4215,36868,28,500,Shadow Armor
+4217,36868,28,300,Gourd Guard
+4221,36880,33,150,Spectral Life Magic Mastery
+4226,36865,2,25,Epic Endurance
+4227,36865,6,25,Epic Willpower
+4231,36880,35,45,Leadership Mastery Other Incantation
+4232,36880,35,25,Epic Leadership
+4240,36880,15,900,Aerbax's Magic Shield
+4241,36880,15,0,Aerbax Magic Shield Down
+4242,36880,6,900,Aerbax's Melee Shield
+4243,36880,6,0,Aerbax Melee Shield Down
+4244,36880,7,900,Aerbax's Missile Shield
+4245,36880,7,0,Aerbax Missile Shield Down
+4280,36865,4,15,Deck of Hands Favor
+4281,36865,5,15,Deck of Eyes Favor
+4290,41088,0,250,Incantation of Armor Other
+4291,33595520,0,250,Incantation of Armor Self
+4292,36865,5,-45,Incantation of Bafflement Other
+4293,36865,5,-45,Incantation of Bafflement Self
+4294,36865,4,-45,Incantation of Clumsiness Other
+4295,36865,4,-45,Incantation of Clumsiness Self
+4296,36865,4,45,Incantation of Coordination Other
+4297,36865,4,45,Incantation of Coordination Self
+4298,36865,2,45,Incantation of Endurance Other
+4299,36865,2,45,Incantation of Endurance Self
+4302,36865,6,-45,Incantation of Feeblemind Other
+4303,36865,6,-45,Incantation of Feeblemind Self
+4304,36865,5,45,Incantation of Focus Other
+4305,36865,5,45,Incantation of Focus Self
+4306,36865,2,-45,Incantation of Frailty Other
+4307,36865,2,-45,Incantation of Frailty Self
+4312,41088,NULL,-225,Incantation of Imperil Other
+4313,41088,NULL,-225,Incantation of Imperil Self
+4318,36865,3,45,Incantation of Quickness Other
+4319,36865,3,45,Incantation of Quickness Self
+4322,36865,3,-45,Incantation of Slowness Other
+4323,36865,3,-45,Incantation of Slowness Self
+4324,36865,1,45,Incantation of Strength Other
+4325,36865,1,45,Incantation of Strength Self
+4326,36865,1,-45,Incantation of Weakness Other
+4327,36865,1,45,Incantation of Weakness Self
+4328,36865,6,45,Incantation of Willpower Other
+4329,36865,6,45,Incantation of Willpower Self
+4351,36865,4,45,Incantation of Greater Alacrity of the Conclave
+4352,36865,2,45,Incantation of Greater Vivify the Conclave
+4353,36865,5,45,Incantation of Greater Acumen of the Conclave
+4354,36865,3,45,Incantation of Greater Speed the Conclave
+4355,36865,6,45,Incantation of Greater Volition of the Conclave
+4356,36865,1,45,Incantation of Greater Empowering the Conclave
+4357,20488,69,0.3,Incantation of Greater Corrosive Ward
+4358,20488,64,0.3,Incantation of Greater Scythe Ward
+4359,20488,66,0.3,Incantation of Greater Flange Ward
+4360,20488,68,0.3,Incantation of Greater Frore Ward
+4361,20488,67,0.3,Incantation of Greater Inferno Ward
+4362,20488,70,0.3,Incantation of Greater Voltaic Ward
+4363,20488,65,0.3,Incantation of Greater Lance Ward
+4364,20488,5,2.15,Incantation of Greater Endless Well
+4365,20488,3,2.15,Incantation of Greater Soothing Wind
+4366,20488,4,2.15,Incantation of Greater Golden Wind
+4367,36865,31,45,Incantation of Greater Conjurant Chant
+4368,36865,7,45,Incantation of Warden of the Clutch
+4369,36865,6,45,Incantation of Guardian of the Clutch
+4370,36865,32,45,Incantation of Greater Artificant Chant
+4371,36865,33,45,Incantation of Greater Vitaeic Chant
+4372,36865,15,45,Incantation of Sanctifier of the Clutch
+4373,36865,16,45,Incantation of Greater Conveyic Chant
+4374,36865,34,45,Incantation of Greater Hieromantic Chant
+4391,36872,18,2,Incantation of Acid Bane
+4392,36872,18,-2,Incantation of Acid Lure
+4393,36872,13,2,Incantation of Blade Bane
+4394,36872,13,-2,Incantation of Blade Lure
+4395,33591300,360,24,Aura of Incantation of Blood Drinker Self
+4396,36868,44,-24,Incantation of Blood Loather
+4397,36872,15,2,Incantation of Bludgeon Bane
+4398,36872,15,-2,Incantation of Bludgeon Lure
+4399,36868,28,-300,Incantation of Brittlemail
+4400,33591304,169,0.2,Aura of Incantation of Defender Self
+4401,36872,17,2,Incantation of Flame Bane
+4402,36872,17,-2,Incantation of Flame Lure
+4403,36872,16,2,Incantation of Frost Bane
+4404,36872,16,-2,Incantation of Frost Lure
+4405,33591304,168,0.2,Aura of Incantation of Heart Seeker Self
+4406,20488,144,0.2,Incantation of Hermetic Void
+4407,36868,28,240,Incantation of Impenetrability
+4408,36868,49,80,Incantation of Leaden Weapon
+4409,36872,19,2,Incantation of Lightning Bane
+4410,36872,19,-2,Incantation of Lightning Lure
+4411,36872,29,-0.2,Incantation of Lure Blade
+4412,36872,14,2,Incantation of Piercing Bane
+4413,36872,14,-2,Incantation of Piercing Lure
+4414,33591304,170,0.08,Aura of Incantation of Spirit Drinker Self
+4415,36872,152,-0.08,Incantation of Spirit Loather
+4416,36868,38,250,Incantation of Strengthen Lock
+4417,33591300,361,-80,Aura of Incantation of Swift Killer Self
+4418,33574920,171,1.8,Aura of Incantation of Hermetic Link Self
+4419,36872,62,-0.2,Incantation of Turn Blade
+4420,36868,38,-250,Incantation of Weaken Lock
+4459,20488,69,0.32,Incantation of Acid Protection Other
+4460,33574920,69,0.32,Incantation of Acid Protection Self
+4461,20488,64,0.32,Incantation of Blade Protection Other
+4462,33574920,64,0.32,Incantation of Blade Protection Self
+4463,20488,66,0.32,Incantation of Bludgeoning Protection Other
+4464,33574920,66,0.32,Incantation of Bludgeoning Protection Self
+4465,20488,68,0.32,Incantation of Cold Protection Other
+4466,33574920,68,0.32,Incantation of Cold Protection Self
+4467,20488,67,0.32,Incantation of Fire Protection Other
+4468,33574920,67,0.32,Incantation of Fire Protection Self
+4469,20488,70,0.32,Incantation of Lightning Protection Other
+4470,33574920,70,0.32,Incantation of Lightning Protection Self
+4471,20488,65,0.32,Incantation of Piercing Protection Other
+4472,33574920,65,0.32,Incantation of Piercing Protection Self
+4473,20488,69,3.1,Incantation of Acid Vulnerability Other
+4474,20488,69,3.1,Incantation of Acid Vulnerability Self
+4475,20488,64,3.1,Incantation of Blade Vulnerability Other
+4476,20488,64,3.1,Incantation of Blade Vulnerability Self
+4477,20488,66,3.1,Incantation of Bludgeoning Vulnerability Other
+4478,20488,66,3.1,Incantation of Bludgeoning Vulnerability Self
+4479,20488,68,3.1,Incantation of Cold Vulnerability Other
+4480,20488,68,3.1,Incantation of Cold Vulnerability Self
+4481,20488,67,3.1,Incantation of Fire Vulnerability Other
+4482,20488,67,3.1,Incantation of Fire Vulnerability Self
+4483,20488,70,3.1,Incantation of Lightning Vulnerability Other
+4484,20488,70,3.1,Incantation of Lightning Vulnerability Self
+4485,20488,65,3.1,Incantation of Piercing Vulnerability Other
+4486,20488,65,3.1,Incantation of Piercing Vulnerability Self
+4487,20488,4,0.25,Incantation of Exhaustion Other
+4488,20488,4,0.25,Incantation of Exhaustion Self
+4489,20488,3,0.25,Incantation of Fester Other
+4490,20488,3,0.25,Incantation of Fester Self
+4491,20488,5,0.25,Incantation of Mana Depletion Other
+4492,20488,5,0.25,Incantation of Mana Depletion Self
+4493,33574920,5,2.45,Incantation of Mana Renewal Other
+4494,33574920,5,2.45,Incantation of Mana Renewal Self
+4495,20488,3,2.45,Incantation of Regeneration Other
+4496,33574920,3,2.45,Incantation of Regeneration Self
+4497,20488,4,2.45,Incantation of Rejuvenation Other
+4498,33574920,4,2.45,Incantation of Rejuvenation Self
+4499,36880,40,45,Incantation of Arcanum Salvaging Self
+4500,36880,40,45,Incantation of Arcanum Enlightenment
+4501,36880,40,45,Incantation of Nuhmudira's Wisdom
+4502,36880,40,45,Incantation of Nuhmudira Enlightenment
+4503,36880,38,-45,Incantation of Alchemy Ineptitude Other
+4504,36880,38,-45,Incantation of Alchemy Ineptitude Self
+4505,36880,38,45,Incantation of Alchemy Mastery Other
+4506,36880,38,45,Incantation of Alchemy Mastery Self
+4507,36880,14,-45,Incantation of Arcane Benightedness Other
+4508,36880,14,-45,Incantation of Arcane Benightedness Self
+4509,36880,14,45,Incantation of Arcane Enlightenment Other
+4510,36880,14,45,Incantation of Arcane Enlightenment Self
+4511,36880,29,45,Incantation of Armor Tinkering Expertise Other
+4512,36880,29,45,Incantation of Armor Tinkering Expertise Self
+4513,36880,29,-45,Incantation of Armor Tinkering Ignorance Other
+4514,36880,29,-45,Incantation of Armor Tinkering Ignorance Self
+4515,36880,45,-45,Incantation of Light Weapon Ineptitude Other
+4516,36880,45,-45,Incantation of Light Weapon Ineptitude Self
+4517,36880,45,45,Incantation of Light Weapon Mastery Other
+4518,36880,45,45,Incantation of Light Weapon Mastery Self
+4519,36880,47,-45,Incantation of Missile Weapon Ineptitude Other
+4520,36880,47,-45,Incantation of Missile Weapon Ineptitude Self
+4521,36880,47,45,Incantation of Missile Weapon Mastery Other
+4522,36880,47,45,Incantation of Missile Weapon Mastery Self
+4523,36880,39,-45,Incantation of Cooking Ineptitude Other
+4524,36880,39,-45,Incantation of Cooking Ineptitude Self
+4525,36880,39,45,Incantation of Cooking Mastery Other
+4526,36880,39,45,Incantation of Cooking Mastery Self
+4527,36880,31,-45,Incantation of Creature Enchantment Ineptitude Other
+4528,36880,31,-45,Incantation of Creature Enchantment Ineptitude Self
+4529,36880,31,45,Incantation of Creature Enchantment Mastery Other
+4530,36880,31,45,Incantation of Creature Enchantment Mastery Self
+4531,36880,47,-45,Incantation of Missile Weapon Ineptitude Other
+4532,36880,47,-45,Incantation of Missile Weapon Ineptitude Self
+4533,36880,47,45,Incantation of Missile Weapon Mastery Other
+4534,36880,47,45,Incantation of Missile Weapon Mastery Self
+4535,36880,46,-45,Incantation of Finesse Weapon Ineptitude Other
+4536,36880,46,-45,Incantation of Finesse Weapon Ineptitude Self
+4537,36880,46,45,Incantation of Finesse Weapon Mastery Other
+4538,36880,46,45,Incantation of Finesse Weapon Mastery Self
+4539,36880,20,-45,Incantation of Deception Ineptitude Other
+4540,36880,20,-45,Incantation of Deception Ineptitude Self
+4541,36880,20,45,Incantation of Deception Mastery Other
+4542,36880,20,45,Incantation of Deception Mastery Self
+4543,36880,7,-45,Incantation of Defenselessness Other
+4544,36880,7,-45,Incantation of Defenselessness Self
+4545,36880,36,-45,Incantation of Faithlessness Other
+4546,36880,36,-45,Incantation of Faithlessness Self
+4547,36880,36,45,Incantation of Fealty Other
+4548,36880,36,45,Incantation of Fealty Self
+4549,36880,37,-45,Incantation of Fletching Ineptitude Other
+4550,36880,37,-45,Incantation of Fletching Ineptitude Self
+4551,36880,37,45,Incantation of Fletching Mastery Other
+4552,36880,37,45,Incantation of Fletching Mastery Self
+4553,36880,21,-45,Incantation of Healing Ineptitude Other
+4554,36880,21,-45,Incantation of Healing Ineptitude Self
+4555,36880,21,45,Incantation of Healing Mastery Other
+4556,36880,21,45,Incantation of Healing Mastery Self
+4557,36880,7,45,Incantation of Impregnability Other
+4558,36880,7,45,Incantation of Impregnability Self
+4559,36880,6,45,Incantation of Invulnerability Other
+4560,36880,6,45,Incantation of Invulnerability Self
+4561,36880,32,-45,Incantation of Item Enchantment Ineptitude Other
+4562,36880,32,-45,Incantation of Item Enchantment Ineptitude Self
+4563,36880,32,45,Incantation of Item Enchantment Mastery Other
+4564,36880,32,45,Incantation of Item Enchantment Mastery Self
+4565,36880,18,45,Incantation of Item Tinkering Expertise Other
+4566,36880,18,45,Incantation of Item Tinkering Expertise Self
+4567,36880,18,-45,Incantation of Item Tinkering Ignorance Other
+4568,36880,18,-45,Incantation of Item Tinkering Ignorance Self
+4569,36880,22,-45,Incantation of Jumping Ineptitude Other
+4570,36880,22,-45,Incantation of Jumping Ineptitude Self
+4571,36880,22,45,Incantation of Jumping Mastery Other
+4572,36880,22,45,Incantation of Jumping Mastery Self
+4573,36880,24,-45,Incantation of Leaden Feet Other
+4574,36880,24,-45,Incantation of Leaden Feet Self
+4575,36880,35,-45,Incantation of Leadership Ineptitude Other
+4576,36880,35,-45,Incantation of Leadership Ineptitude Self
+4577,36880,35,45,Incantation of Leadership Mastery Other
+4578,36880,35,45,Incantation of Leadership Mastery Self
+4579,36880,33,-45,Incantation of Life Magic Ineptitude Other
+4580,36880,33,-45,Incantation of Life Magic Ineptitude Self
+4581,36880,33,45,Incantation of Life Magic Mastery Other
+4582,36880,33,45,Incantation of Life Magic Mastery Self
+4583,36880,23,-45,Incantation of Lockpick Ineptitude Other
+4584,36880,23,-45,Incantation of Lockpick Ineptitude Self
+4585,36880,23,45,Incantation of Lockpick Mastery Other
+4586,36880,23,45,Incantation of Lockpick Mastery Self
+4587,36880,45,-45,Incantation of Light Weapon Ineptitude Other
+4588,36880,45,-45,Incantation of Light Weapon Ineptitude Self
+4589,36880,45,45,Incantation of Light Weapon Mastery Other
+4590,36880,45,45,Incantation of Light Weapon Mastery Self
+4591,36880,30,45,Incantation of Magic Item Tinkering Expertise Other
+4592,36880,30,45,Incantation of Magic Item Tinkering Expertise Self
+4593,36880,30,-45,Incantation of Magic Item Tinkering Ignorance Other
+4594,36880,30,-45,Incantation of Magic Item Tinkering Ignorance Self
+4595,36880,15,45,Incantation of Magic Resistance Other
+4596,36880,15,45,Incantation of Magic Resistance Self
+4597,36880,15,-45,Incantation of Magic Yield Other
+4598,36880,15,-45,Incantation of Magic Yield Self
+4599,36880,16,-45,Incantation of Mana Conversion Ineptitude Other
+4600,36880,16,-45,Incantation of Mana Conversion Ineptitude Self
+4601,36880,16,45,Incantation of Mana Conversion Mastery Other
+4602,36880,16,45,Incantation of Mana Conversion Mastery Self
+4603,36880,27,45,Incantation of Monster Attunement Other
+4604,36880,27,45,Incantation of Monster Attunement Self
+4605,36880,27,-45,Incantation of Monster Unfamiliarity Other
+4606,36880,27,-45,Incantation of Monster Unfamiliarity Self
+4607,36880,19,45,Incantation of Person Attunement Other
+4608,36880,19,45,Incantation of Person Attunement Self
+4609,36880,19,-45,Incantation of Person Unfamiliarity Other
+4610,36880,19,-45,Incantation of Person Unfamiliarity Self
+4611,36880,45,-45,Incantation of Light Weapon Ineptitude Other
+4612,36880,45,-45,Incantation of Light Weapon Ineptitude Self
+4613,36880,45,45,Incantation of Light Weapon Mastery Other
+4614,36880,45,45,Incantation of Light Weapon Mastery Self
+4615,36880,24,45,Incantation of Sprint Other
+4616,36880,24,45,Incantation of Sprint Self
+4617,36880,45,-45,Incantation of Light Weapon Ineptitude Other
+4618,36880,45,-45,Incantation of Light Weapon Ineptitude Self
+4619,36880,45,45,Incantation of Light Weapon Mastery Other
+4620,36880,45,45,Incantation of Light Weapon Mastery Self
+4621,36880,44,-45,Incantation of Heavy Weapon Ineptitude Other
+4622,36880,44,-45,Incantation of Heavy Weapon Ineptitude Self
+4623,36880,44,45,Incantation of Heavy Weapon Mastery Other
+4624,36880,44,45,Incantation of Heavy Weapon Mastery Self
+4625,36880,47,-45,Incantation of Missile Weapon Ineptitude Other
+4626,36880,47,-45,Incantation of Missile Weapon Ineptitude Self
+4627,36880,47,45,Incantation of Missile Weapon Mastery Other
+4628,36880,47,45,Incantation of Missile Weapon Mastery Self
+4629,36880,45,-45,Incantation of Light Weapon Ineptitude Other
+4630,36880,45,45,Incantation of Light Weapon Mastery Other
+4631,36880,45,45,Incantation of Light Weapon Mastery Self
+4632,36880,45,-45,Incantation of Light Weapon Ineptitude Other
+4633,36880,6,-45,Incantation of Vulnerability Other
+4634,36880,6,-45,Incantation of Vulnerability Self
+4635,36880,34,-45,Incantation of War Magic Ineptitude Other
+4636,36880,34,-45,Incantation of War Magic Ineptitude Self
+4637,36880,34,45,Incantation of War Magic Mastery Other
+4638,36880,34,45,Incantation of War Magic Mastery Self
+4639,36880,28,45,Incantation of Weapon Tinkering Expertise Other
+4640,36880,28,45,Incantation of Weapon Tinkering Expertise Self
+4641,36880,28,-45,Incantation of Weapon Tinkering Ignorance Other
+4642,36880,28,-45,Incantation of Weapon Tinkering Ignorance Self
+4660,36872,18,0.2,Epic Acid Bane
+4661,33591300,360,7,Epic Blood Thirst
+4662,36872,15,0.2,Epic Bludgeoning Bane
+4663,36872,169,0.07,Epic Defender
+4664,36872,17,0.2,Epic Flame Bane
+4665,36872,16,0.2,Epic Frost Bane
+4666,33591304,168,0.07,Epic Heart Thirst
+4667,36868,28,60,Epic Impenetrability
+4668,36872,14,0.2,Epic Piercing Bane
+4669,36872,13,0.2,Epic Slashing Bane
+4670,33591304,170,0.05,Epic Spirit Thirst
+4671,36872,19,0.2,Epic Storm Bane
+4672,33591300,361,-30,Epic Swift Hunter
+4673,20488,69,0.8,Epic Acid Ward
+4674,20488,66,0.8,Epic Bludgeoning Ward
+4675,20488,67,0.8,Epic Flame Ward
+4676,20488,68,0.8,Epic Frost Ward
+4677,20488,65,0.8,Epic Piercing Ward
+4678,20488,64,0.8,Epic Slashing Ward
+4679,20488,70,0.8,Epic Storm Ward
+4680,20488,3,1.45,Epic Health Gain
+4681,20488,5,1.45,Epic Mana Gain
+4682,20488,4,1.45,Epic Stamina Gain
+4683,36880,38,25,Epic Alchemical Prowess
+4684,36880,14,25,Epic Arcane Prowess
+4685,36880,29,25,Epic Armor Tinkering Expertise
+4686,36880,45,25,Epic Light Weapon Aptitude
+4687,36880,47,25,Epic Missile Weapon Aptitude
+4688,36880,39,25,Epic Cooking Prowess
+4689,36880,31,25,Epic Creature Enchantment Aptitude
+4690,36880,47,25,Epic Missile Weapon Aptitude
+4691,36880,46,25,Epic Finesse Weapon Aptitude
+4692,36880,36,25,Epic Fealty
+4693,36880,37,25,Epic Fletching Prowess
+4694,36880,21,25,Epic Healing Prowess
+4695,36880,7,25,Epic Impregnability
+4696,36880,6,25,Epic Invulnerability
+4697,36880,32,25,Epic Item Enchantment Aptitude
+4698,36880,18,25,Epic Item Tinkering Expertise
+4699,36880,22,25,Epic Jumping Prowess
+4700,36880,33,25,Epic Life Magic Aptitude
+4701,36880,23,25,Epic Lockpick Prowess
+4702,36880,45,25,Epic Light Weapon Aptitude
+4703,36880,30,25,Epic Magic Item Tinkering Expertise
+4704,36880,15,25,Epic Magic Resistance
+4705,36880,16,25,Epic Mana Conversion Prowess
+4706,36880,27,25,Epic Monster Attunement
+4707,36880,19,25,Epic Person Attunement
+4708,36880,40,25,Epic Salvaging Aptitude
+4709,36880,45,25,Epic Light Weapon Aptitude
+4710,36880,24,25,Epic Sprint
+4711,36880,45,25,Epic Light Weapon Aptitude
+4712,36880,44,25,Epic Heavy Weapon Aptitude
+4713,36880,47,25,Epic Missile Weapon Aptitude
+4714,36880,45,25,Epic Light Weapon Aptitude
+4715,36880,34,25,Epic War Magic Aptitude
+4722,36868,318,10,Bleed Other
+4723,36880,22,-20,Bleed Self
+4726,20482,1,0.85,Poison
+4727,20482,1,0.85,Poison
+4728,20482,1,0.85,Poison
+4730,33591297,4,3,Novice Duelist's Coordination
+4731,33591297,4,5,Apprentice Duelist's Coordination
+4732,33591297,4,10,Journeyman Duelist's Coordination
+4733,33591297,4,20,Master Duelist's Coordination
+4734,33591297,2,3,Novice Hero's Endurance
+4735,33591297,2,5,Apprentice Hero's Endurance
+4736,33591297,2,10,Journeyman Hero's Endurance
+4737,33591297,2,20,Master Hero's Endurance
+4738,33591297,5,3,Novice Sage's Focus
+4739,33591297,5,5,Apprentice Sage's Focus
+4740,33591297,5,10,Journeyman Sage's Focus
+4741,33591297,5,20,Master Sage's Focus
+4742,33591297,3,3,Novice Rover's Quickness
+4743,33591297,3,5,Apprentice Rover's Quickness
+4744,33591297,3,10,Journeyman Rover's Quickness
+4745,33591297,3,20,Master Rover's Quickness
+4746,33591297,1,3,Novice Brute's Strength
+4747,33591297,1,5,Apprentice Brute's Strength
+4748,33591297,1,10,Journeyman Brute's Strength
+4749,33591297,1,20,Master Brute's Strength
+4750,33591297,6,3,Novice Adherent's Willpower
+4751,33591297,6,5,Apprentice Adherent's Willpower
+4752,33591297,6,10,Journeyman Adherent's Willpower
+4753,33591297,6,20,Master Adherent's Willpower
+4754,33591298,1,3,Apprentice Survivor's Health
+4755,33591298,1,10,Journeyman Survivor's Health
+4756,33591298,5,6,Apprentice Clairvoyant's Mana
+4757,33591298,5,20,Journeyman Clairvoyant's Mana
+4758,33591298,3,6,Apprentice Tracker's Stamina
+4759,33591298,3,20,Journeyman Tracker's Stamina
+4760,33574920,69,0.98,Incidental Acid Resistance
+4761,33574920,69,0.95,Crude Acid Resistance
+4762,33574920,69,0.9,Effective Acid Resistance
+4763,33574920,69,0.8,Masterwork Acid Resistance
+4764,33574920,66,0.98,Incidental Bludgeoning Resistance
+4765,33574920,66,0.95,Crude Bludgeoning Resistance
+4766,33574920,66,0.9,Effective Bludgeoning Resistance
+4767,33574920,66,0.8,Masterwork Bludgeoning Resistance
+4768,33574920,67,0.98,Incidental Flame Resistance
+4769,33574920,67,0.95,Crude Flame Resistance
+4770,33574920,67,0.9,Effective Flame Resistance
+4771,33574920,67,0.8,Masterwork Flame Resistance
+4772,33574920,68,0.98,Incidental Frost Resistance
+4773,33574920,68,0.95,Crude Frost Resistance
+4774,33574920,68,0.9,Effective Frost Resistance
+4775,33574920,68,0.8,Masterwork Frost Resistance
+4776,33574920,70,0.98,Incidental Lightning Resistance
+4777,33574920,70,0.95,Crude Lightning Resistance
+4778,33574920,70,0.9,Effective Lightning Resistance
+4779,33574920,70,0.8,Masterwork Lightning Resistance
+4780,33574920,65,0.98,Incidental Piercing Resistance
+4781,33574920,65,0.95,Crude Piercing Resistance
+4782,33574920,65,0.9,Effective Piercing Resistance
+4783,33574920,65,0.8,Masterwork Piercing Resistance
+4784,33574920,64,0.98,Incidental Slashing Resistance
+4785,33574920,64,0.95,Crude Slashing Resistance
+4786,33574920,64,0.9,Effective Slashing Resistance
+4787,33574920,64,0.8,Masterwork Slashing Resistance
+4788,33591312,38,3,Novice Concoctor's Alchemy Aptitude
+4789,33591312,38,5,Apprentice Concoctor's Alchemy Aptitude
+4790,33591312,38,10,Journeyman Concoctor's Alchemy Aptitude
+4791,33591312,38,20,Master Concoctor's Alchemy Aptitude
+4792,33591312,29,3,Novice Armorer's Armor Tinkering Aptitude
+4793,33591312,29,5,Apprentice Armorer's Armor Tinkering Aptitude
+4794,33591312,29,10,Journeyman Armorer's Armor Tinkering Aptitude
+4795,33591312,29,20,Master Armorer's Armor Tinkering Aptitude
+4796,33591312,45,3,Novice Soldier's Light Weapon Aptitude
+4797,33591312,45,5,Apprentice Soldier's Light Weapon Aptitude
+4798,33591312,45,10,Journeyman Soldier's Light Weapon Aptitude
+4799,33591312,45,20,Master Soldier's Light Weapon Aptitude
+4800,33591312,47,3,Novice Archer's Missile Weapon Aptitude
+4801,33591312,47,5,Apprentice Archer's Missile Weapon Aptitude
+4802,33591312,47,10,Journeyman Archer's Missile Weapon Aptitude
+4803,33591312,47,20,Master Archer's Missile Weapon Aptitude
+4804,33591312,39,3,Novice Chef's Cooking Aptitude
+4805,33591312,39,5,Apprentice Chef's Cooking Aptitude
+4806,33591312,39,10,Journeyman Chef's Cooking Aptitude
+4807,33591312,39,20,Master Chef's Cooking Aptitude
+4808,33591312,31,3,Novice Enchanter's Creature Aptitude
+4809,33591312,31,5,Apprentice Enchanter's Creature Aptitude
+4810,33591312,31,10,Journeyman Enchanter's Creature Aptitude
+4811,33591312,31,20,Master Enchanter's Creature Aptitude
+4812,33591312,47,3,Novice Archer's Missile Weapon Aptitude
+4813,33591312,47,5,Apprentice Archer's Missile Weapon Aptitude
+4814,33591312,47,10,Journeyman Archer's Missile Weapon Aptitude
+4815,33591312,47,20,Master Archer's Missile Weapon Aptitude
+4816,33591312,46,3,Novice Soldier's Finesse Weapon Aptitude
+4817,33591312,46,5,Apprentice Soldier's Finesse Weapon Aptitude
+4818,33591312,46,10,Journeyman Soldier's Finesse Weapon Aptitude
+4819,33591312,46,20,Master Soldier's Finesse Weapon Aptitude
+4820,33591312,37,3,Novice Huntsman's Fletching Aptitude
+4821,33591312,37,5,Apprentice Huntsman's Fletching Aptitude
+4822,33591312,37,10,Journeyman Huntsman's Fletching Aptitude
+4823,33591312,37,20,Master Huntsman's Fletching Aptitude
+4824,33591312,32,3,Novice Artifex's Item Aptitude
+4825,33591312,32,5,Apprentice Artifex's Item Aptitude
+4826,33591312,32,10,Journeyman Artifex's Item Aptitude
+4827,33591312,32,20,Master Artifex's Item Aptitude
+4828,33591312,18,3,Novice Inventor's Item Tinkering Aptitude
+4829,33591312,18,5,Apprentice Inventor's Item Tinkering Aptitude
+4830,33591312,18,10,Journeyman Inventor's Item Tinkering Aptitude
+4831,33591312,18,20,Master Inventor's Item Tinkering Aptitude
+4832,33591312,22,3,Novice Leaper's Jumping Aptitude
+4833,33591312,22,5,Apprentice Leaper's Jumping Aptitude
+4834,33591312,22,10,Journeyman Leaper's Jumping Aptitude
+4835,33591312,22,20,Master Leaper's Jumping Aptitude
+4836,33591312,33,3,Novice Theurge's Life Magic Aptitude
+4837,33591312,33,5,Apprentice Theurge's Life Magic Aptitude
+4838,33591312,33,10,Journeyman Theurge's Life Magic Aptitude
+4839,33591312,33,20,Master Theurge's Life Magic Aptitude
+4840,33591312,23,3,Novice Locksmith's Lockpick Aptitude
+4841,33591312,23,5,Apprentice Locksmith's Lockpick Aptitude
+4842,33591312,23,10,Journeyman Locksmith's Lockpick Aptitude
+4843,33591312,23,20,Master Locksmith's Lockpick Aptitude
+4844,33591312,36,3,Yeoman's Loyalty
+4845,33591312,36,5,Squire's Loyalty
+4846,33591312,45,3,Novice Soldier's Light Weapon Aptitude
+4847,33591312,45,5,Apprentice Soldier's Light Weapon Aptitude
+4848,33591312,45,10,Journeyman Soldier's Light Weapon Aptitude
+4849,33591312,45,20,Master Soldier's Light Weapon Aptitude
+4850,33591312,15,3,Novice Negator's Magic Resistance
+4851,33591312,15,5,Apprentice Negator's Magic Resistance
+4852,33591312,15,10,Journeyman Negator's Magic Resistance
+4853,33591312,15,20,Master Negator's Magic Resistance
+4854,33591312,30,3,Novice Arcanist's Magic Item Tinkering Aptitude
+4855,33591312,30,5,Apprentice Arcanist's Magic Item Tinkering Aptitude
+4856,33591312,30,10,Journeyman Arcanist's Magic Item Tinkering Aptitude
+4857,33591312,30,20,Master Arcanist's Magic Item Tinkering Aptitude
+4858,33591312,6,3,Novice Guardian's Invulnerability
+4859,33591312,6,5,Apprentice Guardian's Invulnerability
+4860,33591312,6,10,Journeyman Guardian's Invulnerability
+4861,33591312,6,20,Master Guardian's Invulnerability
+4862,33591312,7,3,Novice Wayfarer's Impregnability
+4863,33591312,7,5,Apprentice Wayfarer's Impregnability
+4864,33591312,7,10,Journeyman Wayfarer's Impregnability
+4865,33591312,7,20,Master Wayfarer's Impregnability
+4866,33591312,40,3,Novice Scavenger's Salvaging Aptitude
+4867,33591312,40,5,Apprentice Scavenger's Salvaging Aptitude
+4868,33591312,45,3,Novice Soldier's Light Weapon Aptitude
+4869,33591312,45,5,Apprentice Soldier's Light Weapon Aptitude
+4870,33591312,45,10,Journeyman Soldier's Light Weapon Aptitude
+4871,33591312,45,20,Master Soldier's Light Weapon Aptitude
+4872,33591312,24,3,Novice Messenger's Sprint Aptitude
+4873,33591312,24,5,Apprentice Messenger's Sprint Aptitude
+4874,33591312,24,10,Journeyman Messenger's Sprint Aptitude
+4875,33591312,24,20,Master Messenger's Sprint Aptitude
+4876,33591312,45,3,Novice Soldier's Light Weapon Aptitude
+4877,33591312,45,5,Apprentice Soldier's Light Weapon Aptitude
+4878,33591312,45,10,Journeyman Soldier's Light Weapon Aptitude
+4879,33591312,45,20,Master Soldier's Light Weapon Aptitude
+4880,33591312,44,3,Novice Soldier's Heavy Weapon Aptitude
+4881,33591312,44,5,Apprentice Soldier's Heavy Weapon Aptitude
+4882,33591312,44,10,Journeyman Soldier's Heavy Weapon Aptitude
+4883,33591312,44,20,Master Soldier's Heavy Weapon Aptitude
+4884,33591312,47,3,Novice Archer's Missile Weapon Aptitude
+4885,33591312,47,5,Apprentice Archer's Missile Weapon Aptitude
+4886,33591312,47,10,Journeyman Archer's Missile Weapon Aptitude
+4887,33591312,47,20,Master Archer's Missile Weapon Aptitude
+4888,33591312,45,3,Novice Soldier's Light Weapon Aptitude
+4889,33591312,45,5,Apprentice Soldier's Light Weapon Aptitude
+4890,33591312,45,10,Journeyman Soldier's Light Weapon Aptitude
+4891,33591312,45,20,Master Soldier's Light Weapon Aptitude
+4892,33591312,34,3,Novice Warlock's War Magic Aptitude
+4893,33591312,34,5,Apprentice Warlock's War Magic Aptitude
+4894,33591312,34,10,Journeyman Warlock's War Magic Aptitude
+4895,33591312,34,20,Master Warlock's War Magic Aptitude
+4896,33591312,28,3,Novice Swordsmith's Weapon Tinkering Aptitude
+4897,33591312,28,5,Apprentice Swordsmith's Weapon Tinkering Aptitude
+4898,33591312,28,10,Journeyman Swordsmith's Weapon Tinkering Aptitude
+4899,33591312,28,20,Master Swordsmith's Weapon Tinkering Aptitude
+4900,33595393,0,3,Society Initiate's Blessing
+4901,33595393,0,6,Society Adept's Blessing
+4902,33595393,0,9,Society Knight's Blessing
+4903,33595393,0,12,Society Lord's Blessing
+4904,33595393,0,15,Society Master's Blessing
+4905,33574920,4,1.3,Novice Challenger's Rejuvenation
+4906,33574920,4,2,Apprentice Challenger's Rejuvenation
+4911,41088,0,60,Epic Armor
+4912,36880,28,25,Epic Weapon Tinkering Expertise
+4925,36880,22,-20,Dance
+4933,36865,3,-10,Slowness
+4934,36865,3,-10,Slowness
+4935,36865,3,-10,Slowness
+4944,36865,3,-10,Slowness
+4958,36880,47,10,Greater Rockslide
+4959,36880,47,10,Lesser Rockslide
+4960,36880,47,10,Lesser Rockslide
+4961,36880,47,10,Lesser Rockslide
+4962,36880,47,10,Rockslide
+4963,36880,47,10,Rockslide
+4964,36880,47,10,Rockslide
+4965,36880,47,10,Greater Rockslide
+4966,36880,47,10,Greater Rockslide
+4968,36880,47,3,Ranger's Boon
+4969,36880,47,3,Ranger's Boon
+4970,36880,47,3,Ranger's Boon
+4971,36880,31,2,Enchanter's Boon
+4972,36880,34,2,Hieromancer's Boon
+4973,36880,46,2,Fencer's Boon
+4974,36880,33,2,Life Giver's Boon
+4975,36880,45,2,Kern's Boon
+4976,36880,45,2,Kern's Boon
+4977,36880,45,2,Kern's Boon
+4978,36880,45,2,Kern's Boon
+4979,36880,44,2,Soldier's Boon
+4980,36880,45,2,Kern's Boon
+4982,36880,23,5,Nimble Fingers - Lockpick
+4983,36880,38,5,Nimble Fingers - Alchemy
+4984,36880,39,5,Nimble Fingers - Cooking
+4985,36880,37,5,Nimble Fingers - Fletching
+4986,20496,38,1.01,Assassin's Alchemy Kit
+4998,36866,3,25,Arena Stamina
+4999,36866,1,25,Arena Life
+5000,36866,5,25,Arena Mana
+5001,20488,65,0.8,Arena Piercing Protection Other
+5002,20488,69,0.67,Arena Acid Protection Other
+5003,20488,64,0.57,Arena Blade Protection Other
+5004,20488,66,0.91,Arena Bludgeoning Protection Other
+5005,20488,68,0.91,Arena Cold Protection Other
+5006,20488,67,0.91,Arena Fire Protection Other
+5007,20488,70,0.5,Arena Lightning Protection Other
+5009,36868,28,400,Aerfalle's Greater Ward
+5023,36880,41,150,Spectral Two Handed Combat Mastery
+5024,36880,18,150,Spectral Item Expertise
+5025,36880,18,250,Prodigal Item Expertise
+5026,36880,41,250,Prodigal Two Handed Combat Mastery
+5027,36880,41,15,Greater Cascade
+5028,36880,41,8,Lesser Cascade
+5029,36880,41,12,Cascade
+5030,36880,41,2,Two Handed Fighter's Boon
+5031,36880,41,15,Two Handed Fighter's Boon
+5032,36880,41,45,Incantation of Two Handed Combat Mastery Self
+5033,36880,18,25,Epic Item Tinkering Expertise
+5034,36880,41,25,Epic Two Handed Combat Aptitude
+5035,36880,41,3,Feeble Sword Aptitude
+5036,36880,41,3,Feeble Two Handed Combat Aptitude
+5037,36880,18,-10,Item Tinkering Ignorance Other I
+5038,36880,18,-15,Item Tinkering Ignorance Other II
+5039,36880,18,-20,Item Tinkering Ignorance Other III
+5040,36880,18,-25,Item Tinkering Ignorance Other IV
+5041,36880,18,-30,Item Tinkering Ignorance Other V
+5042,36880,18,-35,Item Tinkering Ignorance Other VI
+5043,36880,18,-40,Unfortunate Appraisal
+5044,36880,18,-45,Incantation of Item Tinkering Ignorance Other
+5045,36880,18,-10,Item Tinkering Ignorance Self I
+5046,36880,18,-15,Item Tinkering Ignorance Self II
+5047,36880,18,-20,Item Tinkering Ignorance Self III
+5048,36880,18,-25,Item Tinkering Ignorance Self IV
+5049,36880,18,-30,Item Tinkering Ignorance Self V
+5050,36880,18,-35,Item Tinkering Ignorance Self VI
+5051,36880,18,-40,Item Tinkering Ignorance Self VII
+5052,36880,18,-45,Incantation of Item Tinkering Ignorance Self
+5053,36880,18,10,Item Tinkering Expertise Other I
+5054,36880,18,15,Item Tinkering Expertise Other II
+5055,36880,18,20,Item Tinkering Expertise Other III
+5056,36880,18,25,Item Tinkering Expertise Other IV
+5057,36880,18,30,Item Tinkering Expertise Other V
+5058,36880,18,35,Item Tinkering Expertise Other VI
+5059,36880,18,40,Yoshi's Boon
+5060,36880,18,45,Incantation of Item Tinkering Expertise Other
+5061,36880,18,10,Item Tinkering Expertise Self I
+5062,36880,18,15,Item Tinkering Expertise Self II
+5063,36880,18,20,Item Tinkering Expertise Self III
+5064,36880,18,25,Item Tinkering Expertise Self IV
+5065,36880,18,30,Item Tinkering Expertise Self V
+5066,36880,18,35,Item Tinkering Expertise Self VI
+5067,36880,18,40,Yoshi's Blessing
+5068,36880,18,45,Incantation of Item Tinkering Expertise Self
+5069,36880,18,15,Major Item Tinkering Expertise
+5070,36880,41,15,Major Two Handed Combat Aptitude
+5071,36880,18,15,Minor Item Tinkering Expertise
+5072,36880,41,5,Minor Two Handed Combat Aptitude
+5073,36880,18,10,Moderate Item Tinkering Expertise
+5074,36880,41,10,Moderate Two Handed Combat Aptitude
+5075,36880,41,-10,Two Handed Combat Ineptitude Other I
+5076,36880,41,-15,Two Handed Combat Ineptitude Other II
+5077,36880,41,-20,Two Handed Combat Ineptitude Other III
+5078,36880,41,-25,Two Handed Combat Ineptitude Other IV
+5079,36880,41,-30,Two Handed Combat Ineptitude Other V
+5080,36880,41,-35,Two Handed Combat Ineptitude Other VI
+5081,36880,41,-40,Greased Palms
+5082,36880,41,-45,Incantation of Two Handed Combat Ineptitude Other
+5083,36880,41,-10,Two Handed Combat Ineptitude Self I
+5084,36880,41,-15,Two Handed Combat Ineptitude Self II
+5085,36880,41,-20,Two Handed Combat Ineptitude Self III
+5086,36880,41,-25,Two Handed Combat Ineptitude Self IV
+5087,36880,41,-30,Two Handed Combat Ineptitude Self V
+5088,36880,41,-35,Two Handed Combat Ineptitude Self VI
+5089,36880,41,-40,Two Handed Combat Ineptitude Self VII
+5090,36880,41,-45,Incantation of Two Handed Combat Ineptitude Self
+5091,36880,41,10,Two Handed Combat Mastery Other I
+5092,36880,41,15,Two Handed Combat Mastery Other II
+5093,36880,41,20,Two Handed Combat Mastery Other III
+5094,36880,41,25,Two Handed Combat Mastery Other IV
+5095,36880,41,30,Two Handed Combat Mastery Other V
+5096,36880,41,35,Two Handed Combat Mastery Other VI
+5097,36880,41,40,Boon of T'ing
+5098,36880,41,45,Incantation of Two Handed Combat Mastery Other
+5099,36880,41,10,Two Handed Combat Mastery Self I
+5100,36880,41,15,Two Handed Combat Mastery Self II
+5101,36880,41,20,Two Handed Combat Mastery Self III
+5102,36880,41,25,Two Handed Combat Mastery Self IV
+5103,36880,41,30,Two Handed Combat Mastery Self V
+5104,36880,41,35,Two Handed Combat Mastery Self VI
+5105,36880,41,40,Blessing of T'ing
+5106,33591312,18,20,Master Inventor's Item Tinkering Aptitude
+5107,33591312,41,3,Novice Soldier's Two Handed Combat Aptitude
+5108,33591312,41,5,Apprentice Soldier's Two Handed Combat Aptitude
+5109,33591312,41,10,Journeyman Soldier's Two Handed Combat Aptitude
+5110,33591312,41,20,Master Soldier's Two Handed Combat Aptitude
+5111,33591312,18,3,Novice Inventor's Item Tinkering Aptitude
+5112,33591312,18,5,Apprentice Inventor's Item Tinkering Aptitude
+5113,33591312,18,10,Journeyman Inventor's Item Tinkering Aptitude
+5114,41088,0,-225,Expose Weakness VIII
+5115,41088,0,-20,Expose Weakness I
+5116,41088,0,-50,Expose Weakness II
+5117,41088,0,-75,Expose Weakness III
+5118,41088,0,-100,Expose Weakness IV
+5119,41088,0,-150,Expose Weakness V
+5120,41088,0,-200,Expose Weakness VI
+5121,41088,0,-225,Expose Weakness VII
+5122,36866,1,10,Call of Leadership V
+5123,36866,5,2,Answer of Loyalty (Mana) I
+5124,36866,5,4,Answer of Loyalty (Mana) II
+5125,36866,5,6,Answer of Loyalty (Mana) III
+5126,36866,5,8,Answer of Loyalty (Mana) IV
+5127,36866,5,10,Answer of Loyalty (Mana) V
+5128,36866,3,2,Answer of Loyalty (Stamina) I
+5129,36866,3,4,Answer of Loyalty (Stamina) II
+5130,36866,3,6,Answer of Loyalty (Stamina) III
+5131,36866,3,8,Answer of Loyalty (Stamina) IV
+5132,36866,3,10,Answer of Loyalty (Stamina) V
+5133,36866,1,2,Call of Leadership I
+5134,36866,1,4,Call of Leadership II
+5135,36866,1,6,Call of Leadership III
+5136,36866,1,8,Call of Leadership IV
+5137,36872,163,0.06,Augmented Understanding III
+5138,33591300,307,1,Augmented Damage I
+5139,33591300,307,2,Augmented Damage II
+5140,33591300,307,3,Augmented Damage III
+5141,33591300,308,1,Augmented Damage Reduction I
+5142,33591300,308,2,Augmented Damage Reduction II
+5143,33591300,308,3,Augmented Damage Reduction III
+5144,36866,1,5,Augmented Health I
+5145,36866,1,10,Augmented Health II
+5146,36866,1,15,Augmented Health III
+5147,36866,5,10,Augmented Mana I
+5148,36866,5,20,Augmented Mana II
+5149,36866,5,30,Augmented Mana III
+5150,36866,3,10,Augmented Stamina I
+5151,36866,3,20,Augmented Stamina II
+5152,36866,3,30,Augmented Stamina III
+5153,36872,163,0.02,Augmented Understanding I
+5154,36872,163,0.04,Augmented Understanding II
+5155,36880,14,32,Virindi Whisper IV
+5156,36880,14,40,Virindi Whisper V
+5157,36880,14,8,Virindi Whisper I
+5158,36880,14,16,Virindi Whisper II
+5159,36880,14,24,Virindi Whisper III
+5171,36868,312,10,Spectral Fountain Sip
+5172,36868,312,-10,Spectral Fountain Sip
+5173,36868,312,-20,Spectral Fountain Sip
+5174,36880,22,-20,Mhoire's Blessing of Power
+5182,33591304,170,0.08,Aura of Incantation of Spirit Drinker
+5183,33591300,360,24,Aura of Incantation of Blood Drinker Self
+5184,33591300,307,7,Rare Damage Boost VII
+5185,33591300,307,8,Rare Damage Boost VIII
+5186,33591300,307,9,Rare Damage Boost IX
+5187,33591300,307,10,Rare Damage Boost X
+5188,33591300,308,1,Rare Damage Reduction I
+5189,33591300,308,2,Rare Damage Reduction II
+5190,33591300,308,3,Rare Damage Reduction III
+5191,33591300,308,4,Rare Damage Reduction IV
+5192,33591300,308,5,Rare Damage Reduction V
+5193,33591300,308,5,Rare Damage Reduction V
+5194,33591300,308,5,Rare Damage Reduction V
+5195,33591300,308,5,Rare Damage Reduction V
+5196,33591300,308,5,Rare Damage Reduction V
+5197,33591300,308,5,Rare Damage Reduction V
+5198,33591300,307,1,Rare Damage Boost I
+5199,33591300,307,2,Rare Damage Boost II
+5200,33591300,307,3,Rare Damage Boost III
+5201,33591300,307,4,Rare Damage Boost IV
+5202,33591300,307,5,Rare Damage Boost V
+5203,33591300,307,6,Rare Damage Boost VI
+5204,33591300,307,20,Surge of Destruction
+5205,36868,318,30,Surge of Affliction
+5206,33591300,308,20,Surge of Protection
+5207,36868,317,20,Surge of Festering
+5208,33591300,312,30,Surge of Regeneration
+5209,33591300,314,1,Sigil of Fury I (Critical Damage)
+5210,33591300,314,2,Sigil of Fury II (Critical Damage)
+5211,33591300,314,3,Sigil of Fury III (Critical Damage)
+5212,33591300,314,4,Sigil of Fury IV (Critical Damage)
+5213,33591300,314,5,Sigil of Fury V (Critical Damage)
+5214,33591300,314,6,Sigil of Fury VI (Critical Damage)
+5215,33591300,314,7,Sigil of Fury VII (Critical Damage)
+5216,33591300,314,8,Sigil of Fury VIII (Critical Damage)
+5217,33591300,314,9,Sigil of Fury IX (Critical Damage)
+5218,33591300,314,10,Sigil of Fury X (Critical Damage)
+5219,33591300,314,11,Sigil of Fury XI (Critical Damage)
+5220,33591300,314,12,Sigil of Fury XII (Critical Damage)
+5221,33591300,314,13,Sigil of Fury XIII (Critical Damage)
+5222,33591300,314,14,Sigil of Fury XIV (Critical Damage)
+5223,33591300,314,15,Sigil of Fury XV (Critical Damage)
+5224,33591300,307,1,Sigil of Destruction I
+5225,33591300,307,2,Sigil of Destruction II
+5226,33591300,307,3,Sigil of Destruction III
+5227,33591300,307,4,Sigil of Destruction IV
+5228,33591300,307,5,Sigil of Destruction V
+5229,33591300,307,6,Sigil of Destruction VI
+5230,33591300,307,7,Sigil of Destruction VII
+5231,33591300,307,8,Sigil of Destruction VIII
+5232,33591300,307,9,Sigil of Destruction IX
+5233,33591300,307,10,Sigil of Destruction X
+5234,33591300,307,11,Sigil of Destruction XI
+5235,33591300,307,12,Sigil of Destruction XII
+5236,33591300,307,13,Sigil of Destruction XIII
+5237,33591300,307,14,Sigil of Destruction XIV
+5238,33591300,307,15,Sigil of Destruction XV
+5239,33591300,308,1,Sigil of Defense I
+5240,33591300,308,2,Sigil of Defense II
+5241,33591300,308,3,Sigil of Defense III
+5242,33591300,308,4,Sigil of Defense IV
+5243,33591300,308,5,Sigil of Defense V
+5244,33591300,308,6,Sigil of Defense VI
+5245,33591300,308,7,Sigil of Defense VII
+5246,33591300,308,8,Sigil of Defense VIII
+5247,33591300,308,9,Sigil of Defense IX
+5248,33591300,308,10,Sigil of Defense X
+5249,33591300,308,11,Sigil of Defense XI
+5250,33591300,308,12,Sigil of Defense XII
+5251,33591300,308,13,Sigil of Defense XIII
+5252,33591300,308,14,Sigil of Defense XIV
+5253,33591300,308,15,Sigil of Defense XV
+5254,33591300,323,1,Sigil of Growth I
+5255,33591300,323,2,Sigil of Growth II
+5256,33591300,323,3,Sigil of Growth III
+5257,33591300,323,4,Sigil of Growth IV
+5258,33591300,323,5,Sigil of Growth V
+5259,33591300,323,6,Sigil of Growth VI
+5260,33591300,323,7,Sigil of Growth VII
+5261,33591300,323,8,Sigil of Growth VIII
+5262,33591300,323,9,Sigil of Growth IX
+5263,33591300,323,10,Sigil of Growth X
+5264,33591300,323,11,Sigil of Growth XI
+5265,33591300,323,12,Sigil of Growth XII
+5266,33591300,323,13,Sigil of Growth XIII
+5267,33591300,323,14,Sigil of Growth XIV
+5268,33591300,323,15,Sigil of Growth XV
+5269,33591298,1,1,Sigil of Vigor I (Health)
+5270,33591298,1,2,Sigil of Vigor II (Health)
+5271,33591298,1,3,Sigil of Vigor III (Health)
+5272,33591298,1,4,Sigil of Vigor IV (Health)
+5273,33591298,1,5,Sigil of Vigor V (Health)
+5274,33591298,1,6,Sigil of Vigor VI (Health)
+5275,33591298,1,7,Sigil of Vigor VII (Health)
+5276,33591298,1,8,Sigil of Vigor VIII (Health)
+5277,33591298,1,9,Sigil of Vigor IX (Health)
+5278,33591298,1,10,Sigil of Vigor X (Health)
+5279,33591298,1,11,Sigil of Vigor XI (Health)
+5280,33591298,1,12,Sigil of Vigor XII (Health)
+5281,33591298,1,13,Sigil of Vigor XIII (Health)
+5282,33591298,1,14,Sigil of Vigor XIV (Health)
+5283,33591298,1,15,Sigil of Vigor XV (Health)
+5284,33591298,5,5,Sigil of Vigor I (Mana)
+5285,33591298,5,10,Sigil of Vigor II (Mana)
+5286,33591298,5,15,Sigil of Vigor III (Mana)
+5287,33591298,5,20,Sigil of Vigor IV (Mana)
+5288,33591298,5,25,Sigil of Vigor V (Mana)
+5289,33591298,5,30,Sigil of Vigor VI (Mana)
+5290,33591298,5,35,Sigil of Vigor VII (Mana)
+5291,33591298,5,40,Sigil of Vigor VIII (Mana)
+5292,33591298,5,45,Sigil of Vigor IX (Mana)
+5293,33591298,5,50,Sigil of Vigor X (Mana)
+5294,33591298,5,55,Sigil of Vigor XI (Mana)
+5295,33591298,5,60,Sigil of Vigor XII (Mana)
+5296,33591298,5,65,Sigil of Vigor XIII (Mana)
+5297,33591298,5,70,Sigil of Vigor XIV (Mana)
+5298,33591298,5,75,Sigil of Vigor XV (Mana)
+5299,33591298,3,5,Sigil of Vigor I (Stamina)
+5300,33591298,3,10,Sigil of Vigor II (Stamina)
+5301,33591298,3,15,Sigil of Vigor III (Stamina)
+5302,33591298,3,20,Sigil of Vigor IV (Stamina)
+5303,33591298,3,25,Sigil of Vigor V (Stamina)
+5304,33591298,3,30,Sigil of Vigor VI (Stamina)
+5305,33591298,3,35,Sigil of Vigor VII (Stamina)
+5306,33591298,3,40,Sigil of Vigor VIII (Stamina)
+5307,33591298,3,45,Sigil of Vigor IX (Stamina)
+5308,33591298,3,50,Sigil of Vigor X (Stamina)
+5309,33591298,3,55,Sigil of Vigor XI (Stamina)
+5310,33591298,3,60,Sigil of Vigor XII (Stamina)
+5311,33591298,3,65,Sigil of Vigor XIII (Stamina)
+5312,33591298,3,70,Sigil of Vigor XIV (Stamina)
+5313,33591298,3,75,Sigil of Vigor XV (Stamina)
+5314,36868,312,10,Blessing of Unity
+5315,33591297,2,1,Sigil of Fury I (Endurance)
+5316,33591297,2,2,Sigil of Fury II (Endurance)
+5317,33591297,2,3,Sigil of Fury III (Endurance)
+5318,33591297,2,4,Sigil of Fury IV (Endurance)
+5319,33591297,2,5,Sigil of Fury V (Endurance)
+5320,33591297,2,6,Sigil of Fury VI (Endurance)
+5321,33591297,2,7,Sigil of Fury VII (Endurance)
+5322,33591297,2,8,Sigil of Fury VIII (Endurance)
+5323,33591297,2,9,Sigil of Fury IX (Endurance)
+5324,33591297,2,10,Sigil of Fury X (Endurance)
+5325,33591297,2,11,Sigil of Fury XI (Endurance)
+5326,33591297,2,12,Sigil of Fury XII (Endurance)
+5327,33591297,2,13,Sigil of Fury XIII (Endurance)
+5328,33591297,2,14,Sigil of Fury XIV (Endurance)
+5329,33591297,2,15,Sigil of Fury XV (Endurance)
+5334,36868,318,600,Bael'zharons Curse of Destruction
+5335,36868,318,700,Bael'zharons Curse of Minor Destruction
+5336,36868,317,90,Bael'zharons Curse of Festering
+5337,36868,330,42,Destructive Curse VII
+5338,36868,330,51,Incantation of Destructive Curse
+5339,36868,330,8,Destructive Curse I
+5340,36868,330,13,Destructive Curse II
+5341,36868,330,18,Destructive Curse III
+5342,36868,330,22,Destructive Curse IV
+5343,36868,330,27,Destructive Curse V
+5344,36868,330,33,Destructive Curse VI
+5371,36868,317,5,Festering Curse I
+5372,36868,317,10,Festering Curse II
+5373,36868,317,15,Festering Curse III
+5374,36868,317,20,Festering Curse IV
+5375,36868,317,25,Festering Curse V
+5376,36868,317,30,Festering Curse VI
+5377,36868,317,35,Festering Curse VII
+5378,36868,317,45,Incantation of Festering Curse
+5379,36868,329,1,Weakening Curse I
+5380,36868,329,2,Weakening Curse II
+5381,36868,329,4,Weakening Curse III
+5382,36868,329,6,Weakening Curse IV
+5383,36868,329,8,Weakening Curse V
+5384,36868,329,10,Weakening Curse VI
+5385,36868,329,12,Weakening Curse VII
+5386,36868,329,15,Incantation of Weakening Curse
+5387,36868,330,19,Corrosion I
+5388,36868,330,29,Corrosion II
+5389,36868,330,38,Corrosion III
+5390,36868,330,48,Corrosion IV
+5391,36868,330,51,Corrosion V
+5392,36868,330,72,Corrosion VI
+5393,36868,330,90,Corrosion VII
+5394,36868,330,112,Incantation of Corrosion
+5395,36868,330,8,Corruption I
+5396,36868,330,13,Corruption II
+5397,36868,330,18,Corruption III
+5398,36868,330,22,Corruption IV
+5399,36868,330,27,Corruption V
+5400,36868,330,33,Corruption VI
+5401,36868,330,42,Corruption VII
+5402,36868,330,51,Incantation of Corruption
+5403,36880,43,10,Void Magic Mastery Other I
+5404,36880,43,15,Void Magic Mastery Other II
+5405,36880,43,20,Void Magic Mastery Other III
+5406,36880,43,25,Void Magic Mastery Other IV
+5407,36880,43,30,Void Magic Mastery Other V
+5408,36880,43,35,Void Magic Mastery Other VI
+5409,36880,43,40,Void Magic Mastery Other VII
+5410,33591312,43,45,Incantation of Void Magic Mastery Other
+5411,36880,43,10,Void Magic Mastery Self I
+5412,36880,43,15,Void Magic Mastery Self II
+5413,36880,43,20,Void Magic Mastery Self III
+5414,36880,43,25,Void Magic Mastery Self IV
+5415,36880,43,30,Void Magic Mastery Self V
+5416,36880,43,35,Void Magic Mastery Self VI
+5417,36880,43,40,Void Magic Mastery Self VII
+5418,33591312,43,45,Incantation of Void Magic Mastery Self
+5419,36880,43,-10,Void Magic Ineptitude Other I
+5420,36880,43,-15,Void Magic Ineptitude Other II
+5421,36880,43,-20,Void Magic Ineptitude Other III
+5422,36880,43,-25,Void Magic Ineptitude Other IV
+5423,36880,43,-30,Void Magic Ineptitude Other V
+5424,36880,43,-35,Void Magic Ineptitude Other VI
+5425,36880,43,-40,Void Magic Ineptitude Other VII
+5426,36880,43,-45,Incantation of Void Magic Ineptitude Other
+5427,33591312,43,5,Minor Void Magic Aptitude
+5428,33591312,43,15,Major Void Magic Aptitude
+5429,33591312,43,25,Epic Void Magic Aptitude
+5430,33591312,43,10,Moderate Void Magic Aptitude
+5431,33591312,43,3,Novice Shadow's Void Magic Aptitude
+5432,33591312,43,5,Apprentice Voidlock's Void Magic Aptitude
+5433,33591312,43,10,Journeyman Voidlock's Void Magic Aptitude
+5434,33591312,43,20,Master Voidlock's Void Magic Aptitude
+5435,36880,43,150,Spectral Void Magic Mastery
+5436,36880,43,250,Prodigal Void Magic Mastery
+5437,36880,43,2,Corruptor's Boon
+5438,36880,43,15,Corruptor's Boon
+5449,36868,307,20,Surging Strength
+5450,36868,308,30,Towering Defense
+5451,36866,1,5,Luminous Vitality
+5452,36865,6,45,Queen's Willpower
+5453,41088,0,250,Queen's Armor
+5454,36865,4,45,Queen's Coordination
+5455,36865,2,45,Queen's Endurance
+5456,36865,5,45,Queen's Focus
+5457,36865,3,45,Queen's Quickness
+5458,36865,1,45,Queen's Strength
+5459,20488,65,0.32,Queen's Piercing Protection
+5460,20488,69,0.32,Queen's Acid Protection
+5461,20488,64,0.32,Queen's Blade Protection
+5462,20488,66,0.32,Queen's Bludgeoning Protection
+5463,20488,68,0.32,Queen's Cold Protection
+5464,20488,67,0.32,Queen's Fire Protection
+5465,20488,70,0.32,Queen's Lightning Protection
+5466,20488,4,2.45,Queen's Rejuvenation
+5467,20488,5,2.45,Queen's Mana Renewal
+5468,20488,3,2.45,Queen's Regeneration
+5469,36880,7,45,Queen's Impregnability Other
+5470,36880,6,45,Queen's Invulnerability Other
+5471,36880,15,45,Queen's Magic Resistance
+5472,36880,16,45,Queen's Mana Conversion Mastery
+5473,36880,40,45,Queen's Salvaging Mastery Other
+5474,36880,24,45,Queen's Sprint
+5475,36880,45,45,Queen's Light Weapon Mastery
+5476,36880,34,45,Queen's War Magic Mastery
+5477,33591300,314,2,Critical Damage Metamorphi I
+5478,33591300,314,4,Critical Damage Metamorphi II
+5479,33591300,314,6,Critical Damage Metamorphi III
+5480,33591300,314,8,Critical Damage Metamorphi IV
+5481,33591300,314,10,Critical Damage Metamorphi V
+5482,33591300,314,12,Critical Damage Metamorphi VI
+5483,33591300,314,14,Critical Damage Metamorphi VII
+5484,33591300,314,16,Critical Damage Metamorphi VIII
+5485,33591300,314,20,Critical Damage Metamorphi IX
+5486,33591300,314,24,Critical Damage Metamorphi X
+5487,33591300,314,30,Critical Damage Metamorphi XI
+5489,33591300,316,2,Critical Damage Reduction Metamorphi I
+5490,33591300,316,4,Critical Damage Reduction Metamorphi II
+5491,33591300,316,6,Critical Damage Reduction Metamorphi III
+5492,33591300,316,8,Critical Damage Reduction Metamorphi IV
+5493,33591300,316,10,Critical Damage Reduction Metamorphi V
+5494,33591300,316,12,Critical Damage Reduction Metamorphi VI
+5495,33591300,316,14,Critical Damage Reduction Metamorphi VII
+5496,33591300,316,16,Critical Damage Reduction Metamorphi VIII
+5497,33591300,316,20,Critical Damage Reduction Metamorphi IX
+5498,33591300,316,24,Critical Damage Reduction Metamorphi X
+5499,33591300,316,30,Critical Damage Reduction Metamorphi XI
+5500,33591300,307,1,Damage Metamorphi I
+5501,33591300,307,2,Damage Metamorphi II
+5502,33591300,307,3,Damage Metamorphi III
+5503,33591300,307,4,Damage Metamorphi IV
+5504,33591300,307,5,Damage Metamorphi V
+5505,33591300,307,6,Damage Metamorphi VI
+5506,33591300,307,7,Damage Metamorphi VII
+5507,33591300,307,8,Damage Metamorphi VIII
+5508,33591300,307,10,Damage Metamorphi IX
+5509,33591300,307,12,Damage Metamorphi X
+5510,33591300,307,15,Damage Metamorphi XI
+5511,33591300,308,1,Damage Reduction Metamorphi I
+5512,33591300,308,2,Damage Reduction Metamorphi II
+5513,33591300,308,3,Damage Reduction Metamorphi III
+5514,33591300,308,4,Damage Reduction Metamorphi IV
+5515,33591300,308,5,Damage Reduction Metamorphi V
+5516,33591300,308,6,Damage Reduction Metamorphi VI
+5517,33591300,308,7,Damage Reduction Metamorphi VII
+5518,33591300,308,8,Damage Reduction Metamorphi VIII
+5519,33591300,308,10,Damage Reduction Metamorphi IX
+5520,33591300,308,12,Damage Reduction Metamorphi X
+5521,33591300,308,15,Damage Reduction Metamorphi XI
+5522,20488,69,2.85,Acid Spit Vulnerability 1
+5523,20488,69,3.1,Acid Spit Vulnerability 2
+5538,36880,43,2,Darkened Heart
+5542,36868,318,51,Burning Sands Infliction
+5543,36868,317,45,Curse of the Burning Sands
+5552,33591300,350,36,Sigil of Purity IX
+5553,33591300,351,4,Sigil of Perserverance I
+5554,33591300,351,40,Sigil of Perserverance X
+5555,33591300,351,44,Sigil of Perserverance XI
+5556,33591300,351,48,Sigil of Perserverance XII
+5557,33591300,351,52,Sigil of Perserverance XIII
+5558,33591300,351,56,Sigil of Perserverance XIV
+5559,33591300,351,60,Sigil of Perserverance XV
+5560,33591300,351,8,Sigil of Perserverance II
+5561,33591300,351,12,Sigil of Perserverance III
+5562,33591300,351,16,Sigil of Perserverance IV
+5563,33591300,351,20,Sigil of Perserverance V
+5564,33591300,351,24,Sigil of Perserverance VI
+5565,33591300,351,28,Sigil of Perserverance VII
+5566,33591300,351,32,Sigil of Perserverance VIII
+5567,33591300,351,36,Sigil of Perserverance IX
+5568,33591300,350,4,Sigil of Purity I
+5569,33591300,350,40,Sigil of Purity X
+5570,33591300,350,48,Sigil of Purity XI
+5571,33591300,350,56,Sigil of Purity XII
+5572,33591300,350,64,Sigil of Purity XIII
+5573,33591300,350,72,Sigil of Purity XIV
+5574,33591300,350,80,Sigil of Purity XV
+5575,33591300,350,8,Sigil of Purity II
+5576,33591300,350,12,Sigil of Purity III
+5577,33591300,350,16,Sigil of Purity IV
+5578,33591300,350,20,Sigil of Purity V
+5579,33591300,350,24,Sigil of Purity VI
+5580,33591300,350,28,Sigil of Purity VII
+5581,33591300,350,32,Sigil of Purity VIII
+5583,33591312,38,2,Weave of Alchemy I
+5584,33591312,38,4,Weave of Alchemy II
+5585,33591312,38,6,Weave of Alchemy III
+5586,33591312,38,8,Weave of Alchemy IV
+5587,33591312,38,10,Weave of Alchemy V
+5588,33591312,14,2,Weave of Arcane Lore I
+5589,33591312,14,4,Weave of Arcane Lore II
+5590,33591312,14,6,Weave of Arcane Lore III
+5591,33591312,14,8,Weave of Arcane Lore IV
+5592,33591312,14,10,Weave of Arcane Lore V
+5593,33591312,29,2,Weave of Armor Tinkering I
+5594,33591312,29,4,Weave of Armor Tinkering II
+5595,33591312,29,6,Weave of Armor Tinkering III
+5596,33591312,29,8,Weave of Armor Tinkering IV
+5597,33591312,29,10,Weave of Armor Tinkering V
+5598,33591312,19,2,Weave of Person Attunement I
+5599,33591312,19,4,Weave of Person Attunement II
+5600,33591312,19,6,Weave of Person Attunement III
+5601,33591312,19,8,Weave of Person Attunement IV
+5602,33591312,19,10,Weave of the Person Attunement V
+5603,33591312,45,2,Weave of Light Weapons I
+5604,33591312,45,4,Weave of Light Weapons II
+5605,33591312,45,6,Weave of Light Weapons III
+5606,33591312,45,8,Weave of Light Weapons IV
+5607,33591312,45,10,Weave of Light Weapons V
+5608,33591312,47,2,Weave of Missile Weapons I
+5609,33591312,47,4,Weave of Missile Weapons II
+5610,33591312,47,6,Weave of Missile Weapons III
+5611,33591312,47,8,Weave of Missile Weapons IV
+5612,33591312,47,10,Weave of Missile Weapons V
+5613,33591312,39,2,Weave of Cooking I
+5614,33591312,39,4,Weave of Cooking II
+5615,33591312,39,6,Weave of Cooking III
+5616,33591312,39,8,Weave of Cooking IV
+5617,33591312,39,10,Weave of the Cooking V
+5618,33591312,31,2,Weave of Creature Enchantment I
+5619,33591312,31,4,Weave of Creature Enchantment II
+5620,33591312,31,6,Weave of Creature Enchantment III
+5621,33591312,31,8,Weave of Creature Enchantment IV
+5622,33591312,31,10,Weave of the Creature Enchantment V
+5623,33591312,47,2,Weave of Missile Weapons I
+5624,33591312,47,4,Weave of Missile Weapons II
+5625,33591312,47,6,Weave of Missile Weapons III
+5626,33591312,47,8,Weave of Missile Weapons IV
+5627,33591312,47,10,Weave of Missile Weapons V
+5628,33591312,46,2,Weave of Finesse Weapons I
+5629,33591312,46,4,Weave of Finesse Weapons II
+5630,33591312,46,6,Weave of Finesse Weapons III
+5631,33591312,46,8,Weave of Finesse Weapons IV
+5632,33591312,46,10,Weave of Finesse Weapons V
+5633,33591312,20,2,Weave of Deception I
+5634,33591312,20,4,Weave of the Deception II
+5635,33591312,20,6,Weave of the Deception III
+5636,33591312,20,8,Weave of the Deception IV
+5637,33591312,20,10,Weave of the Deception V
+5638,33591312,37,2,Weave of Fletching I
+5639,33591312,37,4,Weave of the Fletching II
+5640,33591312,37,6,Weave of the Fletching III
+5641,33591312,37,8,Weave of the Fletching IV
+5642,33591312,37,10,Weave of the Fletching V
+5643,33591312,21,2,Weave of Healing I
+5644,33591312,21,4,Weave of the Healing II
+5645,33591312,21,6,Weave of the Healing III
+5646,33591312,21,8,Weave of the Healing IV
+5647,33591312,21,10,Weave of the Healing V
+5648,33591312,32,2,Weave of Item Enchantment I
+5649,33591312,32,4,Weave of Item Enchantment II
+5650,33591312,32,6,Weave of Item Enchantment III
+5651,33591312,32,8,Weave of Item Enchantment IV
+5652,33591312,32,10,Weave of the Item Enchantment V
+5653,33591312,18,2,Weave of Item Tinkering I
+5654,33591312,18,4,Weave of Item Tinkering II
+5655,33591312,18,6,Weave of Item Tinkering III
+5656,33591312,18,8,Weave of Item Tinkering IV
+5657,33591312,18,10,Weave of the Item Tinkering V
+5658,33591312,35,2,Weave of Leadership I
+5659,33591312,35,4,Weave of Leadership II
+5660,33591312,35,6,Weave of Leadership III
+5661,33591312,35,8,Weave of Leadership IV
+5662,33591312,35,10,Weave of Leadership V
+5663,33591312,33,2,Weave of Life Magic I
+5664,33591312,33,4,Weave of Life Magic II
+5665,33591312,33,6,Weave of Life Magic III
+5666,33591312,33,8,Weave of Life Magic IV
+5667,33591312,33,10,Weave of Life Magic V
+5668,33591312,36,2,Weave of Fealty I
+5669,33591312,36,4,Weave of Fealty II
+5670,33591312,36,6,Weave of Fealty III
+5671,33591312,36,8,Weave of Fealty IV
+5672,33591312,36,10,Weave of Fealty V
+5673,33591312,45,2,Weave of Light Weapons I
+5674,33591312,45,4,Weave of Light Weapons II
+5675,33591312,45,6,Weave of Light Weapons III
+5676,33591312,45,8,Weave of Light Weapons IV
+5677,33591312,45,10,Weave of Light Weapons V
+5678,33591312,15,2,Weave of Magic Resistance I
+5679,33591312,15,4,Weave of Magic Resistance II
+5680,33591312,15,6,Weave of Magic Resistance III
+5681,33591312,15,8,Weave of Magic Resistance IV
+5682,33591312,15,10,Weave of the Magic Resistance V
+5683,33591312,30,2,Weave of Magic Item Tinkering I
+5684,33591312,30,4,Weave of Magic Item Tinkering II
+5685,33591312,30,6,Weave of Magic Item Tinkering III
+5686,33591312,30,8,Weave of Magic Item Tinkering IV
+5687,33591312,30,10,Weave of the Magic Item Tinkering V
+5688,33591312,16,2,Weave of Mana Conversion I
+5689,33591312,16,4,Weave of Mana Conversion II
+5690,33591312,16,6,Weave of Mana Conversion III
+5691,33591312,16,8,Weave of Mana Conversion IV
+5692,33591312,16,10,Weave of Mana Conversion V
+5693,33591312,6,2,Weave of Invulnerability I
+5694,33591312,6,4,Weave of Invulnerability II
+5695,33591312,6,6,Weave of Invulnerability III
+5696,33591312,6,8,Weave of Invulnerability IV
+5697,33591312,6,10,Weave of the Invulnerability V
+5698,33591312,7,2,Weave of Impregnability I
+5699,33591312,7,4,Weave of Impregnability II
+5700,33591312,7,6,Weave of Impregnability III
+5701,33591312,7,8,Weave of Impregnability IV
+5702,33591312,7,10,Weave of the Impregnability V
+5703,33591312,40,2,Weave of Salvaging I
+5704,33591312,40,4,Weave of Salvaging II
+5705,33591312,40,6,Weave of Salvaging III
+5706,33591312,40,8,Weave of Salvaging IV
+5707,33591312,40,10,Weave of Salvaging V
+5708,33591312,45,2,Weave of Light Weapons I
+5709,33591312,45,4,Weave of Light Weapons II
+5710,33591312,45,6,Weave of Light Weapons III
+5711,33591312,45,8,Weave of Light Weapons IV
+5712,33591312,45,10,Weave of Light Weapons V
+5713,33591312,45,2,Weave of Light Weapons I
+5714,33591312,45,4,Weave of Light Weapons II
+5715,33591312,45,6,Weave of Light Weapons III
+5716,33591312,45,8,Weave of Light Weapons IV
+5717,33591312,45,10,Weave of Light Weapons V
+5718,33591312,44,2,Weave of Heavy Weapons I
+5719,33591312,44,4,Weave of Heavy Weapons II
+5720,33591312,44,6,Weave of Heavy Weapons III
+5721,33591312,44,8,Weave of Heavy Weapons IV
+5722,33591312,44,10,Weave of Heavy Weapons V
+5723,33591312,47,2,Weave of Missile Weapons I
+5724,33591312,47,4,Weave of Missile Weapons II
+5725,33591312,47,6,Weave of Missile Weapons III
+5726,33591312,47,8,Weave of Missile Weapons IV
+5727,33591312,47,10,Weave of Missile Weapons V
+5728,33591312,41,2,Weave of Two Handed Combat I
+5729,33591312,41,4,Weave of Two Handed Combat II
+5730,33591312,41,6,Weave of Two Handed Combat III
+5731,33591312,41,8,Weave of Two Handed Combat IV
+5732,33591312,41,10,Weave of Two Handed Combat V
+5733,33591312,45,2,Weave of Light Weapons I
+5734,33591312,45,4,Weave of Light Weapons II
+5735,33591312,45,6,Weave of Light Weapons III
+5736,33591312,45,8,Weave of Light Weapons IV
+5737,33591312,45,10,Weave of Light Weapons V
+5738,33591312,43,2,Weave of Void Magic I
+5739,33591312,43,4,Weave of Void Magic II
+5740,33591312,43,6,Weave of Void Magic III
+5741,33591312,43,8,Weave of Void Magic IV
+5742,33591312,43,10,Weave of Void Magic V
+5743,33591312,34,2,Weave of War Magic I
+5744,33591312,34,4,Weave of War Magic II
+5745,33591312,34,6,Weave of War Magic III
+5746,33591312,34,8,Weave of War Magic IV
+5747,33591312,34,10,Weave of War Magic V
+5748,33591312,28,2,Weave of Weapon Tinkering I
+5749,33591312,28,4,Weave of Weapon Tinkering II
+5750,33591312,28,6,Weave of Weapon Tinkering III
+5751,33591312,28,8,Weave of Weapon Tinkering IV
+5752,33591312,28,10,Weave of the Weapon Tinkering V
+5753,33595408,0,20,Cloaked in Skill
+5754,20496,15,0.5,Shroud of Darkness (Magic)
+5755,20496,6,0.5,Shroud of Darkness (Melee)
+5756,20496,7,0.5,Shroud of Darkness (Missile)
+5757,33591312,27,6,Weave of Creature Attunement III
+5758,33591312,27,8,Weave of Creature Attunement IV
+5759,33591312,27,10,Weave of the Creature Attunement V
+5760,33591312,27,2,Weave of Creature Attunement I
+5761,33591312,27,4,Weave of Creature Attunement II
+5763,36880,52,-10,Dirty Fighting Ineptitude Other I
+5764,36880,52,-15,Dirty Fighting Ineptitude Other II
+5765,36880,52,-20,Dirty Fighting Ineptitude Other III
+5766,36880,52,-25,Dirty Fighting Ineptitude Other IV
+5767,36880,52,-30,Dirty Fighting Ineptitude Other V
+5768,36880,52,-35,Dirty Fighting Ineptitude Other VI
+5769,36880,52,-40,Dirty Fighting Ineptitude Other VII
+5770,36880,52,-45,Incantation of Dirty Fighting Ineptitude Other
+5771,36880,52,10,Dirty Fighting Mastery Other I
+5772,36880,52,15,Dirty Fighting Mastery Other II
+5773,36880,52,20,Dirty Fighting Mastery Other III
+5774,36880,52,25,Dirty Fighting Mastery Other IV
+5775,36880,52,30,Dirty Fighting Mastery Other V
+5776,36880,52,35,Dirty Fighting Mastery Other VI
+5777,36880,52,40,Dirty Fighting Mastery Other VII
+5778,36880,52,45,Incantation of Dirty Fighting Mastery Other
+5779,36880,52,10,Dirty Fighting Mastery Self I
+5780,36880,52,15,Dirty Fighting Mastery Self II
+5781,36880,52,20,Dirty Fighting Mastery Self III
+5782,36880,52,25,Dirty Fighting Mastery Self IV
+5783,36880,52,30,Dirty Fighting Mastery Self V
+5784,36880,52,35,Dirty Fighting Mastery Self VI
+5785,36880,52,40,Dirty Fighting Mastery Self VII
+5786,36880,52,45,Incantation of Dirty Fighting Mastery Self
+5787,36880,49,-10,Dual Wield Ineptitude Other I
+5788,36880,49,-15,Dual Wield Ineptitude Other II
+5789,36880,49,-20,Dual Wield Ineptitude Other III
+5790,36880,49,-25,Dual Wield Ineptitude Other IV
+5791,36880,49,-30,Dual Wield Ineptitude Other V
+5792,36880,49,-35,Dual Wield Ineptitude Other VI
+5793,36880,49,-40,Dual Wield Ineptitude Other VII
+5794,36880,49,-45,Incantation of Dual Wield Ineptitude Other
+5795,36880,49,10,Dual Wield Mastery Other I
+5796,36880,49,15,Dual Wield Mastery Other II
+5797,36880,49,20,Dual Wield Mastery Other III
+5798,36880,49,25,Dual Wield Mastery Other IV
+5799,36880,49,30,Dual Wield Mastery Other V
+5800,36880,49,35,Dual Wield Mastery Other VI
+5801,36880,49,40,Dual Wield Mastery Other VII
+5802,36880,49,45,Incantation of Dual Wield Mastery Other
+5803,36880,49,10,Dual Wield Mastery Self I
+5804,36880,49,15,Dual Wield Mastery Self II
+5805,36880,49,20,Dual Wield Mastery Self III
+5806,36880,49,25,Dual Wield Mastery Self IV
+5807,36880,49,30,Dual Wield Mastery Self V
+5808,36880,49,35,Dual Wield Mastery Self VI
+5809,36880,49,40,Dual Wield Mastery Self VII
+5810,36880,49,45,Incantation of Dual Wield Mastery Self
+5811,36880,50,-10,Recklessness Ineptitude Other I
+5812,36880,50,-15,Recklessness Ineptitude Other II
+5813,36880,50,-20,Recklessness Ineptitude Other III
+5814,36880,50,-25,Recklessness Ineptitude Other IV
+5815,36880,50,-30,Recklessness Ineptitude Other V
+5816,36880,50,-35,Recklessness Ineptitude Other VI
+5817,36880,50,-40,Recklessness Ineptitude Other VII
+5818,36880,50,-45,Incantation of Recklessness Ineptitude Other
+5819,36880,50,10,Recklessness Mastery Other I
+5820,36880,50,15,Recklessness Mastery Other II
+5821,36880,50,20,Recklessness Mastery Other III
+5822,36880,50,25,Recklessness Mastery Other IV
+5823,36880,50,30,Recklessness Mastery Other V
+5824,36880,50,35,Recklessness Mastery Other VI
+5825,36880,50,40,Recklessness Mastery Other VII
+5826,36880,50,45,Incantation of Recklessness Mastery Other
+5827,36880,50,10,Recklessness Mastery Self I
+5828,36880,50,15,Recklessness Mastery Self II
+5829,36880,50,20,Recklessness Mastery Self III
+5830,36880,50,25,Recklessness Mastery Self IV
+5831,36880,50,30,Recklessness Mastery Self V
+5832,36880,50,35,Recklessness Mastery Self VI
+5833,36880,50,40,Recklessness Mastery Self VII
+5834,36880,50,45,Incantation of Recklessness Mastery Self
+5835,36880,48,-10,Shield Ineptitude Other I
+5836,36880,48,-15,Shield Ineptitude Other II
+5837,36880,48,-20,Shield Ineptitude Other III
+5838,36880,48,-25,Shield Ineptitude Other IV
+5839,36880,48,-30,Shield Ineptitude Other V
+5840,36880,48,-35,Shield Ineptitude Other VI
+5841,36880,48,-40,Shield Ineptitude Other VII
+5842,36880,48,-45,Incantation of Shield Ineptitude Other
+5843,36880,48,10,Shield Mastery Other I
+5844,36880,48,15,Shield Mastery Other II
+5845,36880,48,20,Shield Mastery Other III
+5846,36880,48,25,Shield Mastery Other IV
+5847,36880,48,30,Shield Mastery Other V
+5848,36880,48,35,Shield Mastery Other VI
+5849,36880,48,40,Shield Mastery Other VII
+5850,36880,48,45,Incantation of Shield Mastery Other
+5851,36880,48,10,Shield Mastery Self I
+5852,36880,48,15,Shield Mastery Self II
+5853,36880,48,20,Shield Mastery Self III
+5854,36880,48,25,Shield Mastery Self IV
+5855,36880,48,30,Shield Mastery Self V
+5856,36880,48,35,Shield Mastery Self VI
+5857,36880,48,40,Shield Mastery Self VII
+5858,36880,48,45,Incantation of Shield Mastery Self
+5859,36880,51,-10,Sneak Attack Ineptitude Other I
+5860,36880,51,-15,Sneak Attack Ineptitude Other II
+5861,36880,51,-20,Sneak Attack Ineptitude Other III
+5862,36880,51,-25,Sneak Attack Ineptitude Other IV
+5863,36880,51,-30,Sneak Attack Ineptitude Other V
+5864,36880,51,-35,Sneak Attack Ineptitude Other VI
+5865,36880,51,-40,Sneak Attack Ineptitude Other VII
+5866,36880,51,-45,Incantation of Sneak Attack Ineptitude Other
+5867,36880,51,10,Sneak Attack Mastery Other I
+5868,36880,51,15,Sneak Attack Mastery Other II
+5869,36880,51,20,Sneak Attack Mastery Other III
+5870,36880,51,25,Sneak Attack Mastery Other IV
+5871,36880,51,30,Sneak Attack Mastery Other V
+5872,36880,51,35,Sneak Attack Mastery Other VI
+5873,36880,51,40,Sneak Attack Mastery Other VII
+5874,36880,51,45,Incantation of Sneak Attack Mastery Other
+5875,36880,51,10,Sneak Attack Mastery Self I
+5876,36880,51,15,Sneak Attack Mastery Self II
+5877,36880,51,20,Sneak Attack Mastery Self III
+5878,36880,51,25,Sneak Attack Mastery Self IV
+5879,36880,51,30,Sneak Attack Mastery Self V
+5880,36880,51,35,Sneak Attack Mastery Self VI
+5881,36880,51,40,Sneak Attack Mastery Self VII
+5882,36880,51,45,Incantation of Sneak Attack Mastery Self
+5883,36880,52,5,Minor Dirty Fighting Prowess
+5884,36880,49,5,Minor Dual Wield Aptitude
+5885,36880,50,5,Minor Recklessness Prowess
+5886,36880,48,5,Minor Shield Aptitude
+5887,36880,51,5,Minor Sneak Attack Prowess
+5888,36880,52,15,Major Dirty Fighting Prowess
+5889,36880,49,15,Major Dual Wield Aptitude
+5890,36880,50,15,Major Recklessness Prowess
+5891,36880,48,15,Major Shield Aptitude
+5892,36880,51,15,Major Sneak Attack Prowess
+5893,36880,52,25,Epic Dirty Fighting Prowess
+5894,36880,49,25,Epic Dual Wield Aptitude
+5895,36880,50,25,Epic Recklessness Prowess
+5896,36880,48,25,Epic Shield Aptitude
+5897,36880,51,25,Epic Sneak Attack Prowess
+5898,36880,52,10,Moderate Dirty Fighting Prowess
+5899,36880,49,10,Moderate Dual Wield Aptitude
+5900,36880,50,10,Moderate Recklessness Prowess
+5901,36880,48,10,Moderate Shield Aptitude
+5902,36880,51,10,Moderate Sneak Attack Prowess
+5903,36880,49,250,Prodigal Dual Wield Mastery
+5904,36880,49,150,Spectral Dual Wield Mastery
+5905,36880,50,250,Prodigal Recklessness Mastery
+5906,36880,50,150,Spectral Recklessness Mastery
+5907,36880,48,250,Prodigal Shield Mastery
+5908,36880,48,150,Spectral Shield Mastery
+5909,36880,51,250,Prodigal Sneak Attack Mastery
+5910,36880,51,150,Spectral Sneak Attack Mastery
+5911,36880,52,250,Prodigal Dirty Fighting Mastery
+5912,36880,52,150,Spectral Dirty Fighting Mastery
+5913,33591312,52,2,Weave of Dirty Fighting I
+5914,33591312,52,4,Weave of Dirty Fighting II
+5915,33591312,52,6,Weave of Dirty Fighting III
+5916,33591312,52,8,Weave of Dirty Fighting IV
+5917,33591312,52,10,Weave of Dirty Fighting V
+5918,33591312,49,2,Weave of Dual Wield I
+5919,33591312,49,4,Weave of Dual Wield II
+5920,33591312,49,6,Weave of Dual Wield III
+5921,33591312,49,8,Weave of Dual Wield IV
+5922,33591312,49,10,Weave of Dual Wield V
+5923,33591312,50,2,Weave of Recklessness I
+5924,33591312,50,4,Weave of Recklessness II
+5925,33591312,50,6,Weave of Recklessness III
+5926,33591312,50,8,Weave of Recklessness IV
+5927,33591312,50,10,Weave of Recklessness V
+5928,33591312,48,2,Weave of Shield I
+5929,33591312,48,4,Weave of Shield II
+5930,33591312,48,6,Weave of Shield III
+5931,33591312,48,8,Weave of Shield IV
+5932,33591312,48,10,Weave of Shield V
+5933,33591312,51,2,Weave of Sneak Attack I
+5934,33591312,51,4,Weave of Sneak Attack II
+5935,33591312,51,6,Weave of Sneak Attack III
+5936,33591312,51,8,Weave of Sneak Attack IV
+5937,33591312,51,10,Weave of Sneak Attack V
+5938,98320,0,-20,Blinding Assault
+5939,36868,318,24,Bleeding Assault
+5940,163856,0,-20,Unbalancing Assault
+5941,36868,317,20,Traumatic Assault
+5942,98320,0,-10,Blinding Blow
+5943,36868,318,12,Bleeding Blow
+5944,163856,0,-10,Unbalancing Blow
+5945,36868,317,10,Traumatic Blow
+5946,33591312,52,3,Novice Soldier's Dirty Fighting Aptitude
+5947,33591312,52,5,Apprentice Soldier's Dirty Fighting Aptitude
+5948,33591312,52,10,Journeyman Soldier's Dirty Fighting Aptitude
+5949,33591312,52,20,Master Soldier's Dirty Fighting Aptitude
+5950,33591312,49,3,Novice Soldier's Dual Wield Aptitude
+5951,33591312,49,5,Apprentice Soldier's Dual Wield Aptitude
+5952,33591312,49,10,Journeyman Soldier's Dual Wield Aptitude
+5953,33591312,49,20,Master Soldier's Dual Wield Aptitude
+5954,33591312,50,3,Novice Soldier's Recklessness Aptitude
+5955,33591312,50,5,Apprentice Soldier's Recklessness Aptitude
+5956,33591312,50,10,Journeyman Soldier's Recklessness Aptitude
+5957,33591312,50,20,Master Soldier's Recklessness Aptitude
+5958,33591312,48,3,Novice Soldier's Shield Aptitude
+5959,33591312,48,5,Apprentice Soldier's Shield Aptitude
+5960,33591312,48,10,Journeyman Soldier's Shield Aptitude
+5961,33591312,48,20,Master Soldier's Shield Aptitude
+5962,33591312,51,3,Novice Soldier's Sneak Attack Aptitude
+5963,33591312,51,5,Apprentice Soldier's Sneak Attack Aptitude
+5964,33591312,51,10,Journeyman Soldier's Sneak Attack Aptitude
+5965,33591312,51,20,Master Soldier's Sneak Attack Aptitude
+5966,33591298,1,20,Vigor of Mhoire
+5973,20488,68,0.85,Protection of Mouf
+5974,33591300,307,1,Rare Armor Damage Boost I
+5975,33591300,307,2,Rare Armor Damage Boost II
+5976,33591300,307,3,Rare Armor Damage Boost III
+5977,33591300,307,4,Rare Armor Damage Boost IV
+5978,33591300,307,5,Rare Armor Damage Boost V
+5979,20482,1,0.8,Blighted Touch
+5980,36868,318,51,Corrupted Touch
+5981,36868,317,50,Sath'tik's Curse
+5982,33574920,171,1.1,Aura of Hermetic Link Other I
+5983,33574920,171,1.2,Aura of Hermetic Link Other II
+5984,33574920,171,1.3,Aura of Hermetic Link Other III
+5985,33574920,171,1.4,Aura of Hermetic Link Other IV
+5986,33574920,171,1.5,Aura of Hermetic Link Other V
+5987,33574920,171,1.6,Aura of Hermetic Link Other VI
+5988,33574920,171,1.7,Aura of Hermetic Link Other VII
+5989,33574920,171,1.8,Aura of Incantation of Hermetic Link Other
+5990,33591300,360,2,Aura of Blood Drinker Other I
+5991,33591300,360,4,Aura of Blood Drinker Other II
+5992,33591300,360,8,Aura of Blood Drinker Other III
+5993,33591300,360,12,Aura of Blood Drinker Other IV
+5994,33591300,360,16,Aura of Blood Drinker Other V
+5995,33591300,360,20,Aura of Blood Drinker Other VI
+5996,33591300,360,22,Aura of Blood Drinker Other VII
+5997,33591300,360,24,Aura of Incantation of Blood Drinker Other
+5998,33591300,360,22,Aura of Incantation of Blood Drinker Other
+5999,33591304,169,0.03,Aura of Defender Other I
+6000,33591304,169,0.05,Aura of Defender Other II
+6001,33591304,169,0.05,Aura of Defender Other III
+6002,33591304,169,0.1,Aura of Defender Other IV
+6003,33591304,169,0.13,Aura of Defender Other V
+6004,33591304,169,0.15,Aura of Defender Other VI
+6005,33591304,169,0.17,Aura of Defender Other VII
+6006,33591304,169,0.17,Aura of Incantation of Defender Other
+6007,33591304,168,0.025,Aura of Heart Seeker Other I
+6008,33591304,168,0.05,Aura of Heart Seeker Other II
+6009,33591304,168,0.075,Aura of Heart Seeker Other III
+6010,33591304,168,0.1,Aura of Heart Seeker Other IV
+6011,33591304,168,0.125,Aura of Heart Seeker Other V
+6012,33591304,168,0.15,Aura of Heart Seeker Other VI
+6013,33591304,168,0.17,Aura of Heart Seeker Other VII
+6014,33591304,168,0.2,Aura of Incantation of Heart Seeker Other
+6015,33591304,170,0.01,Aura of Spirit Drinker Other I
+6016,33591304,170,0.02,Aura of Spirit Drinker Other II
+6017,33591304,170,0.03,Aura of Spirit Drinker Other III
+6018,33591304,170,0.04,Aura of Spirit Drinker Other IV
+6019,33591304,170,0.05,Aura of Spirit Drinker Other V
+6020,33591304,170,0.06,Aura of Spirit Drinker Other VI
+6021,33591304,170,0.07,Aura of Spirit Drinker Other VII
+6022,33591304,170,0.08,Aura of Incantation of Spirit Drinker Other
+6023,33591304,170,0.07,Aura of Incantation of Spirit Drinker Other
+6024,33591300,361,-10,Aura of Swift Killer Other I
+6025,33591300,361,-20,Aura of Swift Killer Other II
+6026,33591300,361,-30,Aura of Swift Killer Other III
+6027,33591300,361,-40,Aura of Swift Killer Other IV
+6028,33591300,361,-50,Aura of Swift Killer Other V
+6029,33591300,361,-60,Aura of Swift Killer Other VI
+6030,33591300,361,-70,Aura of Swift Killer Other VII
+6031,33591300,361,-80,Aura of Incantation of Swift Killer Other
+6035,33591304,170,0.01,Spirit of Izexi
+6036,20496,24,0.05,No Escape
+6037,36865,6,-10,Fleeting Will
+6038,20482,3,1.1,Warm and Fuzzy
+6039,36880,28,35,Legendary Weapon Tinkering Expertise
+6040,36880,38,35,Legendary Alchemical Prowess
+6041,36880,14,35,Legendary Arcane Prowess
+6042,36880,29,35,Legendary Armor Tinkering Expertise
+6043,36880,45,35,Legendary Light Weapon Aptitude
+6044,36880,47,35,Legendary Missile Weapon Aptitude
+6045,36880,39,35,Legendary Cooking Prowess
+6046,36880,31,35,Legendary Creature Enchantment Aptitude
+6047,36880,46,35,Legendary Finesse Weapon Aptitude
+6048,36880,20,35,Legendary Deception Prowess
+6049,36880,52,35,Legendary Dirty Fighting Prowess
+6050,36880,49,35,Legendary Dual Wield Aptitude
+6051,36880,36,35,Legendary Fealty
+6052,36880,37,35,Legendary Fletching Prowess
+6053,36880,21,35,Legendary Healing Prowess
+6054,36880,7,35,Legendary Impregnability
+6055,36880,6,35,Legendary Invulnerability
+6056,36880,32,35,Legendary Item Enchantment Aptitude
+6057,36880,18,35,Legendary Item Tinkering Expertise
+6058,36880,22,35,Legendary Jumping Prowess
+6059,36880,35,35,Legendary Leadership
+6060,36880,33,35,Legendary Life Magic Aptitude
+6061,36880,23,35,Legendary Lockpick Prowess
+6062,36880,30,35,Legendary Magic Item Tinkering Expertise
+6063,36880,15,35,Legendary Magic Resistance
+6064,36880,16,35,Legendary Mana Conversion Prowess
+6065,36880,27,35,Legendary Monster Attunement
+6066,36880,19,35,Legendary Person Attunement
+6067,36880,50,35,Legendary Recklessness Prowess
+6068,36880,40,35,Legendary Salvaging Aptitude
+6069,36880,48,35,Legendary Shield Aptitude
+6070,36880,51,35,Legendary Sneak Attack Prowess
+6071,36880,24,35,Legendary Sprint
+6072,36880,44,35,Legendary Heavy Weapon Aptitude
+6073,36880,41,35,Legendary Two Handed Combat Aptitude
+6074,36880,43,35,Legendary Void Magic Aptitude
+6075,36880,34,35,Legendary War Magic Aptitude
+6076,20488,4,1.6,Legendary Stamina Gain
+6077,20488,3,1.6,Legendary Health Gain
+6078,20488,5,1.6,Legendary Mana Gain
+6079,20488,70,0.75,Legendary Storm Ward
+6080,20488,69,0.75,Legendary Acid Ward
+6081,20488,66,0.75,Legendary Bludgeoning Ward
+6082,20488,67,0.75,Legendary Flame Ward
+6083,20488,68,0.75,Legendary Frost Ward
+6084,20488,65,0.75,Legendary Piercing Ward
+6085,20488,64,0.75,Legendary Slashing Ward
+6086,33574920,171,1.25,Epic Hermetic Link
+6087,33574920,171,1.3,Legendary Hermetic Link
+6088,36872,18,0.25,Legendary Acid Bane
+6089,33591300,360,10,Legendary Blood Thirst
+6090,36872,15,0.25,Legendary Bludgeoning Bane
+6091,36872,169,0.09,Legendary Defender
+6092,36872,17,0.25,Legendary Flame Bane
+6093,36872,16,0.25,Legendary Frost Bane
+6094,33591304,168,0.09,Legendary Heart Thirst
+6095,36868,28,80,Legendary Impenetrability
+6096,36872,14,0.25,Legendary Piercing Bane
+6097,36872,13,0.25,Legendary Slashing Bane
+6098,33591304,170,0.07,Legendary Spirit Thirst
+6099,36872,19,0.25,Legendary Storm Bane
+6100,33591300,361,-40,Legendary Swift Hunter
+6101,36865,6,35,Legendary Willpower
+6102,41088,0,80,Legendary Armor
+6103,36865,4,35,Legendary Coordination
+6104,36865,2,35,Legendary Endurance
+6105,36865,5,35,Legendary Focus
+6106,36865,3,35,Legendary Quickness
+6107,36865,1,35,Legendary Strength
+6108,36880,54,10,Summoning Mastery Other I
+6109,36880,54,15,Summoning Mastery Other II
+6110,36880,54,20,Summoning Mastery Other III
+6111,36880,54,25,Summoning Mastery Other IV
+6112,36880,54,30,Summoning Mastery Other V
+6113,36880,54,35,Summoning Mastery Other VI
+6114,36880,54,40,Summoning Mastery Other VII
+6115,36880,54,45,Incantation of Summoning Mastery Other
+6116,36880,54,10,Summoning Mastery Self I
+6117,36880,54,15,Summoning Mastery Self II
+6118,36880,54,20,Summoning Mastery Self III
+6119,36880,54,25,Summoning Mastery Self IV
+6120,36880,54,30,Summoning Mastery Self V
+6121,36880,54,35,Summoning Mastery Self VI
+6122,36880,54,40,Summoning Mastery Self VII
+6123,36880,54,45,Incantation of Summoning Mastery Self
+6124,36880,54,25,Epic Summoning Prowess
+6125,36880,54,35,Legendary Summoning Prowess
+6126,36880,54,15,Major Summoning Prowess
+6127,36880,54,5,Minor Summoning Prowess
+6128,36880,54,10,Moderate Summoning Prowess
+6129,36880,54,-10,Summoning Ineptitude Other I
+6130,36880,54,-15,Summoning Ineptitude Other II
+6131,36880,54,-20,Summoning Ineptitude Other III
+6132,36880,54,-25,Summoning Ineptitude Other IV
+6133,36880,54,-30,Summoning Ineptitude Other V
+6134,36880,54,-35,Summoning Ineptitude Other VI
+6135,36880,54,-40,Summoning Ineptitude Other VII
+6136,36880,54,-45,Incantation of Summoning Ineptitude Other
+6137,33591312,54,4,Weave of Summoning II
+6138,33591312,54,6,Weave of Summoning III
+6139,33591312,54,8,Weave of Summoning IV
+6140,33591312,54,10,Weave of Summoning V
+6141,33591312,54,2,Weave of Summoning I
+6142,33591312,54,3,Novice Invoker's Summoning Aptitude
+6143,33591312,54,5,Apprentice Invoker's Summoning Aptitude
+6144,33591312,54,10,Journeyman Invoker's Summoning Aptitude
+6145,33591312,54,20,Master Invoker's Summoning Aptitude
+6146,20488,70,0.3,Ride The Lightning
+6153,20481,3,0.01,Tryptophan Coma
+6166,36880,22,-20,Poisoned Wounds
+6167,20482,1,0.5,Poisoned Vitality
+6170,36866,1,20,Honeyed Life Mead
+6171,36866,5,50,Honeyed Mana Mead
+6172,36866,3,50,Honeyed Vigor Mead
+6173,36866,1,30,Raging Heart
+6174,33591300,314,10,Twisting Wounds
+6175,33591300,307,10,Increasing Pain
+6176,36865,5,50,Genius
+6177,36880,18,150,Gauntlet Item Mastery
+6178,36880,28,150,Gauntlet Weapon Mastery
+6179,36880,30,150,Gauntlet Magic Item Mastery
+6180,36880,29,150,Gauntlet Armor Mastery
+6182,163856,0,-500,Over-Exerted
+6200,33591312,49,5,Paragon's Dual Wield Mastery V
+6201,33591312,46,1,Paragon's Finesse Weapon Mastery I
+6202,33591312,46,2,Paragon's Finesse Weapon Mastery II
+6203,33591312,46,3,Paragon's Finesse Weapon Mastery III
+6204,33591312,46,4,Paragon's Finesse Weapon Mastery IV
+6205,33591312,46,5,Paragon's Finesse Weapon Mastery V
+6206,33591312,44,1,Paragon's Heavy Weapon Mastery I
+6207,33591312,44,2,Paragon's Heavy Weapon Mastery II
+6208,33591312,44,3,Paragon's Heavy Weapon Mastery III
+6209,33591312,44,4,Paragon's Heavy Weapon Mastery IV
+6210,33591312,44,5,Paragon's Heavy Weapon Mastery V
+6211,33591312,33,1,Paragon's Life Magic Mastery I
+6212,33591312,33,2,Paragon's Life Magic Mastery II
+6213,33591312,33,3,Paragon's Life Magic Mastery III
+6214,33591312,33,4,Paragon's Life Magic Mastery IV
+6215,33591312,33,5,Paragon's Life Magic Mastery V
+6216,33591312,45,1,Paragon's Light Weapon Mastery I
+6217,33591312,45,2,Paragon's Light Weapon Mastery II
+6218,33591312,45,3,Paragon's Light Weapon Mastery III
+6219,33591312,45,4,Paragon's Light Weapon Mastery IV
+6220,33591312,45,5,Paragon's Light Weapon Mastery V
+6221,33591312,47,1,Paragon's Missile Weapon Mastery I
+6222,33591312,47,2,Paragon's Missile Weapon Mastery II
+6223,33591312,47,3,Paragon's Missile Weapon Mastery III
+6224,33591312,47,4,Paragon's Missile Weapon Mastery IV
+6225,33591312,47,5,Paragon's Missile Weapon Mastery V
+6226,33591312,50,1,Paragon's Recklessness Mastery I
+6227,33591312,50,2,Paragon's Recklessness Mastery II
+6228,33591312,50,3,Paragon's Recklessness Mastery III
+6229,33591312,50,4,Paragon's Recklessness Mastery IV
+6230,33591312,50,5,Paragon's Recklessness Mastery V
+6231,33591312,51,1,Paragon's Sneak Attack Mastery I
+6232,33591312,51,2,Paragon's Sneak Attack Mastery II
+6233,33591312,51,3,Paragon's Sneak Attack Mastery III
+6234,33591312,51,4,Paragon's Sneak Attack Mastery IV
+6235,33591312,51,5,Paragon's Sneak Attack Mastery V
+6236,33591312,41,1,Paragon's Two Handed Combat Mastery I
+6237,33591312,41,2,Paragon's Two Handed Combat Mastery II
+6238,33591312,41,3,Paragon's Two Handed Combat Mastery III
+6239,33591312,41,4,Paragon's Two Handed Combat Mastery IV
+6240,33591312,41,5,Paragon's Two Handed Combat Mastery V
+6241,33591312,43,1,Paragon's Void Magic Mastery I
+6242,33591312,43,2,Paragon's Void Magic Mastery II
+6243,33591312,43,3,Paragon's Void Magic Mastery III
+6244,33591312,43,4,Paragon's Void Magic Mastery IV
+6245,33591312,43,5,Paragon's Void Magic Mastery V
+6246,33591312,34,1,Paragon's War Magic Mastery I
+6247,33591312,34,2,Paragon's War Magic Mastery II
+6248,33591312,34,3,Paragon's War Magic Mastery III
+6249,33591312,34,4,Paragon's War Magic Mastery IV
+6250,33591312,34,5,Paragon's War Magic Mastery V
+6251,33591312,52,1,Paragon's Dirty Fighting Mastery I
+6252,33591312,52,2,Paragon's Dirty Fighting Mastery II
+6253,33591312,52,3,Paragon's Dirty Fighting Mastery III
+6254,33591312,52,4,Paragon's Dirty Fighting Mastery IV
+6255,33591312,52,5,Paragon's Dirty Fighting Mastery V
+6256,33591312,49,1,Paragon's Dual Wield Mastery I
+6257,33591312,49,2,Paragon's Dual Wield Mastery II
+6258,33591312,49,3,Paragon's Dual Wield Mastery III
+6259,33591312,49,4,Paragon's Dual Wield Mastery IV
+6260,33591297,6,5,Paragon's Willpower V
+6261,33591297,4,1,Paragon's Coordination I
+6262,33591297,4,2,Paragon's Coordination II
+6263,33591297,4,3,Paragon's Coordination III
+6264,33591297,4,4,Paragon's Coordination IV
+6265,33591297,4,5,Paragon's Coordination V
+6266,33591297,2,1,Paragon's Endurance I
+6267,33591297,2,2,Paragon's Endurance II
+6268,33591297,2,3,Paragon's Endurance III
+6269,33591297,2,4,Paragon's Endurance IV
+6270,33591297,2,5,Paragon's Endurance V
+6271,33591297,5,1,Paragon's Focus I
+6272,33591297,5,2,Paragon's Focus II
+6273,33591297,5,3,Paragon's Focus III
+6274,33591297,5,4,Paragon's Focus IV
+6275,33591297,5,5,Paragon's Focus V
+6276,33591297,3,1,Paragon Quickness I
+6277,33591297,3,2,Paragon Quickness II
+6278,33591297,3,3,Paragon Quickness III
+6279,33591297,3,4,Paragon Quickness IV
+6280,33591297,3,5,Paragon Quickness V
+6281,33591297,1,1,Paragon's Strength I
+6282,33591297,1,2,Paragon's Strength II
+6283,33591297,1,3,Paragon's Strength III
+6284,33591297,1,4,Paragon's Strength IV
+6285,33591297,1,5,Paragon's Strength V
+6286,33591297,6,1,Paragon's Willpower I
+6287,33591297,6,2,Paragon's Willpower II
+6288,33591297,6,3,Paragon's Willpower III
+6289,33591297,6,4,Paragon's Willpower IV
+6290,33591298,3,10,Paragon's Stamina V
+6291,33591300,314,1,Paragon's Critical Boost I
+6292,33591300,314,2,Paragon's Critical Damage Boost II
+6293,33591300,314,3,Paragon's Critical Damage Boost III
+6294,33591300,314,4,Paragon's Critical Damage Boost IV
+6295,33591300,314,5,Paragon's Critical Damage Boost V
+6296,33591300,316,1,Paragon's Critical Damage Reduction I
+6297,33591300,316,2,Paragon's Critical Damage Reduction II
+6298,33591300,316,3,Paragon's Critical Damage Reduction III
+6299,33591300,316,4,Paragon's Critical Damage Reduction IV
+6300,33591300,316,5,Paragon's Critical Damage Reduction V
+6301,33591300,307,1,Paragon's Damage Boost I
+6302,33591300,307,2,Paragon's Damage Boost II
+6303,33591300,307,3,Paragon's Damage Boost III
+6304,33591300,307,4,Paragon's Damage Boost IV
+6305,33591300,307,5,Paragon's Damage Boost V
+6306,33591300,308,1,Paragon's Damage Reduction I
+6307,33591300,308,2,Paragon's Damage Reduction II
+6308,33591300,308,3,Paragon's Damage Reduction III
+6309,33591300,308,4,Paragon's Damage Reduction IV
+6310,33591300,308,5,Paragon's Damage Reduction V
+6311,33591298,5,2,Paragon's Mana I
+6312,33591298,5,4,Paragon's Mana II
+6313,33591298,5,6,Paragon's Mana III
+6314,33591298,5,8,Paragon's Mana IV
+6315,33591298,5,10,Paragon's Mana V
+6316,33591298,3,2,Paragon's Stamina I
+6317,33591298,3,4,Paragon's Stamina II
+6318,33591298,3,6,Paragon's Stamina III
+6319,33591298,3,8,Paragon's Stamina IV
+6323,41088,0,-300,Gauntlet Imperil Self
+6324,20488,67,2.1,Gauntlet Vulnerability Self
+6328,33591300,314,1,Gauntlet Critical Damage Boost I
+6329,33591300,314,2,Gauntlet Critical Damage Boost II
+6330,33591300,307,1,Gauntlet Damage Boost I
+6331,33591300,307,2,Gauntlet Damage Boost II
+6332,33591300,308,1,Gauntlet Damage Reduction I
+6333,33591300,308,2,Gauntlet Damage Reduction II
+6334,33591300,316,1,Gauntlet Critical Damage Reduction I
+6335,33591300,316,2,Gauntlet Critical Damage Reduction II
+6336,33591300,323,1,Gauntlet Healing Boost I
+6337,33591300,323,2,Gauntlet Healing Boost II
+6338,33591298,1,1,Gauntlet Vitality I
+6339,33591298,1,2,Gauntlet Vitality II
+6340,33591298,1,3,Gauntlet Vitality III

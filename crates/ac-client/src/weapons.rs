@@ -54,37 +54,48 @@ const SKILL_CEILING: f32 = 2.0;
 /// What the character can bring to bear: enough to answer whether a
 /// weapon may be wielded at all, and how well it would be used.
 ///
-/// Skills are the values the character sheet shows, which is the base
-/// plus what training has added and no enchantments. That is what a
-/// raw-skill requirement is measured against, and it is the safe answer
-/// for the buffed kind too: a weapon it says we cannot hold is one the
-/// server would refuse.
+/// Each skill is carried twice: as it stands with every buff counted,
+/// which is what a plain skill requirement and a swing are measured
+/// against, and as the base without them, which is what a raw-skill
+/// requirement wants. The same for attributes.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Wielder {
     pub level: u32,
-    /// `(skill id, value, advancement class)`.
-    pub skills: Vec<(u32, u32, u32)>,
-    /// Strength, Endurance, Coordination, Quickness, Focus, Self.
+    /// `(skill id, base, current, advancement class)`.
+    pub skills: Vec<(u32, u32, u32, u32)>,
+    /// Strength, Endurance, Coordination, Quickness, Focus, Self: base
+    /// and current.
     pub attributes: [u32; 6],
+    pub attributes_current: [u32; 6],
     /// Maximum health, stamina and mana.
     pub vitals: [u32; 3],
 }
 
 impl Wielder {
-    /// How high this skill stands, 0 when the character does not have it.
+    /// How high this skill stands right now, buffs counted; 0 when the
+    /// character does not have it.
     pub fn skill(&self, id: u32) -> u32 {
         self.skills
             .iter()
-            .find(|(s, _, _)| *s == id)
-            .map(|(_, v, _)| *v)
+            .find(|(s, _, _, _)| *s == id)
+            .map(|(_, _, current, _)| *current)
+            .unwrap_or(0)
+    }
+
+    /// The skill without enchantments.
+    pub fn skill_base(&self, id: u32) -> u32 {
+        self.skills
+            .iter()
+            .find(|(s, _, _, _)| *s == id)
+            .map(|(_, base, _, _)| *base)
             .unwrap_or(0)
     }
 
     fn advancement(&self, id: u32) -> u32 {
         self.skills
             .iter()
-            .find(|(s, _, _)| *s == id)
-            .map(|(_, _, a)| *a)
+            .find(|(s, _, _, _)| *s == id)
+            .map(|(_, _, _, a)| *a)
             .unwrap_or(0)
     }
 
@@ -97,10 +108,10 @@ impl Wielder {
         let (kind, what, difficulty) = req;
         let at = |i: u32, of: &[u32]| of.get(i as usize).copied().unwrap_or(0);
         match kind {
-            wield::SKILL | wield::RAW_SKILL => self.skill(what) >= difficulty,
-            wield::ATTRIB | wield::RAW_ATTRIB => {
-                at(what.saturating_sub(1), &self.attributes) >= difficulty
-            }
+            wield::SKILL => self.skill(what) >= difficulty,
+            wield::RAW_SKILL => self.skill_base(what) >= difficulty,
+            wield::ATTRIB => at(what.saturating_sub(1), &self.attributes_current) >= difficulty,
+            wield::RAW_ATTRIB => at(what.saturating_sub(1), &self.attributes) >= difficulty,
             wield::SECONDARY_ATTRIB | wield::RAW_SECONDARY_ATTRIB => {
                 // Health, stamina and mana are 1, 3 and 5.
                 at(what.saturating_sub(1) / 2, &self.vitals) >= difficulty
@@ -338,6 +349,7 @@ mod tests {
             level: 200,
             skills: Vec::new(),
             attributes: [300; 6],
+            attributes_current: [300; 6],
             vitals: [1000; 3],
         }
     }
@@ -478,8 +490,9 @@ mod tests {
 
         let novice = Wielder {
             level: 20,
-            skills: vec![(34, 150, 2)],
+            skills: vec![(34, 150, 150, 2)],
             attributes: [100; 6],
+            attributes_current: [100; 6],
             vitals: [200; 3],
         };
         let pick = best(&carried, Stance::Magic, None, &novice).expect("the plain one");
@@ -487,10 +500,27 @@ mod tests {
         assert!(!novice.can_wield(&carried[0]));
 
         let adept = Wielder {
-            skills: vec![(34, 300, 2)],
+            skills: vec![(34, 300, 300, 2)],
             ..novice.clone()
         };
         assert!(adept.can_wield(&carried[0]));
+        // A buff does not satisfy a raw requirement, but does a plain one.
+        let buffed = Wielder {
+            skills: vec![(34, 250, 300, 2)],
+            ..novice.clone()
+        };
+        assert!(
+            !buffed.can_wield(&carried[0]),
+            "275 raw asked, 250 raw held"
+        );
+        let plain = ItemStats {
+            wield_reqs: vec![(wield::SKILL, 34, 275)],
+            ..carried[0].clone()
+        };
+        assert!(
+            buffed.can_wield(&plain),
+            "275 buffed asked, 300 buffed held"
+        );
         assert_eq!(best(&carried, Stance::Magic, None, &adept).unwrap().guid, 1);
         // A requirement kind we do not understand does not stop us.
         let odd = ItemStats {
@@ -515,8 +545,9 @@ mod tests {
 
         let mage = Wielder {
             level: 100,
-            skills: vec![(34, 400, 3), (44, 60, 1)],
+            skills: vec![(34, 400, 400, 3), (44, 60, 60, 1)],
             attributes: [200; 6],
+            attributes_current: [200; 6],
             vitals: [500; 3],
         };
         let (stance, pick) = best_any(&carried, None, &mage).expect("something to hold");
@@ -524,7 +555,7 @@ mod tests {
         assert_eq!(pick.guid, 1);
 
         let swordsman = Wielder {
-            skills: vec![(34, 40, 1), (44, 400, 3)],
+            skills: vec![(34, 40, 40, 1), (44, 400, 400, 3)],
             ..mage.clone()
         };
         let (stance, pick) = best_any(&carried, None, &swordsman).expect("something to hold");

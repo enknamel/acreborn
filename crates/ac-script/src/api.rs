@@ -62,6 +62,13 @@ pub trait Api {
     /// The attack spells autoplay throws, best first. Returns the list
     /// now in force.
     fn attack_spells(&mut self, names: Array) -> Array;
+
+    /// The buffs autoplay would keep up right now, worked out from the
+    /// character's training and what it can land: maps of `spell`,
+    /// `name`, `level`, `chance` (of the cast landing), `skill` and
+    /// `power` (what the chance is rolled from) and `on` (the item guid,
+    /// 0 for the character).
+    fn wanted_buffs(&mut self) -> Array;
     /// Objects in view, nearest first: `guid, name, distance, is_creature,
     /// is_player, is_corpse, health, x, y, z, cell`.
     fn objects(&mut self) -> Array;
@@ -357,6 +364,7 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("attack_spells", |names: Array| {
         with_api(|a| a.attack_spells(names))
     });
+    engine.register_fn("wanted_buffs", || with_api(|a| a.wanted_buffs()));
     engine.register_fn("travel_style", |style: &str| {
         with_api(|a| a.travel_style(style))
     });

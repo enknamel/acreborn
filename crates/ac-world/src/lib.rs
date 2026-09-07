@@ -4,6 +4,7 @@
 //! positions.
 
 pub mod allegiance;
+pub mod buffs;
 pub mod elements;
 pub mod housing;
 pub mod landmarks;

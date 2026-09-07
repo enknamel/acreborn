@@ -49,6 +49,13 @@ pub enum CastCheck {
         need: u32,
         have: u32,
     },
+    /// The spell is beyond the caster: its power is more than 50 over
+    /// the school's skill as it stands, and the server will not even
+    /// roll for it. Below that it may still fizzle, see `cast_chance`.
+    TooHard {
+        power: u32,
+        skill: u32,
+    },
 }
 
 /// One kind of spell component carried, for the Components panel.
@@ -261,9 +268,68 @@ impl Client {
     /// order: known, caster wielded, components of the current formula,
     /// mana against the spell's base cost (no Mana Conversion estimate,
     /// so the real cost may be lower).
+    /// The skill a school is cast with: War Magic 34, Life 33, Item 32,
+    /// Creature 31, Void 43.
+    pub fn school_skill(school: u32) -> Option<u32> {
+        use ac_formats::spell_table::school as s;
+        match school {
+            s::WAR => Some(34),
+            s::LIFE => Some(33),
+            s::ITEM => Some(32),
+            s::CREATURE => Some(31),
+            s::VOID => Some(43),
+            _ => None,
+        }
+    }
+
+    /// The character's skill in the school `spell` belongs to, as it
+    /// stands right now with every buff and debuff counted. 0 for a
+    /// school it has no skill in.
+    pub fn casting_skill(&self, spell: u32) -> u32 {
+        let table = self.assets.spell_table().ok();
+        let Some(sp) = table.as_ref().and_then(|t| t.get(spell)) else {
+            return 0;
+        };
+        let Some(skill_id) = Self::school_skill(sp.school) else {
+            return 0;
+        };
+        let stats = &self.world.stats;
+        let Some(sk) = stats.skill(skill_id) else {
+            return 0;
+        };
+        let skills = self.assets.skill_table().ok();
+        stats.skill_current(sk, skills.as_ref().and_then(|t| t.get(skill_id)))
+    }
+
+    /// How likely a cast of `spell` is to succeed rather than fizzle,
+    /// from the school's skill against the spell's power: the server's
+    /// own curve, 1 / (1 + e^(0.07 (power - skill))). Half at skill equal
+    /// to power; nothing at all more than 50 under it.
+    pub fn cast_chance(&self, spell: u32) -> f32 {
+        let table = self.assets.spell_table().ok();
+        let Some(sp) = table.as_ref().and_then(|t| t.get(spell)) else {
+            return 0.0;
+        };
+        cast_chance(self.casting_skill(spell), sp.power)
+    }
+
     pub fn can_cast(&self, spell: u32) -> CastCheck {
         if !self.world.stats.spells.contains(&spell) {
             return CastCheck::NotKnown;
+        }
+        if let Some(sp) = self
+            .assets
+            .spell_table()
+            .ok()
+            .and_then(|t| t.get(spell).cloned())
+        {
+            let skill = self.casting_skill(spell);
+            if skill + 50 < sp.power {
+                return CastCheck::TooHard {
+                    power: sp.power,
+                    skill,
+                };
+            }
         }
         if self.wielded_caster().is_none() {
             return CastCheck::NoCaster;
@@ -375,6 +441,17 @@ impl Client {
     }
 }
 
+/// The chance a cast at `skill` of a spell of `power` succeeds: the
+/// server's curve, and zero outright when the skill is more than fifty
+/// under the power, since the server does not roll at all then.
+pub fn cast_chance(skill: u32, power: u32) -> f32 {
+    if skill == 0 || skill + 50 < power {
+        return 0.0;
+    }
+    let x = 0.07 * (skill as f32 - power as f32);
+    (1.0 - 1.0 / (1.0 + x.exp())).clamp(0.0, 1.0)
+}
+
 /// Scarab component ids (SpellComponentsTable): Lead 1, Iron 2, Copper 3,
 /// Silver 4, Gold 5, Pyreal 6, Diamond 110, Platinum 112, Dark 192,
 /// Mana 193 (ACE `SpellFormula.Scarab`).
@@ -442,6 +519,18 @@ pub fn missing_components(need: &[u32], have: impl Fn(u32) -> u32) -> Vec<(u32, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cast_chance_is_the_servers_curve() {
+        // Even: half. Fifty under: the server refuses to roll.
+        assert!((cast_chance(300, 300) - 0.5).abs() < 1e-6);
+        assert_eq!(cast_chance(249, 300), 0.0);
+        assert!(cast_chance(250, 300) > 0.0 && cast_chance(250, 300) < 0.05);
+        // Fifty over: nearly certain. No skill at all: nothing.
+        assert!(cast_chance(350, 300) > 0.95);
+        assert_eq!(cast_chance(0, 1), 0.0);
+        assert!(cast_chance(320, 300) > cast_chance(310, 300));
+    }
 
     #[test]
     fn scarabs_and_powers() {

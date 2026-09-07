@@ -236,6 +236,23 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                 ui.add_space(6.0);
 
                 title(ui, "Buffs");
+                ui.checkbox(&mut cfg.buffs.auto, "buff for my training")
+                    .on_hover_text(
+                        "Every Life and Creature self-buff known for the skills \
+                         trained, the Item auras for the way it fights, and the \
+                         armour spells on each piece worn: the highest level of each",
+                    );
+                ui.add(
+                    egui::Slider::new(&mut cfg.buffs.least_chance, 0.1..=0.95)
+                        .fixed_decimals(2)
+                        .text("least chance to land"),
+                )
+                .on_hover_text(
+                    "A level that fizzles more often than this is passed over \
+                     for the one below it; 0.50 is where the school's skill \
+                     equals the spell's power",
+                );
+                caption(ui, "and these by hand");
                 caption(ui, "spells to keep up");
                 string_list(
                     ui,

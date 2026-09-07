@@ -387,6 +387,10 @@ mod tests {
             self.calls.push(format!("fight_style({style})"));
             style.to_string()
         }
+        fn wanted_buffs(&mut self) -> Array {
+            self.calls.push("wanted_buffs()".into());
+            Array::new()
+        }
         fn attack_spells(&mut self, names: Array) -> Array {
             let listed: Vec<String> = names.iter().map(|v| v.to_string()).collect();
             self.calls

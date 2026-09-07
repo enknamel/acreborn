@@ -315,6 +315,52 @@ impl Api for CtxApi<'_, '_> {
             .collect()
     }
 
+    fn wanted_buffs(&mut self) -> Array {
+        let c = self.client();
+        let table = c.assets.spell_table().ok();
+        c.wanted_buffs()
+            .into_iter()
+            .map(|w| {
+                let sp = table.as_ref().and_then(|t| t.get(w.spell));
+                let mut m = Map::new();
+                m.insert("spell".into(), int(w.spell));
+                m.insert(
+                    "name".into(),
+                    sp.map(|s| s.name.clone()).unwrap_or_default().into(),
+                );
+                m.insert("level".into(), int(sp.map(|s| s.level()).unwrap_or(0)));
+                m.insert("chance".into(), float(c.cast_chance(w.spell)));
+                // The two numbers the chance comes from, to check it by.
+                m.insert("skill".into(), int(c.casting_skill(w.spell)));
+                // And the skill before enchantments, with the vitae, so a
+                // surprising number can be traced.
+                let unbuffed = sp
+                    .and_then(|s| ac_client::Client::school_skill(s.school))
+                    .and_then(|id| {
+                        let sk = c.world.stats.skill(id)?;
+                        let t = c.assets.skill_table().ok();
+                        Some(
+                            c.world
+                                .stats
+                                .skill_value(sk, t.as_ref().and_then(|t| t.get(id))),
+                        )
+                    })
+                    .unwrap_or(0);
+                m.insert("skill_base".into(), int(unbuffed));
+                m.insert("vitae".into(), float(c.world.stats.vitae()));
+                m.insert("power".into(), int(sp.map(|s| s.power).unwrap_or(0)));
+                m.insert(
+                    "on".into(),
+                    int(match w.target {
+                        ac_client::buffs::Target::Me => 0,
+                        ac_client::buffs::Target::Item(g) => g,
+                    }),
+                );
+                Dynamic::from(m)
+            })
+            .collect()
+    }
+
     fn travel_style(&mut self, style: &str) -> String {
         let steady = style.eq_ignore_ascii_case("steady");
         let c = self.client();
@@ -1070,6 +1116,7 @@ impl Api for CtxApi<'_, '_> {
             CastCheck::NoCaster => "no_caster",
             CastCheck::MissingComponents(_) => "missing_components",
             CastCheck::NotEnoughMana { .. } => "not_enough_mana",
+            CastCheck::TooHard { .. } => "too_hard",
         }
         .into()
     }

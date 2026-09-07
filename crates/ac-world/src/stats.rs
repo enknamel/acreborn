@@ -541,6 +541,73 @@ impl PlayerStats {
         self.skills.iter().find(|s| s.id == id)
     }
 
+    /// The strongest additive enchantment of `kind` on `key` (a skill or
+    /// attribute id). Layers of one category do not stack: only the top
+    /// one counts, so the biggest per category is summed across
+    /// categories, the way the server applies them.
+    fn enchantment_additive(&self, kind: u32, key: u32) -> i32 {
+        use std::collections::HashMap;
+        let mut top: HashMap<u16, f32> = HashMap::new();
+        for e in &self.enchantments {
+            if e.stat_mod_type & kind == 0 || e.stat_mod_type & enchantment_type::ADDITIVE == 0 {
+                continue;
+            }
+            if e.stat_mod_key != key {
+                continue;
+            }
+            let slot = top.entry(e.category).or_insert(0.0);
+            if e.stat_mod_value.abs() > slot.abs() {
+                *slot = e.stat_mod_value;
+            }
+        }
+        top.values().map(|v| *v as i32).sum()
+    }
+
+    fn enchantment_multiplier(&self, kind: u32, key: u32) -> f32 {
+        self.enchantments
+            .iter()
+            .filter(|e| {
+                e.stat_mod_type & kind != 0
+                    && e.stat_mod_type & enchantment_type::MULTIPLICATIVE != 0
+                    && e.stat_mod_key == key
+            })
+            .map(|e| e.stat_mod_value)
+            .product()
+    }
+
+    /// The vitae penalty as a multiplier, 1.0 when there is none.
+    pub fn vitae(&self) -> f32 {
+        self.enchantments
+            .iter()
+            .find(|e| e.is_vitae())
+            .map(|e| e.stat_mod_value)
+            .filter(|v| *v > 0.0)
+            .unwrap_or(1.0)
+    }
+
+    /// An attribute as it stands right now, enchantments counted.
+    pub fn attribute_current(&self, id: u32) -> u32 {
+        let base = self.attribute_value(id) as i32;
+        let m = self.enchantment_multiplier(enchantment_type::ATTRIBUTE, id);
+        let a = self.enchantment_additive(enchantment_type::ATTRIBUTE, id);
+        ((base as f32 * m).round() as i32 + a).max(0) as u32
+    }
+
+    /// A skill as it stands right now: what `skill_value` gives with the
+    /// attributes it is built on buffed, scaled by any multiplier and by
+    /// vitae, plus the skill's own buffs and debuffs. This is the number
+    /// the server rolls a cast or a swing against, and the one a wield
+    /// requirement on the buffed skill is measured by.
+    pub fn skill_current(&self, skill: &Skill, base: Option<&SkillBase>) -> u32 {
+        let from_attributes = base
+            .filter(|b| b.usable_at(skill.advancement))
+            .map_or(0, |b| b.formula.apply(|id| self.attribute_current(id)));
+        let total = (from_attributes + skill.init_level + skill.ranks as u32) as f32;
+        let m = self.enchantment_multiplier(enchantment_type::SKILL, skill.id);
+        let a = self.enchantment_additive(enchantment_type::SKILL, skill.id);
+        ((total * m * self.vitae()).round() as i32 + a).max(0) as u32
+    }
+
     fn skill_mut(&mut self, id: u32) -> &mut Skill {
         match self.skills.iter().position(|s| s.id == id) {
             Some(i) => &mut self.skills[i],
@@ -1069,6 +1136,49 @@ fn vital_index(which: u32) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_skill_right_now_counts_its_buffs_and_the_vitae() {
+        let mut stats = PlayerStats::default();
+        stats.skills.push(Skill {
+            id: 34,
+            ranks: 100,
+            advancement: sac::TRAINED,
+            init_level: 5,
+            ..Default::default()
+        });
+        // No table: only the trained part counts, 105.
+        assert_eq!(stats.skill_value(&stats.skills[0], None), 105);
+        assert_eq!(stats.skill_current(&stats.skills[0], None), 105);
+        // War Magic Mastery Self VI: +35, additive, on skill 34.
+        let buff = |category: u16, value: f32| Enchantment {
+            spell_id: 634,
+            category,
+            stat_mod_type: enchantment_type::SKILL | enchantment_type::ADDITIVE,
+            stat_mod_key: 34,
+            stat_mod_value: value,
+            ..Default::default()
+        };
+        stats.enchantments.push(buff(1, 35.0));
+        assert_eq!(stats.skill_current(&stats.skills[0], None), 140);
+        // A weaker layer of the same category does not add to it.
+        stats.enchantments.push(buff(1, 25.0));
+        assert_eq!(stats.skill_current(&stats.skills[0], None), 140);
+        // A debuff of another category does.
+        stats.enchantments.push(buff(2, -20.0));
+        assert_eq!(stats.skill_current(&stats.skills[0], None), 120);
+        // Vitae scales the base, not the buffs: 105 * 0.9 = 94.5 -> 95, then +15.
+        stats.enchantments.push(Enchantment {
+            spell_id: VITAE_SPELL,
+            stat_mod_type: enchantment_type::VITAE,
+            stat_mod_value: 0.9,
+            ..Default::default()
+        });
+        assert_eq!(stats.vitae(), 0.9);
+        assert_eq!(stats.skill_current(&stats.skills[0], None), 110);
+        // The sheet value never moves.
+        assert_eq!(stats.skill_value(&stats.skills[0], None), 105);
+    }
     use ac_formats::skill_table::{attribute, SkillFormula};
     use ac_net::wire::Writer;
 

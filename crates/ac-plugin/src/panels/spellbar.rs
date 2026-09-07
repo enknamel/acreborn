@@ -168,6 +168,9 @@ pub fn blocked_reason(check: &CastCheck, comps: Option<&SpellComponentTable>) ->
             format!("missing components: {}", names.join(", "))
         }
         CastCheck::NotEnoughMana { need, have } => format!("not enough mana ({have}/{need})"),
+        CastCheck::TooHard { power, skill } => {
+            format!("too hard: power {power} against a skill of {skill}")
+        }
     })
 }
 
