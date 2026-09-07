@@ -45,6 +45,12 @@ const SNAP_FRACTION: f32 = 0.6;
 pub struct Ground<'a> {
     pub collision: &'a CollisionWorld,
     pub terrain: Option<&'a dyn Fn(f32, f32) -> Option<f32>>,
+    /// Where the terrain is open sea. A character cannot walk into it:
+    /// the server refuses the move and the character stops dead against
+    /// nothing, which is what an invisible wall in the ocean is. Only
+    /// the terrain is ruled out, not the static geometry over it, so
+    /// piers and bridges over water are still walked.
+    pub sea: Option<&'a dyn Fn(f32, f32) -> bool>,
 }
 
 impl Ground<'_> {
@@ -53,18 +59,35 @@ impl Ground<'_> {
     /// floor and the terrain (the rule `Player::update` walks by).
     pub fn surface_at(&self, p: Vec3, cap: &Capsule) -> Option<(f32, u32)> {
         let floor = self.collision.floor_at(p, cap.step_up, cap.step_down);
-        match (floor, self.terrain) {
-            (Some((z, cell)), _) if cell != 0 => Some((z, cell)),
-            (floor, Some(terrain)) => {
-                let t = terrain(p.x, p.y)?;
-                match floor {
-                    Some((z, _)) if z >= t => Some((z, 0)),
-                    _ if t <= p.z + cap.step_up && t >= p.z - cap.step_down => Some((t, 0)),
-                    _ => None,
-                }
+        // Inside something: its floor is what we stand on.
+        if let Some((z, cell)) = floor {
+            if cell != 0 {
+                return Some((z, cell));
             }
-            (floor, None) => floor,
         }
+        match self.terrain_under(p.x, p.y) {
+            Some(t) => match floor {
+                Some((z, _)) if z >= t => Some((z, 0)),
+                _ if t <= p.z + cap.step_up && t >= p.z - cap.step_down => Some((t, 0)),
+                _ => None,
+            },
+            // A dungeon: nothing but its own floors.
+            None if self.terrain.is_none() => floor,
+            // Open sea: only what has been built over it counts, so a
+            // pier is walked and the water beside it is not.
+            None if self.sea.is_some_and(|w| w(p.x, p.y)) => floor,
+            // Off the edge of the terrain we know.
+            None => None,
+        }
+    }
+
+    /// The height of the walkable terrain at a world `(x, y)`: `None`
+    /// where there is no terrain at all, and `None` over open sea.
+    pub fn terrain_under(&self, x: f32, y: f32) -> Option<f32> {
+        if self.sea.is_some_and(|w| w(x, y)) {
+            return None;
+        }
+        self.terrain?(x, y)
     }
 
     /// The capsule fits at `feet`: touching no wall, head room above.
@@ -266,7 +289,7 @@ impl NavGraph {
                 let x = gx as f32 * self.spacing;
                 let y = gy as f32 * self.spacing;
                 let mut levels = ground.collision.floors_at_xy(x, y);
-                if let Some(t) = ground.terrain.and_then(|t| t(x, y)) {
+                if let Some(t) = ground.terrain_under(x, y) {
                     levels.push((t, 0));
                 }
                 levels.sort_by(|a, b| b.0.total_cmp(&a.0));
@@ -644,6 +667,7 @@ mod tests {
         let ground = Ground {
             collision: &w,
             terrain: None,
+            sea: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -686,6 +710,7 @@ mod tests {
         let ground = Ground {
             collision: &w,
             terrain: None,
+            sea: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -705,6 +730,7 @@ mod tests {
         let ground = Ground {
             collision: &w,
             terrain: None,
+            sea: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -727,6 +753,7 @@ mod tests {
         let ground = Ground {
             collision: &w,
             terrain: None,
+            sea: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -3.0), Vec2::new(12.0, 3.0), 1.0, &cap);
@@ -762,6 +789,7 @@ mod tests {
         let ground = Ground {
             collision: &w,
             terrain: Some(&terrain),
+            sea: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, 0.0), Vec2::new(20.0, 8.0), 2.0, &cap);

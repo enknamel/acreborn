@@ -66,7 +66,7 @@ fn main() {
         }
         comps.push((size, lo, hi, root));
     }
-    comps.sort_by(|a, b| b.0.cmp(&a.0));
+    comps.sort_by_key(|c| std::cmp::Reverse(c.0));
     println!("{} reachable groups; the five biggest:", comps.len());
     for (size, lo, hi, root) in comps.iter().take(5) {
         println!(

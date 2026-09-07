@@ -92,6 +92,7 @@ fn a_walk_into_sanamar_goes_round_the_walls_not_into_them() {
     let ground = ac_scene::nav::Ground {
         collision: &collision,
         terrain: Some(&sampler),
+        sea: None,
     };
     assert!(
         one.find_path(&ground, from, square).is_none(),
@@ -159,5 +160,90 @@ fn a_dungeon_is_planned_on_its_own_and_its_stairs_connect_its_floors() {
     assert!(
         best_rise > 20.0,
         "the connected part should climb several floors, got {best_rise:.1} m"
+    );
+}
+
+#[test]
+fn a_route_goes_round_the_ocean_rather_than_across_it() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(dir).unwrap();
+    let cap = capsule();
+    // Sanamar is a port: about six per cent of its neighbourhood is
+    // open sea, so there are bays to walk round.
+    let block = lbid::from_xy(0x33, 0xD9);
+    let centre = lbid::world_origin(block) + Vec3::new(96.0, 96.0, 0.0);
+    let mut area = Area::build(&assets, &blocks_for(centre, centre), &cap, block).unwrap();
+    let lo = lbid::world_origin(*area.blocks.first().unwrap());
+    let step = 4.0f32;
+    let side = 3 * 192 / step as i32;
+    let at = |i: i32, j: i32| (lo.x + i as f32 * step, lo.y + j as f32 * step);
+
+    let sea = (0..side)
+        .flat_map(|i| (0..side).map(move |j| (i, j)))
+        .filter(|&(i, j)| {
+            let (x, y) = at(i, j);
+            area.is_sea(x, y)
+        })
+        .count();
+    assert!(sea > 500, "Sanamar should have open water: {sea} points");
+
+    // Points on the shore, and pairs of them with water between.
+    let shore: Vec<(f32, f32)> = (0..side)
+        .flat_map(|i| (0..side).map(move |j| at(i, j)))
+        .filter(|&(x, y)| {
+            !area.is_sea(x, y)
+                && [(step, 0.0), (-step, 0.0), (0.0, step), (0.0, -step)]
+                    .iter()
+                    .any(|(dx, dy)| area.is_sea(x + dx, y + dy))
+        })
+        .collect();
+    assert!(shore.len() > 20, "a coastline: {} points", shore.len());
+
+    let mut tested = 0;
+    for a in shore.iter().step_by(7) {
+        for b in shore.iter().step_by(11) {
+            let d = ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+            if !(60.0..140.0).contains(&d) {
+                continue;
+            }
+            let n = (d / 4.0) as i32;
+            let across = (1..n).any(|k| {
+                let t = k as f32 / n as f32;
+                area.is_sea(a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
+            });
+            if !across {
+                continue;
+            }
+            let (Some(za), Some(zb)) = (area.terrain_at(a.0, a.1), area.terrain_at(b.0, b.1))
+            else {
+                continue;
+            };
+            let (pa, pb) = (Vec3::new(a.0, a.1, za), Vec3::new(b.0, b.1, zb));
+            let Some(path) = area.path(pa, pb) else {
+                continue;
+            };
+            let mut prev = pa;
+            for w in &path {
+                let steps = (prev.distance(*w) / 3.0).ceil() as i32;
+                for k in 0..=steps {
+                    let q = prev.lerp(*w, k as f32 / steps.max(1) as f32);
+                    assert!(
+                        !area.is_sea(q.x, q.y),
+                        "the route walks into the sea at {q:?}"
+                    );
+                }
+                prev = *w;
+            }
+            tested += 1;
+            if tested >= 5 {
+                return;
+            }
+        }
+    }
+    assert!(
+        tested > 0,
+        "no pair of shore points with water between them"
     );
 }

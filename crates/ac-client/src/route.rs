@@ -16,6 +16,10 @@ pub const ARRIVE: f32 = 0.7;
 pub const REPLAN_DISTANCE: f32 = 2.0;
 /// Re-plan (or re-check the straight line) at least this often.
 pub const REPLAN_AFTER: Duration = Duration::from_secs(2);
+/// A route from the neighbourhood planner is kept longer: it cost more
+/// to find and it goes out of date more slowly, since it already
+/// accounts for what lies past this landblock's edge.
+pub const WIDE_REPLAN_AFTER: Duration = Duration::from_secs(6);
 /// How often the straight line is re-tested while no route is needed.
 const LINE_CHECK: Duration = Duration::from_millis(500);
 
@@ -181,9 +185,12 @@ impl Steering {
         let replan = match &self.route {
             None => now >= self.next_check,
             // A wide route is kept while it still leads where we want:
-            // the single-block planner cannot do better than it.
+            // the single-block planner cannot do better than it. Running
+            // out of waypoints is not staleness -- the last one is the
+            // goal, and the caller decides when it has arrived.
             Some(r) if self.route_is_wide => {
-                far_goal.distance(r.goal) > REPLAN_DISTANCE || r.next + 1 >= r.waypoints.len()
+                far_goal.distance(r.goal) > REPLAN_DISTANCE
+                    || now.duration_since(r.planned) >= WIDE_REPLAN_AFTER
             }
             Some(r) => r.stale(goal, now),
         };

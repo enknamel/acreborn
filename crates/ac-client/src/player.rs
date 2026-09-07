@@ -98,6 +98,9 @@ pub struct Player {
     current_motion: u32,
     pub n_parts: usize,
     capsule: Capsule,
+    /// Terrain types that are open sea, read from the region on first
+    /// use (see `sea_types`).
+    sea_types: Option<Vec<bool>>,
     /// Vertical speed while airborne (m/s, up positive).
     vz: f32,
     airborne: bool,
@@ -147,6 +150,7 @@ impl Player {
             current_motion: 0,
             n_parts: 0,
             capsule: Capsule::default(),
+            sea_types: None,
             vz: 0.0,
             airborne: false,
             air_velocity: Vec3::ZERO,
@@ -381,6 +385,24 @@ impl Player {
         self.blocks.get(&blk).map(|b| b.dungeon).unwrap_or(false)
     }
 
+    /// Which of the region's terrain types are open sea, read once. A
+    /// character cannot walk into the ocean: the server refuses the
+    /// move and it stops dead against nothing, so no route may cross
+    /// one.
+    fn sea_types(&mut self, assets: &Assets) -> &[bool] {
+        if self.sea_types.is_none() {
+            self.sea_types = Some(match assets.region() {
+                Ok(r) => (0..32u16)
+                    .map(|t| {
+                        ac_scene::worldroute::water_kind(&r, t) == ac_scene::worldroute::Water::Sea
+                    })
+                    .collect(),
+                Err(_) => Vec::new(),
+            });
+        }
+        self.sea_types.as_deref().unwrap_or(&[])
+    }
+
     /// The shape the character walks as, for planners that work on a
     /// copy of the world.
     pub fn capsule(&self) -> Capsule {
@@ -429,15 +451,18 @@ impl Player {
         self.collision(assets, block)?;
         let cap = self.capsule;
         let height_table = self.height_table.clone();
+        let sea_types = self.sea_types(assets).to_vec();
         let b = self.blocks.get(&block)?;
         let collision = b.collision.as_ref()?;
         let sampler = TerrainSampler::new(&b.lb, &height_table);
         let origin = ac_world::landblock_origin(block);
         let terrain =
             |x: f32, y: f32| sampler.height_at(Vec3::new(x - origin.x, y - origin.y, 0.0));
+        let sea = |x: f32, y: f32| sea_at(&b.lb, &sea_types, x - origin.x, y - origin.y);
         let ground = Ground {
             collision,
             terrain: (!b.dungeon).then_some(&terrain),
+            sea: (!b.dungeon).then_some(&sea),
         };
         Some(ground.walkable(from, to, &cap).0)
     }
@@ -458,6 +483,7 @@ impl Player {
         self.collision(assets, block)?;
         let cap = self.capsule;
         let height_table = self.height_table.clone();
+        let sea_types = self.sea_types(assets).to_vec();
         let b = self.blocks.get_mut(&block)?;
         let same_capsule = |n: &NavGraph| {
             let c = n.capsule;
@@ -478,9 +504,11 @@ impl Player {
         let origin = ac_world::landblock_origin(block);
         let terrain =
             |x: f32, y: f32| sampler.height_at(Vec3::new(x - origin.x, y - origin.y, 0.0));
+        let sea = |x: f32, y: f32| sea_at(&b.lb, &sea_types, x - origin.x, y - origin.y);
         let ground = Ground {
             collision,
             terrain: (!b.dungeon).then_some(&terrain),
+            sea: (!b.dungeon).then_some(&sea),
         };
         let nav = b.nav.as_mut()?;
         let (nodes, chunks) = (nav.len(), nav.chunk_count());
@@ -846,6 +874,31 @@ impl Player {
             self.last_auto = now;
         }
     }
+}
+
+/// Whether every corner of the terrain cell holding the landblock-local
+/// `(x, y)` is a sea type. The block keeps a terrain code per lattice
+/// vertex, nine to a side, so a cell's four corners are the four
+/// vertices around it. A cell with a corner ashore is the beach, which
+/// can be waded, so only water all the way round counts.
+fn sea_at(lb: &CellLandblock, sea_types: &[bool], x: f32, y: f32) -> bool {
+    if sea_types.is_empty() {
+        return false;
+    }
+    let last = (ac_scene::CELLS_PER_BLOCK - 1) as f32;
+    let cx = (x / ac_scene::CELL_SIZE).floor().clamp(0.0, last) as usize;
+    let cy = (y / ac_scene::CELL_SIZE).floor().clamp(0.0, last) as usize;
+    let n = ac_scene::VERTS_PER_SIDE;
+    [(cx, cy), (cx + 1, cy), (cx, cy + 1), (cx + 1, cy + 1)]
+        .into_iter()
+        .all(|(vx, vy)| {
+            lb.terrain
+                .get(vx * n + vy)
+                .map(|&t| ac_formats::landblock::terrain::terrain_type(t))
+                .and_then(|t| sea_types.get(t as usize))
+                .copied()
+                .unwrap_or(false)
+        })
 }
 
 #[cfg(test)]

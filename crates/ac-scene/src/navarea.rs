@@ -22,6 +22,7 @@ use glam::{Vec2, Vec3};
 use crate::collision::{Capsule, CollisionWorld};
 use crate::landblock::LandblockScene;
 use crate::nav::{self, Ground, NavGraph, INDOOR_SPACING, OUTDOOR_SPACING};
+use crate::worldroute::{water_kind, Water};
 use crate::{lbid, Assets, Result, BLOCK_SIZE};
 
 /// Most blocks on a side of an area. Nine blocks is about 600 m across,
@@ -76,6 +77,13 @@ pub struct Area {
     pub nav: NavGraph,
     /// A dungeon area: no terrain under it, fine lattice.
     pub dungeon: bool,
+    /// Which of the region's terrain types are open sea, by index. A
+    /// character cannot walk into the ocean -- the server refuses the
+    /// move and it stops dead against nothing, which is what an
+    /// invisible wall in the water is -- so no route may cross one.
+    /// Empty when the region could not be read, which costs us only
+    /// routes planned into the sea.
+    sea_types: Vec<bool>,
 }
 
 impl Area {
@@ -140,13 +148,68 @@ impl Area {
             OUTDOOR_SPACING
         };
         let nav = NavGraph::new(lo, hi, spacing, cap);
+        let sea_types = match assets.region() {
+            Ok(r) => (0..32u16)
+                .map(|t| water_kind(&r, t) == Water::Sea)
+                .collect(),
+            Err(_) => Vec::new(),
+        };
         Ok(Area {
             blocks,
             collision,
             scenes,
             nav,
             dungeon,
+            sea_types,
         })
+    }
+
+    /// Open sea at a world `(x, y)`: every corner of the terrain cell it
+    /// falls in is a sea type. A cell with a corner ashore is the beach,
+    /// which can be waded, so only water all the way round counts.
+    pub fn is_sea(&self, x: f32, y: f32) -> bool {
+        if self.dungeon || self.sea_types.is_empty() {
+            return false;
+        }
+        match self.scenes.get(&block_at(Vec3::new(x, y, 0.0))) {
+            Some(s) => sea_at(&s.terrain, &self.sea_types, x, y, s.id),
+            None => false,
+        }
+    }
+
+    /// Run something against the area's ground: its merged collision,
+    /// the terrain of whichever block a point falls in, and where the
+    /// sea is. The graph is handed over at the same time because every
+    /// caller needs both and they borrow different fields.
+    fn with_ground<R>(&mut self, f: impl FnOnce(&Ground, &mut NavGraph) -> R) -> R {
+        let Area {
+            collision,
+            scenes,
+            nav,
+            dungeon,
+            sea_types,
+            ..
+        } = self;
+        let terrain = |x: f32, y: f32| -> Option<f32> {
+            let scene = scenes.get(&block_at(Vec3::new(x, y, 0.0)))?;
+            let o = lbid::world_origin(scene.id);
+            scene.terrain.height_at(Vec3::new(x - o.x, y - o.y, 0.0))
+        };
+        let sea = |x: f32, y: f32| -> bool {
+            if sea_types.is_empty() {
+                return false;
+            }
+            match scenes.get(&block_at(Vec3::new(x, y, 0.0))) {
+                Some(s) => sea_at(&s.terrain, sea_types, x, y, s.id),
+                None => false,
+            }
+        };
+        let ground = Ground {
+            collision,
+            terrain: (!*dungeon).then_some(&terrain),
+            sea: (!*dungeon).then_some(&sea),
+        };
+        f(&ground, nav)
     }
 
     /// This area can plan a walk from `from` to `to`.
@@ -174,45 +237,13 @@ impl Area {
     /// with `to` and not including `from`. `None` when the two are not
     /// connected by anything the capsule can walk.
     pub fn path(&mut self, from: Vec3, to: Vec3) -> Option<Vec<Vec3>> {
-        let Area {
-            collision,
-            scenes,
-            nav,
-            dungeon,
-            ..
-        } = self;
-        let terrain = |x: f32, y: f32| -> Option<f32> {
-            let scene = scenes.get(&block_at(Vec3::new(x, y, 0.0)))?;
-            let o = lbid::world_origin(scene.id);
-            scene.terrain.height_at(Vec3::new(x - o.x, y - o.y, 0.0))
-        };
-        let ground = Ground {
-            collision,
-            terrain: (!*dungeon).then_some(&terrain),
-        };
-        nav.find_path(&ground, from, to)
+        self.with_ground(|ground, nav| nav.find_path(ground, from, to))
     }
 
     /// Build every chunk of the graph now. For tools and tests: paths
     /// build only what they cross.
     pub fn build_everything(&mut self) {
-        let Area {
-            collision,
-            scenes,
-            nav,
-            dungeon,
-            ..
-        } = self;
-        let terrain = |x: f32, y: f32| -> Option<f32> {
-            let scene = scenes.get(&block_at(Vec3::new(x, y, 0.0)))?;
-            let o = lbid::world_origin(scene.id);
-            scene.terrain.height_at(Vec3::new(x - o.x, y - o.y, 0.0))
-        };
-        let ground = Ground {
-            collision,
-            terrain: (!*dungeon).then_some(&terrain),
-        };
-        nav.build_all(&ground);
+        self.with_ground(|ground, nav| nav.build_all(ground));
     }
 
     /// Nothing in the area crosses the chest-height line between the two
@@ -220,6 +251,26 @@ impl Area {
     pub fn line_clear(&self, from: Vec3, to: Vec3) -> bool {
         nav::line_clear(&self.collision, from, to)
     }
+}
+
+/// Whether every corner of the terrain cell holding world `(x, y)` is a
+/// sea type. The mesh keeps a terrain type per lattice vertex, nine to a
+/// side, so a cell's four corners are the four vertices around it.
+fn sea_at(mesh: &crate::terrain::TerrainMesh, sea_types: &[bool], x: f32, y: f32, id: u32) -> bool {
+    let o = lbid::world_origin(id);
+    let n = crate::VERTS_PER_SIDE;
+    let last = (crate::CELLS_PER_BLOCK - 1) as f32;
+    let cx = ((x - o.x) / crate::CELL_SIZE).floor().clamp(0.0, last) as usize;
+    let cy = ((y - o.y) / crate::CELL_SIZE).floor().clamp(0.0, last) as usize;
+    [(cx, cy), (cx + 1, cy), (cx, cy + 1), (cx + 1, cy + 1)]
+        .into_iter()
+        .all(|(vx, vy)| {
+            mesh.vertices
+                .get(vx * n + vy)
+                .and_then(|v| sea_types.get(v.terrain_type as usize))
+                .copied()
+                .unwrap_or(false)
+        })
 }
 
 #[cfg(test)]

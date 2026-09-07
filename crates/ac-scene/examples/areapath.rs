@@ -44,6 +44,11 @@ fn main() {
         })
         .unwrap_or(0.0);
     let centre = Vec3::new(centre.x, centre.y, cz);
+    println!(
+        "centre world {centre:?} (map {:.1}N {:.1}E)",
+        centre.y / 240.0 - 102.0,
+        centre.x / 240.0 - 102.0
+    );
 
     let (bearings, radius) = (16usize, 130.0f32);
     let (mut blocked, mut failed) = (0, 0);
@@ -59,6 +64,18 @@ fn main() {
             continue;
         };
         let from = Vec3::new(p.x, p.y, z);
+        {
+            let b = ac_scene::navarea::block_at(from);
+            let o = ac_scene::lbid::world_origin(b);
+            let (lx, ly) = (from.x - o.x, from.y - o.y);
+            let cell = ((lx / 24.0) as u32) * 8 + ((ly / 24.0) as u32) + 1;
+            println!(
+                "  {:>3.0} deg: @teleloc 0x{:04X}{:04X} {lx:.1} {ly:.1} {z:.1}",
+                ang.to_degrees(),
+                b >> 16,
+                cell
+            );
+        }
         if area.line_clear(from + Vec3::Z, centre + Vec3::Z) {
             println!("{:>3.0} deg: line clear", ang.to_degrees());
             continue;

@@ -70,6 +70,7 @@ fn main() {
     let ground = Ground {
         collision: &collision,
         terrain: (!scene.is_dungeon).then_some(&terrain),
+        sea: None,
     };
     // The whole block at once, for the numbers...
     let mut whole = NavGraph::for_scene(&scene, &collision, &cap);

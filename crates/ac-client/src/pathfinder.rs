@@ -21,8 +21,11 @@ use ac_scene::collision::Capsule;
 use ac_scene::navarea::{self, Area};
 use glam::Vec3;
 
-/// Ask again no more often than this while an answer is outstanding.
-const ASK_EVERY: Duration = Duration::from_secs(2);
+/// Ask again no more often than this, answered or not. Without a floor
+/// here the frame asks, gets its answer on the next frame, and asks
+/// again straight away: a neighbourhood already assembled answers in
+/// microseconds, so nothing else would throttle the loop.
+const ASK_EVERY: Duration = Duration::from_millis(1500);
 /// An answer planned from further than this from where we now stand is
 /// too old to follow.
 const ANSWER_REACH: f32 = 15.0;
@@ -54,8 +57,10 @@ pub struct Pathfinder {
     /// Started on the first ask, so a session that never routes never
     /// pays for the thread or its copy of the archives.
     thread: Option<(Sender<Ask>, Receiver<Answer>)>,
-    /// An ask is outstanding; when it went out.
-    waiting: Option<Instant>,
+    /// When the last ask went out, whether it was answered or not.
+    asked: Option<Instant>,
+    /// That ask has not been answered yet.
+    waiting: bool,
     /// The planner thread died (the archives would not open).
     dead: bool,
 }
@@ -65,7 +70,8 @@ impl Pathfinder {
         Pathfinder {
             data_dir: data_dir.into(),
             thread: None,
-            waiting: None,
+            asked: None,
+            waiting: false,
             dead: false,
         }
     }
@@ -77,7 +83,7 @@ impl Pathfinder {
             return;
         }
         if self
-            .waiting
+            .asked
             .is_some_and(|t| now.duration_since(t) < ASK_EVERY)
         {
             return;
@@ -107,7 +113,8 @@ impl Pathfinder {
             self.thread = None;
             return;
         }
-        self.waiting = Some(now);
+        self.asked = Some(now);
+        self.waiting = true;
     }
 
     /// The newest answer, if one has arrived. Answers planned from too
@@ -127,7 +134,7 @@ impl Pathfinder {
             }
         }
         let a = newest?;
-        self.waiting = None;
+        self.waiting = false;
         if a.to.distance(goal) > ANSWER_GOAL {
             tracing::debug!("pathfinder: answer for a goal we no longer want");
             return None;
@@ -157,12 +164,13 @@ impl Pathfinder {
 
     /// An ask is outstanding.
     pub fn busy(&self) -> bool {
-        self.waiting.is_some()
+        self.waiting
     }
 
     /// Forget any outstanding ask (the goal went away).
     pub fn reset(&mut self) {
-        self.waiting = None;
+        self.waiting = false;
+        self.asked = None;
     }
 }
 
