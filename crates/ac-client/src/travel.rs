@@ -211,7 +211,7 @@ impl Client {
                 0,
                 &[],
                 &[],
-                self.travel.prefs,
+                trip::Prefs::far(),
             );
             let why = match anyone {
                 Some(t) => {

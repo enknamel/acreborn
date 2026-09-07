@@ -102,14 +102,14 @@ fn walk_seconds(a: Vec2, b: Vec2) -> f32 {
 /// Whether a leg on foot between two spots is believable: short enough,
 /// and not between an indoor cell and somewhere else (the character
 /// cannot walk out of the Town Network hub into the countryside).
-fn can_walk(a: Vec2, a_cell: u32, b: Vec2, b_cell: u32) -> bool {
+fn can_walk(a: Vec2, a_cell: u32, b: Vec2, b_cell: u32, reach: f32) -> bool {
     let indoors = |c: u32| c & 0xFFFF >= 0x100;
     let same_block = a_cell & 0xFFFF_0000 == b_cell & 0xFFFF_0000;
     if indoors(a_cell) || indoors(b_cell) {
         // Inside, only within the same landblock (the hub, a dungeon).
         return same_block;
     }
-    a.distance(b) <= WALK_REACH
+    a.distance(b) <= reach
 }
 
 /// A node of the search: somewhere the character can stand.
@@ -152,14 +152,18 @@ pub struct Prefs {
     pub portal_seconds: f32,
     /// Give up on a chain longer than this many portals.
     pub max_portals: usize,
+    /// The farthest a single leg on foot is believed, metres. A player
+    /// will walk a long way between towns; too small a figure here and
+    /// journeys that plainly exist are reported as impossible.
+    pub walk_reach: f32,
+    /// How far from a spot a portal is still a candidate for the next
+    /// hop, metres.
+    pub portal_reach: f32,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs {
-            portal_seconds: PORTAL_SECONDS,
-            max_portals: 8,
-        }
+        Prefs::quick()
     }
 }
 
@@ -169,6 +173,8 @@ impl Prefs {
         Prefs {
             portal_seconds: PORTAL_SECONDS,
             max_portals: 8,
+            walk_reach: WALK_REACH,
+            portal_reach: PORTAL_REACH,
         }
     }
 
@@ -178,6 +184,17 @@ impl Prefs {
         Prefs {
             portal_seconds: PORTAL_SECONDS * 6.0,
             max_portals: 3,
+            ..Prefs::quick()
+        }
+    }
+
+    /// Walk as far as it takes: the last resort when nothing shorter
+    /// reaches the goal.
+    pub fn far() -> Self {
+        Prefs {
+            walk_reach: 12_000.0,
+            portal_reach: 8_000.0,
+            ..Prefs::quick()
         }
     }
 }
@@ -227,7 +244,7 @@ pub fn plan_with(
     prefs: Prefs,
 ) -> Option<Trip> {
     // Straight there, when that is a believable walk.
-    if can_walk(from, from_cell, goal, 0) {
+    if can_walk(from, from_cell, goal, 0, prefs.walk_reach) {
         return Some(Trip {
             steps: vec![Step::Walk(goal)],
             seconds: walk_seconds(from, goal),
@@ -247,6 +264,7 @@ pub fn plan_with(
     }
     let usable: Vec<&Portal> = portals::all()
         .iter()
+        .filter(|p| p.works())
         .filter(|p| level == 0 || p.usable_by(level, quests_done))
         .filter(|p| !avoid.iter().any(|a| a.distance(p.from_xy()) < 2.0))
         .filter(|p| p.exit_outdoors() || has_portal.contains(&(p.to_cell & 0xFFFF_0000)))
@@ -273,7 +291,7 @@ pub fn plan_with(
         }
         let node = nodes[q.idx];
         // Could we simply walk the rest of the way?
-        if can_walk(node.at, node.cell, goal, 0) {
+        if can_walk(node.at, node.cell, goal, 0, prefs.walk_reach) {
             let total = q.cost + walk_seconds(node.at, goal);
             if best.map(|(b, _)| total < b).unwrap_or(true) {
                 best = Some((total, q.idx));
@@ -292,10 +310,10 @@ pub fn plan_with(
                 continue;
             }
             let mouth = p.from_xy();
-            if !can_walk(node.at, node.cell, mouth, p.from_cell) {
+            if !can_walk(node.at, node.cell, mouth, p.from_cell, prefs.walk_reach) {
                 continue;
             }
-            if node.at.distance(mouth) > PORTAL_REACH && node.cell & 0xFFFF < 0x100 {
+            if node.at.distance(mouth) > prefs.portal_reach && node.cell & 0xFFFF < 0x100 {
                 continue;
             }
             let step_cost = walk_seconds(node.at, mouth) + prefs.portal_seconds;

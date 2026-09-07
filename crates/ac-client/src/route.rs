@@ -118,10 +118,24 @@ impl Steering {
     ) -> Vec3 {
         let me = player.world_position();
         let block = player.landblock();
-        if goal_block & 0xFFFF_0000 != block {
-            self.route = None;
-            return goal;
-        }
+        // A goal in another landblock used to be run at in a straight
+        // line, obstacles and all, which is how a character ends up
+        // pressed against a city wall. Steer instead for the point where
+        // the line leaves this landblock, so the graph in it can still
+        // take us around what is in the way.
+        let goal = if goal_block & 0xFFFF_0000 != block {
+            match clip_to_block(me, goal, block) {
+                Some(edge) => edge,
+                // Already outside the block we think we are in: nothing
+                // sensible to plan on, so head for it.
+                None => {
+                    self.route = None;
+                    return goal;
+                }
+            }
+        } else {
+            goal
+        };
         match self.last_pos {
             Some(p) if glam::Vec2::new(me.x - p.x, me.y - p.y).length() < PROGRESS => {
                 if now.duration_since(self.last_progress) >= STUCK_AFTER {
@@ -188,9 +202,61 @@ impl Steering {
     }
 }
 
+/// Where the line from `me` to `goal` leaves the landblock `block`,
+/// pulled a stride back inside it. `None` when `me` is not in that
+/// block, or the goal is not outside it after all.
+pub fn clip_to_block(me: Vec3, goal: Vec3, block: u32) -> Option<Vec3> {
+    const SIDE: f32 = 192.0;
+    /// Far enough inside that the graph has somewhere to stand.
+    const INSIDE: f32 = 3.0;
+    let origin = ac_world::landblock_origin(block);
+    let (lo, hi) = (origin, origin + Vec3::new(SIDE, SIDE, 0.0));
+    if me.x < lo.x || me.y < lo.y || me.x > hi.x || me.y > hi.y {
+        return None;
+    }
+    let d = goal - me;
+    let mut t = 1.0f32;
+    for axis in 0..2 {
+        let (p, v) = (me[axis], d[axis]);
+        if v > 1e-6 {
+            t = t.min((hi[axis] - p) / v);
+        } else if v < -1e-6 {
+            t = t.min((lo[axis] - p) / v);
+        }
+    }
+    if t >= 1.0 {
+        return None;
+    }
+    let at = me + d * t;
+    let back = (goal - me).normalize_or_zero() * INSIDE;
+    let edge = at - back;
+    // A goal right on the edge leaves nothing worth walking to.
+    (me.distance(edge) > 1.0).then_some(edge)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_goal_beyond_the_block_is_clipped_to_its_edge() {
+        let block = 0x0A0B_0000;
+        let origin = ac_world::landblock_origin(block);
+        let me = origin + Vec3::new(96.0, 96.0, 0.0);
+        // Straight east, well past the edge: clipped just inside it.
+        let goal = me + Vec3::new(1000.0, 0.0, 0.0);
+        let edge = clip_to_block(me, goal, block).expect("clipped");
+        assert!((edge.x - (origin.x + 192.0 - 3.0)).abs() < 1e-3, "{edge:?}");
+        assert!((edge.y - me.y).abs() < 1e-3);
+        // A goal inside the block is left alone.
+        assert_eq!(
+            clip_to_block(me, me + Vec3::new(10.0, 0.0, 0.0), block),
+            None
+        );
+        // Standing outside the block it claims: nothing to say.
+        let elsewhere = origin + Vec3::new(500.0, 0.0, 0.0);
+        assert_eq!(clip_to_block(elsewhere, goal, block), None);
+    }
 
     #[test]
     fn waypoints_advance_within_reach_and_the_goal_stays() {

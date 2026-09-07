@@ -13,7 +13,13 @@ fn main() {
     let to = ac_world::towns::find(&a[1]).expect("to");
     let level: u32 = a.get(2).and_then(|l| l.parse().ok()).unwrap_or(0);
     let t0 = std::time::Instant::now();
-    let trip = ac_world::trip::plan_for(from_xy, 0, to.world_xy(), level, &[], &[]);
+    let far = a.iter().any(|x| x == "far");
+    let prefs = if far {
+        ac_world::trip::Prefs::far()
+    } else {
+        ac_world::trip::Prefs::quick()
+    };
+    let trip = ac_world::trip::plan_with(from_xy, 0, to.world_xy(), level, &[], &[], prefs);
     println!(
         "{:?} -> {} at level {level}, planned in {:?}",
         a[0],

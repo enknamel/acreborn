@@ -15,7 +15,7 @@ SQL='select s.value, hex(li.obj_Cell_Id), round(li.origin_X,1),
   round(li.origin_Y,1), round(li.origin_Z,1), hex(p.obj_Cell_Id),
   round(p.origin_X,1), round(p.origin_Y,1), round(p.origin_Z,1),
   coalesce(lo.value, 0), coalesce(hi.value, 0),
-  coalesce(q.value, "")
+  coalesce(q.value, ""), coalesce(u.value, 0)
 from landblock_instance li
 join weenie_properties_position p
   on p.object_Id = li.weenie_Class_Id and p.position_Type = 2
@@ -28,11 +28,15 @@ left join weenie_properties_int lo
 left join weenie_properties_int hi
   on hi.object_Id = li.weenie_Class_Id and hi.type = 87
 left join weenie_properties_string q
-  on q.object_Id = li.weenie_Class_Id and q.type = 37;'
+  on q.object_Id = li.weenie_Class_Id and q.type = 37
+left join weenie_properties_int u
+  on u.object_Id = li.weenie_Class_Id and u.type = 16;'
 
 cat <<'HEADER'
 # Portals of Dereth: where each one stands and where it leads.
-# name,from_cell,from_x,from_y,from_z,to_cell,to_x,to_y,to_z,min_level,max_level,quest
+# name,from_cell,from_x,from_y,from_z,to_cell,to_x,to_y,to_z,min_level,max_level,quest,usable
+# usable is the item's Usable word: 1 means No, which is how a
+# destroyed portal is marked.
 # Cells are hex; the x/y/z are local to the cell's landblock.
 # Regenerate with reference/scripts/data/portals.sh (reads the
 # ACE world database, which is the community's reconstruction of
@@ -42,10 +46,10 @@ HEADER
 docker exec ace-db sh -c \
   "mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" -N --batch ace_world -e '$SQL'" \
   2>/dev/null |
-  awk -F'\t' 'NF == 12 {
+  awk -F'\t' 'NF == 13 {
     gsub(/,/, ";", $1)
     gsub(/,/, ";", $12)
-    printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
-      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+    printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+      $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
   }' |
   LC_ALL=C sort -t, -k2,2 -k1,1

@@ -29,6 +29,10 @@ pub struct Portal {
     pub max_level: u32,
     /// The quest that must be finished first, empty when there is none.
     pub quest: String,
+    /// The item's `Usable` word. 1 is `No`: the portal cannot be used at
+    /// all, which is how the ruined ones are marked (and a good many
+    /// decorations besides).
+    pub usable: u32,
 }
 
 impl Portal {
@@ -48,6 +52,13 @@ impl Portal {
     /// Whether it comes out outdoors.
     pub fn exit_outdoors(&self) -> bool {
         self.to_cell & 0xFFFF < 0x100
+    }
+
+    /// Whether the portal can be used at all. The ruined ones say so
+    /// themselves: their `Usable` word is `No`. Nothing is read into a
+    /// word of zero, which only means the data does not say.
+    pub fn works(&self) -> bool {
+        self.usable != crate::usable::NO
     }
 
     /// A portal of the Town Network: the ones that link every town to
@@ -124,6 +135,7 @@ fn parse(text: &str) -> Vec<Portal> {
             min_level: level(9),
             max_level: level(10),
             quest: f.get(11).map(|q| q.trim().to_string()).unwrap_or_default(),
+            usable: level(12),
         });
     }
     out
@@ -202,6 +214,14 @@ mod tests {
             "nothing comes out near Arwic"
         );
         assert!(!named("town network").is_empty());
+        // The ruined ones say so: their Usable word is No.
+        let dead: Vec<&Portal> = all.iter().filter(|p| !p.works()).collect();
+        assert!(dead.len() > 500, "{} that do not work", dead.len());
+        assert!(
+            dead.iter().any(|p| p.name.starts_with("Destroyed")),
+            "no destroyed portal among them"
+        );
+        assert!(named("Portal to Town Network")[0].works());
         assert!(named("no such portal anywhere").is_empty());
     }
 
@@ -234,7 +254,7 @@ mod tests {
     #[test]
     fn bad_lines_are_skipped() {
         let v = parse(
-            "# comment\n\nbad,line\nName,A9B40019,1.0,2.0,3.0,70145,4.0,5.0,6.0,10,50,Quest\n",
+            "# comment\n\nbad,line\nName,A9B40019,1.0,2.0,3.0,70145,4.0,5.0,6.0,10,50,Quest,1\n",
         );
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].name, "Name");
@@ -243,5 +263,6 @@ mod tests {
         assert_eq!((v[0].min_level, v[0].max_level), (10, 50));
         assert!(!v[0].usable_by(60, &[]));
         assert!(v[0].usable_by(20, &["quest".into()]));
+        assert!(!v[0].works(), "usable 1 is No");
     }
 }

@@ -108,6 +108,8 @@ pub mod item_type {
 /// bit is applied to something (a kit to a player, a stone to an item, a
 /// key to a chest) rather than used by itself.
 pub mod usable {
+    /// `Usable::No`: the thing cannot be used at all.
+    pub const NO: u32 = 1;
     pub const TARGET_SELF: u32 = 0x2_0000;
     pub const TARGET_WIELDED: u32 = 0x4_0000;
     pub const TARGET_CONTAINED: u32 = 0x8_0000;
