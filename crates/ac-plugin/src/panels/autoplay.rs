@@ -263,13 +263,30 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     None,
                 );
                 ui.add(
-                    egui::Slider::new(&mut cfg.buffs.recast_within, 0.0..=300.0)
+                    egui::Slider::new(&mut cfg.buffs.top_up_within, 60.0..=900.0)
                         .suffix("s")
                         .fixed_decimals(0)
-                        .text("recast within"),
+                        .text("top up within"),
                 )
-                .on_hover_text("Cast again once this many seconds or fewer are left");
-                ui.checkbox(&mut cfg.buffs.out_of_combat_only, "only out of combat");
+                .on_hover_text(
+                    "In a quiet moment, put back anything with this long or less \
+                     left. Wide, so a few are refreshed at every lull and the set \
+                     never all runs out at once",
+                );
+                ui.add(
+                    egui::Slider::new(&mut cfg.buffs.never_below, 10.0..=300.0)
+                        .suffix("s")
+                        .fixed_decimals(0)
+                        .text("never below"),
+                )
+                .on_hover_text(
+                    "Anything with this long or less left is put back at once, \
+                     fight or no fight, swapping to a wand if need be",
+                );
+                ui.checkbox(
+                    &mut cfg.buffs.out_of_combat_only,
+                    "only top up out of combat",
+                );
                 ui.add_space(6.0);
 
                 title(ui, "Fight");

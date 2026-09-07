@@ -84,9 +84,17 @@ pub struct Buffs {
     pub least_chance: f32,
     /// Spell names to keep on the character as well, by hand.
     pub spells: Vec<String>,
-    /// Recast when this many seconds or fewer are left.
-    pub recast_within: f32,
-    /// Only buff out of combat.
+    /// In a quiet moment, put back any buff with this many seconds or
+    /// fewer left. Wide on purpose: refreshing a few at every lull
+    /// spreads the work out, so the set never all runs out at once and
+    /// the character is never stood still for twenty casts in a row.
+    pub top_up_within: f32,
+    /// A buff with this many seconds or fewer left is put back at once,
+    /// fight or no fight, swapping to a wand for it if need be. A buff
+    /// must never be allowed to run out: the protections going down in
+    /// the middle of a fight is how a character dies.
+    pub never_below: f32,
+    /// Only top up out of combat (the urgent recasts happen regardless).
     pub out_of_combat_only: bool,
 }
 
@@ -96,7 +104,8 @@ impl Default for Buffs {
             auto: true,
             least_chance: 0.5,
             spells: Vec::new(),
-            recast_within: 30.0,
+            top_up_within: 300.0,
+            never_below: 60.0,
             out_of_combat_only: true,
         }
     }
@@ -427,6 +436,9 @@ pub struct Autoplay {
     /// lasts)`. An item's enchantments are not reported the way the
     /// character's own are, so the cast is remembered instead.
     item_buffs: Vec<(u32, u32, Instant, f32)>,
+    /// The weapon put down to cast an urgent buff mid-fight, to be taken
+    /// up again the moment the buffing is done.
+    put_down: Option<u32>,
     /// The corpse being looted and when we started.
     corpse: Option<(u32, Instant)>,
     /// Corpses already emptied.
@@ -586,6 +598,12 @@ impl Client {
         if self.autoplay_survive(now) {
             return;
         }
+        // A buff about to run out goes back up before anything else is
+        // done, fight or no fight.
+        if self.autoplay_buff(now, true) {
+            return;
+        }
+        self.autoplay_rearm();
         self.autoplay_stock();
         if self.autoplay_loot(now) {
             return;
@@ -596,7 +614,7 @@ impl Client {
         if self.autoplay_fight(now) {
             return;
         }
-        if self.autoplay_buff(now) {
+        if self.autoplay_buff(now, false) {
             return;
         }
         let doing = self.autoplay.doing;
@@ -1312,14 +1330,21 @@ impl Client {
     }
 
     /// Put a buff back up. True when it cast one.
-    fn autoplay_buff(&mut self, now: Instant) -> bool {
+    ///
+    /// Two passes share this. The urgent one runs before anything else
+    /// each tick and puts back whatever is under `never_below`, in a
+    /// fight or out of one, swapping to a wand if the hands hold
+    /// something else: a buff is never allowed to run out. The other
+    /// runs last, in quiet moments, and tops up whatever is under the
+    /// much wider `top_up_within`, a cast or two at a time, so the set
+    /// is refreshed a little at every lull rather than all at once.
+    fn autoplay_buff(&mut self, now: Instant, urgent: bool) -> bool {
         let cfg = self.autoplay.config.buffs.clone();
         if cfg.spells.is_empty() && !cfg.auto {
             return false;
         }
-        if cfg.out_of_combat_only
-            && (self.attack_target.is_some() || self.autoplay.casting_at.is_some())
-        {
+        let fighting = self.attack_target.is_some() || self.autoplay.casting_at.is_some();
+        if !urgent && cfg.out_of_combat_only && fighting {
             return false;
         }
         if self
@@ -1329,68 +1354,138 @@ impl Client {
         {
             return false;
         }
+        let within = if urgent {
+            cfg.never_below
+        } else {
+            cfg.top_up_within
+        };
+        // Find what is due before touching the hands: the urgent pass
+        // runs every tick and must cost nothing when nothing is due.
+        let Some((spell, target, category, name, lasts)) = self.due_buff(within, now) else {
+            return false;
+        };
+        // A wand is needed to cast. Out of a fight the arming code sorts
+        // the hands out afterwards; in one, remember what was put down
+        // so it is taken up again the moment the buffing is done.
+        if self.combat_stance() != Stance::Magic {
+            let held = self
+                .world
+                .wielded()
+                .find(|o| {
+                    o.item_type
+                        & (ac_world::item_type::MELEE_WEAPON | ac_world::item_type::MISSILE_WEAPON)
+                        != 0
+                })
+                .map(|o| o.guid);
+            if !self.wield_for(Stance::Magic) {
+                self.autoplay
+                    .say(Doing::Buffing, format!("no wand to cast {name} with"));
+                return false;
+            }
+            if fighting && self.autoplay.put_down.is_none() {
+                self.autoplay.put_down = held;
+            }
+            // The wield takes a moment; cast next tick.
+            self.autoplay.last_buff = Some(now);
+            return true;
+        }
+        if !matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
+            return false;
+        }
+        use crate::buffs::Target;
+        match target {
+            Target::Me => {
+                self.cast(spell);
+                self.autoplay.say(Doing::Buffing, format!("casting {name}"));
+            }
+            Target::Item(g) => {
+                self.cast_at(spell, g);
+                self.autoplay
+                    .item_buffs
+                    .retain(|(i, c, _, _)| !(*i == g && *c == category));
+                self.autoplay.item_buffs.push((g, category, now, lasts));
+                let on = self
+                    .world
+                    .objects
+                    .get(&g)
+                    .map(|o| o.name.clone())
+                    .unwrap_or_default();
+                self.autoplay
+                    .say(Doing::Buffing, format!("casting {name} on {on}"));
+            }
+        }
+        self.autoplay.last_buff = Some(now);
+        true
+    }
+
+    /// Take up again the weapon put down for an urgent buff, once no
+    /// buff is due any more.
+    fn autoplay_rearm(&mut self) {
+        let Some(weapon) = self.autoplay.put_down else {
+            return;
+        };
+        let never_below = self.autoplay.config.buffs.never_below;
+        if self.due_buff(never_below, Instant::now()).is_some() {
+            return;
+        }
+        self.autoplay.put_down = None;
+        if self
+            .world
+            .objects
+            .get(&weapon)
+            .is_some_and(|o| o.container == self.world.player_guid)
+        {
+            tracing::info!("autoplay: taking the weapon up again after buffing");
+            self.wield_guid(weapon);
+        }
+    }
+
+    /// The buff with the least time left of those under `within`
+    /// seconds, castable or not: the most pressing one is put back
+    /// first. `(spell, target, category, name, seconds it lasts)`.
+    fn due_buff(
+        &self,
+        within: f32,
+        now: Instant,
+    ) -> Option<(u32, crate::buffs::Target, u32, String, f32)> {
+        use crate::buffs::Target;
+        let cfg = &self.autoplay.config.buffs;
+        let table = self.assets.spell_table().ok();
+        let mut due: Option<(f32, u32, Target, u32, String, f32)> = None;
+        let mut offer = |left: Option<f32>, spell: u32, target: Target, category: u32| {
+            let left = left.unwrap_or(0.0);
+            if left > within {
+                return;
+            }
+            if due.as_ref().is_some_and(|d| d.0 <= left) {
+                return;
+            }
+            let sp = table.as_ref().and_then(|t| t.get(spell));
+            let name = sp.map(|s| s.name.clone()).unwrap_or_default();
+            let lasts = sp.and_then(|s| s.duration()).unwrap_or(1800.0) as f32;
+            due = Some((left, spell, target, category, name, lasts));
+        };
         if cfg.auto {
-            use crate::buffs::Target;
-            let table = self.assets.spell_table().ok();
             for want in self.wanted_buffs() {
                 let left = match want.target {
                     Target::Me => self.category_left(want.category, want.power),
                     Target::Item(g) => self.item_buff_left(g, want.category, now),
                 };
-                if left.is_some_and(|l| l > cfg.recast_within) {
-                    continue;
-                }
-                if !matches!(self.can_cast(want.spell), crate::magic::CastCheck::Ok) {
-                    continue;
-                }
-                let sp = table.as_ref().and_then(|t| t.get(want.spell));
-                let name = sp.map(|s| s.name.clone()).unwrap_or_default();
-                match want.target {
-                    Target::Me => {
-                        self.cast(want.spell);
-                        self.autoplay.say(Doing::Buffing, format!("casting {name}"));
-                    }
-                    Target::Item(g) => {
-                        let lasts = sp.and_then(|s| s.duration()).unwrap_or(1800.0) as f32;
-                        self.cast_at(want.spell, g);
-                        self.autoplay
-                            .item_buffs
-                            .retain(|(i, c, _, _)| !(*i == g && *c == want.category));
-                        self.autoplay
-                            .item_buffs
-                            .push((g, want.category, now, lasts));
-                        let on = self
-                            .world
-                            .objects
-                            .get(&g)
-                            .map(|o| o.name.clone())
-                            .unwrap_or_default();
-                        self.autoplay
-                            .say(Doing::Buffing, format!("casting {name} on {on}"));
-                    }
-                }
-                self.autoplay.last_buff = Some(now);
-                return true;
+                offer(left, want.spell, want.target, want.category);
             }
         }
         for name in &cfg.spells {
             let Some(spell) = self.spell_by_name(name) else {
                 continue;
             };
-            let left = self.buff_left(spell);
-            if left.is_some_and(|l| l > cfg.recast_within) {
-                continue;
-            }
-            if !matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
-                continue;
-            }
-            self.cast(spell);
-            self.autoplay.last_buff = Some(now);
-            let name = name.clone();
-            self.autoplay.say(Doing::Buffing, format!("casting {name}"));
-            return true;
+            let category = table
+                .as_ref()
+                .and_then(|t| t.get(spell))
+                .map(|s| s.category)
+                .unwrap_or(0);
+            offer(self.buff_left(spell), spell, Target::Me, category);
         }
-        false
+        due.map(|(_, spell, target, category, name, lasts)| (spell, target, category, name, lasts))
     }
 }
 
