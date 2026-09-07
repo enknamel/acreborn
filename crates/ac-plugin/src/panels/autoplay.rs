@@ -281,6 +281,24 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                         .text("radius"),
                 )
                 .on_hover_text("How far to look for something to attack");
+                ui.checkbox(&mut cfg.fight.pick_weapon, "wield the best weapon")
+                    .on_hover_text(
+                        "Swap to the carried weapon whose element the target \
+                         takes most damage from, rending and criticals counted",
+                    );
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut cfg.fight.vuln_above_health)
+                            .speed(10.0)
+                            .range(0..=20000),
+                    );
+                    ui.label("health before casting a vulnerability");
+                })
+                .response
+                .on_hover_text(
+                    "Soften anything with at least this much health with a \
+                     vulnerability for the element it is weakest to. 0 never does.",
+                );
                 if matches!(cfg.fight.style, Style::Auto | Style::Magic) {
                     caption(ui, "attack spells, best first");
                     string_list(

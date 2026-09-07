@@ -97,9 +97,17 @@ pub struct Fight {
     pub enabled: bool,
     /// How to fight: with a weapon in hand, at range, or with spells.
     pub style: Style,
-    /// Attack spells to throw, best first: the first one that can be
-    /// cast right now is used. Only read when fighting with magic.
+    /// Attack spells to throw, best first: of the ones that can be cast
+    /// right now, the one the target is weakest to is used. Only read
+    /// when fighting with magic.
     pub spells: Vec<String>,
+    /// Wield the best weapon carried for whatever is being fought: the
+    /// one whose element it takes most damage from, rending and
+    /// criticals counted (see `crate::weapons`).
+    pub pick_weapon: bool,
+    /// Cast a vulnerability for the target's weakest element before
+    /// fighting anything with at least this much health. 0 never does.
+    pub vuln_above_health: u32,
     /// Only attack creatures whose name contains one of these; empty
     /// means anything that can be attacked.
     pub only: Vec<String>,
@@ -115,6 +123,8 @@ impl Default for Fight {
             enabled: true,
             style: Style::Auto,
             spells: Vec::new(),
+            pick_weapon: true,
+            vuln_above_health: crate::weapons::LONG_FIGHT_HEALTH,
             only: Vec::new(),
             avoid: Vec::new(),
             radius: 25.0,
@@ -394,6 +404,12 @@ pub struct Autoplay {
     /// does, so the engine remembers what it is working on.
     last_cast: Option<Instant>,
     casting_at: Option<u32>,
+    /// The target the weapon in hand was chosen for, so it is chosen
+    /// once a fight and not once a frame.
+    armed_for: Option<u32>,
+    /// Targets already made vulnerable this fight.
+    vulned: Vec<u32>,
+    last_vuln: Option<Instant>,
     last_buff: Option<Instant>,
     /// The corpse being looted and when we started.
     corpse: Option<(u32, Instant)>,
@@ -520,6 +536,7 @@ impl Client {
                 self.toggle_combat();
             }
             self.autoplay.casting_at = None;
+            self.autoplay.armed_for = None;
             self.autoplay.say(
                 Doing::Fleeing,
                 format!("breaking off at {:.0}% health", health * 100.0),
@@ -655,6 +672,7 @@ impl Client {
             self.toggle_combat();
         }
         self.autoplay.casting_at = None;
+        self.autoplay.armed_for = None;
         self.interact(guid);
         self.autoplay.corpse = Some((guid, now));
         self.autoplay.say(Doing::Looting, format!("looting {name}"));
@@ -682,6 +700,50 @@ impl Client {
             self.wield_for(want);
         }
         self.combat_stance()
+    }
+
+    /// Wield the best weapon carried for `target`, if a better one than
+    /// the one in hand is carried. Done once per target: swapping
+    /// weapons mid-swing is worse than a slightly wrong weapon.
+    fn arm_for(&mut self, target: u32, stance: Stance) {
+        if !self.autoplay.config.fight.pick_weapon {
+            return;
+        }
+        if self.autoplay.armed_for == Some(target) {
+            return;
+        }
+        self.autoplay.armed_for = Some(target);
+        let Some(known) = self.creature_known(target) else {
+            return;
+        };
+        let carried: Vec<crate::items::ItemStats> = self.item_stats();
+        let Some(pick) = crate::weapons::best(&carried, stance, Some(known)) else {
+            return;
+        };
+        let held = carried
+            .iter()
+            .find(|i| i.wielded && crate::weapons::stance_of(i) == Some(stance));
+        // Only swap for something meaningfully better: an appraisal we
+        // have not done yet should not make us drop a good weapon.
+        let now_worth = held
+            .map(|i| crate::weapons::score(i, Some(known)))
+            .unwrap_or(0.0);
+        if held.map(|i| i.guid) == Some(pick.guid) || pick.score <= now_worth * 1.1 {
+            return;
+        }
+        tracing::info!(
+            "autoplay: wielding {} against {} ({})",
+            pick.name,
+            known.name,
+            pick.why
+        );
+        self.wield_guid(pick.guid);
+    }
+
+    /// What is known about the kind of creature `guid` is.
+    fn creature_known(&self, guid: u32) -> Option<&'static ac_world::elements::Creature> {
+        let o = self.world.objects.get(&guid)?;
+        ac_world::elements::known(o.weenie_class_id, &o.name)
     }
 
     /// How this character is fighting right now: what its hands give.
@@ -773,6 +835,7 @@ impl Client {
         let Some((_, guid, name)) = target else {
             return false;
         };
+        self.arm_for(guid, stance);
         self.enter_combat();
         self.attack(guid);
         self.autoplay.last_attack = Some(now);
@@ -827,6 +890,7 @@ impl Client {
             .map(|o| o.name.clone())
             .unwrap_or_default();
         self.autoplay.casting_at = Some(guid);
+        self.arm_for(guid, Stance::Magic);
         if self
             .autoplay
             .last_cast
@@ -837,6 +901,12 @@ impl Client {
             return true;
         }
         self.select(Some(guid));
+        // Something with a lot of health is worth softening first: one
+        // vulnerability for the element it is weakest to, then throw
+        // that element at it for the rest of the fight.
+        if self.autoplay_make_vulnerable(guid, &name, now) {
+            return true;
+        }
         // Of the spells that could be thrown this moment, the one this
         // creature is hurt most by. An Ice Golem takes nothing at all
         // from cold and full damage from fire, so the difference between
@@ -878,6 +948,61 @@ impl Client {
         // spells are not learnt. Say so rather than looking idle.
         self.autoplay
             .say(Doing::Fighting, format!("cannot cast anything at {name}"));
+        true
+    }
+
+    /// Cast a vulnerability for the target's weakest element, once per
+    /// target and only on something with health enough for the spell to
+    /// pay for itself. True when a spell went out this tick.
+    fn autoplay_make_vulnerable(&mut self, guid: u32, name: &str, now: Instant) -> bool {
+        let least = self.autoplay.config.fight.vuln_above_health;
+        if least == 0 || self.autoplay.vulned.contains(&guid) {
+            return false;
+        }
+        // Only the recent ones are worth remembering; a long session
+        // should not keep every creature it has ever softened.
+        if self.autoplay.vulned.len() > 64 {
+            self.autoplay.vulned.drain(..32);
+        }
+        let known = self.creature_known(guid);
+        let Some(element) = crate::weapons::vulnerability_for(known, least) else {
+            // Nothing worth softening: do not ask again for this one.
+            self.autoplay.vulned.push(guid);
+            return false;
+        };
+        // The strongest one we know and can pay for. Levels are read
+        // from the spell's own power, never from its name: level seven
+        // has names of its own ("Curse of the Blades") and level eight
+        // mixes the two.
+        let table = self.assets.spell_table().ok();
+        let mut known_spells: Vec<(u32, u32)> = crate::weapons::vulnerability_spells(element)
+            .into_iter()
+            .filter(|id| self.world.stats.spells.contains(id))
+            .filter_map(|id| {
+                let sp = table.as_ref()?.get(id)?;
+                // Only the ones cast on someone else: the self versions
+                // of these make us take more, not them.
+                sp.needs_target().then_some((id, sp.level()))
+            })
+            .collect();
+        known_spells.sort_by_key(|(_, level)| std::cmp::Reverse(*level));
+        let castable = known_spells
+            .into_iter()
+            .find(|(id, _)| matches!(self.can_cast(*id), crate::magic::CastCheck::Ok));
+        let Some((spell, level)) = castable else {
+            // Cannot do it now; do not keep trying every cast.
+            self.autoplay.vulned.push(guid);
+            return false;
+        };
+        self.cast(spell);
+        self.autoplay.vulned.push(guid);
+        self.autoplay.last_vuln = Some(now);
+        self.autoplay.last_cast = Some(now);
+        let said = format!(
+            "making {name} vulnerable to {} (level {level})",
+            element.name()
+        );
+        self.autoplay.say(Doing::Debuffing, said);
         true
     }
 

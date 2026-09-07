@@ -69,6 +69,16 @@ pub struct ItemStats {
     pub damage_low: u32,
     pub damage_high: u32,
     pub damage_type: String,
+    /// The same as bits, for matching against what a creature resists.
+    pub damage_type_bits: u32,
+    /// What the weapon was imbued with: critical strike, crippling blow,
+    /// rending of one element (see `ac_world::elements::imbue`).
+    pub imbued: u32,
+    /// A caster's elemental damage bonus, 1.0 when it has none.
+    pub elemental_damage: f32,
+    /// How often and how hard criticals land, 0 when not said.
+    pub crit_frequency: f32,
+    pub crit_multiplier: f32,
     pub speed: u32,
     pub weapon_skill: String,
     pub attack_bonus: f64,
@@ -172,6 +182,7 @@ impl ItemStats {
             self.damage_high = w.damage;
             self.damage_low = (w.damage as f64 * (1.0 - w.variance)).round() as u32;
             self.damage_type = damage_type_name(w.damage_type);
+            self.damage_type_bits = w.damage_type;
             self.speed = w.speed;
             self.weapon_skill = skill_name(w.skill);
             self.attack_bonus = w.offense;
@@ -191,6 +202,29 @@ impl ItemStats {
         if let (Some(s), Some(m)) = (a.int(92), a.int(91)) {
             self.structure = s.max(0) as u32;
             self.max_structure = m.max(0) as u32;
+        }
+        // A weapon may carry up to five imbued effects, in five
+        // separate properties; they are one word as far as we care.
+        self.imbued = [179, 303, 304, 305, 306]
+            .into_iter()
+            .filter_map(|p| a.int(p))
+            .fold(0u32, |all, v| all | v as u32);
+        // A caster with no elemental bonus is worth 1.0, not 0.
+        if let Some(m) = a.float(152) {
+            self.elemental_damage = m as f32;
+        }
+        if let Some(f) = a.float(147) {
+            self.crit_frequency = f as f32;
+        }
+        if let Some(m) = a.float(136) {
+            self.crit_multiplier = m as f32;
+        }
+        // A caster's own damage type is not in the weapon profile.
+        if self.damage_type_bits == 0 {
+            if let Some(t) = a.int(45) {
+                self.damage_type_bits = t.max(0) as u32;
+                self.damage_type = damage_type_name(self.damage_type_bits);
+            }
         }
         self.tinks = a.int(171).unwrap_or(0).max(0) as u32;
         self.bonded = a.int(33).unwrap_or(0) != 0;

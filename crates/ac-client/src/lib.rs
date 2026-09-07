@@ -15,6 +15,7 @@ pub mod pathfinder;
 pub mod player;
 pub mod route;
 pub mod travel;
+pub mod weapons;
 pub mod weenie_errors;
 
 use std::time::{Duration, Instant};
@@ -1381,6 +1382,26 @@ impl Client {
             self.session
                 .send_action(action::GET_AND_WIELD_ITEM, &w.finish());
         }
+        true
+    }
+
+    /// Wield a carried item by guid, in whatever slot it goes in.
+    pub fn wield_guid(&mut self, guid: u32) -> bool {
+        use ac_net::messages::action;
+        let me = self.world.player_guid;
+        let Some(locations) = self
+            .world
+            .objects
+            .get(&guid)
+            .filter(|o| me.is_some() && o.container == me)
+            .map(|o| o.valid_locations)
+        else {
+            return false;
+        };
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(guid).u32(locations);
+        self.session
+            .send_action(action::GET_AND_WIELD_ITEM, &w.finish());
         true
     }
 

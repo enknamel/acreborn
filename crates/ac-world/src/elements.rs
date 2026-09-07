@@ -16,7 +16,15 @@
 //!
 //! Spells need the same treatment from the other side: the client's own
 //! SpellTable does not say what a spell hits with, so
-//! `data/spell_elements.csv` maps a spell id to its element.
+//! `data/spell_elements.csv` maps a spell id to its element, both for
+//! the spells that deal it and for the ones that make a target take
+//! more of it.
+//!
+//! Weapons carry an element too, and some are imbued to rend a
+//! creature's resistance to it. A fire weapon against something weak to
+//! fire is worth several times one that is not, so [`Imbue`] and
+//! [`Element::rending`] are here as well, for the code that chooses
+//! what to wield.
 //!
 //! Between the two, [`best_spell`] answers the question that matters
 //! while fighting: of the spells I am willing to throw, which one hurts
@@ -74,6 +82,59 @@ impl Element {
     fn index(self) -> usize {
         ALL.iter().position(|e| *e == self).unwrap_or(0)
     }
+
+    /// The imbued effect that rends this element: a weapon carrying it
+    /// strips some of the target's resistance to it.
+    pub fn rending(self) -> u32 {
+        match self {
+            Element::Slash => imbue::SLASH_RENDING,
+            Element::Pierce => imbue::PIERCE_RENDING,
+            Element::Bludgeon => imbue::BLUDGEON_RENDING,
+            Element::Cold => imbue::COLD_RENDING,
+            Element::Fire => imbue::FIRE_RENDING,
+            Element::Acid => imbue::ACID_RENDING,
+            Element::Electric => imbue::ELECTRIC_RENDING,
+            Element::Nether => imbue::NETHER_RENDING,
+        }
+    }
+
+    /// The elements named in a damage-type word, which may name more
+    /// than one (a weapon that does both fire and slashing).
+    pub fn from_bits(bits: u32) -> Vec<Element> {
+        ALL.into_iter().filter(|e| bits & *e as u32 != 0).collect()
+    }
+}
+
+/// What a weapon has been imbued with: the `ImbuedEffect` word an
+/// appraisal reports.
+pub mod imbue {
+    /// Criticals land far more often. What to bring to something with a
+    /// great deal of health, where the extra chance has time to tell.
+    pub const CRITICAL_STRIKE: u32 = 0x0001;
+    /// Criticals hurt far more.
+    pub const CRIPPLING_BLOW: u32 = 0x0002;
+    /// Strips some of the target's armour.
+    pub const ARMOR_RENDING: u32 = 0x0004;
+    pub const SLASH_RENDING: u32 = 0x0008;
+    pub const PIERCE_RENDING: u32 = 0x0010;
+    pub const BLUDGEON_RENDING: u32 = 0x0020;
+    pub const ACID_RENDING: u32 = 0x0040;
+    pub const COLD_RENDING: u32 = 0x0080;
+    pub const ELECTRIC_RENDING: u32 = 0x0100;
+    pub const FIRE_RENDING: u32 = 0x0200;
+    pub const NETHER_RENDING: u32 = 0x4000;
+    pub const ALWAYS_CRITICAL: u32 = 0x4000_0000;
+    pub const IGNORE_ALL_ARMOR: u32 = 0x8000_0000;
+
+    /// Every rending bit, whatever the element.
+    pub const ANY_RENDING: u32 = SLASH_RENDING
+        | PIERCE_RENDING
+        | BLUDGEON_RENDING
+        | ACID_RENDING
+        | COLD_RENDING
+        | ELECTRIC_RENDING
+        | FIRE_RENDING
+        | NETHER_RENDING;
 }
 
 /// How much damage one kind of creature takes from each element.
@@ -82,6 +143,10 @@ pub struct Creature {
     /// The weenie class id: what the server calls this kind of thing.
     pub wcid: u32,
     pub name: String,
+    /// How much health it has at full, 0 when not recorded. What tells
+    /// something worth spending a vulnerability on from something that
+    /// dies before the spell lands.
+    pub health: u32,
     /// A multiplier per element, in [`ALL`] order. Higher means it is
     /// hurt more; 0 means immune. `None` where the creature has no
     /// figure for that element at all.
@@ -114,12 +179,13 @@ fn parse_creatures(text: &str) -> Vec<Creature> {
             continue;
         }
         let mut f = line.split(',');
-        let (Some(wcid), Some(name)) = (f.next(), f.next()) else {
+        let (Some(wcid), Some(name), Some(health)) = (f.next(), f.next(), f.next()) else {
             continue;
         };
         let (Ok(wcid), false) = (wcid.trim().parse::<u32>(), name.is_empty()) else {
             continue;
         };
+        let health = health.trim().parse::<u32>().unwrap_or(0);
         let mut takes = [None; 8];
         for slot in takes.iter_mut() {
             *slot = f.next().and_then(|v| v.trim().parse::<f32>().ok());
@@ -127,6 +193,7 @@ fn parse_creatures(text: &str) -> Vec<Creature> {
         out.push(Creature {
             wcid,
             name: name.replace(';', ","),
+            health,
             takes,
         });
     }
@@ -134,26 +201,40 @@ fn parse_creatures(text: &str) -> Vec<Creature> {
     out
 }
 
-fn parse_spells(text: &str) -> Vec<(u32, Element)> {
-    let mut out = Vec::with_capacity(800);
+/// What a spell does about an element.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    /// Deals damage of that element.
+    Attack,
+    /// Makes a target take more of that element.
+    Vulnerability,
+}
+
+fn parse_spells(text: &str) -> Vec<(u32, Role, Element)> {
+    let mut out = Vec::with_capacity(900);
     for line in text.lines() {
         if line.starts_with('#') || line.is_empty() {
             continue;
         }
         let mut f = line.split(',');
-        let (Some(id), Some(bit)) = (f.next(), f.next()) else {
+        let (Some(id), Some(role), Some(bit)) = (f.next(), f.next(), f.next()) else {
             continue;
         };
         let (Ok(id), Ok(bit)) = (id.trim().parse::<u32>(), bit.trim().parse::<u32>()) else {
             continue;
         };
+        let role = match role.trim() {
+            "attack" => Role::Attack,
+            "vuln" => Role::Vulnerability,
+            _ => continue,
+        };
         // Health, stamina and mana drains are not an element anything
         // is weak to, so they are left out.
         if let Some(e) = Element::from_bit(bit) {
-            out.push((id, e));
+            out.push((id, role, e));
         }
     }
-    out.sort_by_key(|(id, _)| *id);
+    out.sort_by_key(|(id, _, _)| *id);
     out
 }
 
@@ -162,8 +243,8 @@ pub fn creatures() -> &'static [Creature] {
     ALL_CREATURES.get_or_init(|| parse_creatures(CREATURES))
 }
 
-fn spells() -> &'static [(u32, Element)] {
-    static ALL_SPELLS: OnceLock<Vec<(u32, Element)>> = OnceLock::new();
+fn spells() -> &'static [(u32, Role, Element)] {
+    static ALL_SPELLS: OnceLock<Vec<(u32, Role, Element)>> = OnceLock::new();
     ALL_SPELLS.get_or_init(|| parse_spells(SPELLS))
 }
 
@@ -208,10 +289,29 @@ pub fn creature(name: &str) -> Option<&'static Creature> {
 
 /// What a spell hits with, if it hits with anything.
 pub fn spell_element(spell_id: u32) -> Option<Element> {
+    match spell_role(spell_id) {
+        Some((Role::Attack, e)) => Some(e),
+        _ => None,
+    }
+}
+
+/// What a spell does about an element, and which.
+pub fn spell_role(spell_id: u32) -> Option<(Role, Element)> {
     let all = spells();
-    all.binary_search_by_key(&spell_id, |(id, _)| *id)
+    all.binary_search_by_key(&spell_id, |(id, _, _)| *id)
         .ok()
-        .map(|i| all[i].1)
+        .map(|i| (all[i].1, all[i].2))
+}
+
+/// Every spell that makes a target take more of `element`, at every
+/// level. The caller picks the strongest it can cast: the level is in
+/// the client's own SpellTable, not here.
+pub fn vulnerabilities(element: Element) -> Vec<u32> {
+    spells()
+        .iter()
+        .filter(|(_, r, e)| *r == Role::Vulnerability && *e == element)
+        .map(|(id, _, _)| *id)
+        .collect()
 }
 
 /// What is known about a creature the server has told us about: its
@@ -248,6 +348,7 @@ mod tests {
         // Weenie 196 is the Ice Golem; the id is the exact key.
         let ice = creature_by_id(196).expect("Ice Golem is in the table");
         assert_eq!(ice.name, "Ice Golem");
+        assert_eq!(ice.health, 95);
         assert_eq!(creature("Ice Golem").map(|c| c.wcid), Some(196));
         assert_eq!(ice.takes_from(Element::Cold), 0.0, "immune to cold");
         assert_eq!(ice.takes_from(Element::Fire), 1.0);
@@ -270,6 +371,17 @@ mod tests {
         assert_eq!(spell_element(96), Some(Element::Slash));
         // A heal is not an element.
         assert_eq!(spell_element(1160), None);
+        // A vulnerability is about an element but does not deal it.
+        assert_eq!(spell_element(1065), None);
+        assert_eq!(
+            spell_role(1065),
+            Some((Role::Vulnerability, Element::Cold)),
+            "Cold Vulnerability Other VI"
+        );
+        let colds = vulnerabilities(Element::Cold);
+        assert!(colds.contains(&1065), "{colds:?}");
+        assert!(colds.iter().all(|id| spell_element(*id).is_none()));
+        assert!(!vulnerabilities(Element::Fire).is_empty());
     }
 
     #[test]
@@ -301,7 +413,16 @@ mod tests {
         );
         assert!(all.iter().all(|c| c.takes.iter().any(|t| t.is_some())));
         let spells = spells();
-        assert!(spells.len() > 700, "{} spells", spells.len());
+        assert!(spells.len() > 800, "{} spells", spells.len());
         assert!(spells.windows(2).all(|w| w[0].0 <= w[1].0), "sorted");
+        // Rending bits and elements line up both ways.
+        for e in ALL {
+            assert_eq!(Element::from_bit(e as u32), Some(e));
+            assert!(e.rending() & imbue::ANY_RENDING != 0 || e == Element::Nether);
+        }
+        assert_eq!(
+            Element::from_bits(0x11),
+            vec![Element::Slash, Element::Fire]
+        );
     }
 }
