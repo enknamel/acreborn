@@ -6,7 +6,10 @@
 //! * Tabs switch between World and Local. Drag pans, the wheel zooms,
 //!   "follow" keeps the character centred. Hovering shows the map
 //!   coordinates under the pointer.
-//! * The list on the right is everything in the landblock: a search box
+//! * The list on the right is what is worth walking to: people, ways
+//!   out, anything that can be picked up and anything fixed that can be
+//!   used (a lifestone, a forge, a chest, a door). The scenery the
+//!   server also places, fixed and lifeless, is left out. A search box
 //!   and kind chips narrow it, a click selects the object (and rings it
 //!   on the map), a double-click uses it. The same search also looks
 //!   through the towns, lifestones, shops and standing NPCs of the whole
@@ -104,6 +107,28 @@ pub const KINDS: &[(&str, &[Kind])] = &[
     ("Portals", &[Kind::Portal, Kind::Door]),
 ];
 
+/// Whether an object is worth a line in the list: someone to talk to or
+/// fight, a way out, something to pick up, or something to use. What is
+/// left out is the scenery the server also sends: statues, furniture,
+/// fences and the like, which are fixed, lifeless and do nothing.
+pub fn worth_listing(o: &ac_world::WorldObject) -> bool {
+    use ac_world::{item_type, object_desc_flags as f};
+    let d = o.object_desc_flags;
+    if d & (f::PLAYER | f::CORPSE | f::PORTAL | f::VENDOR) != 0 {
+        return true;
+    }
+    if o.item_type & (item_type::CREATURE | item_type::PORTAL) != 0 || o.motion_table_id != 0 {
+        return true;
+    }
+    // Anything that can be carried off.
+    if d & f::STUCK == 0 {
+        return true;
+    }
+    // Fixed, but there is something to do with it: a lifestone, a forge,
+    // a chest, a door, a sign worth reading. `Usable::No` is 1.
+    o.usable != 0 && o.usable != 1
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct MapObject {
     pub guid: u32,
@@ -193,10 +218,12 @@ pub fn view(c: &Client) -> Option<MapView> {
         .world
         .drawable()
         .filter(|o| !o.is_player)
+        .filter(|o| worth_listing(o))
         .filter_map(|o| {
-            // Everything the server has told us about, not only the
-            // landblock the character stands in: the list is sorted by
-            // distance and the map covers the blocks around them.
+            // Everything worth listing that the server has told us
+            // about, not only the landblock the character stands in: the
+            // list is sorted by distance and the map covers the blocks
+            // around them.
             let pos = o.display.or(o.position)?;
             let w = ac_world::landblock_origin(pos.cell) + pos.local;
             let p = Vec2::new(w.x, w.y);
@@ -963,6 +990,36 @@ mod tests {
         assert_eq!(p, egui::pos2(120.0, 60.0));
         let back = to_world(rect, center, 2.0, p);
         assert!((back - Vec2::new(1010.0, 2020.0)).length() < 1e-4);
+    }
+
+    #[test]
+    fn only_things_worth_a_line_are_listed() {
+        use ac_world::{item_type, object_desc_flags as f};
+        let scenery = |usable: u32| ac_world::WorldObject {
+            object_desc_flags: f::STUCK,
+            usable,
+            ..Default::default()
+        };
+        // A statue: fixed, lifeless, nothing to do with it.
+        assert!(!worth_listing(&scenery(0)));
+        // `Usable::No` says as much outright.
+        assert!(!worth_listing(&scenery(1)));
+        // A lifestone or a forge is fixed but there is something to do.
+        assert!(worth_listing(&scenery(8)));
+        // Anything that can be picked up.
+        assert!(worth_listing(&ac_world::WorldObject::default()));
+        // People, corpses and ways out.
+        for flag in [f::PLAYER, f::CORPSE, f::PORTAL, f::VENDOR] {
+            assert!(worth_listing(&ac_world::WorldObject {
+                object_desc_flags: f::STUCK | flag,
+                ..Default::default()
+            }));
+        }
+        assert!(worth_listing(&ac_world::WorldObject {
+            object_desc_flags: f::STUCK,
+            item_type: item_type::CREATURE,
+            ..Default::default()
+        }));
     }
 
     #[test]
