@@ -376,6 +376,48 @@ impl Api for CtxApi<'_, '_> {
             .collect()
     }
 
+    fn team(&mut self, on: bool) -> bool {
+        let c = self.client();
+        c.autoplay.config.team.enabled = on;
+        on
+    }
+
+    fn team_role(&mut self, role: &str) -> String {
+        use ac_client::autoplay::Role;
+        let c = self.client();
+        let chosen = match role.trim().to_lowercase().as_str() {
+            "fighter" => Some(Role::Fighter),
+            "healer" => Some(Role::Healer),
+            "debuffer" => Some(Role::Debuffer),
+            _ => None,
+        };
+        if let Some(r) = chosen {
+            c.autoplay.config.team.role = r;
+        }
+        format!("{:?}", c.autoplay.config.team.role).to_lowercase()
+    }
+
+    fn teammates(&mut self) -> Array {
+        let c = self.client();
+        let view = &c.autoplay.team;
+        view.mates
+            .iter()
+            .map(|m| {
+                let mut map = Map::new();
+                map.insert("name".into(), m.name.clone().into());
+                map.insert("guid".into(), int(m.guid));
+                map.insert("health".into(), float(m.health));
+                map.insert("role".into(), format!("{:?}", m.role).to_lowercase().into());
+                map.insert("target".into(), int(m.target.unwrap_or(0)));
+                map.insert("target_name".into(), m.target_name.clone().into());
+                map.insert("leader".into(), m.leader.into());
+                map.insert("in_fellowship".into(), m.in_fellowship.into());
+                map.insert("me_leader".into(), view.leader.into());
+                Dynamic::from(map)
+            })
+            .collect()
+    }
+
     fn enchantments(&mut self) -> Array {
         let c = self.client();
         let table = c.assets.spell_table().ok();

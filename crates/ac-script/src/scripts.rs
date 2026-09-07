@@ -387,6 +387,18 @@ mod tests {
             self.calls.push(format!("fight_style({style})"));
             style.to_string()
         }
+        fn team(&mut self, on: bool) -> bool {
+            self.calls.push(format!("team({on})"));
+            on
+        }
+        fn team_role(&mut self, role: &str) -> String {
+            self.calls.push(format!("team_role({role})"));
+            role.to_string()
+        }
+        fn teammates(&mut self) -> Array {
+            self.calls.push("teammates()".into());
+            Array::new()
+        }
         fn enchantments(&mut self) -> Array {
             self.calls.push("enchantments()".into());
             Array::new()

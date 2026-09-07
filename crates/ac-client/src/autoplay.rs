@@ -295,7 +295,8 @@ impl Default for Team {
 /// What one of the others has told us about itself. The host fills this
 /// in from the bus every frame (see `ac_plugin::team`); the rules here
 /// only read it.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Mate {
     pub name: String,
     pub guid: u32,
@@ -316,7 +317,8 @@ pub struct Mate {
 }
 
 /// The team as the host last saw it.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TeamView {
     pub mates: Vec<Mate>,
     /// Whether this character is the one picking targets.
@@ -499,6 +501,12 @@ pub struct Autoplay {
 }
 
 impl Autoplay {
+    /// The creature spells are being thrown at, if any: the magic
+    /// fighter's counterpart to `Client::attack_target`.
+    pub fn casting_at(&self) -> Option<u32> {
+        self.casting_at
+    }
+
     /// Something worth knowing that is not what the character is doing:
     /// logged, at most every few seconds for the same words, and the
     /// status left as it was. Said every tick it would drown the log
@@ -982,15 +990,44 @@ impl Client {
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
         let looted = self.autoplay.looted.clone();
+        // Names of the players about, ours excepted: anyone in view and
+        // everyone on the team.
+        let my_name = self.world.stats.name.to_lowercase();
+        let mut players: Vec<String> = self
+            .world
+            .objects
+            .values()
+            .filter(|o| o.is_player)
+            .map(|o| o.name.to_lowercase())
+            .chain(
+                self.autoplay
+                    .team
+                    .mates
+                    .iter()
+                    .map(|m| m.name.to_lowercase()),
+            )
+            .filter(|n| !n.is_empty() && *n != my_name)
+            .collect();
+        players.sort();
+        players.dedup();
+        let someone_elses = |corpse: &str| {
+            let corpse = corpse.to_lowercase();
+            corpse
+                .strip_prefix("corpse of ")
+                .is_some_and(|who| players.iter().any(|p| p == who))
+        };
         let corpse = self
             .world
             .objects
             .values()
             .filter(|o| o.object_desc_flags & ac_world::object_desc_flags::CORPSE != 0)
             .filter(|o| !looted.contains(&o.guid))
-            // Our own corpse is looted too, but for everything on it
-            // (see below): the wand and the components are on it, and a
-            // character without them cannot fight or heal.
+            // Another player's corpse is theirs: a teammate's gear taken
+            // off their body is not loot, whatever the filters say. Our
+            // own is emptied for everything on it (see below): the wand
+            // and the components are on it, and a character without
+            // them cannot fight or heal.
+            .filter(|o| !someone_elses(&o.name))
             .filter_map(|o| {
                 let p = o.world_pos()?;
                 let d = p.distance(me);

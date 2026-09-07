@@ -15,6 +15,7 @@ pub fn builtin() -> Host {
     }
     host.register(Box::new(console::Console));
     host.register(Box::new(party::Party::default()));
+    host.register(Box::new(ac_plugin::team::Team::default()));
     host.register(Box::new(ac_script::ScriptPlugin::new(
         ac_script::default_dir(),
     )));

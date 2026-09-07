@@ -291,6 +291,7 @@ fn main() -> Result<()> {
     }
     host.register(Box::new(Console));
     host.register(Box::new(ac_plugin::party::Party::default()));
+    host.register(Box::new(ac_plugin::team::Team::default()));
     host.register(Box::new(ac_script::ScriptPlugin::new(
         ac_script::default_dir(),
     )));

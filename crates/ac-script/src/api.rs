@@ -70,6 +70,17 @@ pub trait Api {
     /// 0 for the character).
     fn wanted_buffs(&mut self) -> Array;
 
+    /// Turn the team rules on or off (hunting together, see
+    /// `ac_client::autoplay::Team`); returns whether they are on now.
+    fn team(&mut self, on: bool) -> bool;
+    /// This character's role on the team: "fighter", "healer" or
+    /// "debuffer". Returns the role in force.
+    fn team_role(&mut self, role: &str) -> String;
+    /// The teammates heard from, as maps of `name`, `guid`, `health`,
+    /// `role`, `target`, `target_name`, `leader`, `in_fellowship`; plus
+    /// the key `me_leader` on a first map for whether this one leads.
+    fn teammates(&mut self) -> Array;
+
     /// The enchantments on the character as the server reports them:
     /// maps of `spell`, `name`, `category`, `power`, `layer`, `duration`
     /// and `left` (seconds; -1 for one that never runs out).
@@ -371,6 +382,9 @@ pub fn register(engine: &mut Engine) {
     });
     engine.register_fn("wanted_buffs", || with_api(|a| a.wanted_buffs()));
     engine.register_fn("enchantments", || with_api(|a| a.enchantments()));
+    engine.register_fn("team", |on: bool| with_api(|a| a.team(on)));
+    engine.register_fn("team_role", |r: &str| with_api(|a| a.team_role(r)));
+    engine.register_fn("teammates", || with_api(|a| a.teammates()));
     engine.register_fn("travel_style", |style: &str| {
         with_api(|a| a.travel_style(style))
     });

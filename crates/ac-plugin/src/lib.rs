@@ -23,6 +23,7 @@ pub mod lobby;
 pub mod panels;
 pub mod party;
 pub mod settings;
+pub mod team;
 
 pub use ac_bus::{self, BusClient, Incoming};
 pub use ac_client::{self, Client, Event};

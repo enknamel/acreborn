@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{caption, title, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
-use ac_client::autoplay::{Buffs, Config, Fight, Loot, Style, Survive};
+use ac_client::autoplay::{Buffs, Config, Fight, Loot, Role, Style, Survive};
 use ac_client::items::{ItemStats, Query};
 
 /// What the panel draws: the rules, what the character is doing, and how
@@ -426,6 +426,75 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     "name contains, e.g. Rusty",
                     None,
                 );
+                ui.add_space(6.0);
+
+                title(ui, "Team");
+                ui.checkbox(&mut cfg.team.enabled, "hunt with the others")
+                    .on_hover_text(
+                        "Every character being played that has this on hears the \
+                         others: the same target, the debuffs landed first, spare \
+                         supplies handed over, one fellowship",
+                    );
+                ui.horizontal(|ui| {
+                    ui.label("role");
+                    egui::ComboBox::from_id_salt("autoplay.role")
+                        .selected_text(cfg.team.role.label())
+                        .show_ui(ui, |ui| {
+                            for role in [Role::Fighter, Role::Debuffer, Role::Healer] {
+                                ui.selectable_value(&mut cfg.team.role, role, role.label());
+                            }
+                        });
+                });
+                ui.checkbox(&mut cfg.team.focus_fire, "fight what the leader fights")
+                    .on_hover_text("The leader is whoever's name sorts first");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut cfg.team.fellowship, "form a fellowship");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut cfg.team.fellowship_name)
+                            .id_salt("autoplay.fellowship_name")
+                            .hint_text("name")
+                            .desired_width(120.0),
+                    );
+                });
+                ui.checkbox(&mut cfg.team.share_supplies, "hand over spare supplies")
+                    .on_hover_text("Give a teammate beside us what they say they are short of");
+                caption(ui, "debuffs a debuffer lands, in order");
+                string_list(
+                    ui,
+                    "autoplay.debuffs",
+                    &mut cfg.team.debuffs,
+                    drafts,
+                    "e.g. Imperil Other, Fire Vulnerability Other",
+                    None,
+                );
+                caption(ui, "keep stocked: name and how many");
+                let mut stocked: Vec<String> = cfg
+                    .team
+                    .keep_stocked
+                    .iter()
+                    .map(|(n, c)| format!("{n} {c}"))
+                    .collect();
+                string_list(
+                    ui,
+                    "autoplay.keep_stocked",
+                    &mut stocked,
+                    drafts,
+                    "e.g. Prismatic Taper 50",
+                    None,
+                );
+                cfg.team.keep_stocked = stocked
+                    .iter()
+                    .map(|line| {
+                        let line = line.trim();
+                        match line.rsplit_once(' ') {
+                            Some((name, n)) => match n.parse::<u32>() {
+                                Ok(n) => (name.trim().to_string(), n),
+                                Err(_) => (line.to_string(), 1),
+                            },
+                            None => (line.to_string(), 1),
+                        }
+                    })
+                    .collect();
             });
     });
     (cfg != v.config).then_some(cfg)
