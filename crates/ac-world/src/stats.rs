@@ -177,6 +177,12 @@ pub struct Enchantment {
     pub stat_mod_key: u32,
     pub stat_mod_value: f32,
     pub spell_set_id: u32,
+    /// The server's clock when this record arrived, set by whoever has
+    /// that clock (the client, on applying the message). The server
+    /// sends `start_time` as seconds relative to the moment it sent
+    /// the record, zero at the cast and negative after, so the record
+    /// only tells the time once anchored.
+    pub received: Option<f64>,
 }
 
 /// The Vitae penalty is an enchantment with this spell id.
@@ -212,13 +218,22 @@ impl Enchantment {
         self.stat_mod_type & enchantment_type::COOLDOWN != 0
     }
 
-    /// Seconds left at server time `now` (`start_time` and `now` are the
-    /// server's clock; item spells with duration -1 never run out).
+    /// Seconds left at server time `now`. Item spells with duration -1
+    /// never run out. `start_time` is relative to when the record was
+    /// sent (zero at the cast, negative after), so the answer is
+    /// counted from when it was received; a record not yet anchored is
+    /// taken as fresh, and a positive `start_time` as the server's
+    /// absolute clock.
     pub fn remaining(&self, now: f64) -> Option<f64> {
         if self.duration < 0.0 {
             return None;
         }
-        Some((self.start_time + self.duration - now).max(0.0))
+        let ends = if self.start_time > 0.0 {
+            self.start_time + self.duration
+        } else {
+            self.received.unwrap_or(now) + self.start_time + self.duration
+        };
+        Some((ends - now).max(0.0))
     }
 
     /// One enchantment record as every enchantment event carries it.
@@ -246,6 +261,7 @@ impl Enchantment {
             stat_mod_key: r.u32()?,
             stat_mod_value: r.f32()?,
             spell_set_id: 0,
+            received: None,
         };
         if has_spell_set != 0 {
             e.spell_set_id = r.u32()?;
@@ -832,6 +848,16 @@ impl PlayerStats {
     }
 
     /// Remove the enchantment with this spell id and layer; true if found.
+    /// Stamp every enchantment record that arrived since the last call
+    /// with the server's clock, so its countdown has a start.
+    pub fn anchor_enchantments(&mut self, now: f64) {
+        for e in &mut self.enchantments {
+            if e.received.is_none() {
+                e.received = Some(now);
+            }
+        }
+    }
+
     pub fn remove_enchantment(&mut self, spell_id: u16, layer: u16) -> bool {
         let before = self.enchantments.len();
         self.enchantments
@@ -1136,6 +1162,35 @@ fn vital_index(which: u32) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_enchantment_counts_down_from_when_it_arrived() {
+        // Sent two seconds after the cast, lasting thirty minutes.
+        let mut e = Enchantment {
+            start_time: -2.0,
+            duration: 1800.0,
+            ..Default::default()
+        };
+        // Not anchored yet: taken as fresh.
+        assert_eq!(e.remaining(5000.0), Some(1798.0));
+        e.received = Some(5000.0);
+        assert_eq!(e.remaining(5000.0), Some(1798.0));
+        assert_eq!(e.remaining(5100.0), Some(1698.0));
+        assert_eq!(e.remaining(9000.0), Some(0.0));
+        // Never runs out.
+        e.duration = -1.0;
+        assert_eq!(e.remaining(5000.0), None);
+        // Anchoring only touches records without a clock.
+        let mut stats = PlayerStats::default();
+        stats.enchantments.push(Enchantment {
+            received: Some(1.0),
+            ..Default::default()
+        });
+        stats.enchantments.push(Enchantment::default());
+        stats.anchor_enchantments(7.0);
+        assert_eq!(stats.enchantments[0].received, Some(1.0));
+        assert_eq!(stats.enchantments[1].received, Some(7.0));
+    }
 
     #[test]
     fn a_skill_right_now_counts_its_buffs_and_the_vitae() {

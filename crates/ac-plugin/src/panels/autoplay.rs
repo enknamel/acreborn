@@ -228,11 +228,31 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     ui.add(
                         egui::TextEdit::singleline(&mut cfg.survive.heal_spell)
                             .id_salt("autoplay.heal_spell")
-                            .hint_text("Heal Self")
+                            .hint_text("strongest heal known")
                             .desired_width(180.0),
                     )
-                    .on_hover_text("A spell from the spellbook, by name; blank for none");
+                    .on_hover_text(
+                        "A spell from the spellbook, by name; blank for the strongest \
+                         health boost known, whatever it is called",
+                    );
                 });
+                ui.checkbox(&mut cfg.survive.manage_mana, "keep mana up from stamina")
+                    .on_hover_text(
+                        "Pour stamina into mana when mana runs low and Revitalize \
+                         when stamina does, with the strongest spells known",
+                    );
+                percent(
+                    ui,
+                    "mana below",
+                    &mut cfg.survive.mana_below,
+                    "Pour stamina into mana when mana is under this",
+                );
+                percent(
+                    ui,
+                    "stamina below",
+                    &mut cfg.survive.stamina_below,
+                    "Revitalize when stamina is under this",
+                );
                 ui.add_space(6.0);
 
                 title(ui, "Buffs");
@@ -286,6 +306,15 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                 ui.checkbox(
                     &mut cfg.buffs.out_of_combat_only,
                     "only top up out of combat",
+                );
+                ui.add(
+                    egui::Slider::new(&mut cfg.buffs.keep_mana, 0.0..=0.8)
+                        .fixed_decimals(2)
+                        .text("mana kept back"),
+                )
+                .on_hover_text(
+                    "Buffs never spend below this fraction of mana; it is kept for \\
+                     healing and fighting",
                 );
                 ui.add_space(6.0);
 

@@ -427,10 +427,18 @@ impl Client {
                             });
                             continue;
                         }
+                        ac_world::Applied::Enchantments => {
+                            // The server sends an enchantment's start
+                            // as an offset from now; give the record
+                            // the clock so its countdown can run.
+                            if let Some(now) = self.session.server_time() {
+                                self.world.stats.anchor_enchantments(now);
+                            }
+                            continue;
+                        }
                         ac_world::Applied::Created
                         | ac_world::Applied::Deleted
                         | ac_world::Applied::Stats
-                        | ac_world::Applied::Enchantments
                         | ac_world::Applied::Health
                         | ac_world::Applied::Vendor
                         | ac_world::Applied::Trade

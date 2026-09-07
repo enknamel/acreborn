@@ -69,6 +69,11 @@ pub trait Api {
     /// `power` (what the chance is rolled from) and `on` (the item guid,
     /// 0 for the character).
     fn wanted_buffs(&mut self) -> Array;
+
+    /// The enchantments on the character as the server reports them:
+    /// maps of `spell`, `name`, `category`, `power`, `layer`, `duration`
+    /// and `left` (seconds; -1 for one that never runs out).
+    fn enchantments(&mut self) -> Array;
     /// Objects in view, nearest first: `guid, name, distance, is_creature,
     /// is_player, is_corpse, health, x, y, z, cell`.
     fn objects(&mut self) -> Array;
@@ -365,6 +370,7 @@ pub fn register(engine: &mut Engine) {
         with_api(|a| a.attack_spells(names))
     });
     engine.register_fn("wanted_buffs", || with_api(|a| a.wanted_buffs()));
+    engine.register_fn("enchantments", || with_api(|a| a.enchantments()));
     engine.register_fn("travel_style", |style: &str| {
         with_api(|a| a.travel_style(style))
     });

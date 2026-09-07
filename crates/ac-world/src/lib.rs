@@ -145,6 +145,8 @@ pub mod wield {
     pub const TRAINING: u32 = 8;
 }
 
+pub mod vitals;
+
 pub mod usable {
     /// `Usable::No`: the thing cannot be used at all.
     pub const NO: u32 = 1;

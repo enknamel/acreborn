@@ -387,6 +387,10 @@ mod tests {
             self.calls.push(format!("fight_style({style})"));
             style.to_string()
         }
+        fn enchantments(&mut self) -> Array {
+            self.calls.push("enchantments()".into());
+            Array::new()
+        }
         fn wanted_buffs(&mut self) -> Array {
             self.calls.push("wanted_buffs()".into());
             Array::new()

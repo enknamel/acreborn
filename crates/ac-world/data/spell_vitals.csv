@@ -1,0 +1,299 @@
+# Spells that move health, stamina and mana about.
+# spell_id,kind,a,b,c,proportion,loss,cap,name
+# kind "boost": restores vital a by b to c points.
+# kind "transfer": drains `proportion` of vital a into vital b, less
+#   `loss` of it (negative is a gain), at most `cap` when cap is not 0.
+# Vitals: 2 health, 4 stamina, 6 mana. The name is there to read by;
+# the client matches on the id.
+# Regenerate with reference/scripts/data/spell_vitals.sh (reads the ACE
+# world database, the community's reconstruction of retail's server
+# data; the client's SpellTable does not carry this).
+5,boost,2,10,25,0,0,0,Heal Other I
+6,boost,2,10,25,0,0,0,Heal Self I
+7,boost,2,-4,-6,0,0,0,Harm Other I
+8,boost,2,-4,-6,0,0,0,Harm Self I
+9,transfer,6,6,0,0.25,0.25,0,Infuse Mana Other I
+1157,boost,2,15,35,0,0,0,Heal Self II
+1158,boost,2,20,45,0,0,0,Heal Self III
+1159,boost,2,30,60,0,0,0,Heal Self IV
+1160,boost,2,45,90,0,0,0,Heal Self V
+1161,boost,2,55,120,0,0,0,Heal Self VI
+1162,boost,2,15,35,0,0,0,Heal Other II
+1163,boost,2,20,45,0,0,0,Heal Other III
+1164,boost,2,30,60,0,0,0,Heal Other IV
+1165,boost,2,45,90,0,0,0,Heal Other V
+1166,boost,2,55,120,0,0,0,Heal Other VI
+1167,boost,2,-7,-12,0,0,0,Harm Self II
+1168,boost,2,-10,-18,0,0,0,Harm Self III
+1169,boost,2,-16,-30,0,0,0,Harm Self IV
+1170,boost,2,-23,-45,0,0,0,Harm Self V
+1171,boost,2,-31,-60,0,0,0,Harm Self VI
+1172,boost,2,-7,-12,0,0,0,Harm Other II
+1173,boost,2,-10,-19,0,0,0,Harm Other III
+1174,boost,2,-16,-33,0,0,0,Harm Other IV
+1175,boost,2,-24,-47,0,0,0,Harm Other V
+1176,boost,2,-33,-63,0,0,0,Harm Other VI
+1177,boost,4,15,35,0,0,0,Revitalize Self I
+1178,boost,4,20,45,0,0,0,Revitalize Self II
+1179,boost,4,30,60,0,0,0,Revitalize Self III
+1180,boost,4,40,80,0,0,0,Revitalize Self IV
+1181,boost,4,60,120,0,0,0,Revitalize Self V
+1182,boost,4,80,160,0,0,0,Revitalize Self VI
+1183,boost,4,15,35,0,0,0,Revitalize Other I
+1184,boost,4,20,45,0,0,0,Revitalize Other II
+1185,boost,4,30,60,0,0,0,Revitalize Other III
+1186,boost,4,40,80,0,0,0,Revitalize Other IV
+1187,boost,4,60,120,0,0,0,Revitalize Other V
+1188,boost,4,80,160,0,0,0,Revitalize Other VI
+1189,boost,4,-7,-12,0,0,0,Enfeeble Self I
+1190,boost,4,-7,-12,0,0,0,Enfeeble Self II
+1191,boost,4,-16,-30,0,0,0,Enfeeble Self III
+1192,boost,4,-23,-45,0,0,0,Enfeeble Self IV
+1193,boost,4,-31,-60,0,0,0,Enfeeble Self V
+1194,boost,4,-38,-75,0,0,0,Enfeeble Self VI
+1195,boost,4,-7,-12,0,0,0,Enfeeble Other I
+1196,boost,4,-10,-19,0,0,0,Enfeeble Other II
+1197,boost,4,-16,-31,0,0,0,Enfeeble Other III
+1198,boost,4,-24,-47,0,0,0,Enfeeble Other IV
+1199,boost,4,-32,-63,0,0,0,Enfeeble Other V
+1200,boost,4,-39,-79,0,0,0,Enfeeble Other VI
+1201,boost,6,6,10,0,0,0,Mana Boost Self I
+1202,boost,6,11,20,0,0,0,Mana Boost Self II
+1203,boost,6,16,30,0,0,0,Mana Boost Self III
+1204,boost,6,26,50,0,0,0,Mana Boost Self IV
+1205,boost,6,38,75,0,0,0,Mana Boost Self V
+1206,boost,6,51,100,0,0,0,Mana Boost Self VI
+1207,boost,6,6,10,0,0,0,Mana Boost Other I
+1208,boost,6,11,20,0,0,0,Mana Boost Other II
+1209,boost,6,16,30,0,0,0,Mana Boost Other III
+1210,boost,6,26,50,0,0,0,Mana Boost Other IV
+1211,boost,6,38,75,0,0,0,Mana Boost Other V
+1212,boost,6,51,100,0,0,0,Mana Boost Other VI
+1213,boost,6,-4,-6,0,0,0,Mana Drain Self I
+1214,boost,6,-7,-12,0,0,0,Mana Drain Self II
+1215,boost,6,-10,-18,0,0,0,Mana Drain Self III
+1216,boost,6,-16,-30,0,0,0,Mana Drain Self IV
+1217,boost,6,-23,-45,0,0,0,Mana Drain Self V
+1218,boost,6,-31,-60,0,0,0,Mana Drain Self VI
+1219,boost,6,-4,-6,0,0,0,Mana Drain Other I
+1220,boost,6,-7,-12,0,0,0,Mana Drain Other II
+1221,boost,6,-10,-19,0,0,0,Mana Drain Other III
+1222,boost,6,-16,-31,0,0,0,Mana Drain Other IV
+1223,boost,6,-24,-47,0,0,0,Mana Drain Other V
+1224,boost,6,-32,-63,0,0,0,Mana Drain Other VI
+1225,transfer,2,2,0,0.25,0.25,0,Infuse Health Other I
+1226,transfer,2,2,0,0.25,0.10000000149011612,0,Infuse Health Other II
+1227,transfer,2,2,0,0.25,-0.05000000074505806,0,Infuse Health Other III
+1228,transfer,2,2,0,0.25,-0.20000000298023224,0,Infuse Health Other IV
+1229,transfer,2,2,0,0.25,-0.3499999940395355,0,Infuse Health Other V
+1230,transfer,2,2,0,0.25,-0.5,0,Infuse Health Other VI
+1237,transfer,2,2,0,0.25,-1,60,Drain Health Other I
+1238,transfer,2,2,0,0.25,-0.6000000238418579,80,Drain Health Other II
+1239,transfer,2,2,0,0.25,-0.33000001311302185,100,Drain Health Other III
+1240,transfer,2,2,0,0.25,0,100,Drain Health Other IV
+1241,transfer,2,2,0,0.30000001192092896,0,120,Drain Health Other V
+1242,transfer,2,2,0,0.4000000059604645,0.25,150,Drain Health Other VI
+1243,transfer,4,4,0,0.25,0.25,0,Infuse Stamina Other I
+1244,transfer,4,4,0,0.25,0.10000000149011612,0,Infuse Stamina Other II
+1245,transfer,4,4,0,0.25,-0.05000000074505806,0,Infuse Stamina Other III
+1246,transfer,4,4,0,0.25,-0.20000000298023224,0,Infuse Stamina Other IV
+1247,transfer,4,4,0,0.25,-0.3499999940395355,0,Infuse Stamina Other V
+1248,transfer,4,4,0,0.25,-0.5,0,Infuse Stamina Other VI
+1249,transfer,4,4,0,0.10000000149011612,-1,60,Drain Stamina Other I
+1250,transfer,4,4,0,0.15000000596046448,-0.6000000238418579,80,Drain Stamina Other II
+1251,transfer,4,4,0,0.20000000298023224,-0.33000001311302185,100,Drain Stamina Other III
+1252,transfer,4,4,0,0.25,0,100,Drain Stamina Other IV
+1253,transfer,4,4,0,0.30000001192092896,0,120,Drain Stamina Other V
+1254,transfer,4,4,0,0.4000000059604645,0.25,150,Drain Stamina Other VI
+1255,transfer,6,6,0,0.25,0.10000000149011612,0,Infuse Mana Other II
+1256,transfer,6,6,0,0.25,-0.05000000074505806,0,Infuse Mana Other III
+1257,transfer,6,6,0,0.25,-0.20000000298023224,0,Infuse Mana Other IV
+1258,transfer,6,6,0,0.25,-0.3499999940395355,0,Infuse Mana Other V
+1259,transfer,6,6,0,0.25,-0.5,0,Infuse Mana Other VI
+1260,transfer,6,6,0,0.10000000149011612,-1,60,Drain Mana Other I
+1261,transfer,6,6,0,0.15000000596046448,-0.6000000238418579,80,Drain Mana Other II
+1262,transfer,6,6,0,0.20000000298023224,-0.33000001311302185,100,Drain Mana Other III
+1263,transfer,6,6,0,0.25,0,100,Drain Mana Other IV
+1264,transfer,6,6,0,0.30000001192092896,0,120,Drain Mana Other V
+1265,transfer,6,6,0,0.4000000059604645,0.25,150,Drain Mana Other VI
+1266,transfer,2,4,0,0.5,0.25,0,Health to Stamina Other I
+1267,transfer,2,4,0,0.5,0.10000000149011612,0,Health to Stamina Other II
+1268,transfer,2,4,0,0.5,-0.05000000074505806,0,Health to Stamina Other III
+1269,transfer,2,4,0,0.5,-0.20000000298023224,0,Health to Stamina Other IV
+1270,transfer,2,4,0,0.5,-0.3499999940395355,0,Health to Stamina Other V
+1271,transfer,2,4,0,0.5,-0.5,0,Health to Stamina Other VI
+1272,transfer,2,4,0,0.5,0.10000000149011612,50,Health to Stamina Self I
+1273,transfer,2,4,0,0.5,0,100,Health to Stamina Self II
+1274,transfer,2,4,0,0.5,-0.10000000149011612,150,Health to Stamina Self III
+1275,transfer,2,4,0,0.5,-0.20000000298023224,200,Health to Stamina Self IV
+1276,transfer,2,4,0,0.5,-0.3499999940395355,0,Health to Stamina Self V
+1277,transfer,2,4,0,0.5,-0.5,0,Health to Stamina Self VI
+1278,transfer,2,6,0,0.5,0.10000000149011612,50,Health to Mana Self I
+1279,transfer,2,6,0,0.5,0,100,Health to Mana Self II
+1280,transfer,2,6,0,0.5,-0.10000000149011612,150,Health to Mana Self III
+1281,transfer,2,6,0,0.5,-0.20000000298023224,0,Health to Mana Other IV
+1282,transfer,2,6,0,0.5,-0.3499999940395355,0,Health to Mana Other V
+1283,transfer,2,6,0,0.5,-0.5,0,Health to Mana Other VI
+1284,transfer,6,2,0,0.5,0.25,0,Mana to Health Other I
+1285,transfer,6,2,0,0.5,0.10000000149011612,0,Mana to Health Other II
+1286,transfer,6,2,0,0.5,-0.05000000074505806,0,Mana to Health Other III
+1287,transfer,6,2,0,0.5,-0.20000000298023224,0,Mana to Health Other IV
+1288,transfer,6,2,0,0.5,-0.3499999940395355,0,Mana to Health Other V
+1289,transfer,6,2,0,0.5,-0.5,0,Mana to Health Other VI
+1290,transfer,6,2,0,0.5,0.10000000149011612,50,Mana to Health Self I
+1291,transfer,6,2,0,0.5,0,100,Mana to Health Self II
+1292,transfer,6,2,0,0.5,-0.10000000149011612,150,Mana to Health Self III
+1293,transfer,6,2,0,0.5,-0.20000000298023224,200,Mana to Health Self IV
+1294,transfer,6,2,0,0.5,-0.3499999940395355,0,Mana to Health Self V
+1295,transfer,6,2,0,0.5,-0.5,0,Mana to Health Self VI
+1296,transfer,6,4,0,0.5,0.10000000149011612,50,Mana to Stamina Self I
+1297,transfer,6,4,0,0.5,0,100,Mana to Stamina Self II
+1298,transfer,6,4,0,0.5,-0.10000000149011612,150,Mana to Stamina Self III
+1299,transfer,6,4,0,0.5,-0.20000000298023224,200,Mana to Stamina Self IV
+1300,transfer,6,4,0,0.5,-0.3499999940395355,0,Mana to Stamina Self V
+1301,transfer,6,4,0,0.5,-0.5,0,Mana to Stamina Self VI
+1302,transfer,6,4,0,0.5,0.25,0,Mana to Stamina Other I
+1303,transfer,6,4,0,0.5,0.10000000149011612,0,Mana to Stamina Other II
+1304,transfer,6,4,0,0.5,-0.05000000074505806,0,Mana to Stamina Other III
+1305,transfer,6,4,0,0.5,-0.20000000298023224,0,Mana to Stamina Other IV
+1306,transfer,6,4,0,0.5,-0.3499999940395355,0,Mana to Stamina Other V
+1307,transfer,6,4,0,0.5,-0.5,0,Mana to Stamina Other VI
+1658,transfer,4,2,0,0.5,0.25,0,Stamina to Health Other I
+1659,transfer,4,2,0,0.5,0.10000000149011612,0,Stamina to Health Other II
+1660,transfer,4,2,0,0.5,-0.05000000074505806,0,Stamina to Health Other III
+1661,transfer,4,2,0,0.5,-0.20000000298023224,0,Stamina to Health Other IV
+1662,transfer,4,2,0,0.5,-0.3499999940395355,0,Stamina to Health Other V
+1663,transfer,4,2,0,0.5,-0.5,0,Stamina to Health Other VI
+1664,transfer,4,2,0,0.5,0.10000000149011612,50,Stamina to Health Self I
+1665,transfer,4,2,0,0.5,0,100,Stamina to Health Self II
+1666,transfer,4,2,0,0.5,-0.10000000149011612,150,Stamina to Health Self III
+1667,transfer,4,2,0,0.5,-0.20000000298023224,200,Stamina to Health Self IV
+1668,transfer,4,2,0,0.5,-0.3499999940395355,0,Stamina to Health Self V
+1669,transfer,4,2,0,0.5,-0.5,0,Stamina to Health Self VI
+1670,transfer,4,6,0,0.5,0.25,0,Stamina to Mana Other I
+1671,transfer,4,6,0,0.5,0.10000000149011612,0,Stamina to Mana Other II
+1672,transfer,4,6,0,0.5,-0.05000000074505806,0,Stamina to Mana Other III
+1673,transfer,4,6,0,0.5,-0.20000000298023224,0,Stamina to Mana Other IV
+1674,transfer,4,6,0,0.5,-0.3499999940395355,0,Stamina to Mana Other V
+1675,transfer,4,6,0,0.5,-0.5,0,Stamina to Mana Other VI
+1676,transfer,4,6,0,0.5,0.10000000149011612,50,Stamina to Mana Self I
+1677,transfer,4,6,0,0.5,0,100,Stamina to Mana Self II
+1678,transfer,4,6,0,0.5,-0.10000000149011612,150,Stamina to Mana Self III
+1679,transfer,4,6,0,0.5,-0.20000000298023224,200,Stamina to Mana Self IV
+1680,transfer,4,6,0,0.5,-0.3499999940395355,0,Stamina to Mana Self V
+1681,transfer,4,6,0,0.5,-0.5,0,Stamina to Mana Self VI
+1702,transfer,2,6,0,0.5,-0.20000000298023224,200,Health to Mana Self IV
+1703,transfer,2,6,0,0.5,-0.3499999940395355,0,Health to Mana Self V
+1704,transfer,2,6,0,0.5,-0.5,0,Health to Mana Self VI
+1705,transfer,2,6,0,0.5,0.25,0,Health to Mana Other I
+1706,transfer,2,6,0,0.5,0.10000000149011612,0,Health to Mana Other II
+1707,transfer,2,6,0,0.5,-0.05000000074505806,0,Health to Mana Other III
+1708,boost,2,8,15,0,0,0,Wedding Bliss
+1991,boost,6,-5000,-5000,0,0,0,Mana Blight
+2017,boost,2,-1000,-6000,0,0,0,Bunny Smite
+2018,boost,2,-1000,-6000,0,0,0,Tormenter of Flesh
+2021,transfer,6,6,0,0.5,-1,0,Thaumaturgic Shroud
+2022,transfer,2,2,0,0.5,-1,0,Soul Shroud
+2026,transfer,4,4,0,0.5,-1,0,Nerve Burn
+2027,transfer,2,2,0,1,-10,0,Martyr
+2029,boost,4,-5000,-5000,0,0,0,Stamina Blight
+2050,boost,2,8,15,0,0,0,Young Love
+2051,boost,2,8,15,0,0,0,Young Love
+2062,boost,4,-52,-105,0,0,0,Anemia
+2063,boost,4,-50,-100,0,0,0,Enfeeble Self VII
+2070,boost,2,-42,-79,0,0,0,Heart Rend
+2071,boost,2,-40,-75,0,0,0,Harm Self VII
+2072,boost,2,80,150,0,0,0,Adja's Gift
+2073,boost,2,80,150,0,0,0,Adja's Intervention
+2076,boost,6,51,100,0,0,0,Mana Boost Other VII
+2077,boost,6,51,100,0,0,0,Mana Boost Self VII
+2078,boost,6,-42,-79,0,0,0,Void's Call
+2079,boost,6,-40,-75,0,0,0,Mana Drain Self VII
+2082,boost,4,100,200,0,0,0,Replenish
+2083,boost,4,100,200,0,0,0,Robustification
+2328,transfer,2,2,0,0.5,0.5,180,Vitality Siphon
+2329,transfer,6,6,0,0.5,0.5,180,Essence Void
+2330,transfer,4,4,0,0.5,0.5,180,Vigor Siphon
+2331,transfer,2,6,0,0.5,-0.75,0,Health to Mana Other VII
+2332,transfer,2,6,0,0.5,-0.75,0,Cannibalize
+2333,transfer,2,4,0,0.5,-0.75,0,Health to Stamina Other VII
+2334,transfer,2,4,0,0.5,-0.75,0,Self Sacrifice
+2335,transfer,2,2,0,0.25,-0.75,0,Gift of Vitality
+2336,transfer,6,6,0,0.25,-0.75,0,Gift of Essence
+2337,transfer,4,4,0,0.25,-0.75,0,Gift of Vigor
+2338,transfer,6,2,0,0.5,-0.75,0,Mana to Health Other VII
+2339,transfer,6,2,0,0.5,-0.75,0,Energize Vitality
+2340,transfer,6,4,0,0.5,-0.75,0,Mana to Stamina Other VII
+2341,transfer,6,4,0,0.5,-0.75,0,Energize Vigor
+2342,transfer,4,2,0,0.5,-0.75,0,Stamina to Health Other VII
+2343,transfer,4,2,0,0.5,-0.75,0,Rushed Recovery
+2344,transfer,4,6,0,0.5,-0.75,0,Stamina to Mana Other VII
+2345,transfer,4,6,0,0.5,-0.75,0,Meditative Trance
+2788,boost,6,-5000,-5000,0,0,0,Essence Blight
+2789,boost,2,-8000,-8000,0,0,0,Elemental Destruction
+2927,boost,2,8,15,0,0,0,Old School Fireworks
+2981,boost,2,8,15,0,0,0,Fellowship Heal I
+3036,boost,4,-300,-300,0,0,0,Cold Grip of the Grave
+3037,boost,2,-40,-40,0,0,0,Death's Call
+3038,boost,2,-50,-50,0,0,0,Death's Embrace
+3039,boost,2,-150,-150,0,0,0,Death's Feast
+3040,boost,2,-30,-30,0,0,0,Places Death's Kiss upon you.
+3041,boost,2,-175,-175,0,0,0,Essence Dissolution
+3047,boost,2,-250,-250,0,0,0,Matron's Barb
+3054,boost,2,-750,-1000,0,0,0,Soul Dissolution
+3236,boost,2,60,80,0,0,0,Restorative Draught
+3372,boost,4,-5000,-5000,0,0,0,Debilitating Spore
+3373,boost,6,-5000,-5000,0,0,0,Diseased Air
+3374,transfer,2,2,0,0.9900000095367432,0,0,Kivik Lir's Scorn
+3381,boost,4,-5000,-5000,0,0,0,Debilitating Spore
+3382,boost,6,-5000,-5000,0,0,0,Diseased Air
+3799,boost,6,-5000,-5001,0,0,0,Black Marrow Bliss
+3835,boost,2,-150,-400,0,0,0,Leviathan's Curse
+3874,boost,2,8,15,0,0,0,Death's Aura
+3932,boost,2,-200,-400,0,0,0,Grael's Rage
+3959,boost,2,-50,-100,0,0,0,Redirect Motives
+4100,boost,2,500,750,0,0,0,Breath of Renewal
+4110,boost,2,-40,-80,0,0,0,Poison
+4284,boost,2,-100000,-100000,0,0,0,Harm Self
+4285,boost,2,-900000,-900000,0,0,0,Harm Self
+4286,boost,2,-300000,-300000,0,0,0,Harm Self
+4287,boost,2,-700000,-700000,0,0,0,Harm Self
+4288,boost,2,-500000,-500000,0,0,0,Harm Self
+4300,boost,4,-66,-131,0,0,0,Incantation of Enfeeble Other
+4301,boost,4,-50,-100,0,0,0,Incantation of Enfeeble Self
+4308,boost,2,-50,-95,0,0,0,Incantation of Harm Other
+4309,boost,2,-48,-90,0,0,0,Incantation of Harm Self
+4310,boost,2,90,180,0,0,0,Incantation of Heal Other
+4311,boost,2,90,180,0,0,0,Incantation of Heal Self
+4314,boost,6,51,100,0,0,0,Incantation of Mana Boost Other
+4315,boost,6,51,100,0,0,0,Incantation of Mana Boost Self
+4316,boost,6,-52,-95,0,0,0,Incantation of Mana Drain Other
+4317,boost,6,-48,-90,0,0,0,Incantation of Mana Drain Self
+4320,boost,4,125,250,0,0,0,Incantation of Revitalize Other
+4321,boost,4,125,250,0,0,0,Incantation of Revitalize Self
+4643,transfer,2,2,0,0.6000000238418579,0.6499999761581421,200,Incantation of Drain Health Other
+4644,transfer,6,6,0,0.6000000238418579,0,200,Incantation of Drain Mana Other
+4645,transfer,4,4,0,0.6000000238418579,0,200,Incantation of Drain Stamina Other
+4646,transfer,2,6,0,0.5,-1,0,Incantation of Health to Mana Other
+4647,transfer,2,6,0,0.5,-1,0,Incantation of Health to Mana Self
+4648,transfer,2,4,0,0.5,-1,0,Incantation of Health to Stamina Other
+4649,transfer,2,4,0,0.5,-1,0,Incantation of Health to Stamina Self
+4650,transfer,2,2,0,0.25,-1,0,Incantation of Infuse Health Other
+4651,transfer,6,6,0,0.25,-1,0,Incantation of Infuse Mana Other
+4652,transfer,4,4,0,0.25,-1,0,Incantation of Infuse Stamina Other
+4653,transfer,6,2,0,0.5,-1,0,Incantation of Mana to Health Other
+4654,transfer,6,2,0,0.5,-1,0,Incantation of Mana to Health Self
+4655,transfer,6,4,0,0.5,-1,0,Incantation of Mana to Stamina Other
+4656,transfer,6,4,0,0.5,-1,0,Incantation of Mana to Stamina Self
+4657,transfer,4,2,0,0.5,-1,0,Incantation of Stamina to Health Other
+4658,transfer,4,2,0,0.5,-1,0,Incantation of Stamina to Health Self
+4659,transfer,4,6,0,0.5,-1,0,Incantation of Stamina to Mana Other
+4716,boost,2,-100,-250,0,0,0,Burning Curse
+4910,boost,2,-1,-2,0,0,0,Raider Tag
+4926,boost,2,-400,-800,0,0,0,Smite
+4929,boost,2,-5,-10,0,0,0,Harm
+4947,boost,2,-10,-20,0,0,0,Harm
+4948,boost,2,-20,-30,0,0,0,Harm
+4949,boost,2,-60,-80,0,0,0,Harm
+4981,transfer,4,6,0,0.5,-1,0,Incantation of Stamina to Mana Self
+5011,boost,2,-150,-300,0,0,0,Geomantic Raze

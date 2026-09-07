@@ -347,6 +347,21 @@ impl Api for CtxApi<'_, '_> {
                     })
                     .unwrap_or(0);
                 m.insert("skill_base".into(), int(unbuffed));
+                m.insert(
+                    "check".into(),
+                    {
+                        use ac_client::magic::CastCheck;
+                        match c.can_cast(w.spell) {
+                            CastCheck::Ok => "ok",
+                            CastCheck::NotKnown => "not_known",
+                            CastCheck::NoCaster => "no_caster",
+                            CastCheck::MissingComponents(_) => "missing_components",
+                            CastCheck::NotEnoughMana { .. } => "not_enough_mana",
+                            CastCheck::TooHard { .. } => "too_hard",
+                        }
+                    }
+                    .into(),
+                );
                 m.insert("vitae".into(), float(c.world.stats.vitae()));
                 m.insert("power".into(), int(sp.map(|s| s.power).unwrap_or(0)));
                 m.insert(
@@ -356,6 +371,38 @@ impl Api for CtxApi<'_, '_> {
                         ac_client::buffs::Target::Item(g) => g,
                     }),
                 );
+                Dynamic::from(m)
+            })
+            .collect()
+    }
+
+    fn enchantments(&mut self) -> Array {
+        let c = self.client();
+        let table = c.assets.spell_table().ok();
+        let now = c.session.server_time();
+        c.world
+            .stats
+            .enchantments
+            .iter()
+            .map(|e| {
+                let mut m = Map::new();
+                m.insert("spell".into(), int(e.spell_id));
+                let name = table
+                    .as_ref()
+                    .and_then(|t| t.get(e.spell_id as u32))
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default();
+                m.insert("name".into(), name.into());
+                m.insert("category".into(), int(e.category));
+                m.insert("power".into(), int(e.power));
+                m.insert("layer".into(), int(e.layer));
+                m.insert("duration".into(), float(e.duration as f32));
+                let left = match now.and_then(|n| e.remaining(n)) {
+                    Some(l) => l,
+                    None if e.duration < 0.0 => -1.0,
+                    None => 0.0,
+                };
+                m.insert("left".into(), float(left as f32));
                 Dynamic::from(m)
             })
             .collect()

@@ -36,6 +36,10 @@ const LOOT_TIMEOUT: Duration = Duration::from_secs(6);
 const HEAL_EVERY: Duration = Duration::from_millis(2500);
 /// Least time between two casts of the same buff.
 const BUFF_EVERY: Duration = Duration::from_millis(1500);
+/// The same note is not logged again within this.
+const NOTE_EVERY: Duration = Duration::from_secs(5);
+/// How often the buffs are gone through to see what is due.
+const BUFF_CHECK_EVERY: Duration = Duration::from_millis(1000);
 /// Least time between two attack orders.
 const ATTACK_EVERY: Duration = Duration::from_millis(1200);
 /// Least time between two attack spells. A war spell takes about two
@@ -53,8 +57,17 @@ pub struct Survive {
     pub flee_below: f32,
     /// Use a carried healing kit.
     pub use_kits: bool,
-    /// Cast this spell to heal (by name, "Heal Self"); empty for none.
+    /// Cast this spell to heal (by name, "Heal Self"); empty to use the
+    /// strongest health boost known instead, whatever it is called.
     pub heal_spell: String,
+    /// Keep mana up by pouring stamina into it, and stamina up with
+    /// Revitalize, the way a caster does: the transfer gives more mana
+    /// than the Revitalize costs, so the round is a gain.
+    pub manage_mana: bool,
+    /// Pour stamina into mana when mana is under this fraction.
+    pub mana_below: f32,
+    /// Revitalize when stamina is under this fraction.
+    pub stamina_below: f32,
 }
 
 impl Default for Survive {
@@ -63,7 +76,10 @@ impl Default for Survive {
             heal_below: 0.6,
             flee_below: 0.25,
             use_kits: true,
-            heal_spell: "Heal Self".into(),
+            heal_spell: String::new(),
+            manage_mana: true,
+            mana_below: 0.4,
+            stamina_below: 0.3,
         }
     }
 }
@@ -96,6 +112,10 @@ pub struct Buffs {
     pub never_below: f32,
     /// Only top up out of combat (the urgent recasts happen regardless).
     pub out_of_combat_only: bool,
+    /// Keep this fraction of mana back from buffing, for healing and
+    /// fighting. A character that spends its last point on Quickness
+    /// Self cannot heal, and buffs are the one thing that can wait.
+    pub keep_mana: f32,
 }
 
 impl Default for Buffs {
@@ -107,6 +127,7 @@ impl Default for Buffs {
             top_up_within: 300.0,
             never_below: 60.0,
             out_of_combat_only: true,
+            keep_mana: 0.35,
         }
     }
 }
@@ -352,6 +373,19 @@ pub struct Config {
     pub team: Team,
 }
 
+/// Why a cast is refused, in a few words for a status line.
+pub fn cast_problem(check: &crate::magic::CastCheck) -> String {
+    use crate::magic::CastCheck;
+    match check {
+        CastCheck::Ok => "fine".into(),
+        CastCheck::NotKnown => "not known".into(),
+        CastCheck::NoCaster => "no wand wielded".into(),
+        CastCheck::MissingComponents(m) => format!("short of {} components", m.len()),
+        CastCheck::NotEnoughMana { need, have } => format!("mana {have}/{need}"),
+        CastCheck::TooHard { power, skill } => format!("power {power} over skill {skill}"),
+    }
+}
+
 /// Whether `name` contains any of `list`, case-insensitively. An empty
 /// list matches nothing.
 pub fn name_matches(name: &str, list: &[String]) -> bool {
@@ -436,9 +470,17 @@ pub struct Autoplay {
     /// lasts)`. An item's enchantments are not reported the way the
     /// character's own are, so the cast is remembered instead.
     item_buffs: Vec<(u32, u32, Instant, f32)>,
+    /// The last note logged and when (see `note`).
+    noted: Option<(String, Instant)>,
+    /// When the buffs were last gone through. The urgent pass runs
+    /// every tick, and working out what is due walks the whole
+    /// spellbook, so it is only done once a second.
+    buffs_checked: Option<Instant>,
     /// The weapon put down to cast an urgent buff mid-fight, to be taken
     /// up again the moment the buffing is done.
     put_down: Option<u32>,
+    /// When stamina was last poured into mana or Revitalize cast.
+    last_vital: Option<Instant>,
     /// The corpse being looted and when we started.
     corpse: Option<(u32, Instant)>,
     /// Corpses already emptied.
@@ -457,6 +499,22 @@ pub struct Autoplay {
 }
 
 impl Autoplay {
+    /// Something worth knowing that is not what the character is doing:
+    /// logged, at most every few seconds for the same words, and the
+    /// status left as it was. Said every tick it would drown the log
+    /// and flip the status back and forth with whatever else is going on.
+    fn note(&mut self, text: impl Into<String>, now: Instant) {
+        let text = text.into();
+        let again = self
+            .noted
+            .as_ref()
+            .is_some_and(|(t, when)| *t == text && now.duration_since(*when) < NOTE_EVERY);
+        if !again {
+            tracing::info!("autoplay: {text}");
+            self.noted = Some((text, now));
+        }
+    }
+
     fn say(&mut self, doing: Doing, status: impl Into<String>) {
         let status = status.into();
         if self.doing != doing || self.status != status {
@@ -486,23 +544,140 @@ impl Client {
             return None;
         }
         let table = self.assets.spell_table().ok();
-        let mut best: Option<(u32, u32)> = None;
+        // Of the family, the strongest that can be cast right now: a
+        // name like "Heal Self" means the best Heal Self we can manage,
+        // not the best in the book. Failing any castable, the strongest
+        // known, so the reason it cannot be cast can be reported.
+        let mut best_castable: Option<(u32, u32)> = None;
+        let mut best_known: Option<(u32, u32)> = None;
         for id in &self.world.stats.spells {
-            let full = table
-                .as_ref()
-                .and_then(|t| t.get(*id).map(|s| s.name.clone()))
+            let sp = table.as_ref().and_then(|t| t.get(*id));
+            let full = sp
+                .map(|s| s.name.clone())
                 .or_else(|| self.known_spells.get(id).cloned())
                 .unwrap_or_default()
                 .to_lowercase();
             if !full.starts_with(&want) && !full.contains(&want) {
                 continue;
             }
-            // Later spells in a family are the stronger ones.
-            if best.map(|(b, _)| *id > b).unwrap_or(true) {
-                best = Some((*id, *id));
+            // Power orders a family; a spell the table lacks ranks by id.
+            let power = sp.map(|s| s.power).unwrap_or(*id);
+            let castable = matches!(
+                self.can_cast(*id),
+                crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster
+            );
+            if castable && best_castable.is_none_or(|(_, p)| power > p) {
+                best_castable = Some((*id, power));
+            }
+            if best_known.is_none_or(|(_, p)| power > p) {
+                best_known = Some((*id, power));
             }
         }
-        best.map(|(id, _)| id)
+        best_castable.or(best_known).map(|(id, _)| id)
+    }
+
+    /// The strongest known boost of a vital that can be cast right now,
+    /// whatever it is called: Heal Self VI and Adja's Intervention are
+    /// both health boosts, and the table says so where a name would not.
+    fn best_boost(&self, vital: u32) -> Option<u32> {
+        let table = self.assets.spell_table().ok()?;
+        ac_world::vitals::boosts_of(vital)
+            .into_iter()
+            .filter(|b| self.world.stats.spells.contains(&b.spell))
+            .filter(|b| table.get(b.spell).is_some_and(|s| s.is_self_targeted()))
+            .filter(|b| {
+                matches!(
+                    self.can_cast(b.spell),
+                    crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster
+                )
+            })
+            .max_by_key(|b| table.get(b.spell).map(|s| s.power).unwrap_or(0))
+            .map(|b| b.spell)
+    }
+
+    /// The strongest known self transfer from one vital into another
+    /// that can be cast right now.
+    fn best_transfer(&self, from: u32, to: u32) -> Option<u32> {
+        let table = self.assets.spell_table().ok()?;
+        ac_world::vitals::transfers_between(from, to)
+            .into_iter()
+            .filter(|t| self.world.stats.spells.contains(&t.spell))
+            .filter(|t| table.get(t.spell).is_some_and(|s| s.is_self_targeted()))
+            .filter(|t| {
+                matches!(
+                    self.can_cast(t.spell),
+                    crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster
+                )
+            })
+            .max_by_key(|t| table.get(t.spell).map(|s| s.power).unwrap_or(0))
+            .map(|t| t.spell)
+    }
+
+    /// Keep mana and stamina up the way a caster does: stamina poured
+    /// into mana when mana runs low, Revitalize when stamina does. True
+    /// when a spell went out.
+    fn autoplay_vitals(&mut self, now: Instant) -> bool {
+        use ac_world::vitals::vital;
+        let cfg = self.autoplay.config.survive.clone();
+        if !cfg.manage_mana {
+            return false;
+        }
+        if self
+            .autoplay
+            .last_vital
+            .is_some_and(|t| now.duration_since(t) < HEAL_EVERY)
+        {
+            return false;
+        }
+        let frac = |i: usize| {
+            let max = self.world.stats.vital_max(i).max(1) as f32;
+            self.world.stats.vitals[i].current as f32 / max
+        };
+        let (stamina, mana) = (frac(1), frac(2));
+        // Stamina first: it is what mana is made from, and Revitalize is
+        // cheap next to what a transfer of a full bar returns.
+        if stamina < cfg.stamina_below {
+            if let Some(spell) = self.best_boost(vital::STAMINA) {
+                if matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
+                    self.cast(spell);
+                    self.autoplay.last_vital = Some(now);
+                    self.autoplay.say(
+                        Doing::Buffing,
+                        format!("restoring stamina at {:.0}%", stamina * 100.0),
+                    );
+                    return true;
+                }
+            }
+        }
+        if mana < cfg.mana_below && stamina >= cfg.stamina_below.max(0.5) {
+            if let Some(spell) = self.best_transfer(vital::STAMINA, vital::MANA) {
+                if matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
+                    self.cast(spell);
+                    self.autoplay.last_vital = Some(now);
+                    self.autoplay.say(
+                        Doing::Buffing,
+                        format!("pouring stamina into mana at {:.0}%", mana * 100.0),
+                    );
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// The lowest-power known spell whose name matches, for reporting
+    /// why a whole family is out of reach.
+    fn easiest_of_family(&self, name: &str) -> Option<u32> {
+        let want = name.trim().to_lowercase();
+        let table = self.assets.spell_table().ok()?;
+        self.world
+            .stats
+            .spells
+            .iter()
+            .filter_map(|id| table.get(*id).map(|s| (*id, s)))
+            .filter(|(_, s)| s.name.to_lowercase().starts_with(&want))
+            .min_by_key(|(_, s)| s.power)
+            .map(|(id, _)| id)
     }
 
     /// Seconds left on the enchantment of a spell family, if any is up.
@@ -515,31 +690,35 @@ impl Client {
         }
     }
 
-    /// Seconds left on this exact spell.
+    /// Seconds left on this exact spell: `None` when it is not up,
+    /// infinity when it never runs out.
     fn spell_left(&self, spell: u32) -> Option<f32> {
-        let now = self.session.server_time()?;
-        self.world
-            .stats
-            .enchantments
-            .iter()
-            .filter(|e| e.spell_id as u32 == spell)
-            .map(|e| (e.start_time + e.duration - now) as f32)
-            .fold(None, |acc: Option<f32>, left| {
-                Some(acc.map_or(left, |a| a.max(left)))
-            })
+        self.longest_left(|e| e.spell_id as u32 == spell)
     }
 
     /// Seconds left on any enchantment of this category at least as
     /// strong as `power`: Strength Self VI already up means Strength
     /// Self IV is not wanted, and the other way round it is.
     fn category_left(&self, category: u32, power: u32) -> Option<f32> {
+        self.longest_left(|e| e.category as u32 == category && e.power >= power)
+    }
+
+    /// The longest any enchantment passing `keep` has left. A quest or
+    /// item enchantment with no end has a duration below zero and is
+    /// worth infinity here: treating it as run out had a character
+    /// recasting a permanent buff every two seconds. Without the
+    /// server's clock nothing can be said, and nothing is due.
+    fn longest_left(&self, keep: impl Fn(&ac_world::stats::Enchantment) -> bool) -> Option<f32> {
         let now = self.session.server_time()?;
         self.world
             .stats
             .enchantments
             .iter()
-            .filter(|e| e.category as u32 == category && e.power >= power)
-            .map(|e| (e.start_time + e.duration - now) as f32)
+            .filter(|e| keep(e))
+            .map(|e| match e.remaining(now) {
+                Some(left) => left as f32,
+                None => f32::INFINITY,
+            })
             .fold(None, |acc: Option<f32>, left| {
                 Some(acc.map_or(left, |a| a.max(left)))
             })
@@ -574,7 +753,16 @@ impl Client {
             .map(|o| o.guid)
             .collect();
         let least = self.autoplay.config.buffs.least_chance;
-        let usable = |id: u32| self.cast_chance(id) >= least;
+        // Likely enough to land, and with the components and mana to
+        // try: a wand not yet in hand is the one lack that does not
+        // count, since wielding one is the first thing done.
+        let usable = |id: u32| {
+            self.cast_chance(id) >= least
+                && matches!(
+                    self.can_cast(id),
+                    crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster
+                )
+        };
         let me = crate::buffs::Character {
             known: &self.world.stats.spells,
             trained: &trained,
@@ -601,6 +789,10 @@ impl Client {
         // A buff about to run out goes back up before anything else is
         // done, fight or no fight.
         if self.autoplay_buff(now, true) {
+            return;
+        }
+        // Mana and stamina are kept up between everything else.
+        if self.autoplay_vitals(now) {
             return;
         }
         self.autoplay_rearm();
@@ -667,14 +859,42 @@ impl Client {
                 return true;
             }
         }
-        if let Some(spell) = self.spell_by_name(&cfg.heal_spell) {
-            if matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
+        let heal = if cfg.heal_spell.trim().is_empty() {
+            self.best_boost(ac_world::vitals::vital::HEALTH)
+        } else {
+            self.spell_by_name(&cfg.heal_spell)
+        };
+        if let Some(spell) = heal {
+            let check = self.can_cast(spell);
+            // When no level can be cast the name resolves to the
+            // strongest, whose reason ("short of components") is not
+            // the one that matters; the easiest level says why even
+            // that is out of reach.
+            let check = if matches!(check, crate::magic::CastCheck::Ok) || cfg.heal_spell.is_empty()
+            {
+                check
+            } else {
+                self.easiest_of_family(&cfg.heal_spell)
+                    .map(|id| self.can_cast(id))
+                    .unwrap_or(check)
+            };
+            if matches!(check, crate::magic::CastCheck::Ok) {
                 self.cast(spell);
                 self.autoplay.last_heal = Some(now);
                 self.autoplay
                     .say(Doing::Healing, format!("healing at {:.0}%", health * 100.0));
                 return true;
             }
+            // Hurt and unable to heal is worth saying out loud.
+            let why = cast_problem(&check);
+            self.autoplay.note(
+                format!(
+                    "cannot heal at {:.0}%: {} {why}",
+                    health * 100.0,
+                    cfg.heal_spell
+                ),
+                now,
+            );
         }
         false
     }
@@ -732,7 +952,16 @@ impl Client {
                 let Some(stats) = self.stats_of(*g) else {
                     continue;
                 };
-                if wanted_loot(&stats, &cfg) {
+                let own_corpse = self
+                    .world
+                    .open_container
+                    .as_ref()
+                    .and_then(|c| self.world.objects.get(&c.0))
+                    .is_some_and(|o| {
+                        let me = self.world.stats.name.to_lowercase();
+                        !me.is_empty() && o.name.to_lowercase() == format!("corpse of {me}")
+                    });
+                if own_corpse || wanted_loot(&stats, &cfg) {
                     tracing::info!("autoplay: taking {}", stats.name);
                     self.take(*g);
                     took += 1;
@@ -759,6 +988,9 @@ impl Client {
             .values()
             .filter(|o| o.object_desc_flags & ac_world::object_desc_flags::CORPSE != 0)
             .filter(|o| !looted.contains(&o.guid))
+            // Our own corpse is looted too, but for everything on it
+            // (see below): the wand and the components are on it, and a
+            // character without them cannot fight or heal.
             .filter_map(|o| {
                 let p = o.world_pos()?;
                 let d = p.distance(me);
@@ -1081,9 +1313,16 @@ impl Client {
             return true;
         }
         // Nothing castable: out of mana, out of components, or the
-        // spells are not learnt. Say so rather than looking idle.
+        // spells are not learnt. Say which, for the first of them.
+        let why = cfg
+            .spells
+            .iter()
+            .filter_map(|n| self.spell_by_name(n).map(|id| (n.clone(), id)))
+            .map(|(n, id)| format!("{n}: {}", cast_problem(&self.can_cast(id))))
+            .next()
+            .unwrap_or_else(|| "none of the attack spells is known".into());
         self.autoplay
-            .say(Doing::Fighting, format!("cannot cast anything at {name}"));
+            .say(Doing::Fighting, format!("cannot cast at {name} ({why})"));
         true
     }
 
@@ -1354,6 +1593,15 @@ impl Client {
         {
             return false;
         }
+        if urgent
+            && self
+                .autoplay
+                .buffs_checked
+                .is_some_and(|t| now.duration_since(t) < BUFF_CHECK_EVERY)
+        {
+            return false;
+        }
+        self.autoplay.buffs_checked = Some(now);
         let within = if urgent {
             cfg.never_below
         } else {
@@ -1362,6 +1610,9 @@ impl Client {
         // Find what is due before touching the hands: the urgent pass
         // runs every tick and must cost nothing when nothing is due.
         let Some((spell, target, category, name, lasts)) = self.due_buff(within, now) else {
+            if !urgent {
+                self.autoplay_explain_buffs(now);
+            }
             return false;
         };
         // A wand is needed to cast. Out of a fight the arming code sorts
@@ -1392,6 +1643,22 @@ impl Client {
         if !matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
             return false;
         }
+        // Mana is kept back for healing and fighting: a top-up waits
+        // until there is that much to spare, and even an urgent recast
+        // leaves half of it.
+        let reserve = self.vital_max_of(2) as f32 * cfg.keep_mana * if urgent { 0.5 } else { 1.0 };
+        let cost = self
+            .assets
+            .spell_table()
+            .ok()
+            .and_then(|t| t.get(spell).map(|s| s.base_mana))
+            .unwrap_or(0) as f32;
+        let have = self.world.stats.vitals[2].current as f32;
+        if have - cost < reserve {
+            self.autoplay
+                .note(format!("holding off {name} to keep mana back"), now);
+            return false;
+        }
         use crate::buffs::Target;
         match target {
             Target::Me => {
@@ -1416,6 +1683,45 @@ impl Client {
         }
         self.autoplay.last_buff = Some(now);
         true
+    }
+
+    /// When buffs are wanted but none can be cast, say why for the
+    /// first of them, so a character standing unbuffed is not a mystery.
+    fn autoplay_explain_buffs(&mut self, now: Instant) {
+        use crate::buffs::Target;
+        use crate::magic::CastCheck;
+        if !self.autoplay.config.buffs.auto {
+            return;
+        }
+        let top_up = self.autoplay.config.buffs.top_up_within;
+        for want in self.wanted_buffs() {
+            let left = match want.target {
+                Target::Me => self.category_left(want.category, want.power),
+                Target::Item(g) => self.item_buff_left(g, want.category, now),
+            };
+            if left.is_some_and(|l| l > top_up) {
+                continue;
+            }
+            let check = self.can_cast(want.spell);
+            if matches!(check, CastCheck::Ok | CastCheck::NoCaster) {
+                continue;
+            }
+            let why = cast_problem(&check);
+            let name = self
+                .assets
+                .spell_table()
+                .ok()
+                .and_then(|t| t.get(want.spell).map(|s| s.name.clone()))
+                .unwrap_or_default();
+            self.autoplay
+                .note(format!("cannot buff: {name}, {why}"), now);
+            return;
+        }
+    }
+
+    /// The maximum of a vital (0 health, 1 stamina, 2 mana).
+    fn vital_max_of(&self, i: usize) -> u32 {
+        self.world.stats.vital_max(i)
     }
 
     /// Take up again the weapon put down for an urgent buff, once no
@@ -1452,10 +1758,24 @@ impl Client {
         let cfg = &self.autoplay.config.buffs;
         let table = self.assets.spell_table().ok();
         let mut due: Option<(f32, u32, Target, u32, String, f32)> = None;
+        let clock = self.session.server_time().is_some();
         let mut offer = |left: Option<f32>, spell: u32, target: Target, category: u32| {
-            let left = left.unwrap_or(0.0);
+            // Not up at all is due now; but until the server's clock is
+            // known nothing can be told apart, so nothing is due.
+            let left = match left {
+                Some(l) => l,
+                None if clock => 0.0,
+                None => return,
+            };
             if left > within {
                 return;
+            }
+            // One that cannot be cast must not stand in front of the
+            // rest: short of components or mana it is passed over. No
+            // wand is different, since wielding one is the cure.
+            match self.can_cast(spell) {
+                crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster => {}
+                _ => return,
             }
             if due.as_ref().is_some_and(|d| d.0 <= left) {
                 return;
