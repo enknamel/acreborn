@@ -31,11 +31,13 @@ pub fn draws(quads: &[Quad], eye: Vec3) -> Vec<ParticleDraw> {
     for q in quads {
         groups.entry((q.image, q.additive)).or_default().push((
             q.position.distance_squared(eye),
-            ParticleInstance {
-                position: q.position.to_array(),
-                size: q.size.to_array(),
-                color: q.color,
-            },
+            ParticleInstance::new(
+                q.position.to_array(),
+                q.size.to_array(),
+                q.color,
+                if q.flat { ParticleInstance::FLAT } else { 0 },
+                q.angle,
+            ),
         ));
     }
     let mut out: Vec<ParticleDraw> = groups
@@ -166,6 +168,8 @@ mod tests {
             color: [1.0; 4],
             image,
             additive,
+            flat: false,
+            angle: 0.0,
         };
         let quads = [
             q(1.0, SpriteImage::Surface(0x0800_0001), false),

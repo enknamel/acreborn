@@ -21,6 +21,11 @@ struct ParticleIn {
     @location(0) center: vec3<f32>,
     @location(1) size: vec2<f32>,
     @location(2) color: vec4<f32>,
+    // Bit 0: lie flat in the world's x/y plane instead of facing the
+    // camera, for marks drawn on the ground.
+    @location(3) flags: u32,
+    // Turn about the up axis, radians; a flat quad only.
+    @location(4) angle: f32,
 };
 struct ParticleOut {
     @builtin(position) clip: vec4<f32>,
@@ -40,7 +45,15 @@ fn vs_particle(in: ParticleIn) -> ParticleOut {
         vec2<f32>(-0.5, 0.5),
     );
     let c = corners[in.corner];
-    let world = in.center + pg.right.xyz * (c.x * in.size.x) + pg.up.xyz * (c.y * in.size.y);
+    var right = pg.right.xyz;
+    var up = pg.up.xyz;
+    if ((in.flags & 1u) != 0u) {
+        let s = sin(in.angle);
+        let c = cos(in.angle);
+        right = vec3<f32>(c, s, 0.0);
+        up = vec3<f32>(-s, c, 0.0);
+    }
+    let world = in.center + right * (c.x * in.size.x) + up * (c.y * in.size.y);
     var out: ParticleOut;
     out.clip = pg.view_proj * vec4<f32>(world, 1.0);
     out.uv = vec2<f32>(c.x + 0.5, 0.5 - c.y);

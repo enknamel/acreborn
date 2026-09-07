@@ -131,7 +131,7 @@ impl Sprite {
     }
 }
 
-/// One camera-facing quad to draw this frame.
+/// One quad to draw this frame: camera-facing, or flat on the ground.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Quad {
     /// World-space centre.
@@ -142,6 +142,12 @@ pub struct Quad {
     pub color: [f32; 4],
     pub image: SpriteImage,
     pub additive: bool,
+    /// Lie flat in the world's x/y plane, facing up, instead of turning
+    /// to face the camera. For marks drawn on the ground.
+    pub flat: bool,
+    /// Turn about the up axis, radians. Only a flat quad uses it, to
+    /// lie along the direction something is going.
+    pub angle: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -385,6 +391,8 @@ impl Emitter {
                 color: [1.0, 1.0, 1.0, (1.0 - p.trans).clamp(0.0, 1.0)],
                 image: self.sprite.image,
                 additive: self.sprite.additive,
+                flat: false,
+                angle: 0.0,
             });
         }
     }

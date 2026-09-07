@@ -15,6 +15,7 @@ mod scene;
 use ac_client::player;
 mod chat;
 mod plugins;
+mod route_marks;
 mod sky;
 mod ui;
 mod water;
@@ -242,6 +243,13 @@ struct App {
     palettes: scene::Palettes,
     tables: std::collections::HashMap<u32, Option<ac_formats::motion_table::MotionTable>>,
     fx: world_fx::WorldFx,
+    /// Draw the planned route as a line of marks on the ground.
+    show_route: bool,
+    /// Something was drawn as particles last frame, so an empty list
+    /// this frame still has to be uploaded to clear it.
+    drew_particles: bool,
+    /// When the window opened, for effects that move with time.
+    started: Instant,
     audio: Option<ac_audio::Audio>,
     /// Character select and creation, between login and the world.
     lobby: ac_plugin::lobby::Lobby,
@@ -968,14 +976,23 @@ impl App {
                 tracing::info!("landblock {id:#010x} unloaded");
             }
         }
-        if !self.fx.is_empty() {
-            self.fx.update(&net.client.assets, self.frame_dt);
-            let quads = self.fx.quads();
-            let assets = &net.client.assets;
-            let palettes = &self.palettes;
-            gpu.set_particles(particles::draws(&quads, self.camera.position), |k| {
-                scene::material_image(assets, k, palettes)
-            });
+        {
+            if !self.fx.is_empty() {
+                self.fx.update(&net.client.assets, self.frame_dt);
+            }
+            let mut quads = self.fx.quads();
+            if self.show_route {
+                let now = self.started.elapsed().as_secs_f32();
+                quads.extend(route_marks::quads(&mut net.client, now));
+            }
+            if !quads.is_empty() || self.drew_particles {
+                self.drew_particles = !quads.is_empty();
+                let assets = net.client.assets.clone();
+                let palettes = &self.palettes;
+                gpu.set_particles(particles::draws(&quads, self.camera.position), |k| {
+                    scene::material_image(&assets, k, palettes)
+                });
+            }
         }
         let changed = net.client.world.generation != net.last_generation;
         let animate = scene::any_animated(&net.anims)
@@ -1294,6 +1311,22 @@ impl ApplicationHandler for App {
                         self.toggle_combat();
                         return;
                     }
+                    // T shows or hides the line of marks laid along the
+                    // route the character is walking.
+                    if code == KeyCode::KeyT && event.state == ElementState::Pressed {
+                        self.show_route = !self.show_route;
+                        if let Some(net) = self.nets.get_mut(self.active) {
+                            net.client.events.push(ac_client::Event::Chat {
+                                text: if self.show_route {
+                                    "Route shown on the ground.".into()
+                                } else {
+                                    "Route hidden.".into()
+                                },
+                                kind: 1,
+                            });
+                        }
+                        return;
+                    }
                     // Retail's separate actions on the selected object: R
                     // uses it where it is (read a sign or a book on the
                     // ground, open a chest), G picks it up.
@@ -1524,6 +1557,9 @@ fn main() -> Result<()> {
             palettes: Default::default(),
             tables: Default::default(),
             fx: Default::default(),
+            show_route: true,
+            drew_particles: false,
+            started: Instant::now(),
             audio: None,
             lobby: Default::default(),
             preview: None,
@@ -2043,6 +2079,9 @@ fn main() -> Result<()> {
         palettes: Default::default(),
         tables: Default::default(),
         fx: Default::default(),
+        show_route: true,
+        drew_particles: false,
+        started: Instant::now(),
         audio: None,
         lobby: Default::default(),
         preview: None,

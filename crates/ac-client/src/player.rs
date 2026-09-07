@@ -385,6 +385,34 @@ impl Player {
         self.blocks.get(&blk).map(|b| b.dungeon).unwrap_or(false)
     }
 
+    /// The height of the ground under a world `(x, y)`: the interior
+    /// floor or the terrain, whichever a character walking there would
+    /// stand on. Used to lay a drawn route along the ground.
+    pub fn ground_height(&mut self, assets: &Assets, x: f32, y: f32, near_z: f32) -> Option<f32> {
+        let block = block_of(Vec3::new(x, y, 0.0));
+        self.collision(assets, block)?;
+        let cap = self.capsule;
+        let height_table = self.height_table.clone();
+        let b = self.blocks.get(&block)?;
+        let collision = b.collision.as_ref()?;
+        let sampler = TerrainSampler::new(&b.lb, &height_table);
+        let origin = ac_world::landblock_origin(block);
+        let terrain =
+            |x: f32, y: f32| sampler.height_at(Vec3::new(x - origin.x, y - origin.y, 0.0));
+        let ground = Ground {
+            collision,
+            terrain: (!b.dungeon).then_some(&terrain),
+            sea: None,
+        };
+        // Look from a little above the height we expect, so a floor
+        // overhead is not mistaken for the one we are on.
+        let from = Vec3::new(x, y, near_z + cap.step_up);
+        ground
+            .surface_at(from, &cap)
+            .or_else(|| collision.floor_at(from, cap.step_up, 30.0))
+            .map(|(z, _)| z)
+    }
+
     /// Which of the region's terrain types are open sea, read once. A
     /// character cannot walk into the ocean: the server refuses the
     /// move and it stops dead against nothing, so no route may cross

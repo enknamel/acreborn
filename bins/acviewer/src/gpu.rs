@@ -82,19 +82,45 @@ impl TerrainBlend {
     }
 }
 
-/// One particle billboard: a camera-facing quad `size` metres across
-/// centred at `position`, tinted and faded by `color`.
+/// One particle billboard: a quad `size` metres across centred at
+/// `position`, tinted and faded by `color`. Camera-facing unless
+/// [`ParticleInstance::FLAT`] is set in `flags`, when it lies in the
+/// world's x/y plane instead: a mark drawn on the ground.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable, Debug, PartialEq)]
 pub struct ParticleInstance {
     pub position: [f32; 3],
     pub size: [f32; 2],
     pub color: [f32; 4],
+    pub flags: u32,
+    /// Turn about the up axis, radians; a flat quad only.
+    pub angle: f32,
+    _pad: [u32; 2],
 }
 
 impl ParticleInstance {
-    const ATTRS: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4];
+    /// Lie flat in the world's x/y plane, facing up.
+    pub const FLAT: u32 = 1;
+
+    pub fn new(
+        position: [f32; 3],
+        size: [f32; 2],
+        color: [f32; 4],
+        flags: u32,
+        angle: f32,
+    ) -> Self {
+        ParticleInstance {
+            position,
+            size,
+            color,
+            flags,
+            angle,
+            _pad: [0; 2],
+        }
+    }
+
+    const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+        0 => Float32x3, 1 => Float32x2, 2 => Float32x4, 3 => Uint32, 4 => Float32];
     fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<ParticleInstance>() as u64,
