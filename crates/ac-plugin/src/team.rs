@@ -95,18 +95,10 @@ impl Roster {
 
 /// The plugin: one roster shared by every session in this process, and
 /// when each session last spoke.
+#[derive(Default)]
 pub struct Team {
     roster: Roster,
     last_said: BTreeMap<usize, Instant>,
-}
-
-impl Default for Team {
-    fn default() -> Self {
-        Team {
-            roster: Roster::default(),
-            last_said: BTreeMap::new(),
-        }
-    }
 }
 
 /// What a session says about itself.
