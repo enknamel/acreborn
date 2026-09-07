@@ -47,11 +47,100 @@ const DUNGEON_MARGIN: f32 = 4.0;
 /// where the water surface covers the ground, then the footprints of
 /// buildings and objects (floors grey, walls dark). `z_range` is ignored
 /// outdoors.
+/// The landblocks around `center`, `radius` either side (1 gives the
+/// nine around the character, 2 the twenty-five), drawn into one image.
+///
+/// A dungeon is a landblock to itself, so the radius is ignored there.
+/// Blocks that will not load are simply left out, which is what happens
+/// at the edge of the world.
+pub fn render_area(
+    assets: &Assets,
+    center: u32,
+    radius: u32,
+    px_per_metre: f32,
+    z_range: Option<(f32, f32)>,
+) -> Result<LocalMap> {
+    // Beyond the block the character stands in, only things a few metres
+    // across are drawn, so the map shows buildings and walls rather than
+    // every tree.
+    let least = if radius == 0 { 0.0 } else { 7.0 };
+    let center = center & 0xFFFF_0000;
+    let one = render_detailed(assets, center, px_per_metre, z_range, 0.0)?;
+    if radius == 0 || one.dungeon {
+        return Ok(one);
+    }
+    let cx = crate::lbid::block_x(center) as i64;
+    let cy = crate::lbid::block_y(center) as i64;
+    let r = radius as i64;
+    // The area is the square of blocks around the middle one; every
+    // block's map is drawn at its own place in it.
+    let origin = Vec2::new(
+        ((cx - r).max(0) as f32) * crate::BLOCK_SIZE,
+        ((cy - r).max(0) as f32) * crate::BLOCK_SIZE,
+    );
+    let across = ((cx + r).min(254) - (cx - r).max(0) + 1) as f32 * crate::BLOCK_SIZE;
+    let up = ((cy + r).min(254) - (cy - r).max(0) + 1) as f32 * crate::BLOCK_SIZE;
+    let mut out = MapImage::blank(origin, Vec2::new(across, up), px_per_metre);
+    let mut z_min = one.z_min;
+    let mut z_max = one.z_max;
+    for bx in (cx - r).max(0)..=(cx + r).min(254) {
+        for by in (cy - r).max(0)..=(cy + r).min(254) {
+            let id = ((bx as u32) << 24) | ((by as u32) << 16);
+            let tile = if id == center {
+                one.clone()
+            } else {
+                match render_detailed(assets, id, px_per_metre, z_range, least) {
+                    Ok(t) if !t.dungeon => t,
+                    _ => continue,
+                }
+            };
+            z_min = z_min.min(tile.z_min);
+            z_max = z_max.max(tile.z_max);
+            blit(&mut out, &tile.image);
+        }
+    }
+    Ok(LocalMap {
+        image: out,
+        dungeon: false,
+        z_min,
+        z_max,
+    })
+}
+
+/// Copy the opaque pixels of `tile` into `out` at the world position
+/// they share.
+fn blit(out: &mut MapImage, tile: &MapImage) {
+    for ty in 0..tile.height as i64 {
+        for tx in 0..tile.width as i64 {
+            let Some(px) = tile.get(tx, ty) else { continue };
+            if px[3] == 0 {
+                continue;
+            }
+            let world = tile.to_world(Vec2::new(tx as f32 + 0.5, ty as f32 + 0.5));
+            let at = out.to_pixel(world);
+            out.put(at.x as i64, at.y as i64, px);
+        }
+    }
+}
+
 pub fn render(
     assets: &Assets,
     block: u32,
     px_per_metre: f32,
     z_range: Option<(f32, f32)>,
+) -> Result<LocalMap> {
+    render_detailed(assets, block, px_per_metre, z_range, 0.0)
+}
+
+/// [`render`] that leaves out object footprints smaller than `least`
+/// metres across: over a wide area the trees and rocks are a thicket
+/// that hides the ground.
+pub fn render_detailed(
+    assets: &Assets,
+    block: u32,
+    px_per_metre: f32,
+    z_range: Option<(f32, f32)>,
+    least: f32,
 ) -> Result<LocalMap> {
     let block = block & 0xFFFF_0000;
     let scene = landblock::load(assets, block)?;
@@ -74,7 +163,7 @@ pub fn render(
     );
     let region = assets.region()?;
     draw_terrain(&mut image, &region, &scene.terrain, origin);
-    draw_footprints(&mut image, &world.tris);
+    draw_footprints(&mut image, &world.tris, least);
     Ok(LocalMap {
         image,
         dungeon: false,
@@ -393,14 +482,33 @@ fn draw_terrain(
 }
 
 /// Buildings and objects seen from above: their floors and roofs grey,
-/// their walls as dark outlines.
-fn draw_footprints(image: &mut MapImage, tris: &[Tri]) {
-    let mut floors: Vec<&Tri> = tris.iter().filter(|t| t.normal.z > FLOOR).collect();
+/// their walls as dark outlines. `least` drops anything smaller than
+/// that across, which over several landblocks leaves the buildings and
+/// takes away the thicket of trees and rocks.
+fn draw_footprints(image: &mut MapImage, tris: &[Tri], least: f32) {
+    let big = |t: &Tri| {
+        if least <= 0.0 {
+            return true;
+        }
+        let (a, b, c) = (xy(t.a), xy(t.b), xy(t.c));
+        let w = a.x.max(b.x).max(c.x) - a.x.min(b.x).min(c.x);
+        let h = a.y.max(b.y).max(c.y) - a.y.min(b.y).min(c.y);
+        w.max(h) >= least
+    };
+    let mut floors: Vec<&Tri> = tris
+        .iter()
+        .filter(|t| t.normal.z > FLOOR)
+        .filter(|t| big(t))
+        .collect();
     floors.sort_by(|a, b| centre_z(a).total_cmp(&centre_z(b)));
     for t in floors {
         image.fill_world_tri(xy(t.a), xy(t.b), xy(t.c), FOOTPRINT);
     }
-    for t in tris.iter().filter(|t| t.normal.z.abs() < STEEP) {
+    for t in tris
+        .iter()
+        .filter(|t| t.normal.z.abs() < STEEP)
+        .filter(|t| big(t))
+    {
         draw_wall(image, t, FOOTPRINT_WALL);
     }
 }

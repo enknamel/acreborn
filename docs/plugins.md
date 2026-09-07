@@ -256,7 +256,8 @@ searchable with `ac_client::items::Query` lines such as `dmg>10 spell:blood
 type:armor`, sortable, with stat tooltips and a background "Appraise all"),
 `nameplates` (V; names over creatures, players and portals in the 3D
 view, projected through the camera the host publishes on the blackboard
-as `camera.view_proj`), `map` (M; world map from the terrain grid, local map or dungeon floor
+as `camera.view_proj`), `map` (M; world map, a local map of the landblocks around the character
+(seven across by default, up to eleven, drawn on a background thread), from the terrain grid, local map or dungeon floor
 plan, objects in the landblock with search and kind chips, overland
 travel by double-click or town name), `loot` (search, kind chips, stat tooltips, "Take all" and "Appraise
 all"), `vendor` (the same over both lists, plus a sort and "Sell all

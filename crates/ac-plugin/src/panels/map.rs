@@ -20,8 +20,13 @@
 //! The world map is rendered once from the terrain grid on a background
 //! thread (the first time takes a few seconds while the grid is read
 //! from the cell archive; both are cached under `~/.cache/acreborn`).
-//! The local map is rendered when the landblock changes, and in a
-//! dungeon whenever the character moves to another storey.
+//! The local map covers the landblocks around the character, seven
+//! across by default and up to eleven, and is drawn on a background
+//! thread when the character moves to another landblock (or, in a
+//! dungeon, another storey). Beyond the block they stand in only things
+//! a few metres across are drawn, so towns and walls show through
+//! instead of a thicket of trees. Forty-nine landblocks take about a
+//! tenth of a second and thirty megabytes of pixels.
 
 use super::{caption, has_sheet, title, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
@@ -189,10 +194,10 @@ pub fn view(c: &Client) -> Option<MapView> {
         .drawable()
         .filter(|o| !o.is_player)
         .filter_map(|o| {
+            // Everything the server has told us about, not only the
+            // landblock the character stands in: the list is sorted by
+            // distance and the map covers the blocks around them.
             let pos = o.display.or(o.position)?;
-            if pos.cell & 0xFFFF_0000 != block {
-                return None;
-            }
             let w = ac_world::landblock_origin(pos.cell) + pos.local;
             let p = Vec2::new(w.x, w.y);
             Some(MapObject {
@@ -315,6 +320,9 @@ pub struct State {
     /// Screen points per image pixel, per tab.
     pub zoom_world: f32,
     pub zoom_local: f32,
+    /// How many landblocks either side of the character the local map
+    /// covers: 0 is the one they stand in, 3 the forty-nine around them.
+    pub local_radius: u32,
     /// World xy at the centre of the view when not following.
     #[serde(skip)]
     pub pan: Vec2,
@@ -331,6 +339,7 @@ impl Default for State {
             follow: true,
             zoom_world: 1.0,
             zoom_local: 1.0,
+            local_radius: 3,
             pan: Vec2::ZERO,
             place: String::new(),
         }
@@ -515,6 +524,22 @@ pub fn draw(
                 if v.dungeon { "Dungeon" } else { "Local" },
             );
             ui.checkbox(&mut st.follow, "follow");
+            if st.tab == Tab::Local && !v.dungeon {
+                caption(ui, "area");
+                egui::ComboBox::from_id_salt("local_radius")
+                    .selected_text(format!("{} blocks", st.local_radius * 2 + 1))
+                    .width(90.0)
+                    .show_ui(ui, |ui| {
+                        for r in [0u32, 1, 2, 3, 5] {
+                            let label = if r == 0 {
+                                "1 block".to_string()
+                            } else {
+                                format!("{} blocks", r * 2 + 1)
+                            };
+                            ui.selectable_value(&mut st.local_radius, r, label);
+                        }
+                    });
+            }
             caption(ui, format!("{}  block {:#06x}", v.coords, v.block >> 16));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some((next, n)) = v.travel {
@@ -644,8 +669,11 @@ pub struct Map {
     pub state: State,
     world: Option<MapTexture>,
     world_rx: Option<WorldRender>,
-    /// (block, storey band) of the local texture.
-    local: Option<(u32, i32, MapTexture)>,
+    /// (block, storey band, radius) of the local texture, and the one
+    /// being drawn now.
+    local: Option<((u32, i32, u32), MapTexture)>,
+    local_want: Option<(u32, i32, u32)>,
+    local_rx: Option<Receiver<Result<MapImage, String>>>,
     local_failed: Option<u32>,
 }
 
@@ -658,6 +686,8 @@ impl Default for Map {
             world: None,
             world_rx: None,
             local: None,
+            local_want: None,
+            local_rx: None,
             local_failed: None,
         }
     }
@@ -711,6 +741,8 @@ impl Map {
             world: None,
             world_rx: None,
             local: None,
+            local_want: None,
+            local_rx: None,
             local_failed: None,
         }
     }
@@ -748,16 +780,21 @@ impl Map {
     }
 
     /// Render the local map when the block or the storey changes.
-    fn ensure_local(&mut self, egui: &egui::Context, c: &Client, v: &MapView) {
+    /// Draw the landblocks around the character, on another thread: a
+    /// wide area is tens of megabytes of pixels and a tenth of a second
+    /// of work, which is not something to do on the frame the map is
+    /// opened. The old picture stays up until the new one is ready.
+    fn ensure_local(&mut self, c: &Client, v: &MapView, radius: u32) {
         let band = if v.dungeon {
             (v.me_z / 6.0).floor() as i32
         } else {
             0
         };
-        if self
-            .local
-            .as_ref()
-            .is_some_and(|(b, z, _)| *b == v.block && *z == band)
+        // A dungeon is a landblock to itself, so it is never widened.
+        let radius = if v.dungeon { 0 } else { radius };
+        let want = (v.block, band, radius);
+        if self.local.as_ref().is_some_and(|(w, _)| *w == want)
+            || self.local_want == Some(want)
             || self.local_failed == Some(v.block)
         {
             return;
@@ -765,18 +802,47 @@ impl Map {
         let z_range = v
             .dungeon
             .then_some((band as f32 * 6.0 - 3.0, band as f32 * 6.0 + 9.0));
-        match ac_scene::localmap::render(&c.assets, v.block, 2.0, z_range) {
-            Ok(m) => {
-                self.local = Some((
-                    v.block,
-                    band,
-                    MapTexture::upload(egui, "local_map", &m.image),
-                ));
+        let dir = c.assets.data_dir.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let result = ac_scene::Assets::open(&dir)
+                .map_err(|e| e.to_string())
+                .and_then(|assets| {
+                    ac_scene::localmap::render_area(&assets, want.0, radius, 2.0, z_range)
+                        .map_err(|e| e.to_string())
+                });
+            tracing::info!(
+                "local map {:#010x} (radius {radius}) in {:.0?}",
+                want.0,
+                started.elapsed()
+            );
+            let _ = tx.send(result.map(|m| m.image));
+        });
+        self.local_want = Some(want);
+        self.local_rx = Some(rx);
+    }
+
+    fn poll_local(&mut self, egui: &egui::Context) {
+        let Some(rx) = &self.local_rx else { return };
+        match rx.try_recv() {
+            Ok(Ok(img)) => {
+                if let Some(want) = self.local_want.take() {
+                    self.local = Some((want, MapTexture::upload(egui, "local_map", &img)));
+                }
+                self.local_rx = None;
                 self.local_failed = None;
             }
-            Err(e) => {
-                tracing::warn!("local map {:#010x}: {e}", v.block);
-                self.local_failed = Some(v.block);
+            Ok(Err(e)) => {
+                let block = self.local_want.take().map(|w| w.0);
+                tracing::warn!("local map {block:?}: {e}");
+                self.local_failed = block;
+                self.local_rx = None;
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.local_want = None;
+                self.local_rx = None;
             }
         }
     }
@@ -814,7 +880,9 @@ impl Plugin for Map {
             let dir = c.assets.data_dir.clone();
             self.ensure_world(dir);
             self.poll_world(egui);
-            self.ensure_local(egui, c, &v);
+            self.poll_local(egui);
+            let radius = self.state.local_radius;
+            self.ensure_local(c, &v, radius);
         }
         let mut v = v;
         v.elsewhere = world_search(&self.state.search, v.me);
@@ -823,7 +891,7 @@ impl Plugin for Map {
             &v,
             &mut self.state,
             self.world.as_ref(),
-            self.local.as_ref().map(|(_, _, t)| t),
+            self.local.as_ref().map(|(_, t)| t),
         );
         let mut lines = Vec::new();
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
