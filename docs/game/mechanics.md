@@ -938,6 +938,13 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   falls in). Using something in the world, attacking or taking the
   controls stops the journey, since the server walks the character to
   whatever they used.
+* **Planning happens on the frame the player asks**, so it has to be
+  cheap. Checking every portal of a plan against the terrain router meant
+  a search over the world for each, and the client stopped answering
+  while it thought; only the first is checked now, and a step that turns
+  out not to be walkable plans the way again when it is reached. A
+  replan never carries on inside the same call either: the new plan is
+  walked from the next frame, so nothing can go round for ever.
 * **Being carried off is normal.** A portal takes whoever touches it, so
   the character walks at a portal's centre and can be swept away
   mid-stride by one the journey never meant to use. Rather than only

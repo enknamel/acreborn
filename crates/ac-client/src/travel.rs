@@ -164,34 +164,29 @@ impl Client {
         // the step before it leaves the character, plan again without
         // that one. This holds for the journey being planned only.
         let mut planned = None;
-        for _ in 0..6 {
+        for _ in 0..3 {
             let Some(t) = trip::plan_for(Vec2::new(me.x, me.y), cell, goal, level, &[], &refused)
             else {
                 break;
             };
-            let mut at = Vec2::new(me.x, me.y);
-            let mut at_outdoors = cell & 0xFFFF < 0x100;
-            let mut bad = None;
-            for step in &t.steps {
-                match step {
-                    trip::Step::Portal {
-                        mouth,
-                        mouth_cell,
-                        exit,
-                        exit_cell,
-                        ..
-                    } => {
-                        let mouth_outdoors = mouth_cell & 0xFFFF < 0x100;
-                        if at_outdoors && mouth_outdoors && !self.travel_can_reach(at, *mouth) {
-                            bad = Some(*mouth);
-                            break;
-                        }
-                        at = *exit;
-                        at_outdoors = exit_cell & 0xFFFF < 0x100;
-                    }
-                    trip::Step::Walk(p) => at = *p,
+            // Only the first portal is checked here. Checking every one
+            // meant a route search for each, and a search over the world
+            // is slow enough that the client stopped answering while it
+            // thought. The rest are caught as they come: a step that
+            // cannot be walked plans the way again from where we stand.
+            let here = Vec2::new(me.x, me.y);
+            let outdoors = cell & 0xFFFF < 0x100;
+            let bad = match t.steps.first() {
+                Some(trip::Step::Portal {
+                    mouth, mouth_cell, ..
+                }) if outdoors
+                    && mouth_cell & 0xFFFF < 0x100
+                    && !self.travel_can_reach(here, *mouth) =>
+                {
+                    Some(*mouth)
                 }
-            }
+                _ => None,
+            };
             match bad {
                 Some(mouth) => {
                     tracing::info!(
@@ -265,18 +260,14 @@ impl Client {
 
     /// Whether the terrain router can get from `me` to `target`, or to
     /// somewhere just beside it.
+    /// One route query, and only one: this runs on the frame the player
+    /// asked to travel, and a search over the world takes long enough
+    /// that a handful of them is a visible freeze.
     fn travel_can_reach(&mut self, me: Vec2, target: Vec2) -> bool {
         let Some((grid, region)) = self.travel_terrain() else {
             return true;
         };
-        if worldroute::find(&grid, &region, me, target).is_some() {
-            return true;
-        }
-        (0..8).any(|i| {
-            let a = i as f32 * std::f32::consts::TAU / 8.0;
-            let near = target + Vec2::new(a.cos(), a.sin()) * 16.0;
-            worldroute::find(&grid, &region, me, near).is_some()
-        })
+        worldroute::find(&grid, &region, me, target).is_some()
     }
 
     /// Build the route for the step the trip is on. False when the step
@@ -594,10 +585,10 @@ impl Client {
                     self.travel.step
                 );
                 self.travel.step_since = Some(now);
-                if self.travel_to(goal) {
-                    return self.travel_goal(now);
-                }
+                self.travel_to(goal);
             }
+            // The new plan starts next frame: planning again from inside
+            // this call could go round for ever.
             return None;
         }
         // A portal takes whoever touches it, so the character can be
@@ -617,10 +608,10 @@ impl Client {
                 // the plan from here takes the new position as it is.
                 if let Some(goal) = self.travel.goal {
                     tracing::info!("travel: carried off to {me:?}; planning again from here");
-                    if self.travel_to(goal) {
-                        return self.travel_goal(now);
-                    }
+                    self.travel_to(goal);
                 }
+                // Whatever the new plan is, it starts next frame: planning
+                // again from inside this call could go round for ever.
                 return None;
             }
         }
@@ -666,10 +657,10 @@ impl Client {
                         let goal = self.travel.goal;
                         self.cancel_travel_keeping_refusals();
                         if let Some(goal) = goal {
-                            if self.travel_to(goal) {
-                                continue;
-                            }
+                            self.travel_to(goal);
                         }
+                        // Next frame walks the new plan: replanning and
+                        // carrying on inside one call risks going round.
                         return None;
                     }
                     // A few portals sit above the ground and have to be
