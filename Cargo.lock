@@ -46,6 +46,8 @@ dependencies = [
  "ac-scene",
  "ac-world",
  "glam 0.30.10",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -90,6 +92,7 @@ dependencies = [
  "ac-world",
  "egui",
  "glam 0.30.10",
+ "serde",
  "serde_json",
  "tracing",
 ]
@@ -222,6 +225,7 @@ dependencies = [
  "egui-winit",
  "glam 0.30.10",
  "image",
+ "libc",
  "pollster",
  "tracing",
  "tracing-subscriber",

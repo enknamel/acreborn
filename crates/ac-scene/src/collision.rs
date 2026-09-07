@@ -149,6 +149,15 @@ impl CollisionWorld {
         }
     }
 
+    /// Take a copy of every triangle in `other`. Used to merge several
+    /// landblocks into one world so a path can cross between them.
+    pub fn absorb(&mut self, other: &CollisionWorld) {
+        self.tris.reserve(other.tris.len());
+        for t in &other.tris {
+            self.add_tri(t.a, t.b, t.c, t.cell, t.two_sided);
+        }
+    }
+
     /// Add a polygon set (physics polygons if present, else drawing
     /// polygons) transformed by `t`.
     fn add_polys(&mut self, verts: &[(u16, Vertex)], polys: &[(u16, Polygon)], t: Mat4, cell: u32) {

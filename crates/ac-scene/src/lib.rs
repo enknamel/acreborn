@@ -19,6 +19,7 @@ pub mod localmap;
 pub mod mapimage;
 pub mod model;
 pub mod nav;
+pub mod navarea;
 pub mod particles;
 pub mod scenery;
 pub mod terrain;

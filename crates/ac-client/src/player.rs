@@ -381,6 +381,12 @@ impl Player {
         self.blocks.get(&blk).map(|b| b.dungeon).unwrap_or(false)
     }
 
+    /// The shape the character walks as, for planners that work on a
+    /// copy of the world.
+    pub fn capsule(&self) -> Capsule {
+        self.capsule
+    }
+
     fn collision(&mut self, assets: &Assets, block_id: u32) -> Option<&CollisionWorld> {
         let block_id = block_id & 0xFFFF_0000;
         self.block(assets, block_id)?;

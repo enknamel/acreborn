@@ -11,6 +11,7 @@ pub mod emotes;
 pub mod items;
 pub mod magic;
 pub mod options;
+pub mod pathfinder;
 pub mod player;
 pub mod route;
 pub mod travel;
@@ -114,6 +115,9 @@ pub struct Client {
     /// Route steering toward `move_to` when the straight line to it is
     /// blocked (see `route`).
     pub steering: route::Steering,
+    /// Planner for routes that leave the landblock we stand in, run on a
+    /// thread of its own (see `pathfinder`).
+    pub pathfinder: pathfinder::Pathfinder,
     /// The overland route being walked, if any (see `travel`).
     pub travel: travel::Travel,
     /// Melee combat mode is on.
@@ -229,6 +233,7 @@ impl Client {
         );
         session.login(now);
         tracing::info!("connecting to {primary} as {}", config.account);
+        let data_dir = assets.data_dir.clone();
         Ok(Client {
             config,
             socket,
@@ -247,6 +252,7 @@ impl Client {
             move_to: None,
             move_to_since: Instant::now(),
             steering: route::Steering::new(Instant::now()),
+            pathfinder: pathfinder::Pathfinder::new(data_dir),
             travel: Default::default(),
             combat: false,
             magic: false,
@@ -684,7 +690,14 @@ impl Client {
                     if !manual && flat.length() > stop {
                         // Straight at the goal while nothing is in the
                         // way; through the waypoints of a route otherwise.
-                        let aim = self.steering.steer(pl, &self.assets, g, goal_cell, now);
+                        let aim = self.steering.steer(
+                            pl,
+                            &self.assets,
+                            &mut self.pathfinder,
+                            g,
+                            goal_cell,
+                            now,
+                        );
                         let d = aim - pl.world_position();
                         let flat = glam::Vec2::new(d.x, d.y);
                         if flat.length() > 1e-3 {
