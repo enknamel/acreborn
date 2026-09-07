@@ -54,6 +54,14 @@ pub trait Api {
 
     /// What it is doing: "fighting Drudge Skulker", "" when off.
     fn autoplay_status(&mut self) -> String;
+
+    /// How autoplay fights: "auto" uses whatever is held, or name one of
+    /// "melee", "missile", "magic". Returns the style in force.
+    fn fight_style(&mut self, style: &str) -> String;
+
+    /// The attack spells autoplay throws, best first. Returns the list
+    /// now in force.
+    fn attack_spells(&mut self, names: Array) -> Array;
     /// Objects in view, nearest first: `guid, name, distance, is_creature,
     /// is_player, is_corpse, health, x, y, z, cell`.
     fn objects(&mut self) -> Array;
@@ -343,6 +351,12 @@ pub fn register(engine: &mut Engine) {
     // reads
     engine.register_fn("me", || with_api(|a| a.me()));
     engine.register_fn("autoplay", |on: bool| with_api(|a| a.autoplay(on)));
+    engine.register_fn("fight_style", |style: &str| {
+        with_api(|a| a.fight_style(style))
+    });
+    engine.register_fn("attack_spells", |names: Array| {
+        with_api(|a| a.attack_spells(names))
+    });
     engine.register_fn("travel_style", |style: &str| {
         with_api(|a| a.travel_style(style))
     });

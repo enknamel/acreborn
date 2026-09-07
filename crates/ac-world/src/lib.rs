@@ -4,6 +4,7 @@
 //! positions.
 
 pub mod allegiance;
+pub mod elements;
 pub mod housing;
 pub mod landmarks;
 pub mod material;
@@ -107,6 +108,21 @@ pub mod item_type {
 /// bits above 0xFFFF say what it can be used on. An item with any target
 /// bit is applied to something (a kit to a player, a stone to an item, a
 /// key to a chest) rather than used by itself.
+/// Where an item can be worn or wielded: the `valid_locations` word,
+/// and the `wielded_location` of something already equipped. These are
+/// the slots the character description sends.
+pub mod equip {
+    pub const MELEE_WEAPON: u32 = 0x0010_0000;
+    pub const SHIELD: u32 = 0x0020_0000;
+    pub const MISSILE_WEAPON: u32 = 0x0040_0000;
+    /// Arrows, bolts and quarrels: a bow needs one of these wielded as
+    /// well as the bow itself.
+    pub const MISSILE_AMMO: u32 = 0x0080_0000;
+    /// The hand slot a wand, orb or staff goes in.
+    pub const HELD: u32 = 0x0100_0000;
+    pub const TWO_HANDED: u32 = 0x0200_0000;
+}
+
 pub mod usable {
     /// `Usable::No`: the thing cannot be used at all.
     pub const NO: u32 = 1;

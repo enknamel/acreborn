@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::items::Query;
-use crate::Client;
+use crate::{Client, Stance};
 
 /// How long to wait for a corpse to open before giving up.
 const LOOT_TIMEOUT: Duration = Duration::from_secs(6);
@@ -38,6 +38,10 @@ const HEAL_EVERY: Duration = Duration::from_millis(2500);
 const BUFF_EVERY: Duration = Duration::from_millis(1500);
 /// Least time between two attack orders.
 const ATTACK_EVERY: Duration = Duration::from_millis(1200);
+/// Least time between two attack spells. A war spell takes about two
+/// seconds to cast and the server refuses one sent over another, so
+/// this is paced to the casting rather than to the frame.
+const CAST_EVERY: Duration = Duration::from_millis(2600);
 
 /// Staying alive.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -91,6 +95,11 @@ impl Default for Buffs {
 #[serde(default)]
 pub struct Fight {
     pub enabled: bool,
+    /// How to fight: with a weapon in hand, at range, or with spells.
+    pub style: Style,
+    /// Attack spells to throw, best first: the first one that can be
+    /// cast right now is used. Only read when fighting with magic.
+    pub spells: Vec<String>,
     /// Only attack creatures whose name contains one of these; empty
     /// means anything that can be attacked.
     pub only: Vec<String>,
@@ -104,11 +113,43 @@ impl Default for Fight {
     fn default() -> Self {
         Fight {
             enabled: true,
+            style: Style::Auto,
+            spells: Vec::new(),
             only: Vec::new(),
             avoid: Vec::new(),
             radius: 25.0,
         }
     }
+}
+
+/// Which weapon the character should be holding.
+///
+/// How a character fights is not a setting: it follows what is in its
+/// hands. A wand, orb or staff casts, a bow or crossbow shoots, a sword
+/// swings. So this does not choose a stance, it chooses a weapon:
+/// [`Style::Auto`] fights with whatever is already held, and the other
+/// three wield a weapon of that kind first, for a character that
+/// carries more than one and should only use the one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Style {
+    #[default]
+    Auto,
+    Melee,
+    Missile,
+    Magic,
+}
+
+impl Style {
+    pub fn label(self) -> &'static str {
+        match self {
+            Style::Auto => "whatever is held",
+            Style::Melee => "a melee weapon",
+            Style::Missile => "a bow or thrown weapon",
+            Style::Magic => "a wand or staff",
+        }
+    }
+
+    pub const ALL: [Style; 4] = [Style::Auto, Style::Melee, Style::Missile, Style::Magic];
 }
 
 /// What loot is worth taking.
@@ -348,6 +389,11 @@ pub struct Autoplay {
     pub status: String,
     last_heal: Option<Instant>,
     last_attack: Option<Instant>,
+    /// When an attack spell last went out, and what it was thrown at:
+    /// a spell keeps no `attack_target` of its own the way a swing
+    /// does, so the engine remembers what it is working on.
+    last_cast: Option<Instant>,
+    casting_at: Option<u32>,
     last_buff: Option<Instant>,
     /// The corpse being looted and when we started.
     corpse: Option<(u32, Instant)>,
@@ -473,6 +519,7 @@ impl Client {
             if self.combat {
                 self.toggle_combat();
             }
+            self.autoplay.casting_at = None;
             self.autoplay.say(
                 Doing::Fleeing,
                 format!("breaking off at {:.0}% health", health * 100.0),
@@ -607,10 +654,43 @@ impl Client {
         if self.combat {
             self.toggle_combat();
         }
+        self.autoplay.casting_at = None;
         self.interact(guid);
         self.autoplay.corpse = Some((guid, now));
         self.autoplay.say(Doing::Looting, format!("looting {name}"));
         true
+    }
+
+    /// The stance the rules want this character in, and the weapon that
+    /// gives it wielded if one is carried.
+    ///
+    /// Which way a character fights is not a setting: it follows what
+    /// is in its hands, so [`Style::Auto`] simply reads them. The other
+    /// three ask for a weapon of that kind to be wielded, and if none is
+    /// carried the character fights with what it has and the rules say
+    /// so rather than pretending.
+    fn fighting_stance(&mut self) -> Stance {
+        let want = match self.autoplay.config.fight.style {
+            Style::Auto => return self.combat_stance(),
+            Style::Melee => Stance::Melee,
+            Style::Missile => Stance::Missile,
+            Style::Magic => Stance::Magic,
+        };
+        if self.combat_stance() != want {
+            // Wielding takes a moment; until the server confirms it, the
+            // hands still say what they said.
+            self.wield_for(want);
+        }
+        self.combat_stance()
+    }
+
+    /// How this character is fighting right now: what its hands give.
+    pub fn fighting_style(&self) -> Style {
+        match self.combat_stance() {
+            Stance::Melee => Style::Melee,
+            Stance::Missile => Style::Missile,
+            Stance::Magic => Style::Magic,
+        }
     }
 
     /// Pick something to fight and attack it. True when fighting.
@@ -619,6 +699,10 @@ impl Client {
         if !cfg.enabled {
             return false;
         }
+        let stance = self.fighting_stance();
+        if stance == Stance::Magic {
+            return self.autoplay_fight_with_spells(now, &cfg);
+        }
         // Already on one that is still alive.
         if let Some(t) = self.attack_target {
             if let Some(o) = self.world.objects.get(&t) {
@@ -626,6 +710,11 @@ impl Client {
                     let name = o.name.clone();
                     self.autoplay
                         .say(Doing::Fighting, format!("fighting {name}"));
+                    // A bow with an empty ammunition slot shoots
+                    // nothing, and the slot empties mid-fight.
+                    if stance == Stance::Missile {
+                        self.wield_ammo();
+                    }
                     return true;
                 }
             }
@@ -636,6 +725,11 @@ impl Client {
             .is_some_and(|t| now.duration_since(t) < ATTACK_EVERY)
         {
             return false;
+        }
+        // Fighting at range: the bow needs something to shoot.
+        let missile = stance == Stance::Missile;
+        if missile {
+            self.wield_ammo();
         }
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
@@ -649,9 +743,7 @@ impl Client {
                     .get(&guid)
                     .is_some_and(|o| o.health.unwrap_or(1.0) > 0.0);
                 if alive {
-                    if !self.combat {
-                        self.toggle_combat();
-                    }
+                    self.enter_combat();
                     self.attack(guid);
                     self.autoplay.last_attack = Some(now);
                     self.autoplay
@@ -681,14 +773,134 @@ impl Client {
         let Some((_, guid, name)) = target else {
             return false;
         };
-        if !self.combat {
-            self.toggle_combat();
-        }
+        self.enter_combat();
         self.attack(guid);
         self.autoplay.last_attack = Some(now);
-        self.autoplay
-            .say(Doing::Fighting, format!("attacking {name}"));
+        self.autoplay.say(
+            Doing::Fighting,
+            if missile {
+                format!("shooting {name}")
+            } else {
+                format!("attacking {name}")
+            },
+        );
         true
+    }
+
+    /// Fighting with spells: pick a target the same way, then throw the
+    /// first spell in the list that can be cast right now.
+    ///
+    /// A swing sets `attack_target` and the server keeps swinging; a
+    /// spell does not, so this keeps its own target and re-casts on the
+    /// pace of a cast rather than of a frame. The target is selected
+    /// first because that is what `try_cast` throws at.
+    fn autoplay_fight_with_spells(&mut self, now: Instant, cfg: &Fight) -> bool {
+        if cfg.spells.is_empty() {
+            self.autoplay.say(Doing::Idle, "no attack spells chosen");
+            return false;
+        }
+        if self.wielded_caster().is_none() {
+            self.autoplay.say(Doing::Idle, "no caster wielded");
+            return false;
+        }
+        let alive = |c: &Client, g: u32| {
+            c.world
+                .objects
+                .get(&g)
+                .is_some_and(|o| o.health.unwrap_or(1.0) > 0.0)
+        };
+        // Stay on the one already being fought while it lives.
+        let target = match self.autoplay.casting_at {
+            Some(g) if alive(self, g) => Some(g),
+            _ => {
+                self.autoplay.casting_at = None;
+                self.pick_target(cfg)
+            }
+        };
+        let Some(guid) = target else {
+            return false;
+        };
+        let name = self
+            .world
+            .objects
+            .get(&guid)
+            .map(|o| o.name.clone())
+            .unwrap_or_default();
+        self.autoplay.casting_at = Some(guid);
+        if self
+            .autoplay
+            .last_cast
+            .is_some_and(|t| now.duration_since(t) < CAST_EVERY)
+        {
+            self.autoplay
+                .say(Doing::Fighting, format!("fighting {name}"));
+            return true;
+        }
+        self.select(Some(guid));
+        // Of the spells that could be thrown this moment, the one this
+        // creature is hurt most by. An Ice Golem takes nothing at all
+        // from cold and full damage from fire, so the difference between
+        // choosing well and throwing the first spell on the list is the
+        // difference between a fight and a stalemate.
+        let ready: Vec<(u32, String)> = cfg
+            .spells
+            .iter()
+            .filter_map(|n| self.spell_by_name(n).map(|id| (id, n.clone())))
+            .filter(|(id, _)| matches!(self.can_cast(*id), crate::magic::CastCheck::Ok))
+            .collect();
+        let ids: Vec<u32> = ready.iter().map(|(id, _)| *id).collect();
+        let wcid = self
+            .world
+            .objects
+            .get(&guid)
+            .map(|o| o.weenie_class_id)
+            .unwrap_or(0);
+        if let Some((spell, worth)) = ac_world::elements::best_spell(wcid, &name, &ids) {
+            let spell_name = ready
+                .iter()
+                .find(|(id, _)| *id == spell)
+                .map(|(_, n)| n.clone())
+                .unwrap_or_default();
+            self.cast(spell);
+            self.autoplay.last_cast = Some(now);
+            let element = ac_world::elements::spell_element(spell)
+                .map(|e| e.name())
+                .unwrap_or("");
+            let said = if element.is_empty() || (0.99..=1.01).contains(&worth) {
+                format!("casting {spell_name} at {name}")
+            } else {
+                format!("casting {spell_name} at {name} ({element} x{worth:.2})")
+            };
+            self.autoplay.say(Doing::Fighting, said);
+            return true;
+        }
+        // Nothing castable: out of mana, out of components, or the
+        // spells are not learnt. Say so rather than looking idle.
+        self.autoplay
+            .say(Doing::Fighting, format!("cannot cast anything at {name}"));
+        true
+    }
+
+    /// The nearest creature the name rules allow, within the radius.
+    fn pick_target(&self, cfg: &Fight) -> Option<u32> {
+        let me = self.player.as_ref()?.world_position();
+        self.world
+            .objects
+            .values()
+            .filter(|o| {
+                o.item_type & ac_world::item_type::CREATURE != 0
+                    && o.object_desc_flags & ac_world::object_desc_flags::ATTACKABLE != 0
+                    && o.object_desc_flags & ac_world::object_desc_flags::PLAYER == 0
+                    && o.health.unwrap_or(1.0) > 0.0
+                    && !o.is_player
+            })
+            .filter(|o| wanted_target(&o.name, cfg))
+            .filter_map(|o| {
+                let d = o.world_pos()?.distance(me);
+                (d <= cfg.radius).then_some((d, o.guid))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, g)| g)
     }
 
     /// Note what this character is running short of, so the others can

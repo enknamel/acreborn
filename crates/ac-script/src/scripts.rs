@@ -383,6 +383,16 @@ mod tests {
                 String::new()
             }
         }
+        fn fight_style(&mut self, style: &str) -> String {
+            self.calls.push(format!("fight_style({style})"));
+            style.to_string()
+        }
+        fn attack_spells(&mut self, names: Array) -> Array {
+            let listed: Vec<String> = names.iter().map(|v| v.to_string()).collect();
+            self.calls
+                .push(format!("attack_spells({})", listed.join(",")));
+            names
+        }
         fn objects(&mut self) -> Array {
             self.objects.clone()
         }

@@ -1,0 +1,821 @@
+# What each attack spell hits with. The element is a DamageType bit:
+# 1 slash, 2 pierce, 4 bludgeon, 8 cold, 16 fire, 32 acid,
+# 64 electric, 128 health, 256 stamina, 512 mana, 1024 nether.
+# spell_id,element,name
+# The name is there to read by; the client matches on the id.
+# Regenerate with reference/scripts/data/spell_elements.sh (reads the
+# ACE world database, the community's reconstruction of retail's server
+# data; the client's SpellTable does not carry the element).
+27,16,Flame Bolt I
+28,8,Frost Bolt I
+57,2,Magic Bolt
+58,32,Acid Stream I
+59,32,Acid Stream II
+60,32,Acid Stream III
+61,32,Acid Stream IV
+62,32,Acid Stream V
+63,32,Acid Stream VI
+64,4,Shock Wave I
+65,4,Shock Wave II
+66,4,Shock Wave III
+67,4,Shock Wave IV
+68,4,Shock Wave V
+69,4,Shock Wave VI
+70,8,Frost Bolt II
+71,8,Frost Bolt III
+72,8,Frost Bolt IV
+73,8,Frost Bolt V
+74,8,Frost Bolt VI
+75,64,Lightning Bolt I
+76,64,Lightning Bolt II
+77,64,Lightning Bolt III
+78,64,Lightning Bolt IV
+79,64,Lightning Bolt V
+80,64,Lightning Bolt VI
+81,16,Flame Bolt II
+82,16,Flame Bolt III
+83,16,Flame Bolt IV
+84,16,Flame Bolt V
+85,16,Flame Bolt VI
+86,2,Force Bolt I
+87,2,Force Bolt II
+88,2,Force Bolt III
+89,2,Force Bolt IV
+90,2,Force Bolt V
+91,2,Force Bolt VI
+92,1,Whirling Blade I
+93,1,Whirling Blade II
+94,1,Whirling Blade III
+95,1,Whirling Blade IV
+96,1,Whirling Blade V
+97,1,Whirling Blade VI
+99,32,Acid Blast III
+100,32,Acid Blast IV
+101,32,Acid Blast V
+102,32,Acid Blast VI
+103,4,Shock Blast III
+104,4,Shock Blast IV
+105,4,Shock Blast V
+106,4,Shock Blast VI
+107,8,Frost Blast III
+108,8,Frost Blast IV
+109,8,Frost Blast V
+110,8,Frost Blast VI
+111,64,Lightning Blast III
+112,64,Lightning Blast IV
+113,64,Lightning Blast V
+114,64,Lightning Blast VI
+115,16,Flame Blast III
+116,16,Flame Blast IV
+117,16,Flame Blast V
+118,16,Flame Blast VI
+119,2,Force Blast III
+120,2,Force Blast IV
+121,2,Force Blast V
+122,2,Force Blast VI
+123,1,Blade Blast III
+124,1,Blade Blast IV
+125,1,Blade Blast V
+126,1,Blade Blast VI
+127,32,Acid Volley III
+128,32,Acid Volley IV
+129,32,Acid Volley V
+130,32,Acid Volley VI
+131,4,Bludgeoning Volley III
+132,4,Bludgeoning Volley IV
+133,4,Bludgeoning Volley V
+134,4,Bludgeoning Volley VI
+135,8,Frost Volley III
+136,8,Frost Volley IV
+137,8,Frost Volley V
+138,8,Frost Volley VI
+139,64,Lightning Volley III
+140,64,Lightning Volley IV
+141,64,Lightning Volley V
+142,64,Lightning Volley VI
+143,16,Flame Volley III
+144,16,Flame Volley IV
+145,16,Flame Volley V
+146,16,Flame Volley VI
+147,2,Force Volley III
+148,2,Force Volley IV
+149,2,Force Volley V
+150,2,Force Volley VI
+151,1,Blade Volley III
+152,1,Blade Volley IV
+153,1,Blade Volley V
+154,1,Blade Volley VI
+1097,2,Flaming Missile
+1481,2,Flaming Missile Volley
+1781,16,Exploding Magma
+1783,32,Searing Disc
+1784,1,Horizon's Blades
+1785,16,Cassius' Ring of Fire
+1786,2,Nuhmudira's Spines
+1787,8,Halo of Frost
+1788,64,Eye of the Storm
+1789,4,Tectonic Rifts
+1790,32,Acid Streak I
+1791,32,Acid Streak II
+1792,32,Acid Streak III
+1793,32,Acid Streak IV
+1794,32,Acid Streak V
+1795,32,Acid Streak VI
+1796,16,Flame Streak I
+1797,16,Flame Streak II
+1798,16,Flame Streak III
+1799,16,Flame Streak IV
+1800,16,Flame Streak V
+1801,16,Flame Streak VI
+1802,2,Force Streak I
+1803,2,Force Streak II
+1804,2,Force Streak III
+1805,2,Force Streak IV
+1806,2,Force Streak V
+1807,2,Force Streak VI
+1808,8,Frost Streak I
+1809,8,Frost Streak II
+1810,8,Frost Streak III
+1811,8,Frost Streak IV
+1812,8,Frost Streak V
+1813,8,Frost Streak VI
+1814,64,Lightning Streak I
+1815,64,Lightning Streak II
+1816,64,Lightning Streak III
+1817,64,Lightning Streak IV
+1818,64,Lightning Streak V
+1819,64,Lightning Streak VI
+1820,4,Shock Wave Streak I
+1821,4,Shock Wave Streak II
+1822,4,Shock Wave Streak III
+1823,4,Shock Wave Streak IV
+1824,4,Shock Wave Streak V
+1825,4,Shock Wave Streak VI
+1826,1,Whirling Blade Streak I
+1827,1,Whirling Blade Streak II
+1828,1,Whirling Blade Streak III
+1829,1,Whirling Blade Streak IV
+1830,1,Whirling Blade Streak V
+1831,1,Whirling Blade Streak VI
+1832,32,Torrential Acid
+1833,1,Squall of Swords
+1834,16,Firestorm
+1835,2,Splinterfall
+1836,8,Avalanche
+1837,64,Lightning Barrage
+1838,4,Stone Fists
+1839,32,Blistering Creeper
+1840,1,Bed of Blades
+1841,16,Slithering Flames
+1842,2,Spike Strafe
+1843,8,Foon-Ki's Glacial Floe
+1844,64,Os' Wall
+1845,4,Hammering Crawler
+2019,4,The sundering of the crystal
+2030,16,Flaming Blaze
+2031,2,Steel Thorns
+2032,64,Electric Blaze
+2033,32,Acidic Spray
+2034,16,Exploding Fury
+2035,64,Electric Discharge
+2036,32,Fuming Acid
+2037,16,Flaming Irruption
+2038,8,Exploding Ice
+2039,64,Sparking Fury
+2042,16,Demon's Tongues
+2045,4,Demon Fists
+2120,32,Dissolving Vortex
+2121,32,Corrosive Flash
+2122,32,Disintegration
+2123,32,Celdiseth's Searing
+2124,1,Sau Kolin's Sword
+2125,1,Flensing Wings
+2126,4,Thousand Fists
+2127,16,Silencia's Scorn
+2128,16,Ilservian's Flame
+2129,16,Sizzling Fury
+2130,16,Infernae
+2131,2,Stinging Needles
+2132,2,The Spike
+2133,2,Outlander's Insolence
+2134,2,Fusillade
+2135,8,Winter's Embrace
+2136,8,Icy Torment
+2137,8,Sudden Frost
+2138,8,Blizzard
+2139,64,Luminous Wrath
+2140,64,Alset's Coil
+2141,64,Lhen's Flare
+2142,64,Tempest
+2143,4,Pummeling Storm
+2144,4,Crushing Shame
+2145,4,Cameron's Curse
+2146,1,Evisceration
+2147,1,Rending Wind
+2366,4,Bovine Intervention
+2383,16,Dark Flame
+2637,16,Invoking Aun Tanua
+2672,4,Ring of True Pain
+2673,4,Ring of Unspeakable Agony
+2674,2,Vicious Rebuke
+2699,64,Auroric Whip
+2700,32,Corrosive Cloud
+2701,16,Elemental Fury
+2702,8,Elemental Fury
+2703,32,Elemental Fury
+2704,64,Elemental Fury
+2710,16,Volcanic Blast
+2711,32,Acid Arc I
+2712,32,Acid Arc II
+2713,32,Acid Arc III
+2714,32,Acid Arc IV
+2715,32,Acid Arc V
+2716,32,Acid Arc VI
+2717,32,Acid Arc VII
+2718,2,Force Arc I
+2719,2,Force Arc II
+2720,2,Force Arc III
+2721,2,Force Arc IV
+2722,2,Force Arc V
+2723,2,Force Arc VI
+2724,2,Force Arc VII
+2725,8,Frost Arc I
+2726,8,Frost Arc II
+2727,8,Frost Arc III
+2728,8,Frost Arc IV
+2729,8,Frost Arc V
+2730,8,Frost Arc VI
+2731,8,Frost Arc VII
+2732,64,Lightning Arc I
+2733,64,Lightning Arc II
+2734,64,Lightning Arc III
+2735,64,Lightning Arc IV
+2736,64,Lightning Arc V
+2737,64,Lightning Arc VI
+2738,64,Lightning Arc VII
+2739,16,Flame Arc I
+2740,16,Flame Arc II
+2741,16,Flame Arc III
+2742,16,Flame Arc IV
+2743,16,Flame Arc V
+2744,16,Flame Arc VI
+2745,16,Flame Arc VII
+2746,4,Shock Arc I
+2747,4,Shock Arc II
+2748,4,Shock Arc III
+2749,4,Shock Arc IV
+2750,4,Shock Arc V
+2751,4,Shock Arc VI
+2752,4,Shock Arc VII
+2753,1,Blade Arc I
+2754,1,Blade Arc II
+2755,1,Blade Arc III
+2756,1,Blade Arc IV
+2757,1,Blade Arc V
+2758,1,Blade Arc VI
+2759,1,Blade Arc VII
+2760,128,Martyr's Hecatomb I
+2761,128,Martyr's Hecatomb II
+2762,128,Martyr's Hecatomb III
+2763,128,Martyr's Hecatomb IV
+2764,128,Martyr's Hecatomb V
+2765,128,Martyr's Hecatomb VI
+2766,128,Martyr's Hecatomb VII
+2767,256,Martyr's Tenacity I
+2768,256,Martyr's Tenacity II
+2769,256,Martyr's Tenacity III
+2770,256,Martyr's Tenacity IV
+2771,256,Martyr's Tenacity V
+2772,256,Martyr's Tenacity VI
+2773,256,Martyr's Tenacity VII
+2774,512,Martyr's Blight I
+2775,512,Martyr's Blight II
+2776,512,Martyr's Blight III
+2777,512,Martyr's Blight IV
+2778,512,Martyr's Blight V
+2779,512,Martyr's Blight VI
+2780,512,Martyr's Blight VII
+2781,32,Lesser Elemental Fury
+2782,16,Lesser Elemental Fury
+2783,8,Lesser Elemental Fury
+2784,64,Lesser Elemental Fury
+2791,32,Rolling Death
+2792,16,Rolling Death
+2793,8,Rolling Death
+2794,64,Rolling Death
+2814,2,Priest's Curse
+2815,2,Boom Black Firework OUT
+2816,2,Big Boom Black Firework OUT
+2817,2,Shockwave Black Firework OUT
+2818,2,Spiral Black Firework OUT
+2819,2,Sparkle Black Firework OUT
+2820,2,Blossom Black Firework OUT
+2821,2,Ring Black Firework OUT
+2822,2,Boom Blue Firework OUT
+2823,2,Big Boom Blue Firework OUT
+2824,2,Shockwave Blue Firework OUT
+2825,2,Spiral Blue Firework OUT
+2826,2,Sparkle Blue Firework OUT
+2827,2,Blossom Blue Firework OUT
+2828,2,Ring Blue Firework OUT
+2829,2,Boom Green Firework OUT
+2830,2,Big Boom Green Firework OUT
+2831,2,Shockwave Green Firework OUT
+2832,2,Spiral Green Firework OUT
+2833,2,Sparkle Green Firework OUT
+2834,2,Blossom Green Firework OUT
+2835,2,Ring Green Firework OUT
+2836,2,Boom Orange Firework OUT
+2837,2,Big Boom Orange Firework OUT
+2838,2,Shockwave Orange Firework OUT
+2839,2,Spiral Orange Firework OUT
+2840,2,Sparkle Orange Firework OUT
+2841,2,Blossom Orange Firework OUT
+2842,2,Ring Orange Firework OUT
+2843,2,Boom Purple Firework OUT
+2844,2,Big Boom Purple Firework OUT
+2845,2,Shockwave Purple Firework OUT
+2846,2,Spiral Purple Firework OUT
+2847,2,Sparkle Purple Firework OUT
+2848,2,Blossom Purple Firework OUT
+2849,2,Ring Purple Firework OUT
+2850,2,Boom Red Firework OUT
+2851,2,Big Boom Red Firework OUT
+2852,2,Shockwave Red Firework OUT
+2853,2,Spiral Red Firework OUT
+2854,2,Sparkle Red Firework OUT
+2855,2,Blossom Red Firework OUT
+2856,2,Ring Red Firework OUT
+2857,2,Boom White Firework OUT
+2858,2,Big Boom White Firework OUT
+2859,2,Shockwave White Firework OUT
+2860,2,Spiral White Firework OUT
+2861,2,Sparkle White Firework OUT
+2862,2,Blossom White Firework OUT
+2863,2,Ring White Firework OUT
+2864,2,Boom Yellow Firework OUT
+2865,2,Big Boom Yellow Firework OUT
+2866,2,Shockwave Yellow Firework OUT
+2867,2,Spiral Yellow Firework OUT
+2868,2,Sparkle Yellow Firework OUT
+2869,2,Blossom Yellow Firework OUT
+2870,2,Ring Yellow Firework OUT
+2871,2,Boom Black Firework UP
+2872,2,Big Boom Black Firework UP
+2873,2,Shockwave Black Firework UP
+2874,2,Spiral Black Firework UP
+2875,2,Sparkle Black Firework UP
+2876,2,Blossom Black Firework UP
+2877,2,Ring Black Firework UP
+2878,2,Boom Blue Firework UP
+2879,2,Big Boom Blue Firework UP
+2880,2,Shockwave Blue Firework UP
+2881,2,Spiral Blue Firework UP
+2882,2,Sparkle Blue Firework UP
+2883,2,Blossom Blue Firework UP
+2884,2,Ring Blue Firework UP
+2885,2,Boom Green Firework UP
+2886,2,Big Boom Green Firework UP
+2887,2,Shockwave Green Firework UP
+2888,2,Spiral Green Firework UP
+2889,2,Sparkle Green Firework UP
+2890,2,Blossom Green Firework UP
+2891,2,Ring Green Firework UP
+2892,2,Boom Orange Firework UP
+2893,2,Big Boom Orange Firework UP
+2894,2,Shockwave Orange Firework UP
+2895,2,Spiral Orange Firework UP
+2896,2,Sparkle Orange Firework UP
+2897,2,Blossom Orange Firework UP
+2898,2,Ring Orange Firework UP
+2899,2,Boom Purple Firework UP
+2900,2,Big Boom Purple Firework UP
+2901,2,Shockwave Purple Firework UP
+2902,2,Spiral Purple Firework UP
+2903,2,Sparkle Purple Firework UP
+2904,2,Blossom Purple Firework UP
+2905,2,Ring Purple Firework UP
+2906,2,Boom Red Firework UP
+2907,2,Big Boom Red Firework UP
+2908,2,Shockwave Red Firework UP
+2909,2,Spiral Red Firework UP
+2910,2,Sparkle Red Firework UP
+2911,2,Blossom Red Firework UP
+2912,2,Ring Red Firework UP
+2913,2,Boom White Firework UP
+2914,2,Big Boom White Firework UP
+2915,2,Shockwave White Firework UP
+2916,2,Spiral White Firework UP
+2917,2,Sparkle White Firework UP
+2918,2,Blossom White Firework UP
+2919,2,Ring White Firework UP
+2920,2,Boom Yellow Firework UP
+2921,2,Big Boom Yellow Firework UP
+2922,2,Shockwave Yellow Firework UP
+2923,2,Spiral Yellow Firework UP
+2924,2,Sparkle Yellow Firework UP
+2925,2,Blossom Yellow Firework UP
+2926,2,Ring Yellow Firework UP
+2934,4,Tusker Fists
+2970,1,Hunter's Lash
+2976,32,Acid Spray
+2998,16,Wrath of the Puppeteer
+3025,4,Shriek
+3107,1,Flay Soul
+3108,1,Flay Soul
+3109,32,Liquefy Flesh
+3110,16,Sear Flesh
+3111,4,Soul Hammer
+3112,2,Soul Spike
+3113,1,Flay Soul
+3114,32,Liquefy Flesh
+3115,16,Sear Flesh
+3116,4,Soul Hammer
+3117,2,Soul Spike
+3118,32,Liquefy Flesh
+3119,16,Sear Flesh
+3120,4,Soul Hammer
+3121,2,Soul Spike
+3122,2,Sacrificial Edge
+3123,2,Sacrificial Edges
+3241,16,Flame Burst
+3426,32,Greater Withering
+3427,32,Lesser Withering
+3428,32,Withering
+3451,4,Concussive Belch
+3452,4,Concussive Wail
+3453,16,Feelun Blight
+3454,16,Wrath of the Feelun
+3455,8,Koruu Cloud
+3456,8,Koruu's Wrath
+3457,8,Mana Bolt
+3458,8,Mana Purge
+3459,32,Mucor Cloud
+3460,32,Dissolving Vortex
+3653,32,Acid Blast III
+3654,32,Acid Volley I
+3655,32,Acid Volley II
+3656,1,Blade Blast III
+3657,1,Blade Blast IV
+3658,1,Blade Volley I
+3659,1,Blade Volley II
+3660,4,Bludgeoning Volley I
+3661,4,Bludgeoning Volley II
+3662,16,Flame Blast I
+3663,16,Flame Volley III
+3664,16,Flame Volley IV
+3665,2,Force Blast III
+3666,2,Force Blast IV
+3667,2,Force Volley III
+3668,2,Force Volley IV
+3669,8,Frost Blast III
+3670,8,Frost Blast IV
+3671,8,Frost Volley III
+3672,8,Frost Volley IV
+3673,64,Lightning Blast III
+3674,64,Lightning Blast IV
+3675,64,Lightning Volley III
+3676,64,Lightning Volley IV
+3677,4,Shock Blast III
+3678,4,Shock Blast IV
+3805,32,Acid Ring
+3806,16,Flame Ring
+3807,2,Force Ring
+3808,64,Lightning Ring
+3818,128,Curse of Raven Fury
+3836,8,Breath of the Deep
+3857,8,Pumpkin Rain
+3858,16,Pumpkin Ring
+3859,16,Pumpkin Wall
+3877,32,Corrosive Strike
+3878,16,Incendiary Strike
+3879,8,Glacial Strike
+3880,64,Galvanic Strike
+3881,32,Corrosive Ring
+3882,16,Incendiary Ring
+3883,16,Pyroclastic Explosion
+3884,8,Glacial Ring
+3885,64,Galvanic Ring
+3892,16,Summon Flame Seekers
+3893,16,Summon Burning Haze
+3901,16,Egg Bomb
+3902,1,Ring around the Rabbit
+3903,4,Whirlwind
+3904,32,Essence's Fury
+3905,32,Essence's Fury
+3906,32,Essence's Fury
+3907,32,Essence's Fury
+3908,4,Mana Blast
+3911,4,Spiral of Souls
+3914,128,Dark Vortex
+3926,16,Harbinger's Fiery Touch
+3931,128,Dark Vortex
+3933,2,Black Spear Strike
+3934,32,Heavy Acid Ring
+3935,1,Heavy Blade Ring
+3936,16,Fire Bomb
+3937,2,Heavy Force Ring
+3938,8,Heavy Frost Ring
+3939,64,Thaumic Bleed
+3940,128,Exsanguinating Wave
+3941,64,Heavy Lightning Ring
+3942,4,Heavy Shock Ring
+3943,16,Burning Earth
+3944,2,Rain of Spears
+3945,64,Raging Storm
+3946,32,Acid Wave
+3947,1,Blade Wave
+3948,16,Flame Wave
+3949,2,Force Wave
+3950,8,Frost Wave
+3951,64,Lightning Wave
+3952,4,Shock Waves
+3969,32,Acid Bomb
+3970,1,Blade Bomb
+3971,16,Fire Bomb
+3972,2,Force Bomb
+3973,8,Frost Bomb
+3974,64,Lightning Bomb
+3975,4,Shock Bomb
+3986,4,Rock Fall
+3987,2,Black Spear Strike
+3988,2,Black Spear Strike
+3989,64,Dark Lightning
+3990,8,Heavy Frost Ring
+3991,64,Thaumic Bleed
+3992,32,Heavy Acid Ring
+3993,1,Heavy Blade Ring
+3994,16,Fire Bomb
+3995,2,Heavy Force Ring
+3996,8,Heavy Frost Ring
+3997,64,Heavy Lightning Ring
+3998,128,Dark Vortex
+3999,128,Exsanguinating Wave
+4000,4,Heavy Shock Ring
+4001,16,Burning Earth
+4002,16,Burning Earth
+4003,2,Wall of Spears
+4004,2,Wall of Spears
+4005,32,Acid Wave
+4006,1,Blade Wave
+4007,16,Flame Wave
+4008,2,Force Wave
+4009,8,Frost Wave
+4010,64,Lightning Wave
+4011,4,Shock Waves
+4021,1,Flurry of Stars
+4028,8,Snowball
+4044,32,Acid Ball
+4045,16,Flame Ball
+4046,64,Lightning Ball
+4067,4,Mucor Bolt
+4078,4,Egg
+4081,64,Eye of the Tempest
+4082,16,Big Fire
+4091,2,Spear
+4092,16,Flame Grenade
+4096,16,Flame Chain
+4097,64,Violet Rain
+4113,4,FoulRing
+4124,1,Dark Nanners
+4125,2,Dark Nanners
+4126,2,Rain of Nanners
+4181,32,Essence Bolt
+4182,64,Ball Lightning
+4183,32,Corrosive Veil
+4184,16,Essence Bolt
+4185,8,Essence Bolt
+4186,8,Hoar Frost
+4187,64,Essence Bolt
+4188,16,Shadowed Flame
+4202,16,Trevor's Zombie Strike
+4208,8,Spectral Flame
+4216,8,Frost Wave
+4239,4,Ring of Death
+4246,64,MeteorStrike
+4264,2,Arcane Death
+4265,2,Arcane Pyramid
+4266,128,Blood Bolt
+4267,4,Cow
+4268,16,Fireworks
+4269,1,Present
+4270,2,Table
+4271,32,Acid Whip
+4272,1,Razor Whip
+4273,4,Spray of Coins
+4274,16,Flame Whip
+4275,64,Electric Whip
+4282,2,Arcane Death
+4283,2,Arcane Death
+4375,2,Incantation of Blossom Black Firework OUT
+4376,2,Incantation of Blossom Blue Firework OUT
+4377,2,Incantation of Blossom Green Firework OUT
+4378,2,Incantation of Blossom Orange Firework OUT
+4379,2,Incantation of Blossom Purple Firework OUT
+4380,2,Incantation of Blossom Red Firework OUT
+4381,2,Incantation of Blossom White Firework OUT
+4382,2,Incantation of Blossom Yellow Firework OUT
+4383,2,Incantation of Blossom Black Firework UP
+4384,2,Incantation of Blossom Blue Firework UP
+4385,2,Incantation of Blossom Green Firework UP
+4386,2,Incantation of Blossom Orange Firework UP
+4387,2,Incantation of Blossom Purple Firework UP
+4388,2,Incantation of Blossom Red Firework UP
+4389,2,Incantation of Blossom White Firework UP
+4390,2,Incantation of Blossom Yellow Firework UP
+4421,32,Incantation of Acid Arc
+4422,1,Incantation of Blade Arc
+4423,16,Incantation of Flame Arc
+4424,2,Incantation of Force Arc
+4425,8,Incantation of Frost Arc
+4426,64,Incantation of Lightning Arc
+4427,4,Incantation of Shock Arc
+4428,128,Incantation of Martyr's Hecatomb
+4429,512,Incantation of Martyr's Blight
+4430,256,Incantation of Martyr's Tenacity
+4431,32,Incantation of Acid Blast
+4432,32,Incantation of Acid Streak
+4433,32,Incantation of Acid Stream
+4434,32,Incantation of Acid Volley
+4435,1,Incantation of Blade Blast
+4436,1,Incantation of Blade Volley
+4437,4,Incantation of Bludgeoning Volley
+4438,16,Incantation of Flame Blast
+4439,16,Incantation of Flame Bolt
+4440,16,Incantation of Flame Streak
+4441,16,Incantation of Flame Volley
+4442,2,Incantation of Force Blast
+4443,2,Incantation of Force Bolt
+4444,2,Incantation of Force Streak
+4445,2,Incantation of Force Volley
+4446,8,Incantation of Frost Blast
+4447,8,Incantation of Frost Bolt
+4448,8,Incantation of Frost Streak
+4449,8,Incantation of Frost Volley
+4450,64,Incantation of Lightning Blast
+4451,64,Incantation of Lightning Bolt
+4452,64,Incantation of Lightning Streak
+4453,64,Incantation of Lightning Volley
+4454,4,Incantation of Shock Blast
+4455,4,Incantation of Shock Wave
+4456,4,Incantation of Shock Wave Streak
+4457,1,Incantation of Whirling Blade
+4458,1,Incantation of Whirling Blade Streak
+4927,32,Incantation of Acid Stream with 300 Spellpower
+4928,32,Incantation of Acid Stream with 350 Spellpower
+4930,16,Flame Bolt I
+4931,16,Mini Fireball
+4932,16,Mini Fireball
+4936,16,Flame Bolt I
+4937,16,Flame Bolt I
+4938,16,Flame Bolt I
+4939,16,Mini Uber
+4940,2,Mini Ring
+4941,2,Mini Ring
+4942,2,Mini Ring
+4943,16,Mini Fireball
+4945,16,Flame Bolt I
+4946,2,Mini Ring
+4967,16,Cleansing Ring of Fire
+4987,32,Olthoi Spit
+5166,16,Flaming Skull
+5331,64,Clouded Soul
+5332,1024,Bael'zharon's Nether Streak
+5333,1024,Bael'zharon's Nether Arc
+5337,1024,Destructive Curse VII
+5338,1024,Incantation of Destructive Curse
+5339,1024,Destructive Curse I
+5340,1024,Destructive Curse II
+5341,1024,Destructive Curse III
+5342,1024,Destructive Curse IV
+5343,1024,Destructive Curse V
+5344,1024,Destructive Curse VI
+5345,1024,Nether Streak V
+5346,1024,Nether Streak VI
+5347,1024,Nether Streak VII
+5348,1024,Incantation of Nether Streak
+5349,1024,Nether Bolt I
+5350,1024,Nether Bolt II
+5351,1024,Nether Bolt III
+5352,1024,Nether Bolt IV
+5353,1024,Nether Bolt V
+5354,1024,Nether Bolt VI
+5355,1024,Nether Bolt VII
+5356,1024,Incantation of Nether Bolt
+5357,1024,Nether Streak I
+5358,1024,Nether Streak II
+5359,1024,Nether Streak III
+5360,1024,Nether Streak IV
+5361,1024,Clouded Soul
+5362,1024,Nether Arc II
+5363,1024,Nether Arc III
+5364,1024,Nether Arc IV
+5365,1024,Nether Arc V
+5366,1024,Nether Arc VI
+5367,1024,Nether Arc VII
+5368,1024,Incantation of Nether Arc
+5369,1024,Nether Arc I
+5370,1024,Incantation of Nether Streak
+5371,1024,Festering Curse I
+5372,1024,Festering Curse II
+5373,1024,Festering Curse III
+5374,1024,Festering Curse IV
+5375,1024,Festering Curse V
+5376,1024,Festering Curse VI
+5377,1024,Festering Curse VII
+5378,1024,Incantation of Festering Curse
+5379,1024,Weakening Curse I
+5380,1024,Weakening Curse II
+5381,1024,Weakening Curse III
+5382,1024,Weakening Curse IV
+5383,1024,Weakening Curse V
+5384,1024,Weakening Curse VI
+5385,1024,Weakening Curse VII
+5386,1024,Incantation of Weakening Curse
+5387,1024,Corrosion I
+5388,1024,Corrosion II
+5389,1024,Corrosion III
+5390,1024,Corrosion IV
+5391,1024,Corrosion V
+5392,1024,Corrosion VI
+5393,1024,Corrosion VII
+5394,1024,Incantation of Corrosion
+5395,1024,Corruption I
+5396,1024,Corruption II
+5397,1024,Corruption III
+5398,1024,Corruption IV
+5399,1024,Corruption V
+5400,1024,Corruption VI
+5401,1024,Corruption VII
+5402,1024,Incantation of Corruption
+5439,32,Acid Spit Streak 1
+5440,32,Acid Spit 1
+5441,32,Acid Spit 2
+5442,32,Acid Spit Arc 1
+5443,32,Acid Spit Arc 2
+5444,32,Acid Spit Blast 1
+5445,32,Acid Spit Blast 2
+5446,32,Acid Spit Volley 1
+5447,32,Acid Spit Volley 2
+5448,32,Acid Spit Streak
+5524,2,Falling stalactite
+5525,128,Bloodstone Bolt I
+5526,128,Bloodstone Bolt II
+5527,128,Bloodstone Bolt III
+5528,128,Bloodstone Bolt IV
+5529,128,Bloodstone Bolt V
+5530,128,Bloodstone Bolt VI
+5531,128,Bloodstone Bolt VII
+5532,128,Incantation of Bloodstone Bolt
+5535,32,Acidic Blood
+5536,32,Acidic Blood
+5537,32,Acidic Blood
+5544,1024,Nether Blast I
+5545,1024,Nether Blast II
+5546,1024,Nether Blast III
+5547,1024,Nether Blast IV
+5548,1024,Nether Blast V
+5549,1024,Nether Blast VI
+5550,1024,Nether Blast VII
+5551,1024,Incantation of Nether Blast
+5754,1,Shroud of Darkness (Magic)
+5755,1,Shroud of Darkness (Melee)
+5756,1,Shroud of Darkness (Missile)
+5762,8,Rolling Death
+5967,64,Galvanic Arc
+5968,64,Galvanic Blast
+5969,64,Galvanic Strike
+5970,64,Galvanic Streak
+5971,64,Galvanic Volley
+5972,64,Galvanic Bomb
+6151,64,Crimson Storm
+6152,4,Rocky Shrapnel
+6155,4,Earthen Stomp
+6156,4,Viridian Ring
+6157,4,Withering Ring
+6158,4,Poison Breath
+6159,2,Thorn Volley
+6160,2,Thorns
+6161,32,Acidic Thorns
+6162,2,Thorn Arc
+6163,2,Ring of Thorns
+6164,2,Deadly Ring of Thorns
+6165,2,Deadly Thorn Volley
+6168,64,Deadly Ring of Lightning
+6169,64,Deadly Lightning Volley
+6181,16,Singeing Flames
+6186,4,Deafening Wail
+6187,2,Screeching Howl
+6188,4,Earthquake
+6189,32,Searing Disc II
+6190,1,Horizon's Blades II
+6191,16,Cassius' Ring of Fire II
+6192,2,Nuhmudira's Spines II
+6193,8,Halo of Frost II
+6194,64,Eye of the Storm II
+6195,1024,Clouded Soul II
+6196,4,Tectonic Rifts II
+6197,64,Eye of the Storm II
+6198,64,Incantation of Lightning Bolt
+6199,64,Incantation of Lightning Arc
+6320,1024,Ring of Skulls II

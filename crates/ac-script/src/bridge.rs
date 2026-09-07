@@ -85,6 +85,9 @@ fn object_map(o: &WorldObject, me: Option<[f32; 3]>, carried: bool) -> Map {
     let mut map = Map::new();
     map.insert("guid".into(), int(o.guid));
     map.insert("name".into(), o.name.clone().into());
+    // The kind of thing it is, as the server names it: the key the
+    // element tables use, and stable where a name is not.
+    map.insert("wcid".into(), int(o.weenie_class_id));
     map.insert("distance".into(), float(dist));
     map.insert(
         "is_creature".into(),
@@ -259,6 +262,38 @@ impl Api for CtxApi<'_, '_> {
     fn me(&mut self) -> Map {
         let index = self.cx.index;
         summary(self.client(), index)
+    }
+
+    fn fight_style(&mut self, style: &str) -> String {
+        use ac_client::autoplay::Style;
+        let chosen = match style.trim().to_lowercase().as_str() {
+            "melee" => Some(Style::Melee),
+            "missile" | "archer" | "bow" | "thrown" => Some(Style::Missile),
+            "magic" | "war" | "caster" => Some(Style::Magic),
+            "auto" | "" => Some(Style::Auto),
+            _ => None,
+        };
+        let c = self.client();
+        if let Some(chosen) = chosen {
+            c.autoplay.config.fight.style = chosen;
+        }
+        // What it would actually do right now, not just what was asked.
+        c.fighting_style().label().to_string()
+    }
+
+    fn attack_spells(&mut self, names: Array) -> Array {
+        let wanted: Vec<String> = names.iter().map(|v| v.to_string()).collect();
+        let c = self.client();
+        if !wanted.is_empty() {
+            c.autoplay.config.fight.spells = wanted;
+        }
+        c.autoplay
+            .config
+            .fight
+            .spells
+            .iter()
+            .map(|s| Dynamic::from(s.clone()))
+            .collect()
     }
 
     fn travel_style(&mut self, style: &str) -> String {

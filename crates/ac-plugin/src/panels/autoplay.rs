@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{caption, title, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
-use ac_client::autoplay::{Buffs, Config, Fight, Loot, Survive};
+use ac_client::autoplay::{Buffs, Config, Fight, Loot, Style, Survive};
 use ac_client::items::{ItemStats, Query};
 
 /// What the panel draws: the rules, what the character is doing, and how
@@ -258,6 +258,22 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                 title(ui, "Fight");
                 ui.checkbox(&mut cfg.fight.enabled, "pick fights")
                     .on_hover_text("Attack the nearest creature the rules allow");
+                ui.horizontal(|ui| {
+                    ui.label("with");
+                    egui::ComboBox::from_id_salt("autoplay.style")
+                        .selected_text(cfg.fight.style.label())
+                        .show_ui(ui, |ui| {
+                            for style in Style::ALL {
+                                ui.selectable_value(&mut cfg.fight.style, style, style.label());
+                            }
+                        });
+                })
+                .response
+                .on_hover_text(
+                    "How a character fights follows what it holds: a wand \
+                     casts, a bow shoots, a sword swings. This picks which \
+                     of them to wield.",
+                );
                 ui.add(
                     egui::Slider::new(&mut cfg.fight.radius, 1.0..=60.0)
                         .suffix(" m")
@@ -265,6 +281,17 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                         .text("radius"),
                 )
                 .on_hover_text("How far to look for something to attack");
+                if matches!(cfg.fight.style, Style::Auto | Style::Magic) {
+                    caption(ui, "attack spells, best first");
+                    string_list(
+                        ui,
+                        "autoplay.spells",
+                        &mut cfg.fight.spells,
+                        drafts,
+                        "e.g. Flame Bolt V",
+                        None,
+                    );
+                }
                 caption(ui, "only these (blank: anything)");
                 string_list(
                     ui,

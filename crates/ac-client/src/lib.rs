@@ -1194,7 +1194,7 @@ impl Client {
     /// spell or low mana is logged and sent anyway, the server being the
     /// judge (Mana Conversion can make a cast the estimate rejects).
     pub fn try_cast(&mut self, spell: u32) -> magic::CastCheck {
-        use ac_net::messages::{action, combat_mode};
+        use ac_net::messages::action;
         use magic::CastCheck;
         let check = self.can_cast(spell);
         match &check {
@@ -1209,14 +1209,9 @@ impl Client {
             }
             other => tracing::info!("casting {spell} although {other:?}"),
         }
-        if !self.magic {
-            self.session.send_action(
-                action::CHANGE_COMBAT_MODE,
-                &combat_mode::MAGIC.to_le_bytes(),
-            );
-            self.magic = true;
-            self.combat = false;
-        }
+        // A caster is wielded (can_cast said so), so entering combat is
+        // entering magic mode; there is no separate choice to make.
+        self.enter_combat();
         let table = self.assets.spell_table().ok();
         let entry = table.as_ref().and_then(|t| t.get(spell));
         let name = entry
@@ -1253,6 +1248,12 @@ impl Client {
     pub fn attack(&mut self, guid: u32) {
         self.interrupt_travel("attacking");
         use ac_net::messages::action;
+        // A wand does not swing and does not shoot: with a caster in
+        // hand the way to attack is to cast.
+        if self.combat_stance() == Stance::Magic {
+            tracing::info!("cannot attack with a caster wielded; cast instead");
+            return;
+        }
         if !self.combat {
             return;
         }
@@ -1383,6 +1384,162 @@ impl Client {
         true
     }
 
+    /// The arrows, bolts or quarrels wielded, if any. A bow shoots
+    /// nothing without them, so autoplay refills the slot from the pack.
+    pub fn wielded_ammo(&self) -> Option<u32> {
+        self.world
+            .wielded()
+            .find(|o| o.valid_locations & ac_world::equip::MISSILE_AMMO != 0)
+            .map(|o| o.guid)
+    }
+
+    /// Wield ammunition from the packs, the largest stack first. False
+    /// when none is carried, or some is wielded already. Thrown weapons
+    /// are their own ammunition and need none, so this does nothing for
+    /// them.
+    pub fn wield_ammo(&mut self) -> bool {
+        use ac_net::messages::action;
+        if self.wielded_ammo().is_some() {
+            return false;
+        }
+        let me = self.world.player_guid;
+        let Some((guid, locations, name)) = self
+            .world
+            .objects
+            .values()
+            .filter(|o| me.is_some() && o.container == me)
+            .filter(|o| o.valid_locations & ac_world::equip::MISSILE_AMMO != 0)
+            .max_by_key(|o| o.stack_size.max(1))
+            .map(|o| (o.guid, o.valid_locations, o.name.clone()))
+        else {
+            return false;
+        };
+        tracing::info!("wielding ammunition: {name} ({guid:#010x})");
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(guid).u32(locations & ac_world::equip::MISSILE_AMMO);
+        self.session
+            .send_action(action::GET_AND_WIELD_ITEM, &w.finish());
+        true
+    }
+}
+
+/// How a character fights, which is not a setting but a consequence of
+/// what it is holding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stance {
+    Melee,
+    Missile,
+    Magic,
+}
+
+impl Stance {
+    pub fn label(self) -> &'static str {
+        match self {
+            Stance::Melee => "melee",
+            Stance::Missile => "missile",
+            Stance::Magic => "magic",
+        }
+    }
+}
+
+impl Client {
+    /// The way this character fights right now, which is decided by
+    /// what is in its hands and by nothing else: a wand, orb or staff
+    /// means magic, a bow, crossbow or thrown weapon means missile, and
+    /// anything else -- a sword, a mace, bare fists -- means melee.
+    /// Entering combat enters the stance the hands imply; to fight
+    /// another way, wield another weapon.
+    pub fn combat_stance(&self) -> Stance {
+        if self.wielded_caster().is_some() {
+            Stance::Magic
+        } else if self.wielded_missile_weapon().is_some() {
+            Stance::Missile
+        } else {
+            Stance::Melee
+        }
+    }
+
+    /// Enter combat, in whichever stance the wielded weapon gives.
+    /// Nothing is sent when we are already in it.
+    pub fn enter_combat(&mut self) {
+        use ac_net::messages::{action, combat_mode};
+        let stance = self.combat_stance();
+        let already = match stance {
+            Stance::Magic => self.magic,
+            Stance::Missile => self.combat && self.missile,
+            Stance::Melee => self.combat && !self.missile,
+        };
+        if already {
+            return;
+        }
+        self.combat = stance != Stance::Magic;
+        self.magic = stance == Stance::Magic;
+        self.missile = stance == Stance::Missile;
+        let mode = match stance {
+            Stance::Melee => combat_mode::MELEE,
+            Stance::Missile => combat_mode::MISSILE,
+            Stance::Magic => combat_mode::MAGIC,
+        };
+        tracing::info!("combat mode {}", stance.label());
+        self.session
+            .send_action(action::CHANGE_COMBAT_MODE, &mode.to_le_bytes());
+    }
+
+    /// Wield a carried weapon that gives the stance `want`, so the
+    /// character fights that way. True when something was sent. Nothing
+    /// happens when the hands already give that stance, or when no such
+    /// weapon is carried: a character can only fight with what it has.
+    pub fn wield_for(&mut self, want: Stance) -> bool {
+        use ac_net::messages::action;
+        use ac_world::item_type;
+        if self.combat_stance() == want {
+            return false;
+        }
+        let mask = match want {
+            Stance::Magic => item_type::CASTER,
+            Stance::Missile => item_type::MISSILE_WEAPON,
+            Stance::Melee => item_type::MELEE_WEAPON,
+        };
+        let me = self.world.player_guid;
+        let Some((guid, locations, name)) = self
+            .world
+            .objects
+            .values()
+            .filter(|o| me.is_some() && o.container == me)
+            .filter(|o| o.item_type & mask != 0)
+            // The dearest one is usually the best one, and it is the
+            // only ordering the client has before appraising.
+            .max_by_key(|o| o.value)
+            .map(|o| (o.guid, o.valid_locations, o.name.clone()))
+        else {
+            return false;
+        };
+        tracing::info!("wielding {name} to fight {}", want.label());
+        let mut w = ac_net::wire::Writer::new();
+        w.u32(guid).u32(locations);
+        self.session
+            .send_action(action::GET_AND_WIELD_ITEM, &w.finish());
+        true
+    }
+
+    /// Drop back to peace mode.
+    pub fn leave_combat(&mut self) {
+        use ac_net::messages::{action, combat_mode};
+        if !self.combat && !self.magic {
+            return;
+        }
+        self.combat = false;
+        self.magic = false;
+        self.missile = false;
+        tracing::info!("combat mode peace");
+        self.session.send_action(
+            action::CHANGE_COMBAT_MODE,
+            &combat_mode::NON_COMBAT.to_le_bytes(),
+        );
+        self.attack_target = None;
+        self.attack_pending = false;
+    }
+
     /// The wielded bow, crossbow or thrown weapon, if any.
     pub fn wielded_missile_weapon(&self) -> Option<u32> {
         self.world
@@ -1391,36 +1548,13 @@ impl Client {
             .map(|o| o.guid)
     }
 
-    /// Enter or leave combat. The stance follows the wielded weapon: a
-    /// missile weapon gives missile mode, anything else melee (fists
-    /// included). Casters need magic mode, see `cast`.
+    /// Enter or leave combat. Which stance it enters is not a choice:
+    /// it is whatever the wielded weapon gives (see `combat_stance`).
     pub fn toggle_combat(&mut self) {
-        use ac_net::messages::{action, combat_mode};
-        self.combat = !self.combat;
-        self.magic = false;
-        self.missile = self.combat && self.wielded_missile_weapon().is_some();
-        let mode = if !self.combat {
-            combat_mode::NON_COMBAT
-        } else if self.missile {
-            combat_mode::MISSILE
+        if self.combat || self.magic {
+            self.leave_combat();
         } else {
-            combat_mode::MELEE
-        };
-        tracing::info!(
-            "combat mode {}",
-            if !self.combat {
-                "peace"
-            } else if self.missile {
-                "missile"
-            } else {
-                "melee"
-            }
-        );
-        self.session
-            .send_action(action::CHANGE_COMBAT_MODE, &mode.to_le_bytes());
-        if !self.combat {
-            self.attack_target = None;
-            self.attack_pending = false;
+            self.enter_combat();
         }
     }
 
