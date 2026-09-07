@@ -150,6 +150,25 @@ pub fn item_map(s: &ItemStats) -> Map {
     map.insert("spells".into(), spells.into());
     map.insert("wield_skill".into(), text(&s.wield_skill));
     map.insert("wield_level".into(), int(s.wield_level));
+    // Everything the weapon chooser reads: the element as bits, what it
+    // was imbued with, and every requirement for holding it.
+    map.insert("damage_type_bits".into(), int(s.damage_type_bits));
+    map.insert("imbued".into(), int(s.imbued));
+    map.insert("elemental_damage".into(), float(s.elemental_damage));
+    map.insert("crit_frequency".into(), float(s.crit_frequency));
+    map.insert("crit_multiplier".into(), float(s.crit_multiplier));
+    let reqs: Array = s
+        .wield_reqs
+        .iter()
+        .map(|(kind, what, difficulty)| {
+            let mut r = Map::new();
+            r.insert("kind".into(), int(*kind));
+            r.insert("what".into(), int(*what));
+            r.insert("difficulty".into(), int(*difficulty));
+            Dynamic::from(r)
+        })
+        .collect();
+    map.insert("wield_reqs".into(), reqs.into());
     map.insert("mana".into(), int(s.mana));
     map.insert("max_mana".into(), int(s.max_mana));
     map.insert("spellcraft".into(), int(s.spellcraft));
@@ -1269,6 +1288,12 @@ mod tests {
             "spells",
             "wield_skill",
             "wield_level",
+            "damage_type_bits",
+            "imbued",
+            "elemental_damage",
+            "crit_frequency",
+            "crit_multiplier",
+            "wield_reqs",
             "mana",
             "max_mana",
             "spellcraft",

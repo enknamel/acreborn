@@ -123,6 +123,27 @@ pub mod equip {
     pub const TWO_HANDED: u32 = 0x0200_0000;
 }
 
+/// What a thing asks of whoever would wield it. An appraisal reports up
+/// to four of these as `(kind, what, difficulty)`, and every one must be
+/// met: the top wands ask for a base War Magic of 275, and the server
+/// simply refuses to arm anyone who falls short.
+pub mod wield {
+    /// The skill as it stands, buffs counted.
+    pub const SKILL: u32 = 1;
+    /// The skill without buffs, which is what most weapons ask for.
+    pub const RAW_SKILL: u32 = 2;
+    /// An attribute (1 Strength .. 6 Self), buffed and unbuffed.
+    pub const ATTRIB: u32 = 3;
+    pub const RAW_ATTRIB: u32 = 4;
+    /// Health, stamina or mana (1, 3, 5), buffed and unbuffed.
+    pub const SECONDARY_ATTRIB: u32 = 5;
+    pub const RAW_SECONDARY_ATTRIB: u32 = 6;
+    /// The character's level.
+    pub const LEVEL: u32 = 7;
+    /// The skill trained or specialised (see `sac`).
+    pub const TRAINING: u32 = 8;
+}
+
 pub mod usable {
     /// `Usable::No`: the thing cannot be used at all.
     pub const NO: u32 = 1;

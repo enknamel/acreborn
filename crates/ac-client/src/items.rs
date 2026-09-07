@@ -81,15 +81,21 @@ pub struct ItemStats {
     pub crit_multiplier: f32,
     pub speed: u32,
     pub weapon_skill: String,
+    /// The id of the skill the weapon is used with, 0 when not said.
+    pub weapon_skill_id: u32,
     pub attack_bonus: f64,
     pub defense_bonus: f64,
     pub armor_level: u32,
     pub shield: u32,
     /// Spell names on the item (cast on use, or on wield).
     pub spells: Vec<String>,
-    /// Skill and level needed to wield it.
+    /// Skill and level needed to wield it, in words.
     pub wield_skill: String,
     pub wield_level: u32,
+    /// Every requirement for wielding it, as `(kind, what, difficulty)`:
+    /// see `ac_world::wield`. A weapon may carry up to four, and all of
+    /// them must be met.
+    pub wield_reqs: Vec<(u32, u32, u32)>,
     pub mana: u32,
     pub max_mana: u32,
     pub spellcraft: u32,
@@ -185,6 +191,7 @@ impl ItemStats {
             self.damage_type_bits = w.damage_type;
             self.speed = w.speed;
             self.weapon_skill = skill_name(w.skill);
+            self.weapon_skill_id = w.skill;
             self.attack_bonus = w.offense;
             self.defense_bonus = a.float(29).unwrap_or(1.0);
         }
@@ -192,6 +199,26 @@ impl ItemStats {
             self.wield_skill = skill_name(skill as u32);
             self.wield_level = level.max(0) as u32;
         }
+        // Up to four requirement sets, each a kind, what it is about and
+        // how much of it is needed. A top wand asks for War Magic 275.
+        self.wield_reqs = [
+            (158, 159, 160),
+            (270, 271, 272),
+            (273, 274, 275),
+            (276, 277, 278),
+        ]
+        .into_iter()
+        .filter_map(|(kind, what, difficulty)| {
+            let kind = a.int(kind)?.max(0) as u32;
+            (kind != 0).then(|| {
+                (
+                    kind,
+                    a.int(what).unwrap_or(0).max(0) as u32,
+                    a.int(difficulty).unwrap_or(0).max(0) as u32,
+                )
+            })
+        })
+        .collect();
         if let (Some(cur), Some(max)) = (a.int(107), a.int(108)) {
             self.mana = cur.max(0) as u32;
             self.max_mana = max.max(0) as u32;

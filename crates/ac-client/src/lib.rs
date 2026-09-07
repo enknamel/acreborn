@@ -1385,6 +1385,35 @@ impl Client {
         true
     }
 
+    /// What this character can bring to bear, for judging what it may
+    /// wield and how well (see `crate::weapons`).
+    pub fn wielder(&self) -> crate::weapons::Wielder {
+        let stats = &self.world.stats;
+        let table = self.assets.skill_table().ok();
+        let skills = stats
+            .skills
+            .iter()
+            .map(|s| {
+                let base = table.as_ref().and_then(|t| t.get(s.id));
+                (s.id, stats.skill_value(s, base), s.advancement)
+            })
+            .collect();
+        let mut attributes = [0u32; 6];
+        for (i, a) in stats.attributes.iter().enumerate() {
+            attributes[i] = a.value();
+        }
+        let mut vitals = [0u32; 3];
+        for i in 0..3 {
+            vitals[i] = stats.vital_max(i);
+        }
+        crate::weapons::Wielder {
+            level: stats.level.max(0) as u32,
+            skills,
+            attributes,
+            vitals,
+        }
+    }
+
     /// Wield a carried item by guid, in whatever slot it goes in.
     pub fn wield_guid(&mut self, guid: u32) -> bool {
         use ac_net::messages::action;

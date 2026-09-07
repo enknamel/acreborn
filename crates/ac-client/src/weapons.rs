@@ -8,6 +8,15 @@
 //! times from fire and 0.5 from slashing is nearly three times the
 //! weapon before its own damage is counted.
 //!
+//! None of that matters for a weapon the character cannot pick up. The
+//! better a weapon is, the more it asks of whoever wields it --- the top
+//! wands want a base War Magic of 275 --- and the server simply refuses
+//! to arm anyone who falls short. So a [`Wielder`] is weighed against
+//! every requirement first, and what the character is actually skilled
+//! at then counts towards the score: a great sword swung at a hundred
+//! skill is worth less than a wand cast at four hundred, whatever their
+//! elements.
+//!
 //! [`score`] puts a number on a weapon against a particular creature and
 //! [`best`] picks from what is carried. The numbers are a judgement, not
 //! the game's own formula: they rank weapons against each other and
@@ -34,6 +43,93 @@ const ARMOR_RENDING_BONUS: f32 = 0.25;
 /// better critical rate to pay for itself. Roughly a Drudge Skulker
 /// several times over.
 pub const LONG_FIGHT_HEALTH: u32 = 200;
+/// The skill a weapon is judged as ordinary at. Skill above this counts
+/// for the weapon, below it against, which is how a well-trained wand
+/// beats a barely-trained sword.
+const ORDINARY_SKILL: f32 = 250.0;
+/// How far skill may swing the score either way.
+const SKILL_FLOOR: f32 = 0.25;
+const SKILL_CEILING: f32 = 2.0;
+
+/// What the character can bring to bear: enough to answer whether a
+/// weapon may be wielded at all, and how well it would be used.
+///
+/// Skills are the values the character sheet shows, which is the base
+/// plus what training has added and no enchantments. That is what a
+/// raw-skill requirement is measured against, and it is the safe answer
+/// for the buffed kind too: a weapon it says we cannot hold is one the
+/// server would refuse.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Wielder {
+    pub level: u32,
+    /// `(skill id, value, advancement class)`.
+    pub skills: Vec<(u32, u32, u32)>,
+    /// Strength, Endurance, Coordination, Quickness, Focus, Self.
+    pub attributes: [u32; 6],
+    /// Maximum health, stamina and mana.
+    pub vitals: [u32; 3],
+}
+
+impl Wielder {
+    /// How high this skill stands, 0 when the character does not have it.
+    pub fn skill(&self, id: u32) -> u32 {
+        self.skills
+            .iter()
+            .find(|(s, _, _)| *s == id)
+            .map(|(_, v, _)| *v)
+            .unwrap_or(0)
+    }
+
+    fn advancement(&self, id: u32) -> u32 {
+        self.skills
+            .iter()
+            .find(|(s, _, _)| *s == id)
+            .map(|(_, _, a)| *a)
+            .unwrap_or(0)
+    }
+
+    /// Whether one `(kind, what, difficulty)` requirement is met. A kind
+    /// we do not understand is treated as met: refusing to wield
+    /// something over a rule we cannot read would be worse than letting
+    /// the server say no.
+    pub fn meets(&self, req: (u32, u32, u32)) -> bool {
+        use ac_world::wield;
+        let (kind, what, difficulty) = req;
+        let at = |i: u32, of: &[u32]| of.get(i as usize).copied().unwrap_or(0);
+        match kind {
+            wield::SKILL | wield::RAW_SKILL => self.skill(what) >= difficulty,
+            wield::ATTRIB | wield::RAW_ATTRIB => {
+                at(what.saturating_sub(1), &self.attributes) >= difficulty
+            }
+            wield::SECONDARY_ATTRIB | wield::RAW_SECONDARY_ATTRIB => {
+                // Health, stamina and mana are 1, 3 and 5.
+                at(what.saturating_sub(1) / 2, &self.vitals) >= difficulty
+            }
+            wield::LEVEL => self.level >= difficulty,
+            wield::TRAINING => self.advancement(what) >= difficulty,
+            _ => true,
+        }
+    }
+
+    /// Whether every requirement on the item is met.
+    pub fn can_wield(&self, item: &ItemStats) -> bool {
+        item.wield_reqs.iter().all(|r| self.meets(*r))
+    }
+
+    /// How much the character's skill with this weapon counts for or
+    /// against it. A weapon whose skill is unknown, or a character whose
+    /// skills we have not been told, is neither helped nor hurt.
+    fn skill_factor(&self, item: &ItemStats) -> f32 {
+        if self.skills.is_empty() {
+            return 1.0;
+        }
+        let Some(skill) = skill_used(item) else {
+            return 1.0;
+        };
+        let have = self.skill(skill) as f32;
+        (have / ORDINARY_SKILL).clamp(SKILL_FLOOR, SKILL_CEILING)
+    }
+}
 
 /// Why a weapon was picked, in words a status line can use.
 #[derive(Clone, Debug, PartialEq)]
@@ -59,6 +155,21 @@ pub fn stance_of(item: &ItemStats) -> Option<Stance> {
     }
 }
 
+/// The skill a weapon is used with. The weapon profile says so for a
+/// sword or a bow, but a wand's appraisal names no skill: what it does
+/// name is the skill it asks of the wielder, which for a caster is the
+/// school it is cast with, so that stands in.
+fn skill_used(item: &ItemStats) -> Option<u32> {
+    if item.weapon_skill_id != 0 {
+        return Some(item.weapon_skill_id);
+    }
+    use ac_world::wield;
+    item.wield_reqs
+        .iter()
+        .find(|(kind, _, _)| *kind == wield::SKILL || *kind == wield::RAW_SKILL)
+        .map(|(_, what, _)| *what)
+}
+
 /// How good this weapon is against `target`, higher being better.
 ///
 /// The elements it deals are weighed by how much the creature takes from
@@ -67,7 +178,7 @@ pub fn stance_of(item: &ItemStats) -> Option<Stance> {
 /// strike and crippling blow only count against something with health to
 /// spare. Nothing known about the target means every weapon is judged on
 /// its damage alone.
-pub fn score(item: &ItemStats, target: Option<&Creature>) -> f32 {
+pub fn score(item: &ItemStats, target: Option<&Creature>, wielder: &Wielder) -> f32 {
     let elements_dealt = Element::from_bits(item.damage_type_bits);
     let long_fight = target.is_some_and(|c| c.health >= LONG_FIGHT_HEALTH);
     // The best element it deals: a weapon that does two is used for
@@ -98,7 +209,7 @@ pub fn score(item: &ItemStats, target: Option<&Creature>) -> f32 {
             worth *= 1.0 + CRIPPLING_BONUS;
         }
     }
-    worth * power(item)
+    worth * power(item) * wielder.skill_factor(item)
 }
 
 /// How hard the weapon hits, on a scale where an ordinary one is about
@@ -154,18 +265,46 @@ fn reason(item: &ItemStats, target: Option<&Creature>) -> String {
 /// The best of `carried` for the stance `want` against `target`.
 ///
 /// Only weapons that give that stance are considered, so asking for a
-/// bow never hands back a sword. `None` when none is carried.
-pub fn best(carried: &[ItemStats], want: Stance, target: Option<&Creature>) -> Option<Choice> {
+/// bow never hands back a sword, and only ones the character may
+/// actually hold: a wand that wants a War Magic it does not have is not
+/// an option however good it would be. `None` when none is carried.
+pub fn best(
+    carried: &[ItemStats],
+    want: Stance,
+    target: Option<&Creature>,
+    wielder: &Wielder,
+) -> Option<Choice> {
     carried
         .iter()
         .filter(|i| stance_of(i) == Some(want))
+        .filter(|i| wielder.can_wield(i))
         .map(|i| Choice {
             guid: i.guid,
             name: i.name.clone(),
-            score: score(i, target),
+            score: score(i, target, wielder),
             why: reason(i, target),
         })
         .reduce(|best, next| if next.score > best.score { next } else { best })
+}
+
+/// The best weapon carried, whichever way it is used, and the stance it
+/// gives. For a character told to fight with whatever suits: a wand it
+/// is skilled with beats a sword it is not, and the other way round.
+pub fn best_any(
+    carried: &[ItemStats],
+    target: Option<&Creature>,
+    wielder: &Wielder,
+) -> Option<(Stance, Choice)> {
+    [Stance::Melee, Stance::Missile, Stance::Magic]
+        .into_iter()
+        .filter_map(|s| best(carried, s, target, wielder).map(|c| (s, c)))
+        .reduce(|best, next| {
+            if next.1.score > best.1.score {
+                next
+            } else {
+                best
+            }
+        })
 }
 
 /// The vulnerability worth casting on `target`: the element it is
@@ -193,6 +332,16 @@ pub fn vulnerability_spells(element: Element) -> Vec<u32> {
 mod tests {
     use super::*;
 
+    /// A character who can hold anything and is ordinary with it.
+    fn able() -> Wielder {
+        Wielder {
+            level: 200,
+            skills: Vec::new(),
+            attributes: [300; 6],
+            vitals: [1000; 3],
+        }
+    }
+
     fn weapon(kind: u32, low: u32, high: u32, damage_type: u32, imbued: u32) -> ItemStats {
         ItemStats {
             guid: 1,
@@ -217,13 +366,22 @@ mod tests {
         let mut frost = weapon(MELEE_WEAPON, 18, 22, Element::Cold as u32, 0);
         frost.guid = 11;
         frost.name = "Frost Sword".into();
-        assert!(score(&frost, Some(ice)) == 0.0, "cold does nothing to it");
-        assert!(score(&fire, Some(ice)) > 0.0);
-        let pick = best(&[frost.clone(), fire.clone()], Stance::Melee, Some(ice)).unwrap();
+        assert!(
+            score(&frost, Some(ice), &able()) == 0.0,
+            "cold does nothing to it"
+        );
+        assert!(score(&fire, Some(ice), &able()) > 0.0);
+        let pick = best(
+            &[frost.clone(), fire.clone()],
+            Stance::Melee,
+            Some(ice),
+            &able(),
+        )
+        .unwrap();
         assert_eq!(pick.guid, 10, "the fire one");
         assert!(pick.why.contains("fire"), "{}", pick.why);
         // Order does not decide it.
-        let pick = best(&[fire, frost], Stance::Melee, Some(ice)).unwrap();
+        let pick = best(&[fire, frost], Stance::Melee, Some(ice), &able()).unwrap();
         assert_eq!(pick.guid, 10);
     }
 
@@ -239,7 +397,7 @@ mod tests {
             Element::Fire as u32,
             imbue::FIRE_RENDING,
         );
-        assert!(score(&rending, Some(ice)) > score(&plain, Some(ice)));
+        assert!(score(&rending, Some(ice), &able()) > score(&plain, Some(ice), &able()));
         assert!(reason(&rending, Some(ice)).contains("rending"));
         // Rending the wrong element is worth nothing extra.
         let wrong = weapon(
@@ -249,7 +407,10 @@ mod tests {
             Element::Fire as u32,
             imbue::COLD_RENDING,
         );
-        assert_eq!(score(&wrong, Some(ice)), score(&plain, Some(ice)));
+        assert_eq!(
+            score(&wrong, Some(ice), &able()),
+            score(&plain, Some(ice), &able())
+        );
     }
 
     #[test]
@@ -262,8 +423,8 @@ mod tests {
         let mut plain = weapon(CASTER, 0, 0, Element::Fire as u32, 0);
         plain.elemental_damage = 1.2;
         assert_eq!(
-            score(&crit, Some(skulker)),
-            score(&plain, Some(skulker)),
+            score(&crit, Some(skulker), &able()),
+            score(&plain, Some(skulker), &able()),
             "a short fight does not pay for a better critical rate"
         );
         // Against something with health to spare it does.
@@ -273,7 +434,7 @@ mod tests {
             health: 5000,
             takes: [Some(1.0); 8],
         };
-        assert!(score(&crit, Some(&tough)) > score(&plain, Some(&tough)));
+        assert!(score(&crit, Some(&tough), &able()) > score(&plain, Some(&tough), &able()));
         assert!(reason(&crit, Some(&tough)).contains("critical strike"));
     }
 
@@ -291,12 +452,96 @@ mod tests {
         assert_eq!(stance_of(&all[1]), Some(Stance::Missile));
         assert_eq!(stance_of(&all[2]), Some(Stance::Magic));
         for want in [Stance::Melee, Stance::Missile, Stance::Magic] {
-            let pick = best(&all, want, None).expect("one of each is carried");
+            let pick = best(&all, want, None, &able()).expect("one of each is carried");
             let picked = all.iter().find(|i| i.guid == pick.guid);
             assert_eq!(picked.and_then(stance_of), Some(want));
             assert!(pick.score > 0.0, "{want:?} {pick:?}");
         }
-        assert!(best(&[], Stance::Melee, None).is_none());
+        assert!(best(&[], Stance::Melee, None, &able()).is_none());
+    }
+
+    #[test]
+    fn a_weapon_it_cannot_hold_is_not_an_option() {
+        use ac_world::item_type::CASTER;
+        use ac_world::wield;
+        // The top wands ask for a base War Magic of 275 (skill id 34).
+        let mut great = weapon(CASTER, 0, 0, Element::Fire as u32, 0);
+        great.guid = 1;
+        great.name = "Great Wand".into();
+        great.elemental_damage = 2.0;
+        great.wield_reqs = vec![(wield::RAW_SKILL, 34, 275)];
+        let mut plain = weapon(CASTER, 0, 0, Element::Fire as u32, 0);
+        plain.guid = 2;
+        plain.name = "Plain Wand".into();
+        plain.elemental_damage = 1.1;
+        let carried = [great, plain];
+
+        let novice = Wielder {
+            level: 20,
+            skills: vec![(34, 150, 2)],
+            attributes: [100; 6],
+            vitals: [200; 3],
+        };
+        let pick = best(&carried, Stance::Magic, None, &novice).expect("the plain one");
+        assert_eq!(pick.guid, 2, "the great wand is out of reach");
+        assert!(!novice.can_wield(&carried[0]));
+
+        let adept = Wielder {
+            skills: vec![(34, 300, 2)],
+            ..novice.clone()
+        };
+        assert!(adept.can_wield(&carried[0]));
+        assert_eq!(best(&carried, Stance::Magic, None, &adept).unwrap().guid, 1);
+        // A requirement kind we do not understand does not stop us.
+        let odd = ItemStats {
+            wield_reqs: vec![(99, 1, 9999)],
+            ..carried[1].clone()
+        };
+        assert!(novice.can_wield(&odd));
+    }
+
+    #[test]
+    fn what_the_character_is_good_at_decides_between_kinds() {
+        use ac_world::item_type::{CASTER, MELEE_WEAPON};
+        // Skill 34 is War Magic, 44 Heavy Weapons.
+        let mut wand = weapon(CASTER, 0, 0, Element::Fire as u32, 0);
+        wand.guid = 1;
+        wand.elemental_damage = 1.0;
+        wand.weapon_skill_id = 34;
+        let mut sword = weapon(MELEE_WEAPON, 18, 22, Element::Fire as u32, 0);
+        sword.guid = 2;
+        sword.weapon_skill_id = 44;
+        let carried = [wand, sword];
+
+        let mage = Wielder {
+            level: 100,
+            skills: vec![(34, 400, 3), (44, 60, 1)],
+            attributes: [200; 6],
+            vitals: [500; 3],
+        };
+        let (stance, pick) = best_any(&carried, None, &mage).expect("something to hold");
+        assert_eq!(stance, Stance::Magic, "{pick:?}");
+        assert_eq!(pick.guid, 1);
+
+        let swordsman = Wielder {
+            skills: vec![(34, 40, 1), (44, 400, 3)],
+            ..mage.clone()
+        };
+        let (stance, pick) = best_any(&carried, None, &swordsman).expect("something to hold");
+        assert_eq!(stance, Stance::Melee, "{pick:?}");
+        assert_eq!(pick.guid, 2);
+        // A wand names no weapon skill, only the skill it asks for; that
+        // stands in, so a caster is still judged by its school.
+        let mut asking = carried[0].clone();
+        asking.weapon_skill_id = 0;
+        asking.wield_reqs = vec![(ac_world::wield::RAW_SKILL, 34, 275)];
+        assert_eq!(skill_used(&asking), Some(34));
+        assert!(mage.skill_factor(&asking) > 1.0);
+        assert!(swordsman.skill_factor(&asking) < 1.0);
+        // With no skills known at all, neither is favoured for skill.
+        let unknown = Wielder::default();
+        assert_eq!(unknown.skill_factor(&carried[0]), 1.0);
+        assert_eq!(unknown.skill_factor(&carried[1]), 1.0);
     }
 
     #[test]

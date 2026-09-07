@@ -705,6 +705,11 @@ impl Client {
     /// Wield the best weapon carried for `target`, if a better one than
     /// the one in hand is carried. Done once per target: swapping
     /// weapons mid-swing is worse than a slightly wrong weapon.
+    ///
+    /// Told to fight with whatever suits, this looks across all three
+    /// kinds of weapon at once, so a character skilled with a wand and
+    /// poor with a sword reaches for the wand. Changing weapon changes
+    /// the stance, which the next tick reads back out of its hands.
     fn arm_for(&mut self, target: u32, stance: Stance) {
         if !self.autoplay.config.fight.pick_weapon {
             return;
@@ -717,16 +722,44 @@ impl Client {
             return;
         };
         let carried: Vec<crate::items::ItemStats> = self.item_stats();
-        let Some(pick) = crate::weapons::best(&carried, stance, Some(known)) else {
+        // A weapon nobody has looked at has no element, no imbue and no
+        // requirement to read, so it can neither be judged nor safely
+        // reached for. Ask about the ones we are carrying; the answers
+        // come back over the next few seconds and the choice improves
+        // with them.
+        let unknown: Vec<u32> = carried
+            .iter()
+            .filter(|i| !i.appraised && crate::weapons::stance_of(i).is_some())
+            .map(|i| i.guid)
+            .collect();
+        if !unknown.is_empty() {
+            self.appraise_many(unknown);
+            // Come back to the choice once the answers are in.
+            self.autoplay.armed_for = None;
+        }
+        let wielder = self.wielder();
+        let free_choice = self.autoplay.config.fight.style == Style::Auto;
+        let picked = if free_choice {
+            crate::weapons::best_any(&carried, Some(known), &wielder).map(|(_, c)| c)
+        } else {
+            crate::weapons::best(&carried, stance, Some(known), &wielder)
+        };
+        let Some(pick) = picked else {
             return;
         };
-        let held = carried
-            .iter()
-            .find(|i| i.wielded && crate::weapons::stance_of(i) == Some(stance));
+        // What is in hand now, whichever kind it is when the choice is
+        // free, so the comparison is between the two real options.
+        let held = carried.iter().find(|i| {
+            i.wielded
+                && match crate::weapons::stance_of(i) {
+                    Some(s) => free_choice || s == stance,
+                    None => false,
+                }
+        });
         // Only swap for something meaningfully better: an appraisal we
         // have not done yet should not make us drop a good weapon.
         let now_worth = held
-            .map(|i| crate::weapons::score(i, Some(known)))
+            .map(|i| crate::weapons::score(i, Some(known), &wielder))
             .unwrap_or(0.0);
         if held.map(|i| i.guid) == Some(pick.guid) || pick.score <= now_worth * 1.1 {
             return;
@@ -890,7 +923,6 @@ impl Client {
             .map(|o| o.name.clone())
             .unwrap_or_default();
         self.autoplay.casting_at = Some(guid);
-        self.arm_for(guid, Stance::Magic);
         if self
             .autoplay
             .last_cast
@@ -900,6 +932,10 @@ impl Client {
                 .say(Doing::Fighting, format!("fighting {name}"));
             return true;
         }
+        // Behind the throttle, so choosing a wand costs no more than one
+        // look per cast. Wielding takes a moment, so this cast still
+        // goes out with the old one and the next with the new.
+        self.arm_for(guid, Stance::Magic);
         self.select(Some(guid));
         // Something with a lot of health is worth softening first: one
         // vulnerability for the element it is weakest to, then throw
