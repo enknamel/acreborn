@@ -33,6 +33,7 @@ fn jumps_at_the_shoushi_porch_never_end_under_it() {
                     run: true,
                     jump: false,
                     jump_held: false,
+                    climb: 0.0,
                 };
                 if frame == 30 {
                     pl.jump(power);
@@ -91,6 +92,7 @@ fn jumps_beside_meeting_hall_walls_stay_inside() {
                 run: true,
                 jump: false,
                 jump_held: false,
+                climb: 0.0,
             };
             if frame == 30 {
                 pl.jump(1.0);
@@ -139,6 +141,7 @@ fn air_cells_above_the_meeting_hall_have_no_floor() {
             run: true,
             jump: false,
             jump_held: false,
+            climb: 0.0,
         };
         if frame == 30 {
             pl.jump(1.0);
@@ -183,6 +186,7 @@ fn jumps_on_holtburg_hills_land_on_the_ground() {
                     run: true,
                     jump: false,
                     jump_held: false,
+                    climb: 0.0,
                 };
                 if frame == 30 {
                     pl.jump(1.0);

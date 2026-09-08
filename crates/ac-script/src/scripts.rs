@@ -651,6 +651,9 @@ mod tests {
         fn jump_height(&mut self, m: f64) {
             self.record(format!("jump_height {m}"));
         }
+        fn noclip(&mut self, on: bool) {
+            self.record(format!("noclip {on}"));
+        }
         fn select(&mut self, guid: i64) {
             self.record(format!("select #{guid}"));
         }

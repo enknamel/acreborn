@@ -755,7 +755,9 @@ impl Client {
             pl.speed_boost = self.speed_boost;
             pl.jump_height = self.jump_height;
             if let Some(p) = self.pending_jump.take() {
-                pl.jump(p);
+                if !pl.noclip {
+                    pl.jump(p);
+                }
             }
             pl.update(&self.assets, &input, dt);
             if let Some(j) = pl.last_jump.take() {
@@ -2187,6 +2189,18 @@ impl Client {
         let pl = self.player.as_mut()?;
         let power = pl.jump_charge()?;
         pl.preview_jump(&self.assets, power)
+    }
+
+    /// Fly through walls and floors, or stop and drop to the ground; see
+    /// [`player::Player::set_noclip`] for what the server allows.
+    pub fn set_noclip(&mut self, on: bool) {
+        if let Some(pl) = self.player.as_mut() {
+            pl.set_noclip(on);
+        }
+    }
+
+    pub fn noclip(&self) -> bool {
+        self.player.as_ref().is_some_and(|p| p.noclip)
     }
 
     /// Nudge the jump being charged (see [`player::Player::adjust_charge`]).

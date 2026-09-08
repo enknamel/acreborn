@@ -73,6 +73,7 @@ fn walking_up_the_villas_hillside_stays_on_the_hill() {
             run: true,
             jump: false,
             jump_held: false,
+            climb: 0.0,
         };
         pl.update(&assets, &input, 1.0 / 60.0);
         let me = pl.world_position();

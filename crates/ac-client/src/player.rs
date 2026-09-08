@@ -27,6 +27,9 @@ pub struct Input {
     /// The jump key is down: the jump charges while it is held and
     /// leaps when it is released (see `JUMP_CHARGE_SECS`).
     pub jump_held: bool,
+    /// Up (+1) or down (-1) while flying (`Player::noclip`); nothing on
+    /// the ground.
+    pub climb: f32,
 }
 
 /// Holding the jump key this long gives a full-power jump.
@@ -136,7 +139,14 @@ pub struct Player {
     /// The jump charge was set by hand (the wheel) and no longer grows
     /// while the key is held; released when the key is.
     charge_pinned: bool,
+    /// Flying: walls, floors and gravity are ignored and `Input::climb`
+    /// moves the character up and down. See [`Player::set_noclip`] for
+    /// what the server makes of it.
+    pub noclip: bool,
 }
+
+/// How fast a flying character climbs, as a fraction of its run speed.
+const CLIMB_RATE: f32 = 0.6;
 
 /// The most a jump may rise (metres). The server calls a character
 /// found more than 10 m above the ground it last stood on, a second or
@@ -211,6 +221,7 @@ impl Player {
             speed_boost: 1.0,
             jump_height: 0.0,
             charge_pinned: false,
+            noclip: false,
             last_jump: None,
             pending_commands: Vec::new(),
             jump_charge: None,
@@ -256,6 +267,82 @@ impl Player {
     /// movement state; it relays it to everyone in view.
     pub fn queue_command(&mut self, cmd: u32) {
         self.pending_commands.push(cmd);
+    }
+
+    /// Fly, or stop flying. Flying ignores walls, floors and gravity;
+    /// the server does not mind, since it takes the position the client
+    /// reports (it runs its own collision only to notice what was
+    /// touched, portals included) and counts the client as standing on
+    /// the ground wherever it says it is. It refuses only a move that is
+    /// both 50 m from the last and more than a landblock away, and
+    /// crossing between two dungeons or two buildings' interiors in
+    /// different landblocks. Stopping mid-air drops the character onto
+    /// whatever is below.
+    pub fn set_noclip(&mut self, on: bool) {
+        if self.noclip == on {
+            return;
+        }
+        self.noclip = on;
+        self.jump_charge = None;
+        self.charge_pinned = false;
+        if on {
+            self.airborne = false;
+            self.vz = 0.0;
+        } else {
+            // Let go: gravity finds the ground (or the floor) below.
+            self.airborne = true;
+            self.vz = 0.0;
+            self.air_velocity = Vec3::ZERO;
+        }
+        self.moving = true;
+        self.dirty = true;
+    }
+
+    /// One frame of flight: straight to where the input points, then
+    /// the cell worked out from what is underfoot (a building's floor a
+    /// little way below claims the character; otherwise the open air of
+    /// the landblock, or the cell it was already in inside a dungeon).
+    fn fly(&mut self, assets: &Assets, input: &Input, dir: Vec3, speed: f32, dt: f32) -> bool {
+        let horizontal = if dir.length_squared() >= 1e-6 {
+            dir.normalize() * speed
+        } else {
+            Vec3::ZERO
+        };
+        let vel = horizontal + Vec3::Z * input.climb.clamp(-1.0, 1.0) * speed * CLIMB_RATE;
+        self.ground_velocity = horizontal;
+        self.air_velocity = Vec3::ZERO;
+        self.vz = 0.0;
+        self.airborne = false;
+        if vel.length_squared() < 1e-6 {
+            self.moving = false;
+            return false;
+        }
+        let old = self.world_position();
+        let world = old + vel * dt;
+        let blk = block_of(world);
+        let dungeon = self.is_indoors() && self.in_dungeon(assets);
+        let cap = self.capsule;
+        let floor = self
+            .collision(assets, blk)
+            .and_then(|c| c.floor_at(world + Vec3::Z * 0.2, 0.2, 3.0));
+        match floor {
+            Some((_, cell)) if cell != 0 => {
+                self.cell = cell;
+                self.local = world - ac_world::landblock_origin(cell);
+            }
+            _ if dungeon => {
+                // A dungeon has no outside: keep the cell we have.
+                let cell = self.cell;
+                self.local = world - ac_world::landblock_origin(cell);
+            }
+            _ => {
+                let _ = cap;
+                self.place(world, 0);
+            }
+        }
+        self.moving = true;
+        self.dirty = true;
+        true
     }
 
     /// The jump charge as power 0..=1 while the key is held, else None.
@@ -766,6 +853,9 @@ impl Player {
         let right = fwd.cross(Vec3::Z).normalize_or(Vec3::X);
         let dir = fwd * input.forward + right * input.strafe;
         let steering = dir.length_squared() >= 1e-6;
+        if self.noclip {
+            return self.fly(assets, input, dir, speed, dt);
+        }
         if !self.airborne {
             self.ground_velocity = if steering {
                 dir.normalize() * speed

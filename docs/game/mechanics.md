@@ -910,6 +910,20 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   capped at 9.5 m: the server calls a character found more than 10 m
   above the ground it last stood on, a second after a jump, a
   z-position hack and puts it back.
+* **The server takes the client's word for where it is.** ACE runs
+  its own physics on each reported position only to notice what was
+  touched (portals, creatures); it does not push the character out of
+  walls or apply gravity, and the "on the ground" byte the client sends
+  with every position is what sets `LastGroundPos`, the yardstick for
+  its one height check (more than 10 m above it, a second after a jump,
+  with Jump under 1000, is a "z-pos hack" and the character is put
+  back). A client that always says it is on the ground, as this one
+  does, can fly. What ACE refuses: a move both 50 m from the last it
+  accepted and more than a landblock away; crossing straight from one
+  dungeon block to another, or from a building's interior cell to
+  another building's in a different landblock. So the viewer's F key
+  flies (Space up, Z down, F again drops onto whatever is below), and
+  scripts have `noclip(true|false)`.
 * **A building's door can open onto bare terrain** (a villa's grounds:
   cell 6F8B015F at Loredane Villas). Leaving the interior floor with
   nothing but terrain a step away must go outdoors; before this the

@@ -779,16 +779,24 @@ impl App {
             false
         };
         let keys = &self.keys;
+        let flying = self.nets.get(i)?.client.noclip();
         let input = self.nets.get(i)?.client.player.as_ref().map(|_| {
             if is_active {
+                // Flying, the jump key climbs and Z descends.
                 player::Input {
                     forward: (keys.contains(&KeyCode::KeyW) as i8
                         - keys.contains(&KeyCode::KeyS) as i8) as f32,
                     strafe: (keys.contains(&KeyCode::KeyD) as i8
                         - keys.contains(&KeyCode::KeyA) as i8) as f32,
                     run: !keys.contains(&KeyCode::ShiftLeft),
-                    jump,
-                    jump_held: keys.contains(&KeyCode::Space),
+                    jump: jump && !flying,
+                    jump_held: keys.contains(&KeyCode::Space) && !flying,
+                    climb: if flying {
+                        (keys.contains(&KeyCode::Space) as i8 - keys.contains(&KeyCode::KeyZ) as i8)
+                            as f32
+                    } else {
+                        0.0
+                    },
                 }
             } else {
                 player::Input::default()
@@ -1311,6 +1319,24 @@ impl ApplicationHandler for App {
                     }
                     if code == KeyCode::KeyC && event.state == ElementState::Pressed {
                         self.toggle_combat();
+                        return;
+                    }
+                    // F flies: no walls, no floors, no gravity, Space up
+                    // and Z down; F again drops the character onto
+                    // whatever is below.
+                    if code == KeyCode::KeyF && event.state == ElementState::Pressed {
+                        if let Some(net) = self.nets.get_mut(self.active) {
+                            let on = !net.client.noclip();
+                            net.client.set_noclip(on);
+                            net.client.events.push(ac_client::Event::Chat {
+                                text: if on {
+                                    "Flying: walls and gravity are off. Space climbs, Z descends, F lands.".into()
+                                } else {
+                                    "Landing.".into()
+                                },
+                                kind: 1,
+                            });
+                        }
                         return;
                     }
                     // T shows or hides the line of marks laid along the

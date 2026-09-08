@@ -254,6 +254,9 @@ pub trait Api {
     /// A full jump rises this many metres whatever the Jump skill allows
     /// (0 = by skill; the client caps it at the server's tolerance, 9.5).
     fn jump_height(&mut self, metres: f64);
+    /// Fly through walls and floors (true), or stop and drop to the
+    /// ground (false). Space climbs and Z descends in the viewer.
+    fn noclip(&mut self, on: bool);
     fn select(&mut self, guid: i64);
     fn log(&mut self, text: &str);
     fn post(&mut self, topic: &str, value: Value);
@@ -508,6 +511,7 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("speed_boost", |b: i64| {
         with_api(|a| a.speed_boost(b as f64))
     });
+    engine.register_fn("noclip", |on: bool| with_api(|a| a.noclip(on)));
     engine.register_fn("jump_height", |m: f64| with_api(|a| a.jump_height(m)));
     engine.register_fn("jump_height", |m: i64| {
         with_api(|a| a.jump_height(m as f64))

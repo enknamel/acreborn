@@ -1297,6 +1297,10 @@ impl Api for CtxApi<'_, '_> {
         self.client().set_jump_height(metres as f32);
     }
 
+    fn noclip(&mut self, on: bool) {
+        self.client().set_noclip(on);
+    }
+
     fn select(&mut self, guid: i64) {
         let guid = u32::try_from(guid).ok().filter(|g| *g != 0);
         self.client().select(guid);

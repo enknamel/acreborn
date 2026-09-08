@@ -30,6 +30,7 @@ fn main() {
             run: true,
             jump: false,
             jump_held: false,
+            climb: 0.0,
         };
         if frame == 30 {
             pl.jump(power);
