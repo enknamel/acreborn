@@ -431,6 +431,7 @@ fn main() -> Result<()> {
                         sessions[i].ended = true;
                     }
                     Event::Sound { .. }
+                    | Event::Effect { .. }
                     | Event::SpellLearned(_)
                     | Event::SpellForgotten(_)
                     | Event::Autoplay { .. } => {}

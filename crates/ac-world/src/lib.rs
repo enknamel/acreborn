@@ -62,6 +62,10 @@ pub mod object_desc_flags {
     pub const DOOR: u32 = 0x0000_1000;
     pub const CORPSE: u32 = 0x0000_2000;
     pub const PORTAL: u32 = 0x0004_0000;
+    /// A player killer (PlayerKillerStatus PK); see `object::pk_status`.
+    pub const PLAYER_KILLER: u32 = 0x0000_0020;
+    pub const FREE_PK_STATUS: u32 = 0x0020_0000;
+    pub const PK_LITE_STATUS: u32 = 0x0200_0000;
 }
 
 /// ItemType bits (ACE `ItemType`). There is no "healer" type: a healing
@@ -246,6 +250,16 @@ pub struct WorldObject {
     pub velocity: Vec3,
     /// `PhysicsState` bits as last sent (see `object::PHYSICS_STATE_*`).
     pub physics_state: u32,
+    /// Whether a chest or door is locked, once the server has said
+    /// (PublicUpdatePropertyBool Locked); the Openable description flag
+    /// follows it.
+    pub locked: Option<bool>,
+    /// ACE `PlayerKillerStatus` as last broadcast (see
+    /// `object::pk_status`); 0 until an update arrives. The PK
+    /// description flags follow it.
+    pub pk_status: u32,
+    /// Mana fraction of an item, once asked (QueryItemManaResponse).
+    pub mana: Option<f32>,
 }
 
 impl WorldObject {
@@ -402,6 +416,12 @@ pub enum Applied {
     /// The server described our own character's motion (no target): a
     /// server-driven move is over, or our own state was echoed.
     PlayerMotion,
+    /// An object plays a particle script (PlayEffect): a fizzle, a
+    /// portal flash, a level-up.
+    Effect {
+        guid: u32,
+        script: u32,
+    },
     Ignored,
     Failed,
 }
@@ -522,11 +542,17 @@ impl World {
                         texture_changes: oc.texture_changes,
                         anim_part_changes: oc.anim_part_changes,
                         motion: previous.as_ref().map(|o| o.motion).unwrap_or_default(),
-                        commands: previous.map(|o| o.commands).unwrap_or_default(),
+                        commands: previous
+                            .as_ref()
+                            .map(|o| o.commands.clone())
+                            .unwrap_or_default(),
                         display: oc.position,
                         target: None,
                         velocity: oc.velocity,
                         physics_state: oc.physics_state,
+                        locked: previous.as_ref().and_then(|o| o.locked),
+                        pk_status: previous.as_ref().map(|o| o.pk_status).unwrap_or(0),
+                        mana: previous.as_ref().and_then(|o| o.mana),
                     };
                     self.objects.insert(obj.guid, obj);
                     self.generation += 1;
@@ -1112,6 +1138,18 @@ impl World {
                     self.open_container = None;
                     Applied::Inventory
                 }
+                Some((_, _, event::QUERY_ITEM_MANA_RESPONSE, rest)) => {
+                    let mut r = Reader::new(rest);
+                    match (r.u32(), r.f32(), r.u32()) {
+                        (Ok(item), Ok(mana), Ok(success)) => {
+                            if let Some(o) = self.objects.get_mut(&item) {
+                                o.mana = (success != 0).then_some(mana);
+                            }
+                            Applied::Inventory
+                        }
+                        _ => Applied::Failed,
+                    }
+                }
                 Some((_, _, event::INVENTORY_PUT_OBJECT_IN_3D, rest)) => {
                     if let Ok(item) = Reader::new(rest).u32() {
                         if let Some(o) = self.objects.get_mut(&item) {
@@ -1139,26 +1177,214 @@ impl World {
                 Err(_) => Applied::Failed,
             },
             opcode::PUBLIC_UPDATE_PROPERTY_INT => {
-                let mut r = Reader::new(body);
-                let _seq = r.u8();
-                match (r.u32(), r.u32(), r.i32()) {
-                    (Ok(guid), Ok(prop), Ok(value)) => {
-                        let Some(o) = self.objects.get_mut(&guid) else {
-                            return Applied::Ignored;
-                        };
-                        match prop {
-                            messages::property_int::STACK_SIZE => {
-                                o.stack_size = value.max(0) as u32
-                            }
-                            messages::property_int::VALUE => o.value = value.max(0) as u32,
-                            _ => return Applied::Ignored,
+                let Ok(u) = object::PropertyUpdate::parse_public_int(body) else {
+                    return Applied::Failed;
+                };
+                let Some(o) = self.objects.get_mut(&u.guid) else {
+                    return Applied::Ignored;
+                };
+                let value = u.value.max(0) as u32;
+                let applied = match u.key {
+                    messages::property_int::STACK_SIZE => {
+                        o.stack_size = value;
+                        Applied::Inventory
+                    }
+                    messages::property_int::VALUE => {
+                        o.value = value;
+                        Applied::Inventory
+                    }
+                    // Uses left on a healing kit or a lockpick.
+                    object::property_int::STRUCTURE => {
+                        o.structure = value;
+                        Applied::Inventory
+                    }
+                    object::property_int::MAX_STRUCTURE => {
+                        o.max_structure = value;
+                        Applied::Inventory
+                    }
+                    // Sent with the wield and unwield events; the
+                    // location is what tells a two-handed weapon from a
+                    // shield hand.
+                    object::property_int::CURRENT_WIELDED_LOCATION => {
+                        o.wielded_location = value;
+                        Applied::Inventory
+                    }
+                    // Broadcast when a player (or the projectile they
+                    // fired) changes PK status: the description flags
+                    // follow ACE's UpdateObjectDescriptionFlag.
+                    object::property_int::PLAYER_KILLER_STATUS => {
+                        o.pk_status = value;
+                        let mut f = o.object_desc_flags
+                            & !(object_desc_flags::PLAYER_KILLER
+                                | object_desc_flags::FREE_PK_STATUS
+                                | object_desc_flags::PK_LITE_STATUS);
+                        if value == object::pk_status::PK {
+                            f |= object_desc_flags::PLAYER_KILLER;
+                        } else if value == object::pk_status::FREE {
+                            f |= object_desc_flags::FREE_PK_STATUS;
+                        } else if value == object::pk_status::PK_LITE {
+                            f |= object_desc_flags::PK_LITE_STATUS;
+                        }
+                        o.object_desc_flags = f;
+                        Applied::Appearance
+                    }
+                    _ => return Applied::Ignored,
+                };
+                self.generation += 1;
+                applied
+            }
+            // Locked/unlocked chests and doors, and UiHidden. The
+            // Openable description flag follows Locked as ACE computes
+            // it (`openable = !IsLocked`).
+            opcode::PUBLIC_UPDATE_PROPERTY_BOOL => {
+                let Ok(u) = object::PropertyUpdate::parse_public_bool(body) else {
+                    return Applied::Failed;
+                };
+                let Some(o) = self.objects.get_mut(&u.guid) else {
+                    return Applied::Ignored;
+                };
+                match u.key {
+                    object::property_bool::LOCKED => {
+                        o.locked = Some(u.value);
+                        if u.value {
+                            o.object_desc_flags &= !object_desc_flags::OPENABLE;
+                        } else {
+                            o.object_desc_flags |= object_desc_flags::OPENABLE;
                         }
                         self.generation += 1;
                         Applied::Inventory
                     }
-                    _ => Applied::Failed,
+                    _ => Applied::Ignored,
                 }
             }
+            // A renamed object (a pet, a corpse that gained a suffix).
+            opcode::PUBLIC_UPDATE_PROPERTY_STRING => {
+                let Ok(u) = object::PropertyUpdate::parse_public_string(body) else {
+                    return Applied::Failed;
+                };
+                let Some(o) = self.objects.get_mut(&u.guid) else {
+                    return Applied::Ignored;
+                };
+                if u.key == messages::property_string::NAME {
+                    o.name = u.value;
+                    self.generation += 1;
+                    Applied::Appearance
+                } else {
+                    Applied::Ignored
+                }
+            }
+            // A model, motion table or icon swap on an object in view.
+            opcode::PUBLIC_UPDATE_PROPERTY_DATA_ID => {
+                let Ok(u) = object::PropertyUpdate::parse_public_did(body) else {
+                    return Applied::Failed;
+                };
+                let Some(o) = self.objects.get_mut(&u.guid) else {
+                    return Applied::Ignored;
+                };
+                match u.key {
+                    object::property_did::SETUP => o.setup_id = u.value,
+                    object::property_did::MOTION_TABLE => o.motion_table_id = u.value,
+                    object::property_did::ICON => o.icon_id = u.value,
+                    _ => return Applied::Ignored,
+                }
+                self.generation += 1;
+                Applied::Appearance
+            }
+            // Parsed so a bad body is reported; nothing in the world
+            // reads an object's floats or 64-bit ints (emote-driven
+            // stat changes on other players).
+            opcode::PUBLIC_UPDATE_PROPERTY_FLOAT => {
+                match object::PropertyUpdate::parse_public_float(body) {
+                    Ok(_) => Applied::Ignored,
+                    Err(_) => Applied::Failed,
+                }
+            }
+            opcode::PUBLIC_UPDATE_PROPERTY_INT64 => {
+                match object::PropertyUpdate::parse_public_int64(body) {
+                    Ok(_) => Applied::Ignored,
+                    Err(_) => Applied::Failed,
+                }
+            }
+            // Our own motion table changed (a mount, a transformation):
+            // the player object animates from the new one.
+            opcode::PRIVATE_UPDATE_PROPERTY_DATA_ID => {
+                if let Ok(u) = object::PropertyUpdate::parse_private_u32(body) {
+                    if u.key == object::property_did::MOTION_TABLE {
+                        if let Some(o) = self.player_mut() {
+                            o.motion_table_id = u.value;
+                            self.generation += 1;
+                        }
+                    }
+                }
+                self.apply_stats(op, body)
+            }
+            // A player in view died: their health is gone until the
+            // server describes them again. The message itself goes to
+            // the chat log.
+            opcode::PLAYER_KILLED => match messages::parse_player_killed(body) {
+                Ok((_, victim, _)) => {
+                    if let Some(o) = self.objects.get_mut(&victim) {
+                        o.health = Some(0.0);
+                    }
+                    Applied::Health
+                }
+                Err(_) => Applied::Failed,
+            },
+            // A velocity without a position: prediction takes it.
+            opcode::VECTOR_UPDATE => match object::VectorUpdate::parse(body) {
+                Ok(v) => {
+                    let Some(o) = self.objects.get_mut(&v.guid) else {
+                        return Applied::Ignored;
+                    };
+                    o.velocity = v.velocity;
+                    self.generation += 1;
+                    Applied::Moved
+                }
+                Err(e) => {
+                    tracing::warn!("VectorUpdate: {e}");
+                    Applied::Failed
+                }
+            },
+            // Something in view took an item in hand: another player's
+            // weapon, an arrow nocked before a shot, a creature's ammo.
+            opcode::PARENT_EVENT => match object::ParentEvent::parse(body) {
+                Ok(ev) => {
+                    let Some(o) = self.objects.get_mut(&ev.child) else {
+                        return Applied::Ignored;
+                    };
+                    o.wielder = Some(ev.parent);
+                    o.parent = Some(ev.parent);
+                    o.container = None;
+                    o.position = None;
+                    o.display = None;
+                    self.generation += 1;
+                    Applied::Inventory
+                }
+                Err(e) => {
+                    tracing::warn!("ParentEvent: {e}");
+                    Applied::Failed
+                }
+            },
+            // An item left the ground (picked up by someone, or a
+            // wielded item being introduced); its owner follows in an
+            // instance id update or a ParentEvent.
+            opcode::PICKUP_EVENT => match object::parse_pickup_event(body) {
+                Ok((guid, _, _)) => {
+                    let Some(o) = self.objects.get_mut(&guid) else {
+                        return Applied::Ignored;
+                    };
+                    o.position = None;
+                    o.display = None;
+                    o.target = None;
+                    self.generation += 1;
+                    Applied::Inventory
+                }
+                Err(_) => Applied::Failed,
+            },
+            opcode::PLAY_EFFECT => match messages::parse_play_effect(body) {
+                Ok((guid, script, _)) => Applied::Effect { guid, script },
+                Err(_) => Applied::Failed,
+            },
             opcode::OBJ_DESC_EVENT => match object::ObjDescEvent::parse(body) {
                 Ok(ev) => {
                     if let Some(o) = self.objects.get_mut(&ev.guid) {
@@ -1521,6 +1747,300 @@ mod tests {
             world.apply(&game_event(event::USE_DONE, &[0, 0, 0, 0])),
             Applied::Ignored
         );
+    }
+
+    /// A world with our player and one creature in view.
+    fn world_with_creature(guid: u32) -> World {
+        let mut world = World {
+            player_guid: Some(ME),
+            ..Default::default()
+        };
+        world.objects.insert(
+            ME,
+            WorldObject {
+                guid: ME,
+                name: "Me".into(),
+                is_player: true,
+                motion_table_id: 0x0900_0001,
+                ..Default::default()
+            },
+        );
+        world.objects.insert(
+            guid,
+            WorldObject {
+                guid,
+                name: "Drudge Skulker".into(),
+                item_type: item_type::CREATURE,
+                object_desc_flags: object_desc_flags::ATTACKABLE,
+                position: Some(object::Position::new_flat(0xA9B4_0019, Vec3::ZERO)),
+                health: Some(0.5),
+                ..Default::default()
+            },
+        );
+        world
+    }
+
+    #[test]
+    fn public_property_updates_apply_to_objects() {
+        let mut world = world_with_stack(0x8000_0010, 3);
+        // CurrentWieldedLocation comes with the wield/unwield events.
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_INT)
+            .u8(1)
+            .u32(0x8000_0010)
+            .u32(object::property_int::CURRENT_WIELDED_LOCATION)
+            .i32(0x0010_0000);
+        assert_eq!(world.apply(&w.finish()), Applied::Inventory);
+        assert_eq!(world.objects[&0x8000_0010].wielded_location, 0x0010_0000);
+        // Structure: uses left on a kit.
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_INT)
+            .u8(2)
+            .u32(0x8000_0010)
+            .u32(object::property_int::STRUCTURE)
+            .i32(4);
+        assert_eq!(world.apply(&w.finish()), Applied::Inventory);
+        assert_eq!(world.objects[&0x8000_0010].structure, 4);
+        // PlayerKillerStatus flips the description flags like ACE.
+        world.objects.insert(
+            ME,
+            WorldObject {
+                guid: ME,
+                name: "Me".into(),
+                is_player: true,
+                object_desc_flags: object_desc_flags::PLAYER,
+                ..Default::default()
+            },
+        );
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_INT)
+            .u8(3)
+            .u32(ME)
+            .u32(object::property_int::PLAYER_KILLER_STATUS)
+            .i32(object::pk_status::PK as i32);
+        assert_eq!(world.apply(&w.finish()), Applied::Appearance);
+        let me = &world.objects[&ME];
+        assert_eq!(me.pk_status, object::pk_status::PK);
+        assert_ne!(me.object_desc_flags & object_desc_flags::PLAYER_KILLER, 0);
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_INT)
+            .u8(4)
+            .u32(ME)
+            .u32(object::property_int::PLAYER_KILLER_STATUS)
+            .i32(object::pk_status::NPK as i32);
+        assert_eq!(world.apply(&w.finish()), Applied::Appearance);
+        assert_eq!(
+            world.objects[&ME].object_desc_flags & object_desc_flags::PLAYER_KILLER,
+            0
+        );
+        // Locked: the chest cannot be opened until it is unlocked.
+        world.objects.insert(
+            0x8000_0020,
+            WorldObject {
+                guid: 0x8000_0020,
+                name: "Chest".into(),
+                object_desc_flags: object_desc_flags::OPENABLE | object_desc_flags::STUCK,
+                ..Default::default()
+            },
+        );
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_BOOL)
+            .u8(1)
+            .u32(0x8000_0020)
+            .u32(object::property_bool::LOCKED)
+            .u32(1);
+        assert_eq!(world.apply(&w.finish()), Applied::Inventory);
+        let chest = &world.objects[&0x8000_0020];
+        assert_eq!(chest.locked, Some(true));
+        assert_eq!(chest.object_desc_flags & object_desc_flags::OPENABLE, 0);
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_BOOL)
+            .u8(2)
+            .u32(0x8000_0020)
+            .u32(object::property_bool::LOCKED)
+            .u32(0);
+        assert_eq!(world.apply(&w.finish()), Applied::Inventory);
+        let chest = &world.objects[&0x8000_0020];
+        assert_eq!(chest.locked, Some(false));
+        assert_ne!(chest.object_desc_flags & object_desc_flags::OPENABLE, 0);
+        // A rename: key before guid, then the aligned string.
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_STRING)
+            .u8(1)
+            .u32(messages::property_string::NAME)
+            .u32(0x8000_0020)
+            .align4()
+            .string16("Old Chest");
+        assert_eq!(world.apply(&w.finish()), Applied::Appearance);
+        assert_eq!(world.objects[&0x8000_0020].name, "Old Chest");
+        // A motion table swap on an object in view.
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_DATA_ID)
+            .u8(1)
+            .u32(ME)
+            .u32(object::property_did::MOTION_TABLE)
+            .u32(0x0900_020D);
+        assert_eq!(world.apply(&w.finish()), Applied::Appearance);
+        assert_eq!(world.objects[&ME].motion_table_id, 0x0900_020D);
+        // Floats and int64s parse and change nothing; a short body fails.
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_FLOAT)
+            .u8(1)
+            .u32(ME)
+            .u32(7)
+            .f64(1.5);
+        assert_eq!(world.apply(&w.finish()), Applied::Ignored);
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_INT64).u8(1).u32(ME);
+        assert_eq!(world.apply(&w.finish()), Applied::Failed);
+        // Unknown objects are ignored.
+        let mut w = Writer::new();
+        w.u32(opcode::PUBLIC_UPDATE_PROPERTY_BOOL)
+            .u8(3)
+            .u32(0x8000_0099)
+            .u32(object::property_bool::LOCKED)
+            .u32(1);
+        assert_eq!(world.apply(&w.finish()), Applied::Ignored);
+    }
+
+    #[test]
+    fn private_property_updates_reach_the_character_sheet() {
+        let mut world = world_with_creature(0x8000_0030);
+        // SpellComponentsRequired off: the server will not want comps.
+        let mut w = Writer::new();
+        w.u32(opcode::PRIVATE_UPDATE_PROPERTY_BOOL)
+            .u8(1)
+            .u32(object::property_bool::SPELL_COMPONENTS_REQUIRED)
+            .u32(0);
+        assert_eq!(world.apply(&w.finish()), Applied::Stats);
+        assert_eq!(world.stats.spell_components_required(), Some(false));
+        // CurrentAttacker names what hit us; 0 clears it.
+        let mut w = Writer::new();
+        w.u32(opcode::PRIVATE_UPDATE_INSTANCE_ID)
+            .u8(1)
+            .u32(object::property_iid::CURRENT_ATTACKER)
+            .u32(0x8000_0030);
+        assert_eq!(world.apply(&w.finish()), Applied::Stats);
+        assert_eq!(world.stats.current_attacker(), Some(0x8000_0030));
+        let mut w = Writer::new();
+        w.u32(opcode::PRIVATE_UPDATE_INSTANCE_ID)
+            .u8(2)
+            .u32(object::property_iid::CURRENT_ATTACKER)
+            .u32(0);
+        assert_eq!(world.apply(&w.finish()), Applied::Stats);
+        assert_eq!(world.stats.current_attacker(), None);
+        // A float of our own is kept by id.
+        let mut w = Writer::new();
+        w.u32(opcode::PRIVATE_UPDATE_PROPERTY_FLOAT)
+            .u8(1)
+            .u32(0x2B)
+            .f64(0.25);
+        assert_eq!(world.apply(&w.finish()), Applied::Stats);
+        assert_eq!(world.stats.float_prop(0x2B), Some(0.25));
+        // Our motion table changed: the player object animates from it.
+        let gen = world.generation;
+        let mut w = Writer::new();
+        w.u32(opcode::PRIVATE_UPDATE_PROPERTY_DATA_ID)
+            .u8(1)
+            .u32(object::property_did::MOTION_TABLE)
+            .u32(0x0900_020E);
+        assert_eq!(world.apply(&w.finish()), Applied::Stats);
+        assert_eq!(world.player().unwrap().motion_table_id, 0x0900_020E);
+        assert!(world
+            .stats
+            .dids
+            .contains(&(object::property_did::MOTION_TABLE, 0x0900_020E)));
+        assert!(world.generation > gen);
+    }
+
+    #[test]
+    fn deaths_vectors_parents_pickups_and_effects() {
+        let target = 0x8000_0030;
+        let mut world = world_with_creature(target);
+        // PlayerKilled: the victim's health is gone.
+        let mut w = Writer::new();
+        w.u32(opcode::PLAYER_KILLED)
+            .string16("Drudge Skulker is killed by Me!")
+            .u32(target)
+            .u32(ME);
+        assert_eq!(world.apply(&w.finish()), Applied::Health);
+        assert_eq!(world.objects[&target].health, Some(0.0));
+        // VectorUpdate: the velocity feeds prediction.
+        let mut w = Writer::new();
+        w.u32(opcode::VECTOR_UPDATE)
+            .u32(target)
+            .f32(1.0)
+            .f32(2.0)
+            .f32(0.5)
+            .f32(0.0)
+            .f32(0.0)
+            .f32(0.0)
+            .u16(1)
+            .u16(7);
+        assert_eq!(world.apply(&w.finish()), Applied::Moved);
+        assert_eq!(world.objects[&target].velocity, Vec3::new(1.0, 2.0, 0.5));
+        // ParentEvent: an arrow in the creature's hand is no longer in
+        // the world.
+        let arrow = 0x8000_0031;
+        world.objects.insert(
+            arrow,
+            WorldObject {
+                guid: arrow,
+                name: "Arrow".into(),
+                position: Some(object::Position::new_flat(0xA9B4_0019, Vec3::ZERO)),
+                ..Default::default()
+            },
+        );
+        let mut w = Writer::new();
+        w.u32(opcode::PARENT_EVENT)
+            .u32(target)
+            .u32(arrow)
+            .u32(1)
+            .u32(0x4A)
+            .u16(1)
+            .u16(3);
+        assert_eq!(world.apply(&w.finish()), Applied::Inventory);
+        let a = &world.objects[&arrow];
+        assert_eq!(
+            (a.wielder, a.parent, a.position),
+            (Some(target), Some(target), None)
+        );
+        // PickupEvent: something left the ground.
+        let coin = 0x8000_0032;
+        world.objects.insert(
+            coin,
+            WorldObject {
+                guid: coin,
+                name: "Pyreal".into(),
+                position: Some(object::Position::new_flat(0xA9B4_0019, Vec3::ZERO)),
+                ..Default::default()
+            },
+        );
+        let mut w = Writer::new();
+        w.u32(opcode::PICKUP_EVENT).u32(coin).u16(1).u16(2);
+        assert_eq!(world.apply(&w.finish()), Applied::Inventory);
+        assert_eq!(world.objects[&coin].position, None);
+        // PlayEffect is reported with its script.
+        let mut w = Writer::new();
+        w.u32(opcode::PLAY_EFFECT).u32(target).u32(0x51).f32(1.0);
+        assert_eq!(
+            world.apply(&w.finish()),
+            Applied::Effect {
+                guid: target,
+                script: 0x51
+            }
+        );
+        // QueryItemManaResponse fills the item's mana.
+        let mut w = Writer::new();
+        w.u32(arrow).f32(0.75).u32(1);
+        assert_eq!(
+            world.apply(&game_event(event::QUERY_ITEM_MANA_RESPONSE, &w.finish())),
+            Applied::Inventory
+        );
+        assert_eq!(world.objects[&arrow].mana, Some(0.75));
+        // Short bodies fail rather than panic.
+        assert_eq!(world.apply(&[0x4E, 0xF7, 0, 0, 1, 2]), Applied::Failed);
+        assert_eq!(world.apply(&[0x9E, 0x01, 0, 0, 5, 0]), Applied::Failed);
     }
 
     #[test]

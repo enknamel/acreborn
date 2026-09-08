@@ -210,3 +210,31 @@ Debugging: set the `Packets` logger to DEBUG in
   school's focus in the packs it is the scarabs (plus chorizite) and 1 to
   4 prismatic tapers by the first scarab's power. `@fillcomps` is one Buy
   (0x005F) listing `(amount, prototype guid)` per short component.
+
+## Selection, target health and fellow vitals (from the ACE source, 2026-09-08)
+
+- **UpdateHealth (0x01C0) follows the selected target.** ACE sends it
+  from `Player.HandleActionQueryHealth` when the client sends
+  QueryHealth (0x01BF, `u32 guid`; 0 clears) and again from the player
+  heartbeat every 5 s while the selected creature lives. Nothing else
+  pushes a target's health: without QueryHealth the client only knew a
+  creature's health from the ObjectCreate header. `Client::attack` and a
+  targeted cast at a creature send it (`Client::query_health`).
+- **Fellow vitals need the panel "open".** `Fellowship.OnVitalUpdate`
+  sends FellowshipUpdateFellow (0x02C0) only to members whose
+  `FellowshipPanelOpen` is set by FellowshipUpdateRequest (0x00A6, `u32
+  open`), which also answers with a FellowshipFullUpdate. The client
+  sends it once per fellowship as soon as one is described.
+- **CancelAttack (0x01B7, no body)** ends the swing chain (AttackDone
+  follows) and cancels the server's walk to the target; combat mode
+  stays. `Client::cancel_attack`.
+- **PlayerKilled (0x019E)** is broadcast for a player's death in view:
+  `string16 message, u32 victim, u32 killer`; the client zeroes the
+  victim's health and shows the message. Our own death still arrives as
+  VictimNotification plus a health update.
+- **Property updates.** Public ones carry `u8 seq, u32 guid, u32 key,
+  value` (the string one puts the key before the guid and aligns before
+  the string); private ones drop the guid. See
+  `docs/protocol-coverage.md` for which keys the world applies.
+- The audit of every opcode, event and action, with what is handled
+  where, is `docs/protocol-coverage.md`.

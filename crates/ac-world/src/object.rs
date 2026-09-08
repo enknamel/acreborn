@@ -961,3 +961,196 @@ impl MovementEvent {
         Ok(ev)
     }
 }
+
+/// A property update for one object: the Public* messages carry the
+/// guid after the sequence byte, the Private* ones (our own character)
+/// carry none and `guid` is 0. ACE's property ids are in
+/// [`property_int`], [`property_bool`], [`property_did`] and
+/// [`property_iid`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyUpdate<T> {
+    pub guid: u32,
+    pub key: u32,
+    pub value: T,
+}
+
+impl<T> PropertyUpdate<T> {
+    fn read(body: &[u8], public: bool, value: impl Fn(&mut Reader) -> Result<T>) -> Result<Self> {
+        let mut r = Reader::new(body);
+        let _seq = r.u8()?;
+        let guid = if public { r.u32()? } else { 0 };
+        let key = r.u32()?;
+        let value = value(&mut r)?;
+        Ok(PropertyUpdate { guid, key, value })
+    }
+}
+
+impl PropertyUpdate<i32> {
+    /// PublicUpdatePropertyInt (0x02CE): `u8 seq, u32 guid, u32 key, i32`.
+    pub fn parse_public_int(body: &[u8]) -> Result<Self> {
+        Self::read(body, true, |r| Ok(r.i32()?))
+    }
+}
+
+impl PropertyUpdate<i64> {
+    /// PublicUpdatePropertyInt64 (0x02D0): `u8 seq, u32 guid, u32 key, i64`.
+    pub fn parse_public_int64(body: &[u8]) -> Result<Self> {
+        Self::read(body, true, |r| Ok(r.u64()? as i64))
+    }
+}
+
+impl PropertyUpdate<bool> {
+    /// PublicUpdatePropertyBool (0x02D2): `u8 seq, u32 guid, u32 key, u32 0/1`.
+    pub fn parse_public_bool(body: &[u8]) -> Result<Self> {
+        Self::read(body, true, |r| Ok(r.u32()? != 0))
+    }
+    /// PrivateUpdatePropertyBool (0x02D1): `u8 seq, u32 key, u32 0/1`.
+    pub fn parse_private_bool(body: &[u8]) -> Result<Self> {
+        Self::read(body, false, |r| Ok(r.u32()? != 0))
+    }
+}
+
+impl PropertyUpdate<f64> {
+    /// PublicUpdatePropertyFloat (0x02D4): `u8 seq, u32 guid, u32 key, f64`.
+    pub fn parse_public_float(body: &[u8]) -> Result<Self> {
+        Self::read(body, true, |r| Ok(r.f64()?))
+    }
+    /// PrivateUpdatePropertyFloat (0x02D3): `u8 seq, u32 key, f64`.
+    pub fn parse_private_float(body: &[u8]) -> Result<Self> {
+        Self::read(body, false, |r| Ok(r.f64()?))
+    }
+}
+
+impl PropertyUpdate<u32> {
+    /// PublicUpdatePropertyDataID (0x02D8): `u8 seq, u32 guid, u32 key, u32`.
+    pub fn parse_public_did(body: &[u8]) -> Result<Self> {
+        Self::read(body, true, |r| Ok(r.u32()?))
+    }
+    /// PrivateUpdatePropertyDataID (0x02D7) and
+    /// PrivateUpdatePropertyInstanceID (0x02D9): `u8 seq, u32 key, u32`.
+    pub fn parse_private_u32(body: &[u8]) -> Result<Self> {
+        Self::read(body, false, |r| Ok(r.u32()?))
+    }
+}
+
+impl PropertyUpdate<String> {
+    /// PublicUpdatePropertyString (0x02D6): `u8 seq, u32 key, u32 guid,
+    /// align, string16`. The key comes before the guid here.
+    pub fn parse_public_string(body: &[u8]) -> Result<Self> {
+        let mut r = Reader::new(body);
+        let _seq = r.u8()?;
+        let key = r.u32()?;
+        let guid = r.u32()?;
+        r.align4()?;
+        let value = r.string16()?;
+        Ok(PropertyUpdate { guid, key, value })
+    }
+}
+
+/// ACE `PropertyInt` ids the world applies to objects.
+pub mod property_int {
+    /// EquipMask of where a wielded item sits; 0 when unwielded.
+    pub const CURRENT_WIELDED_LOCATION: u32 = 10;
+    pub const UI_EFFECTS: u32 = 18;
+    /// Uses left on a healing kit or lockpick.
+    pub const STRUCTURE: u32 = 92;
+    pub const MAX_STRUCTURE: u32 = 91;
+    pub const RADAR_BLIP_COLOR: u32 = 95;
+    /// ACE `PlayerKillerStatus`: NPK 2, PK 4, Unprotected (a creature)
+    /// 8, Free 0x20, PKLite 0x40.
+    pub const PLAYER_KILLER_STATUS: u32 = 134;
+}
+
+/// ACE `PropertyBool` ids the world applies to objects.
+pub mod property_bool {
+    pub const OPEN: u32 = 2;
+    pub const LOCKED: u32 = 3;
+    pub const UI_HIDDEN: u32 = 24;
+    /// Our own: the server does not require spell components.
+    pub const SPELL_COMPONENTS_REQUIRED: u32 = 68;
+    pub const AFK: u32 = 110;
+}
+
+/// ACE `PropertyDataId` ids.
+pub mod property_did {
+    pub const SETUP: u32 = 1;
+    pub const MOTION_TABLE: u32 = 2;
+    pub const ICON: u32 = 8;
+}
+
+/// ACE `PropertyInstanceId` ids.
+pub mod property_iid {
+    pub const CONTAINER: u32 = 2;
+    pub const WIELDER: u32 = 3;
+    pub const CURRENT_COMBAT_TARGET: u32 = 8;
+    /// Our own: the last thing that hit us.
+    pub const CURRENT_ATTACKER: u32 = 11;
+}
+
+/// ACE `PlayerKillerStatus` values (PublicUpdatePropertyInt 134).
+pub mod pk_status {
+    pub const NPK: u32 = 0x02;
+    pub const PK: u32 = 0x04;
+    pub const UNPROTECTED: u32 = 0x08;
+    pub const FREE: u32 = 0x20;
+    pub const PK_LITE: u32 = 0x40;
+}
+
+/// VectorUpdate (0xF74E): an object's velocity and spin changed without
+/// a new position (something pushed, a projectile deflected).
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorUpdate {
+    pub guid: u32,
+    pub velocity: Vec3,
+    pub omega: Vec3,
+    pub instance_seq: u16,
+    pub vector_seq: u16,
+}
+
+impl VectorUpdate {
+    pub fn parse(body: &[u8]) -> Result<Self> {
+        let mut r = Reader::new(body);
+        Ok(VectorUpdate {
+            guid: r.u32()?,
+            velocity: Vec3::new(r.f32()?, r.f32()?, r.f32()?),
+            omega: Vec3::new(r.f32()?, r.f32()?, r.f32()?),
+            instance_seq: r.u16()?,
+            vector_seq: r.u16()?,
+        })
+    }
+}
+
+/// ParentEvent (0xF749): `child` is now carried by `parent` at a
+/// ParentLocation (1 right hand, 2 left hand, 3 shield, 7 left weapon,
+/// ...) with a Placement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParentEvent {
+    pub parent: u32,
+    pub child: u32,
+    pub location: u32,
+    pub placement: u32,
+    pub instance_seq: u16,
+    pub position_seq: u16,
+}
+
+impl ParentEvent {
+    pub fn parse(body: &[u8]) -> Result<Self> {
+        let mut r = Reader::new(body);
+        Ok(ParentEvent {
+            parent: r.u32()?,
+            child: r.u32()?,
+            location: r.u32()?,
+            placement: r.u32()?,
+            instance_seq: r.u16()?,
+            position_seq: r.u16()?,
+        })
+    }
+}
+
+/// PickupEvent (0xF74A): an object left the ground (someone picked it
+/// up, or a wielded item is being described); `(guid, instance seq,
+/// position seq)`.
+pub fn parse_pickup_event(body: &[u8]) -> Result<(u32, u16, u16)> {
+    let mut r = Reader::new(body);
+    Ok((r.u32()?, r.u16()?, r.u16()?))
+}

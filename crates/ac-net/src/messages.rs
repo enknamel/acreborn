@@ -60,6 +60,153 @@ pub mod opcode {
     pub const DDD_INTERROGATION_RESPONSE: u32 = 0xF7E6;
     pub const DDD_BEGIN_DDD: u32 = 0xF7E7;
     pub const DDD_END_DDD: u32 = 0xF7EA;
+    /// A player in view died: `string16 message, u32 victim, u32 killer`
+    /// (the killer is 0 when nobody dealt the blow).
+    pub const PLAYER_KILLED: u32 = 0x019E;
+    /// `u8 sequence, u32 guid, u32 property, i64 value`.
+    pub const PUBLIC_UPDATE_PROPERTY_INT64: u32 = 0x02D0;
+    /// `u8 sequence, u32 property, u32 value (0/1)`: our own bool.
+    pub const PRIVATE_UPDATE_PROPERTY_BOOL: u32 = 0x02D1;
+    /// `u8 sequence, u32 guid, u32 property, u32 value (0/1)`.
+    pub const PUBLIC_UPDATE_PROPERTY_BOOL: u32 = 0x02D2;
+    /// `u8 sequence, u32 property, f64 value`: our own float.
+    pub const PRIVATE_UPDATE_PROPERTY_FLOAT: u32 = 0x02D3;
+    /// `u8 sequence, u32 guid, u32 property, f64 value`.
+    pub const PUBLIC_UPDATE_PROPERTY_FLOAT: u32 = 0x02D4;
+    /// `u8 sequence, u32 property, u32 guid, align, string16 value`
+    /// (the property comes before the guid, unlike the other public
+    /// updates).
+    pub const PUBLIC_UPDATE_PROPERTY_STRING: u32 = 0x02D6;
+    /// `u8 sequence, u32 property, u32 value`: one of our own data ids
+    /// (a motion table swap when a mount or an emote changes it).
+    pub const PRIVATE_UPDATE_PROPERTY_DATA_ID: u32 = 0x02D7;
+    /// `u8 sequence, u32 guid, u32 property, u32 value`.
+    pub const PUBLIC_UPDATE_PROPERTY_DATA_ID: u32 = 0x02D8;
+    /// `u8 sequence, u32 property, u32 value`: one of our own instance
+    /// ids (CurrentAttacker: who hit us last).
+    pub const PRIVATE_UPDATE_INSTANCE_ID: u32 = 0x02D9;
+    /// Never sent by ACE; the layouts are the public counterparts of
+    /// the private updates with a guid after the sequence byte.
+    pub const PUBLIC_UPDATE_POSITION: u32 = 0x02DC;
+    pub const PUBLIC_UPDATE_SKILL: u32 = 0x02DE;
+    pub const PUBLIC_UPDATE_SKILL_LEVEL: u32 = 0x02E0;
+    pub const PUBLIC_UPDATE_ATTRIBUTE: u32 = 0x02E4;
+    pub const PUBLIC_UPDATE_VITAL: u32 = 0x02E8;
+    /// `u32 EnvironChangeType`: an admin changed the weather or the
+    /// sound environment for us.
+    pub const ADMIN_ENVIRONS: u32 = 0xEA60;
+    pub const POSITION_AND_MOVEMENT: u32 = 0xF619;
+    /// The server logged our character out (no body). Also the C2S
+    /// message asking to.
+    pub const CHARACTER_LOG_OFF: u32 = 0xF653;
+    pub const FORCE_OBJECT_DESC_SEND: u32 = 0xF6EA;
+    /// `u32 parent, u32 child, u32 parent location, u32 placement, u16
+    /// instance seq, u16 position seq`: `child` is now carried by
+    /// `parent` (a wielded item, an arrow nocked in a bow hand).
+    pub const PARENT_EVENT: u32 = 0xF749;
+    /// `u32 guid, f32x3 velocity, f32x3 omega, u16 instance seq, u16
+    /// vector seq`: an object's velocity changed without a position.
+    pub const VECTOR_UPDATE: u32 = 0xF74E;
+    pub const PLAY_SCRIPT_ID: u32 = 0xF754;
+    /// `u32 guid, u32 PlayScript, f32 speed`: a particle effect on an
+    /// object (spell fizzle, portal entry, level-up flash).
+    pub const PLAY_EFFECT: u32 = 0xF755;
+    /// `u32 seconds until the ban ends, [string16 reason]`.
+    pub const ACCOUNT_BANNED: u32 = 0xF7C1;
+    pub const FRIENDS_OLD: u32 = 0xF7CD;
+    pub const DDD_DATA_MESSAGE: u32 = 0xF7E2;
+    pub const DDD_REQUEST_DATA_MESSAGE: u32 = 0xF7E3;
+    pub const DDD_ERROR_MESSAGE: u32 = 0xF7E4;
+    pub const DDD_BEGIN_PULL_DDD: u32 = 0xF7E8;
+    pub const DDD_ITERATION_DATA: u32 = 0xF7E9;
+
+    /// ACE's name for a server-to-client message opcode, for logs and
+    /// the coverage audit; `None` for one ACE does not define.
+    pub fn name(op: u32) -> Option<&'static str> {
+        Some(match op {
+            INVENTORY_REMOVE_OBJECT => "InventoryRemoveObject",
+            SET_STACK_SIZE => "SetStackSize",
+            PLAYER_KILLED => "PlayerKilled",
+            EMOTE_TEXT => "EmoteText",
+            SOUL_EMOTE => "SoulEmote",
+            HEAR_SPEECH => "HearSpeech",
+            HEAR_RANGED_SPEECH => "HearRangedSpeech",
+            PRIVATE_UPDATE_PROPERTY_INT => "PrivateUpdatePropertyInt",
+            PUBLIC_UPDATE_PROPERTY_INT => "PublicUpdatePropertyInt",
+            PRIVATE_UPDATE_PROPERTY_INT64 => "PrivateUpdatePropertyInt64",
+            PUBLIC_UPDATE_PROPERTY_INT64 => "PublicUpdatePropertyInt64",
+            PRIVATE_UPDATE_PROPERTY_BOOL => "PrivateUpdatePropertyBool",
+            PUBLIC_UPDATE_PROPERTY_BOOL => "PublicUpdatePropertyBool",
+            PRIVATE_UPDATE_PROPERTY_FLOAT => "PrivateUpdatePropertyFloat",
+            PUBLIC_UPDATE_PROPERTY_FLOAT => "PublicUpdatePropertyFloat",
+            PRIVATE_UPDATE_PROPERTY_STRING => "PrivateUpdatePropertyString",
+            PUBLIC_UPDATE_PROPERTY_STRING => "PublicUpdatePropertyString",
+            PRIVATE_UPDATE_PROPERTY_DATA_ID => "PrivateUpdatePropertyDataID",
+            PUBLIC_UPDATE_PROPERTY_DATA_ID => "PublicUpdatePropertyDataID",
+            PRIVATE_UPDATE_INSTANCE_ID => "PrivateUpdatePropertyInstanceID",
+            PUBLIC_UPDATE_INSTANCE_ID => "PublicUpdateInstanceId",
+            PRIVATE_UPDATE_POSITION => "PrivateUpdatePosition",
+            PUBLIC_UPDATE_POSITION => "PublicUpdatePosition",
+            PRIVATE_UPDATE_SKILL => "PrivateUpdateSkill",
+            PUBLIC_UPDATE_SKILL => "PublicUpdateSkill",
+            PRIVATE_UPDATE_SKILL_LEVEL => "PrivateUpdateSkillLevel",
+            PUBLIC_UPDATE_SKILL_LEVEL => "PublicUpdateSkillLevel",
+            PRIVATE_UPDATE_SKILL_AC => "PrivateUpdateSkillAC",
+            PRIVATE_UPDATE_ATTRIBUTE => "PrivateUpdateAttribute",
+            PUBLIC_UPDATE_ATTRIBUTE => "PublicUpdateAttribute",
+            PRIVATE_UPDATE_VITAL => "PrivateUpdateVital",
+            PUBLIC_UPDATE_VITAL => "PublicUpdateVital",
+            PRIVATE_UPDATE_ATTRIBUTE_2ND_LEVEL => "PrivateUpdateAttribute2ndLevel",
+            ADMIN_ENVIRONS => "AdminEnvirons",
+            POSITION_AND_MOVEMENT => "PositionAndMovement",
+            OBJ_DESC_EVENT => "ObjDescEvent",
+            CHARACTER_CREATE_RESPONSE => "CharacterCreateResponse",
+            CHARACTER_LOG_OFF => "CharacterLogOff",
+            CHARACTER_DELETE => "CharacterDelete",
+            CHARACTER_CREATE => "CharacterCreate",
+            CHARACTER_ENTER_WORLD => "CharacterEnterWorld",
+            CHARACTER_LIST => "CharacterList",
+            CHARACTER_ERROR => "CharacterError",
+            FORCE_OBJECT_DESC_SEND => "ForceObjectDescSend",
+            OBJECT_CREATE => "ObjectCreate",
+            PLAYER_CREATE => "PlayerCreate",
+            OBJECT_DELETE => "ObjectDelete",
+            UPDATE_POSITION => "UpdatePosition",
+            PARENT_EVENT => "ParentEvent",
+            PICKUP_EVENT => "PickupEvent",
+            SET_STATE => "SetState",
+            MOVEMENT_EVENT => "MovementEvent",
+            VECTOR_UPDATE => "VectorUpdate",
+            SOUND => "Sound",
+            PLAYER_TELEPORT => "PlayerTeleport",
+            0xF753 => "AutonomousPosition",
+            PLAY_SCRIPT_ID => "PlayScriptId",
+            PLAY_EFFECT => "PlayEffect",
+            GAME_EVENT => "GameEvent",
+            GAME_ACTION => "GameAction",
+            ACCOUNT_BANNED => "AccountBanned",
+            CHARACTER_ENTER_WORLD_REQUEST => "CharacterEnterWorldRequest",
+            0xF7CC => "GetServerVersion",
+            FRIENDS_OLD => "FriendsOld",
+            CHARACTER_RESTORE => "CharacterRestore",
+            ACCOUNT_BOOT => "AccountBoot",
+            UPDATE_OBJECT => "UpdateObject",
+            TURBINE_CHAT => "TurbineChat",
+            CHARACTER_ENTER_WORLD_SERVER_READY => "CharacterEnterWorldServerReady",
+            SERVER_MESSAGE => "ServerMessage",
+            SERVER_NAME => "ServerName",
+            DDD_DATA_MESSAGE => "DDD_DataMessage",
+            DDD_REQUEST_DATA_MESSAGE => "DDD_RequestDataMessage",
+            DDD_ERROR_MESSAGE => "DDD_ErrorMessage",
+            DDD_INTERROGATION => "DDD_Interrogation",
+            DDD_INTERROGATION_RESPONSE => "DDD_InterrogationResponse",
+            DDD_BEGIN_DDD => "DDD_BeginDDD",
+            DDD_BEGIN_PULL_DDD => "DDD_BeginPullDDD",
+            DDD_ITERATION_DATA => "DDD_IterationData",
+            DDD_END_DDD => "DDD_EndDDD",
+            _ => return None,
+        })
+    }
 }
 
 /// Message queues (fragment `queue` field).
@@ -490,6 +637,165 @@ pub mod event {
     pub const WEENIE_ERROR_WITH_STRING: u32 = 0x028B;
     pub const TRANSIENT_STRING: u32 = 0x02EB;
     pub const TELL: u32 = 0x02BD;
+    /// The barber (appearance) window's data: 13 data ids and two
+    /// option words.
+    pub const START_BARBER: u32 = 0x0075;
+    /// `u32 item guid, u32 WeenieError`: a pickup, drop, wield or split
+    /// the server refused.
+    pub const INVENTORY_SERVER_SAVE_FAILED: u32 = 0x00A0;
+    /// `u32 book, i32 page, u32 success` each.
+    pub const BOOK_MODIFY_PAGE_RESPONSE: u32 = 0x00B5;
+    pub const BOOK_ADD_PAGE_RESPONSE: u32 = 0x00B6;
+    pub const BOOK_DELETE_PAGE_RESPONSE: u32 = 0x00B7;
+    /// `u32 item, string16 inscription, u32 scribe guid, string16 scribe
+    /// name, string16 scribe account`.
+    pub const GET_INSCRIPTION_RESPONSE: u32 = 0x00C3;
+    /// `u32 count, string16 names`: who is in a chat channel.
+    pub const CHANNEL_LIST: u32 = 0x0148;
+    /// `u32 count, string16 channel names`: the admin channels open to us.
+    pub const CHANNEL_INDEX: u32 = 0x0149;
+    /// No body: our attack animation started (after the walk up to the
+    /// target).
+    pub const COMBAT_COMMENCE_ATTACK: u32 = 0x01B8;
+    /// `string16 name, string16 age`.
+    pub const QUERY_AGE_RESPONSE: u32 = 0x01C3;
+    /// No body: the fellowship panel's refresh is complete.
+    pub const FELLOWSHIP_FELLOW_UPDATE_DONE: u32 = 0x01C9;
+    pub const FELLOWSHIP_FELLOW_STATS_DONE: u32 = 0x01CA;
+    pub const ITEM_APPRAISE_DONE: u32 = 0x01CB;
+    /// No body: the answer to PingRequest.
+    pub const PING_RESPONSE: u32 = 0x01EA;
+    /// `u32 item, f32 mana fraction, u32 success`.
+    pub const QUERY_ITEM_MANA_RESPONSE: u32 = 0x0264;
+    pub const JOIN_GAME_RESPONSE: u32 = 0x0281;
+    pub const START_GAME: u32 = 0x0282;
+    pub const MOVE_RESPONSE: u32 = 0x0283;
+    pub const OPPONENT_TURN: u32 = 0x0284;
+    pub const OPPONENT_STALEMATE: u32 = 0x0285;
+    pub const GAME_OVER: u32 = 0x028C;
+    pub const ADMIN_QUERY_PLUGIN_LIST: u32 = 0x02AE;
+    pub const ADMIN_QUERY_PLUGIN: u32 = 0x02B1;
+    pub const ADMIN_QUERY_PLUGIN_RESPONSE: u32 = 0x02B3;
+    /// `f32 extent`: a portal storm is gathering around us.
+    pub const PORTAL_STORM_BREWING: u32 = 0x02C9;
+    pub const PORTAL_STORM_IMMINENT: u32 = 0x02CA;
+    /// No body: the storm took us (a teleport follows).
+    pub const PORTAL_STORM: u32 = 0x02CB;
+    pub const PORTAL_STORM_SUBSIDED: u32 = 0x02CC;
+    /// The quest contract tracker table at login, and one contract.
+    pub const CONTRACT_TRACKER_TABLE: u32 = 0x0314;
+    pub const CONTRACT_TRACKER: u32 = 0x0315;
+
+    /// ACE's name for a GameEvent type, for logs and the coverage
+    /// audit; `None` for one ACE does not define.
+    pub fn name(ev: u32) -> Option<&'static str> {
+        Some(match ev {
+            ALLEGIANCE_UPDATE_ABORTED => "AllegianceUpdateAborted",
+            POPUP_STRING => "PopupString",
+            PLAYER_DESCRIPTION => "PlayerDescription",
+            ALLEGIANCE_UPDATE => "AllegianceUpdate",
+            FRIENDS_LIST_UPDATE => "FriendsListUpdate",
+            INVENTORY_PUT_OBJ_IN_CONTAINER => "InventoryPutObjInContainer",
+            WIELD_OBJECT => "WieldObject",
+            CHARACTER_TITLE => "CharacterTitle",
+            UPDATE_TITLE => "UpdateTitle",
+            CLOSE_GROUND_CONTAINER => "CloseGroundContainer",
+            APPROACH_VENDOR => "ApproachVendor",
+            START_BARBER => "StartBarber",
+            INVENTORY_SERVER_SAVE_FAILED => "InventoryServerSaveFailed",
+            FELLOWSHIP_QUIT => "FellowshipQuit",
+            FELLOWSHIP_DISMISS => "FellowshipDismiss",
+            BOOK_DATA_RESPONSE => "BookDataResponse",
+            BOOK_MODIFY_PAGE_RESPONSE => "BookModifyPageResponse",
+            BOOK_ADD_PAGE_RESPONSE => "BookAddPageResponse",
+            BOOK_DELETE_PAGE_RESPONSE => "BookDeletePageResponse",
+            BOOK_PAGE_DATA_RESPONSE => "BookPageDataResponse",
+            GET_INSCRIPTION_RESPONSE => "GetInscriptionResponse",
+            IDENTIFY_OBJECT_RESPONSE => "IdentifyObjectResponse",
+            CHANNEL_BROADCAST => "ChannelBroadcast",
+            CHANNEL_LIST => "ChannelList",
+            CHANNEL_INDEX => "ChannelIndex",
+            VIEW_CONTENTS => "ViewContents",
+            INVENTORY_PUT_OBJECT_IN_3D => "InventoryPutObjectIn3D",
+            ATTACK_DONE => "AttackDone",
+            MAGIC_REMOVE_SPELL => "MagicRemoveSpell",
+            VICTIM_NOTIFICATION => "VictimNotification",
+            KILLER_NOTIFICATION => "KillerNotification",
+            ATTACKER_NOTIFICATION => "AttackerNotification",
+            DEFENDER_NOTIFICATION => "DefenderNotification",
+            EVASION_ATTACKER_NOTIFICATION => "EvasionAttackerNotification",
+            EVASION_DEFENDER_NOTIFICATION => "EvasionDefenderNotification",
+            COMBAT_COMMENCE_ATTACK => "CombatCommenceAttack",
+            UPDATE_HEALTH => "UpdateHealth",
+            QUERY_AGE_RESPONSE => "QueryAgeResponse",
+            USE_DONE => "UseDone",
+            ALLEGIANCE_UPDATE_DONE => "AllegianceAllegianceUpdateDone",
+            FELLOWSHIP_FELLOW_UPDATE_DONE => "FellowshipFellowUpdateDone",
+            FELLOWSHIP_FELLOW_STATS_DONE => "FellowshipFellowStatsDone",
+            ITEM_APPRAISE_DONE => "ItemAppraiseDone",
+            EMOTE => "Emote",
+            PING_RESPONSE => "PingResponse",
+            SET_SQUELCH_DB => "SetSquelchDB",
+            REGISTER_TRADE => "RegisterTrade",
+            OPEN_TRADE => "OpenTrade",
+            CLOSE_TRADE => "CloseTrade",
+            ADD_TO_TRADE => "AddToTrade",
+            REMOVE_FROM_TRADE => "RemoveFromTrade",
+            ACCEPT_TRADE => "AcceptTrade",
+            DECLINE_TRADE => "DeclineTrade",
+            RESET_TRADE => "ResetTrade",
+            TRADE_FAILURE => "TradeFailure",
+            CLEAR_TRADE_ACCEPTANCE => "ClearTradeAcceptance",
+            HOUSE_PROFILE => "HouseProfile",
+            HOUSE_DATA => "HouseData",
+            HOUSE_STATUS => "HouseStatus",
+            UPDATE_RENT_TIME => "UpdateRentTime",
+            UPDATE_RENT_PAYMENT => "UpdateRentPayment",
+            HOUSE_UPDATE_RESTRICTIONS => "HouseUpdateRestrictions",
+            UPDATE_HAR => "UpdateHAR",
+            HOUSE_TRANSACTION => "HouseTransaction",
+            QUERY_ITEM_MANA_RESPONSE => "QueryItemManaResponse",
+            AVAILABLE_HOUSES => "AvailableHouses",
+            CONFIRMATION_REQUEST => "CharacterConfirmationRequest",
+            CONFIRMATION_DONE => "CharacterConfirmationDone",
+            ALLEGIANCE_LOGIN_NOTIFICATION => "AllegianceLoginNotification",
+            ALLEGIANCE_INFO_RESPONSE => "AllegianceInfoResponse",
+            JOIN_GAME_RESPONSE => "JoinGameResponse",
+            START_GAME => "StartGame",
+            MOVE_RESPONSE => "MoveResponse",
+            OPPONENT_TURN => "OpponentTurn",
+            OPPONENT_STALEMATE => "OpponentStalemate",
+            WEENIE_ERROR => "WeenieError",
+            WEENIE_ERROR_WITH_STRING => "WeenieErrorWithString",
+            GAME_OVER => "GameOver",
+            SET_TURBINE_CHAT_CHANNELS => "SetTurbineChatChannels",
+            ADMIN_QUERY_PLUGIN_LIST => "AdminQueryPluginList",
+            ADMIN_QUERY_PLUGIN => "AdminQueryPlugin",
+            ADMIN_QUERY_PLUGIN_RESPONSE => "AdminQueryPluginResponse",
+            SALVAGE_OPERATIONS_RESULT => "SalvageOperationsResult",
+            TELL => "Tell",
+            FELLOWSHIP_FULL_UPDATE => "FellowshipFullUpdate",
+            FELLOWSHIP_DISBAND => "FellowshipDisband",
+            FELLOWSHIP_UPDATE_FELLOW => "FellowshipUpdateFellow",
+            MAGIC_UPDATE_SPELL => "MagicUpdateSpell",
+            MAGIC_UPDATE_ENCHANTMENT => "MagicUpdateEnchantment",
+            MAGIC_REMOVE_ENCHANTMENT => "MagicRemoveEnchantment",
+            MAGIC_UPDATE_MULTIPLE_ENCHANTMENTS => "MagicUpdateMultipleEnchantments",
+            MAGIC_REMOVE_MULTIPLE_ENCHANTMENTS => "MagicRemoveMultipleEnchantments",
+            MAGIC_PURGE_ENCHANTMENTS => "MagicPurgeEnchantments",
+            MAGIC_DISPEL_ENCHANTMENT => "MagicDispelEnchantment",
+            MAGIC_DISPEL_MULTIPLE_ENCHANTMENTS => "MagicDispelMultipleEnchantments",
+            PORTAL_STORM_BREWING => "MiscPortalStormBrewing",
+            PORTAL_STORM_IMMINENT => "MiscPortalStormImminent",
+            PORTAL_STORM => "MiscPortalStorm",
+            PORTAL_STORM_SUBSIDED => "MiscPortalstormSubsided",
+            TRANSIENT_STRING => "CommunicationTransientString",
+            MAGIC_PURGE_BAD_ENCHANTMENTS => "MagicPurgeBadEnchantments",
+            CONTRACT_TRACKER_TABLE => "SendClientContractTrackerTable",
+            CONTRACT_TRACKER => "SendClientContractTracker",
+            _ => return None,
+        })
+    }
 }
 
 /// A line of chat from any of the speech-carrying messages.
@@ -1304,6 +1610,12 @@ pub mod property_int {
     pub const VALUE: u32 = 19;
 }
 
+/// ACE `PropertyString` ids.
+pub mod property_string {
+    pub const NAME: u32 = 1;
+    pub const TITLE: u32 = 2;
+}
+
 /// SetStackSize (0x0197): `u8 sequence, u32 guid, u32 stack size, u32
 /// value`, sent for every change of a stack in view (including our own
 /// packs, after a spell burns components or a vendor buy merges).
@@ -1386,6 +1698,29 @@ pub fn trade(vendor: u32, items: &[(u32, i32)]) -> Vec<u8> {
 pub fn parse_sound(body: &[u8]) -> Result<(u32, u32, f32), Truncated> {
     let mut r = Reader::new(body);
     Ok((r.u32()?, r.u32()?, r.f32()?))
+}
+
+/// PlayEffect (0xF755): an object plays a particle script: `(guid,
+/// PlayScript id, speed)`.
+pub fn parse_play_effect(body: &[u8]) -> Result<(u32, u32, f32), Truncated> {
+    let mut r = Reader::new(body);
+    Ok((r.u32()?, r.u32()?, r.f32()?))
+}
+
+/// PlayerKilled (0x019E): a player in view died: `(message, victim,
+/// killer)`; the killer is 0 when nothing dealt the blow.
+pub fn parse_player_killed(body: &[u8]) -> Result<(String, u32, u32), Truncated> {
+    let mut r = Reader::new(body);
+    Ok((r.string16()?, r.u32()?, r.u32()?))
+}
+
+/// AccountBanned (0xF7C1): seconds until the ban ends and the reason
+/// (empty when the server gave none).
+pub fn parse_account_banned(body: &[u8]) -> Result<(u32, String), Truncated> {
+    let mut r = Reader::new(body);
+    let secs = r.u32()?;
+    let reason = r.string16().unwrap_or_default();
+    Ok((secs, reason))
 }
 
 /// UpdateHealth (0x01C0): a creature's health as a fraction.
@@ -1681,9 +2016,45 @@ pub mod action {
     /// Sent after entering the world and after each teleport; the server
     /// ignores position reports until it arrives.
     pub const LOGIN_COMPLETE: u32 = 0x00A1;
+    /// `u32 guid`: select a creature; the server answers UpdateHealth
+    /// and keeps sending it every heartbeat (5 s) while the creature is
+    /// selected. 0 clears the selection.
+    pub const QUERY_HEALTH: u32 = 0x01BF;
+    /// No body: stop the attack in progress (AttackDone follows).
+    pub const CANCEL_ATTACK: u32 = 0x01B7;
+    /// No body: the server answers PingResponse (0x01EA).
+    pub const PING_REQUEST: u32 = 0x01E9;
+    /// `u32 item`: the server answers QueryItemManaResponse (0x0264).
+    pub const QUERY_ITEM_MANA: u32 = 0x0263;
+    pub const QUERY_AGE: u32 = 0x01C2;
+    pub const QUERY_BIRTH: u32 = 0x01C4;
+    pub const SET_INSCRIPTION: u32 = 0x00BF;
+    pub const SET_CHARACTER_OPTIONS: u32 = 0x01A1;
+    pub const ADD_SHORT_CUT: u32 = 0x019C;
+    pub const REMOVE_SHORT_CUT: u32 = 0x019D;
+    pub const LIST_CHANNELS: u32 = 0x0148;
+    pub const INDEX_CHANNELS: u32 = 0x0149;
+    pub const ADD_CHANNEL: u32 = 0x0145;
+    pub const REMOVE_CHANNEL: u32 = 0x0146;
+    /// `u32 target guid` or a heading: turn without walking; ACE turns
+    /// us itself for casts and attacks, so the client never needs it.
+    pub const TURN_TO: u32 = 0xF649;
+    pub const DO_MOVEMENT_COMMAND: u32 = 0xF61E;
+    pub const STOP_MOVEMENT_COMMAND: u32 = 0xF661;
+    pub const JUMP_NON_AUTONOMOUS: u32 = 0xF7C9;
+    pub const AUTONOMY_LEVEL: u32 = 0xF752;
     pub const JUMP: u32 = 0xF61B;
     pub const MOVE_TO_STATE: u32 = 0xF61C;
     pub const AUTONOMOUS_POSITION: u32 = 0xF753;
+}
+
+/// Body of FellowshipUpdateRequest (0x00A6): whether the fellowship
+/// panel is open. ACE sends FellowshipUpdateFellow vitals (and a
+/// FellowshipFullUpdate at once) only to members who reported it open,
+/// so a client that reads fellows' health must send `true` after
+/// joining.
+pub fn fellowship_update_request(panel_open: bool) -> Vec<u8> {
+    u32::from(panel_open).to_le_bytes().to_vec()
 }
 
 /// Motion commands and stances used for basic movement.
@@ -1824,4 +2195,58 @@ pub fn move_to_state(m: &RawMotion, p: &WirePosition, instance_seq: u16, contact
     w.u8(contact as u8);
     w.align4();
     w.finish()
+}
+
+#[cfg(test)]
+mod coverage_tests {
+    use super::*;
+
+    #[test]
+    fn player_killed_and_account_banned_parse() {
+        let mut w = Writer::new();
+        w.string16("Reborn is killed by a Drudge!")
+            .u32(0x5000_0001)
+            .u32(0x8000_0030);
+        let (text, victim, killer) = parse_player_killed(&w.finish()).unwrap();
+        assert_eq!(text, "Reborn is killed by a Drudge!");
+        assert_eq!((victim, killer), (0x5000_0001, 0x8000_0030));
+        assert!(parse_player_killed(&[3, 0, b'a']).is_err());
+        let mut w = Writer::new();
+        w.u32(3600).string16("Speedhacking");
+        assert_eq!(
+            parse_account_banned(&w.finish()).unwrap(),
+            (3600, "Speedhacking".to_string())
+        );
+        // The reason is optional.
+        assert_eq!(
+            parse_account_banned(&60u32.to_le_bytes()).unwrap(),
+            (60, String::new())
+        );
+        let mut w = Writer::new();
+        w.u32(0x8000_0030).u32(0x51).f32(2.0);
+        assert_eq!(
+            parse_play_effect(&w.finish()).unwrap(),
+            (0x8000_0030, 0x51, 2.0)
+        );
+    }
+
+    #[test]
+    fn names_follow_ace() {
+        assert_eq!(
+            opcode::name(opcode::UPDATE_POSITION),
+            Some("UpdatePosition")
+        );
+        assert_eq!(opcode::name(opcode::PLAY_EFFECT), Some("PlayEffect"));
+        assert_eq!(opcode::name(0x1234), None);
+        assert_eq!(
+            event::name(event::FELLOWSHIP_FELLOW_UPDATE_DONE),
+            Some("FellowshipFellowUpdateDone")
+        );
+        assert_eq!(
+            event::name(event::WEENIE_ERROR_WITH_STRING),
+            Some("WeenieErrorWithString")
+        );
+        assert_eq!(event::name(0x0001), None);
+        assert_eq!(fellowship_update_request(true), vec![1, 0, 0, 0]);
+    }
 }

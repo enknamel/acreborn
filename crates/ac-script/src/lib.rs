@@ -67,6 +67,16 @@ pub fn event_map(ev: &Event) -> Map {
             m.insert("volume".into(), Dynamic::from_float(*volume as f64));
             "sound"
         }
+        Event::Effect {
+            guid,
+            script,
+            speed,
+        } => {
+            m.insert("guid".into(), Dynamic::from_int(*guid as i64));
+            m.insert("script".into(), Dynamic::from_int(*script as i64));
+            m.insert("speed".into(), Dynamic::from_float(*speed as f64));
+            "effect"
+        }
         Event::Connected => "connected",
         Event::Terminated(reason) => {
             m.insert("reason".into(), reason.clone().into());

@@ -39,6 +39,14 @@ pub enum Event {
         wave: std::rc::Rc<ac_formats::wave::Wave>,
         volume: f32,
     },
+    /// An object plays a particle script (PlayEffect 0xF755): `script`
+    /// is ACE's PlayScript id (0x51 Fizzle, 0x52 PortalEntry, 0x53
+    /// PortalExit, 0x33 ShieldUpBlue...), `speed` its playback rate.
+    Effect {
+        guid: u32,
+        script: u32,
+        speed: f32,
+    },
     Connected,
     Terminated(String),
     /// CharacterError / AccountBoot opcode.
@@ -192,6 +200,10 @@ pub struct Client {
     /// server refuses a second pickup while one is in progress).
     pub loot_queue: std::collections::VecDeque<u32>,
     pub loot_inflight: Option<(u32, Instant)>,
+    /// FellowshipUpdateRequest(open) has been sent for the current
+    /// fellowship: the server sends fellows' vitals only to members
+    /// whose panel it believes open.
+    pub fellow_updates: bool,
     /// Items waiting to be appraised in the background (`appraise_all`),
     /// and the one asked for; their answers do not open the window.
     pub appraise_queue: std::collections::VecDeque<u32>,
@@ -326,6 +338,7 @@ impl Client {
             waves: Default::default(),
             loot_queue: Default::default(),
             loot_inflight: None,
+            fellow_updates: false,
             appraise_queue: Default::default(),
             appraise_inflight: None,
             pending_store: None,
@@ -494,13 +507,41 @@ impl Client {
                             }
                             continue;
                         }
+                        ac_world::Applied::Effect { guid, script } => {
+                            let speed = messages::split(&msg)
+                                .and_then(|(_, b)| messages::parse_play_effect(b).ok())
+                                .map(|(_, _, s)| s)
+                                .unwrap_or(1.0);
+                            self.events.push(self::Event::Effect {
+                                guid,
+                                script,
+                                speed,
+                            });
+                            continue;
+                        }
+                        ac_world::Applied::Fellowship => {
+                            // ACE sends fellows' vitals only while it
+                            // believes our panel is open: say so once
+                            // per fellowship.
+                            match self.world.fellowship.is_some() {
+                                true if !self.fellow_updates => {
+                                    self.fellow_updates = true;
+                                    self.session.send_action(
+                                        ac_net::messages::action::FELLOWSHIP_UPDATE_REQUEST,
+                                        &messages::fellowship_update_request(true),
+                                    );
+                                }
+                                false => self.fellow_updates = false,
+                                _ => {}
+                            }
+                            continue;
+                        }
                         ac_world::Applied::Created
                         | ac_world::Applied::Deleted
                         | ac_world::Applied::Stats
                         | ac_world::Applied::Health
                         | ac_world::Applied::Vendor
                         | ac_world::Applied::Trade
-                        | ac_world::Applied::Fellowship
                         | ac_world::Applied::Allegiance
                         | ac_world::Applied::House
                         | ac_world::Applied::Social
@@ -573,6 +614,15 @@ impl Client {
                             self.session
                                 .send_action(ac_net::messages::action::LOGIN_COMPLETE, &[]);
                         }
+                        opcode::ACCOUNT_BANNED => {
+                            let (secs, reason) =
+                                messages::parse_account_banned(body).unwrap_or((0, String::new()));
+                            tracing::error!("account banned for {secs} s: {reason}");
+                            self.events.push(self::Event::Refused(op));
+                        }
+                        opcode::CHARACTER_LOG_OFF => {
+                            tracing::info!("server logged the character off");
+                        }
                         opcode::CHARACTER_ERROR | opcode::ACCOUNT_BOOT => {
                             let code = body
                                 .get(..4)
@@ -613,12 +663,32 @@ impl Client {
                                 {
                                     self.allegiance_room =
                                         u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
-                                } else {
-                                    tracing::debug!("game event {ev:#06x} ({} bytes)", rest.len());
+                                } else if !chat_handles(op, ev) {
+                                    // Everything neither World::apply
+                                    // nor chat_message takes.
+                                    tracing::debug!(
+                                        "game event {ev:#06x} {} ({} bytes)",
+                                        ac_net::messages::event::name(ev).unwrap_or("unknown"),
+                                        rest.len()
+                                    );
                                 }
                             }
                         }
-                        _ => tracing::debug!("message {op:#06x} ({} bytes)", body.len()),
+                        // Taken above (the lobby) or by the session
+                        // itself (the DAT interrogation).
+                        opcode::CHARACTER_LIST
+                        | opcode::DDD_END_DDD
+                        | opcode::DDD_INTERROGATION
+                        | opcode::DDD_BEGIN_DDD
+                        | opcode::SERVER_NAME
+                        | opcode::CHARACTER_CREATE_RESPONSE
+                        | opcode::CHARACTER_DELETE => {}
+                        _ if chat_handles(op, 0) => {}
+                        _ => tracing::debug!(
+                            "message {op:#06x} {} ({} bytes)",
+                            opcode::name(op).unwrap_or("unknown"),
+                            body.len()
+                        ),
                     }
                 }
             }
@@ -996,6 +1066,17 @@ impl Client {
             opcode::HEAR_RANGED_SPEECH => ChatLine::parse_hear_ranged_speech(body),
             opcode::SERVER_MESSAGE => ChatLine::parse_server_message(body),
             opcode::EMOTE_TEXT | opcode::SOUL_EMOTE => ChatLine::parse_emote_text(body),
+            // "X was killed by Y" for players in view; the world has
+            // already zeroed the victim's health.
+            opcode::PLAYER_KILLED => match ac_net::messages::parse_player_killed(body) {
+                Ok((text, _, _)) => Ok(ChatLine {
+                    text,
+                    sender: String::new(),
+                    sender_id: 0,
+                    kind: 0x1F,
+                }),
+                Err(e) => Err(e),
+            },
             opcode::GAME_EVENT => match ac_net::messages::split_game_event(body) {
                 Some((_, _, event::TELL, rest)) => ChatLine::parse_tell(rest),
                 Some((_, _, event::CHANNEL_BROADCAST, rest)) => {
@@ -1392,6 +1473,15 @@ impl Client {
                     action::CAST_TARGETED_SPELL,
                     &ac_net::messages::cast_targeted(t, spell),
                 );
+                // Keep the target's health bar moving (see query_health).
+                let creature = self
+                    .world
+                    .objects
+                    .get(&t)
+                    .is_some_and(|o| o.item_type & ac_world::item_type::CREATURE != 0);
+                if creature {
+                    self.query_health(t);
+                }
             }
             None => {
                 tracing::info!("cast {name} ({spell})");
@@ -1450,6 +1540,30 @@ impl Client {
         self.attack_pending = true;
         self.last_attack = Instant::now();
         self.select(Some(guid));
+        self.query_health(guid);
+    }
+
+    /// Select a creature on the server (QueryHealth 0x01BF): it answers
+    /// UpdateHealth now and again every heartbeat (5 s) while the
+    /// creature stays selected, which is the only way its health bar
+    /// keeps moving between our own blows. Sent by `attack` and by a
+    /// targeted cast; `None` clears the selection.
+    pub fn query_health(&mut self, guid: impl Into<Option<u32>>) {
+        let guid = guid.into().unwrap_or(0);
+        self.session
+            .send_action(ac_net::messages::action::QUERY_HEALTH, &guid.to_le_bytes());
+    }
+
+    /// Stop the attack in progress (CancelAttack 0x01B7): the server
+    /// ends the swing chain with AttackDone and cancels its walk toward
+    /// the target. Combat mode stays on.
+    pub fn cancel_attack(&mut self) {
+        if self.attack_target.take().is_some() || self.attack_pending {
+            tracing::info!("cancel attack");
+        }
+        self.attack_pending = false;
+        self.session
+            .send_action(ac_net::messages::action::CANCEL_ATTACK, &[]);
     }
 
     pub fn tick_combat(&mut self) {
@@ -3088,5 +3202,43 @@ mod salvage_tests {
             salvage_text(&parsed),
             "You obtain 2 Steel (workmanship 3.00) using your Weapon Tinkering skill."
         );
+    }
+}
+
+/// Whether `chat_message` takes a message: the speech opcodes, and for
+/// GameEvent (`ev` is the event type) the notices it turns into chat
+/// lines. Keeps the unhandled-message log honest.
+fn chat_handles(op: u32, ev: u32) -> bool {
+    use ac_net::messages::{event, opcode};
+    match op {
+        opcode::SOUND
+        | opcode::TURBINE_CHAT
+        | opcode::HEAR_SPEECH
+        | opcode::HEAR_RANGED_SPEECH
+        | opcode::SERVER_MESSAGE
+        | opcode::EMOTE_TEXT
+        | opcode::SOUL_EMOTE
+        | opcode::PLAYER_KILLED => true,
+        opcode::GAME_EVENT => matches!(
+            ev,
+            event::TELL
+                | event::CHANNEL_BROADCAST
+                | event::BOOK_DATA_RESPONSE
+                | event::BOOK_PAGE_DATA_RESPONSE
+                | event::SALVAGE_OPERATIONS_RESULT
+                | event::IDENTIFY_OBJECT_RESPONSE
+                | event::ATTACK_DONE
+                | event::ATTACKER_NOTIFICATION
+                | event::DEFENDER_NOTIFICATION
+                | event::EVASION_ATTACKER_NOTIFICATION
+                | event::EVASION_DEFENDER_NOTIFICATION
+                | event::VICTIM_NOTIFICATION
+                | event::KILLER_NOTIFICATION
+                | event::TRANSIENT_STRING
+                | event::WEENIE_ERROR
+                | event::WEENIE_ERROR_WITH_STRING
+                | event::POPUP_STRING
+        ),
+        _ => false,
     }
 }

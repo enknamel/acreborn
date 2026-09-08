@@ -531,6 +531,17 @@ pub struct PlayerStats {
     pub ints: Vec<(u32, i32)>,
     pub int64s: Vec<(u32, i64)>,
     pub strings: Vec<(u32, String)>,
+    /// PropertyBool by ACE id (`object::property_bool`): Afk,
+    /// SpellComponentsRequired, IsAdvocate...
+    pub bools: Vec<(u32, bool)>,
+    /// PropertyFloat by ACE id.
+    pub floats: Vec<(u32, f64)>,
+    /// PropertyDataId by ACE id (`object::property_did`): setup, motion
+    /// table, icon.
+    pub dids: Vec<(u32, u32)>,
+    /// PropertyInstanceId by ACE id (`object::property_iid`):
+    /// CurrentAttacker is the last thing that hit us.
+    pub iids: Vec<(u32, u32)>,
     /// The character's saved positions by the server's `PositionType`
     /// word (`ac_world::recalls::position_type`): where the last corpse
     /// fell, as the server sends it, and the places the recall spells go
@@ -701,15 +712,17 @@ impl PlayerStats {
         if flags & 0x0002 != 0 {
             let (n, _) = (r.u16()?, r.u16()?);
             for _ in 0..n {
-                r.u32()?;
-                r.u32()?;
+                let k = r.u32()?;
+                let v = r.u32()? != 0;
+                st.set_bool(k, v);
             }
         }
         if flags & 0x0004 != 0 {
             let (n, _) = (r.u16()?, r.u16()?);
             for _ in 0..n {
-                r.u32()?;
-                r.f64()?;
+                let k = r.u32()?;
+                let v = r.f64()?;
+                st.set_float(k, v);
             }
         }
         if flags & 0x0010 != 0 {
@@ -723,15 +736,17 @@ impl PlayerStats {
         if flags & 0x0008 != 0 {
             let (n, _) = (r.u16()?, r.u16()?);
             for _ in 0..n {
-                r.u32()?;
-                r.u32()?;
+                let k = r.u32()?;
+                let v = r.u32()?;
+                st.set_did(k, v);
             }
         }
         if flags & 0x0040 != 0 {
             let (n, _) = (r.u16()?, r.u16()?);
             for _ in 0..n {
-                r.u32()?;
-                r.u32()?;
+                let k = r.u32()?;
+                let v = r.u32()?;
+                st.set_iid(k, v);
             }
         }
         if flags & 0x0020 != 0 {
@@ -982,6 +997,10 @@ impl PlayerStats {
                 (self.update_string(body), StatsApplied::Stats)
             }
             opcode::PRIVATE_UPDATE_POSITION => (self.update_position(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_PROPERTY_BOOL => (self.update_bool(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_PROPERTY_FLOAT => (self.update_float(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_PROPERTY_DATA_ID => (self.update_did(body), StatsApplied::Stats),
+            opcode::PRIVATE_UPDATE_INSTANCE_ID => (self.update_iid(body), StatsApplied::Stats),
             _ => return None,
         };
         if let Err(e) = r {
@@ -1118,6 +1137,66 @@ impl PlayerStats {
         }
     }
 
+    fn set_bool(&mut self, k: u32, v: bool) {
+        match self.bools.iter_mut().find(|(kk, _)| *kk == k) {
+            Some(e) => e.1 = v,
+            None => self.bools.push((k, v)),
+        }
+    }
+
+    fn set_float(&mut self, k: u32, v: f64) {
+        match self.floats.iter_mut().find(|(kk, _)| *kk == k) {
+            Some(e) => e.1 = v,
+            None => self.floats.push((k, v)),
+        }
+    }
+
+    fn set_did(&mut self, k: u32, v: u32) {
+        match self.dids.iter_mut().find(|(kk, _)| *kk == k) {
+            Some(e) => e.1 = v,
+            None => self.dids.push((k, v)),
+        }
+    }
+
+    /// An instance id of 0 clears the entry (ACE sends 0 for "none").
+    fn set_iid(&mut self, k: u32, v: u32) {
+        if v == 0 {
+            self.iids.retain(|(kk, _)| *kk != k);
+            return;
+        }
+        match self.iids.iter_mut().find(|(kk, _)| *kk == k) {
+            Some(e) => e.1 = v,
+            None => self.iids.push((k, v)),
+        }
+    }
+
+    /// A PropertyBool of our own, if the server has sent it.
+    pub fn bool_prop(&self, k: u32) -> Option<bool> {
+        self.bools.iter().find(|(kk, _)| *kk == k).map(|e| e.1)
+    }
+
+    /// A PropertyFloat of our own, if the server has sent it.
+    pub fn float_prop(&self, k: u32) -> Option<f64> {
+        self.floats.iter().find(|(kk, _)| *kk == k).map(|e| e.1)
+    }
+
+    /// A PropertyInstanceId of our own, if set (0 is never stored).
+    pub fn iid_prop(&self, k: u32) -> Option<u32> {
+        self.iids.iter().find(|(kk, _)| *kk == k).map(|e| e.1)
+    }
+
+    /// The last creature that hit us (PrivateUpdatePropertyInstanceID
+    /// CurrentAttacker), until the server clears it.
+    pub fn current_attacker(&self) -> Option<u32> {
+        self.iid_prop(crate::object::property_iid::CURRENT_ATTACKER)
+    }
+
+    /// Whether the server requires spell components of us
+    /// (PropertyBool SpellComponentsRequired); `None` until told.
+    pub fn spell_components_required(&self) -> Option<bool> {
+        self.bool_prop(crate::object::property_bool::SPELL_COMPONENTS_REQUIRED)
+    }
+
     fn set_string(&mut self, k: u32, v: String) {
         if k == property::STRING_NAME {
             self.name = v.clone();
@@ -1179,6 +1258,42 @@ impl PlayerStats {
         let k = r.u32()?;
         let v = r.u64()? as i64;
         self.set_int64(k, v);
+        Ok(())
+    }
+
+    fn update_bool(&mut self, body: &[u8]) -> Result<(), Truncated> {
+        let mut r = Reader::new(body);
+        let _seq = r.u8()?;
+        let k = r.u32()?;
+        let v = r.u32()? != 0;
+        self.set_bool(k, v);
+        Ok(())
+    }
+
+    fn update_float(&mut self, body: &[u8]) -> Result<(), Truncated> {
+        let mut r = Reader::new(body);
+        let _seq = r.u8()?;
+        let k = r.u32()?;
+        let v = r.f64()?;
+        self.set_float(k, v);
+        Ok(())
+    }
+
+    fn update_did(&mut self, body: &[u8]) -> Result<(), Truncated> {
+        let mut r = Reader::new(body);
+        let _seq = r.u8()?;
+        let k = r.u32()?;
+        let v = r.u32()?;
+        self.set_did(k, v);
+        Ok(())
+    }
+
+    fn update_iid(&mut self, body: &[u8]) -> Result<(), Truncated> {
+        let mut r = Reader::new(body);
+        let _seq = r.u8()?;
+        let k = r.u32()?;
+        let v = r.u32()?;
+        self.set_iid(k, v);
         Ok(())
     }
 
