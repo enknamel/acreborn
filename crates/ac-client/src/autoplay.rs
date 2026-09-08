@@ -3644,13 +3644,15 @@ mod tests {
 
     #[test]
     fn the_first_matching_rule_decides() {
-        let mut l = Loot::default();
-        l.rules = vec![
-            LootRule::new("slot:ring epics>=2", LootAction::Keep),
-            LootRule::new("ring", LootAction::Salvage),
-            LootRule::new("value>250", LootAction::Keep),
-            LootRule::new("armor", LootAction::Sell),
-        ];
+        let mut l = Loot {
+            rules: vec![
+                LootRule::new("slot:ring epics>=2", LootAction::Keep),
+                LootRule::new("ring", LootAction::Salvage),
+                LootRule::new("value>250", LootAction::Keep),
+                LootRule::new("armor", LootAction::Sell),
+            ],
+            ..Default::default()
+        };
         let ring = |spells: &[&str]| ItemStats {
             name: "Gold Ring".into(),
             kind: "jewelry",
@@ -3740,7 +3742,7 @@ mod tests {
             has_ust,
             ..Default::default()
         };
-        let team = vec![
+        let team = [
             mate("Zed", 1, 300, true),
             mate("Amy", 2, 300, true),
             mate("Bob", 3, 400, false),

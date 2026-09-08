@@ -1010,7 +1010,7 @@ mod tests {
         let mut settings = Settings::new();
         settings.set(
             "autoplay.config",
-            &serde_json::json!({"loot": {"filters": ["value>500"], "always": ["Pyreal"]}}),
+            serde_json::json!({"loot": {"filters": ["value>500"], "always": ["Pyreal"]}}),
         );
         let mut p = Autoplay::default();
         p.load(&settings);
