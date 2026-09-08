@@ -170,6 +170,70 @@ default; both in the Autoplay panel's Team section, or
 Every process has to be on the bus (`--bus`) for the sessions to hear
 each other; sessions in one process hear each other anyway.
 
+## Loot rules and who salvages
+
+Autoplay's Loot section (and `loot_rules()` / `loot_rule_add(query,
+action)` / `loot_rules_clear()` from a script) holds ordered rules: a
+search in the inventory's language and what to do with an item it
+matches. The first rule that matches decides; nothing matching is left
+on the corpse. Names under "always take" and "never take" come before
+the rules. The rules are part of the autoplay config, so they are saved
+with it and handed to every session of the process as it appears.
+
+| action | what happens |
+|---|---|
+| keep | picked up and kept |
+| salvage | picked up, tagged, then salvaged by the team's salvager |
+| sell | picked up and tagged for the next run to town |
+| skip | left where it is |
+
+The search language, in full (the fold under the rule list shows the
+same):
+
+- a **word** matches the name, material, kind, a spell name or a slot
+  word (`ring`, `bracelet`, `hauberk`); `"epic life magic"` is a phrase;
+- a space means **and**; `or`; `not x` or `-x`; parentheses group:
+  `a b or c` is `(a and b) or c`;
+- **numbers**: `value>250`, `al>=200`, `dmg>10`, `ws<6`, `wield<=150`
+  (`level` and `req` say the same), `burden`, `speed`, `mana`, `sc`,
+  `uses`, `tinks`, `stack`, `atk`, `def`;
+- **cantrips** by tier, read off the spell names on the item:
+  `epics>=2`, `legendaries>=1`, `majors`, `moderates`, `minors`,
+  `cantrips` (any tier), `spells>=3` (everything on it), `tier:epic`
+  (at least one);
+- **slots** from where the item is worn: `slot:ring`, `slot:neck`,
+  `slot:bracelet`, `slot:head`, `slot:chest`, `slot:abdomen`, `arms`,
+  `hands`, `legs`, `feet`, `trinket`, `cloak`, `sigil`, `melee`,
+  `shield`, `missile`, `ammo`, `wand`, `twohanded`;
+- one field: `spell:blood`, `type:armor`, `mat:iron`, `skill:sword`;
+  flags `wielded`, `unappraised`.
+
+Examples: a Hauberk with Epic Life Mastery is `hauberk "epic life"`
+(spelt the way the cantrip is on the item, `spell:"epic life magic"`
+also does); any ring with multiple epics is `slot:ring epics>=2`; more
+than two epics is `epics>2`. A rule the parser cannot make sense of is
+shown in red with what is wrong (`Query::check`); it still runs, meaning
+as much as it can.
+
+**Who salvages.** Every session on the team says its Salvaging skill
+(buffs counted) and whether it carries an Ust, and everyone reaches the
+same answer: the highest Salvaging with an Ust, ties to the name that
+sorts first (`salvager()` from a script says who; the Autoplay panel
+shows it). Between fights, the salvager salvages what it carries tagged
+`salvage`; everyone else walks to the salvager when it is within 30 m
+and not fighting and hands its tagged items over, one every few
+seconds. The receiver runs the rules again on what arrives, so a handed
+item that matches a salvage rule is salvaged on the next pass. Salvage
+bags are never salvaged again and only handed on when a rule names
+them. An item refused three times (the server would not take it, or
+would not salvage it) is kept instead, and the log says so.
+
+The server only lets one player give another an item when the receiver
+has "Let other players give you items" on (ACE `AllowGive`); the team
+rules switch it on for every teammate, along with the fellowship
+options, and the giver has to be within use range. The `salvage` and
+`hand off` switches in the Loot section turn either half off.
+
 ## Fleet view
 
 The Fleet panel (menu → Fleet; no key out of the box, bindable there;

@@ -652,6 +652,15 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   are capped at the workmanship). The item's material and workmanship
   travel in the WeenieDesc (flags 0x80000000 and 0x1000000), so the
   client knows what is salvageable without appraising.
+* **Giving between players**: GiveObjectRequest 0x00CD hands a carried
+  item (or part of a stack) to a player in use range. ACE refuses it
+  unless the receiver's `CharacterOptions1.AllowGive` ("Let other
+  players give you items") is on, answering "X is not accepting gifts right now",
+  so a character that is to receive anything must have the option set
+  (the team rules set it for every teammate). Retained and attuned
+  items cannot be given. acswarm's autoplay uses this to carry loot
+  tagged for salvage to the teammate with the highest Salvaging skill
+  and an Ust (see `docs/multi-session.md`).
 * **Tinkering**: UseWithTarget 0x0035 with a salvage bag on an item. The
   server finds the recipe (material × item kind), computes the chance
   from the tinkering skill against the difficulty, and with the
