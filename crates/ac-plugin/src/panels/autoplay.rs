@@ -462,6 +462,13 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                             .range(1.5..=30.0)
                             .suffix(" m"),
                     );
+                    ui.label("and fighting within");
+                    ui.add(
+                        egui::DragValue::new(&mut cfg.team.fight_radius)
+                            .speed(1.0)
+                            .range(5.0..=120.0)
+                            .suffix(" m of the leader"),
+                    );
                 });
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut cfg.team.fellowship, "form a fellowship");

@@ -335,15 +335,15 @@ pub struct Team {
     pub follow: bool,
     /// How close to keep to the leader, metres.
     pub follow_distance: f32,
+    /// A follower fights only what stands within this of its leader,
+    /// metres: further off, a monster would draw it away.
+    pub fight_radius: f32,
 }
 
 /// A leader further off than twice the following distance (and at least
 /// this) is followed before anything else, a fight included; nearer,
 /// the fight comes first. Following is the follower's job.
 const FOLLOW_BREAK: f32 = 10.0;
-/// A follower fights only what is within this of its leader: a monster
-/// further off would draw it away.
-const FOLLOW_FIGHT_RADIUS: f32 = 25.0;
 
 /// How far from its leader a follower keeping `keep` metres may stray
 /// before following comes before everything else.
@@ -371,6 +371,7 @@ impl Default for Team {
             lead: false,
             follow: true,
             follow_distance: 4.0,
+            fight_radius: 25.0,
         }
     }
 }
@@ -2424,6 +2425,7 @@ impl Client {
         // A follower fights beside its leader, not wherever a monster
         // happens to be.
         let leader_at = self.followed_leader().map(|m| m.world);
+        let fight_radius = self.autoplay.config.team.fight_radius.max(1.0);
         let candidates: Vec<(u32, glam::Vec3)> = self
             .world
             .objects
@@ -2447,7 +2449,7 @@ impl Client {
             .filter(|o| !self.shy_of(o))
             .filter_map(|o| {
                 let at = o.world_pos()?;
-                let near_leader = leader_at.is_none_or(|l| at.distance(l) <= FOLLOW_FIGHT_RADIUS);
+                let near_leader = leader_at.is_none_or(|l| at.distance(l) <= fight_radius);
                 (at.distance(me) <= cfg.radius && near_leader).then_some((o.guid, at))
             })
             .collect();

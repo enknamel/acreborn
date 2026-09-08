@@ -408,6 +408,14 @@ impl Api for CtxApi<'_, '_> {
         on
     }
 
+    fn follow_distances(&mut self, keep: f64, fight: f64) -> f64 {
+        let c = self.client();
+        let t = &mut c.autoplay.config.team;
+        t.follow_distance = (keep as f32).clamp(1.5, 30.0);
+        t.fight_radius = (fight as f32).clamp(5.0, 120.0);
+        t.fight_radius as f64
+    }
+
     fn follow(&mut self, on: bool) -> bool {
         let c = self.client();
         c.autoplay.config.team.follow = on;

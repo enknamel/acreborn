@@ -112,6 +112,10 @@ impl Api for Recorder {
         self.record(format!("fight {on}"));
         on
     }
+    fn follow_distances(&mut self, keep: f64, fight: f64) -> f64 {
+        self.record(format!("follow_distances {keep} {fight}"));
+        fight
+    }
     fn follow(&mut self, on: bool) -> bool {
         self.record(format!("follow {on}"));
         on

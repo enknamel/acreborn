@@ -152,7 +152,9 @@ leader. Without one it is whoever's name sorts first and nobody follows
 anyone; tick **lead** on the client you play by hand (or call
 `team_lead(true)` from a script) and every other session on the team
 comes to you, keeps within a few metres (the "follow" distance), fights
-what turns up, and:
+what turns up within the "fighting within" radius of you (25 m by
+default; both in the Autoplay panel's Team section, or
+`follow_distances(keep, fight)` from a script), and:
 
 - flies when you fly (Y) and lands when you land -- a follower's
   no-clip follows the leader's, and it flies straight at you;

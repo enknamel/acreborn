@@ -82,6 +82,9 @@ pub trait Api {
     fn team_lead(&mut self, on: bool) -> bool;
     /// Follow the team's leader about (on by default).
     fn follow(&mut self, on: bool) -> bool;
+    /// How close a follower keeps to the leader, and how far from the
+    /// leader it will fight (metres). Returns the fight radius set.
+    fn follow_distances(&mut self, keep: f64, fight: f64) -> f64;
     /// The growth rules (spend experience, seek hunting grounds, run to
     /// town) on or off; all three at once.
     fn growth(&mut self, on: bool) -> bool;
@@ -407,6 +410,12 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("team_role", |r: &str| with_api(|a| a.team_role(r)));
     engine.register_fn("team_lead", |on: bool| with_api(|a| a.team_lead(on)));
     engine.register_fn("follow", |on: bool| with_api(|a| a.follow(on)));
+    engine.register_fn("follow_distances", |k: f64, f: f64| {
+        with_api(|a| a.follow_distances(k, f))
+    });
+    engine.register_fn("follow_distances", |k: i64, f: i64| {
+        with_api(|a| a.follow_distances(k as f64, f as f64))
+    });
     engine.register_fn("growth", |on: bool| with_api(|a| a.growth(on)));
     engine.register_fn("fight", |on: bool| with_api(|a| a.fight(on)));
     engine.register_fn("teammates", || with_api(|a| a.teammates()));
