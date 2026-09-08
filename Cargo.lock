@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "ac-audio"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-dat",
  "ac-formats",
@@ -30,7 +30,7 @@ dependencies = [
 
 [[package]]
 name = "ac-bus"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -39,7 +39,7 @@ dependencies = [
 
 [[package]]
 name = "ac-client"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-formats",
  "ac-net",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "ac-dat"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "hex",
  "memmap2",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[package]]
 name = "ac-formats"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-dat",
  "glam 0.30.10",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "ac-net"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "thiserror 2.0.20",
  "tracing",
@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "ac-plugin"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-bus",
  "ac-client",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "ac-scene"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-dat",
  "ac-formats",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "ac-script"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-client",
  "ac-net",
@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "ac-world"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-formats",
  "ac-net",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "acbot"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-client",
  "ac-plugin",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[package]]
 name = "acclient"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-client",
  "ac-dat",
@@ -176,7 +176,7 @@ dependencies = [
 
 [[package]]
 name = "acdat"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-dat",
  "ac-formats",
@@ -189,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "aclauncher"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -207,7 +207,7 @@ dependencies = [
 
 [[package]]
 name = "acviewer"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-audio",
  "ac-client",
@@ -2415,7 +2415,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "plugin-template"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "ac-plugin",
  "serde",
