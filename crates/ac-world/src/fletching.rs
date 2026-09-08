@@ -23,6 +23,29 @@ pub mod ammo_type {
     pub const BOLT: u32 = 2;
     pub const ATLATL: u32 = 4;
 
+    /// What a launcher shoots when the server did not say (the header
+    /// field is optional and appraisal never carries it): by the skill
+    /// it is used with, else by its name. 0 when neither tells.
+    pub fn guess(name: &str, weapon_skill: u32) -> u32 {
+        const BOW: u32 = 2;
+        const CROSSBOW: u32 = 3;
+        match weapon_skill {
+            BOW => return ARROW,
+            CROSSBOW => return BOLT,
+            _ => {}
+        }
+        let n = name.to_ascii_lowercase();
+        if n.contains("crossbow") {
+            BOLT
+        } else if n.contains("atlatl") {
+            ATLATL
+        } else if n.contains("bow") {
+            ARROW
+        } else {
+            0
+        }
+    }
+
     pub fn name(t: u32) -> &'static str {
         match t {
             ARROW => "arrows",
@@ -119,6 +142,21 @@ pub fn making(fits: u32) -> impl Iterator<Item = &'static Recipe> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launcher_ammo_is_guessed_by_skill_then_name() {
+        assert_eq!(ammo_type::guess("Longbow", 2), ammo_type::ARROW);
+        assert_eq!(ammo_type::guess("Heavy Crossbow", 3), ammo_type::BOLT);
+        assert_eq!(ammo_type::guess("Yumi", 2), ammo_type::ARROW, "skill wins");
+        assert_eq!(ammo_type::guess("Crossbow", 0), ammo_type::BOLT);
+        assert_eq!(ammo_type::guess("Royal Atlatl", 0), ammo_type::ATLATL);
+        assert_eq!(ammo_type::guess("Shortbow", 0), ammo_type::ARROW);
+        assert_eq!(
+            ammo_type::guess("Throwing Dagger", 12),
+            0,
+            "thrown: its own ammo"
+        );
+    }
 
     #[test]
     fn heads_on_shafts_make_arrows_of_the_heads_element() {

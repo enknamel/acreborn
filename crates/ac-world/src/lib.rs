@@ -213,6 +213,10 @@ pub struct WorldObject {
     /// Uses left (a salvage bag's units), and the maximum.
     pub structure: u32,
     pub max_structure: u32,
+    /// What ammunition it takes or is, and what it is for in a fight,
+    /// from the header (see `fletching`), 0 unless sent.
+    pub ammo_type: u32,
+    pub combat_use: u32,
     /// Largest stack of this item, 1 when it does not stack.
     pub max_stack_size: u32,
     /// How the item is used and on what (see `usable`).
@@ -527,6 +531,8 @@ impl World {
                         workmanship: oc.workmanship,
                         structure: oc.structure,
                         max_structure: oc.max_structure,
+                        ammo_type: oc.ammo_type,
+                        combat_use: oc.combat_use,
                         max_stack_size: oc.max_stack_size,
                         usable: oc.usable,
                         burden: oc.burden,

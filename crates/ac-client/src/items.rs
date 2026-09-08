@@ -167,8 +167,32 @@ impl ItemStats {
             },
             structure: o.structure,
             max_structure: o.max_structure,
+            ammo_type: o.ammo_type,
+            combat_use: o.combat_use,
             ..Default::default()
         }
+        .with_launcher_guess()
+    }
+
+    /// A bow, crossbow or atlatl the server did not describe: the header
+    /// fields are optional and appraisal never carries them (ACE sends
+    /// neither), so what it shoots is worked out from its skill or name.
+    fn with_launcher_guess(mut self) -> Self {
+        use ac_world::fletching::{ammo_type, combat_use};
+        use ac_world::item_type;
+        if self.ammo_type == 0
+            && self.item_type & item_type::MISSILE_WEAPON != 0
+            && self.combat_use != combat_use::AMMO
+        {
+            let guess = ammo_type::guess(&self.name, self.weapon_skill_id);
+            if guess != 0 {
+                self.ammo_type = guess;
+                if self.combat_use == 0 {
+                    self.combat_use = combat_use::LAUNCHER;
+                }
+            }
+        }
+        self
     }
 
     /// Add what an appraisal says; `skill_name`/`spell_name` resolve ids.
@@ -279,7 +303,7 @@ impl ItemStats {
         self.bonded = a.int(33).unwrap_or(0) != 0;
         self.attuned = a.int(114).unwrap_or(0) != 0;
         self.spells = a.spells.iter().map(|s| spell_name(*s)).collect();
-        self
+        self.with_launcher_guess()
     }
 
     /// The short lines a tooltip shows: damage, armor, spells, requirement,
@@ -1208,6 +1232,8 @@ impl ItemStats {
             value: d.value,
             burden: d.burden,
             workmanship: d.workmanship,
+            ammo_type: d.ammo_type,
+            combat_use: d.combat_use,
             material: if d.material != 0 {
                 ac_world::material::name(d.material)
             } else {
@@ -1217,6 +1243,7 @@ impl ItemStats {
             max_structure: d.max_structure,
             ..Default::default()
         }
+        .with_launcher_guess()
     }
 }
 
@@ -1639,6 +1666,44 @@ mod tests {
     }
 
     #[test]
+    fn a_launcher_is_told_by_the_header_or_guessed_from_its_name() {
+        use ac_world::fletching::{ammo_type, combat_use};
+        let mut bow = ac_world::object::WeenieDesc {
+            name: "Longbow".into(),
+            item_type: item_type::MISSILE_WEAPON,
+            ..Default::default()
+        };
+        // The header said what it shoots.
+        bow.ammo_type = ammo_type::ARROW;
+        bow.combat_use = combat_use::LAUNCHER;
+        let s = ItemStats::of_desc(1, &bow);
+        assert_eq!(
+            (s.ammo_type, s.combat_use),
+            (ammo_type::ARROW, combat_use::LAUNCHER)
+        );
+        assert!(crate::weapons::is_launcher(&s));
+        // The header said nothing (ACE): the name decides.
+        bow.ammo_type = 0;
+        bow.combat_use = 0;
+        let s = ItemStats::of_desc(1, &bow);
+        assert_eq!(
+            (s.ammo_type, s.combat_use),
+            (ammo_type::ARROW, combat_use::LAUNCHER)
+        );
+        assert!(crate::weapons::is_launcher(&s));
+        // Ammunition is never a launcher, whatever its name.
+        let arrows = ac_world::object::WeenieDesc {
+            name: "Arrow".into(),
+            item_type: item_type::MISSILE_WEAPON,
+            combat_use: combat_use::AMMO,
+            ..Default::default()
+        };
+        let s = ItemStats::of_desc(2, &arrows);
+        assert_eq!(s.ammo_type, 0);
+        assert!(!crate::weapons::is_launcher(&s));
+    }
+
+    #[test]
     fn stats_of_desc_reads_the_description() {
         let d = ac_world::object::WeenieDesc {
             name: "Dagger".into(),
@@ -1658,6 +1723,8 @@ mod tests {
             spell_id: 0,
             material: 0,
             workmanship: 0.0,
+            ammo_type: 0,
+            combat_use: 0,
             structure: 0,
             max_structure: 0,
             max_stack_size: 1,

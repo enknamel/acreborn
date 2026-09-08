@@ -181,6 +181,12 @@ pub struct ObjectCreate {
     /// Structure (uses left, salvage units) and its maximum, 0 unless sent.
     pub structure: u32,
     pub max_structure: u32,
+    /// What ammunition it takes (a launcher) or is, from the header (see
+    /// `fletching::ammo_type`), 0 unless sent.
+    pub ammo_type: u32,
+    /// What it is for in a fight, from the header (see
+    /// `fletching::combat_use`), 0 unless sent.
+    pub combat_use: u32,
     /// Largest stack of this item (1 for unstackable things).
     pub max_stack_size: u32,
     /// ACE `Usable`: how the item is used and on what (see `usable`).
@@ -268,7 +274,7 @@ impl ObjDescEvent {
 
 /// The weenie header: the game-data half of an ObjectCreate, also sent on
 /// its own for vendor stock (SerializeGameDataOnly).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct WeenieDesc {
     pub name: String,
     pub weenie_class_id: u32,
@@ -293,6 +299,12 @@ pub struct WeenieDesc {
     /// Structure (uses left, salvage units) and its maximum, 0 unless sent.
     pub structure: u32,
     pub max_structure: u32,
+    /// What ammunition it takes (a launcher) or is, from the header (see
+    /// `fletching::ammo_type`), 0 unless sent.
+    pub ammo_type: u32,
+    /// What it is for in a fight, from the header (see
+    /// `fletching::combat_use`), 0 unless sent.
+    pub combat_use: u32,
     /// Largest stack of this item (1 for unstackable things).
     pub max_stack_size: u32,
     /// ACE `Usable`: how the item is used and on what (see `usable`).
@@ -333,9 +345,11 @@ impl WeenieDesc {
         } else {
             0
         };
-        if weenie_flags & AMMO_TYPE != 0 {
-            r.u16()?;
-        }
+        let ammo_type = if weenie_flags & AMMO_TYPE != 0 {
+            r.u16()? as u32
+        } else {
+            0
+        };
         let value = if weenie_flags & VALUE != 0 {
             r.u32()?
         } else {
@@ -355,9 +369,11 @@ impl WeenieDesc {
         if weenie_flags & UI_EFFECTS != 0 {
             r.u32()?;
         }
-        if weenie_flags & COMBAT_USE != 0 {
-            r.u8()?;
-        }
+        let combat_use = if weenie_flags & COMBAT_USE != 0 {
+            r.u8()? as u32
+        } else {
+            0
+        };
         let structure = if weenie_flags & STRUCTURE != 0 {
             r.u16()? as u32
         } else {
@@ -496,6 +512,8 @@ impl WeenieDesc {
             spell_id,
             material,
             workmanship,
+            ammo_type,
+            combat_use,
             structure,
             max_structure,
             max_stack_size,
@@ -692,6 +710,8 @@ impl ObjectCreate {
             spell_id,
             material,
             workmanship,
+            ammo_type,
+            combat_use,
             structure,
             max_structure,
             max_stack_size,
@@ -735,6 +755,8 @@ impl ObjectCreate {
             spell_id,
             material,
             workmanship,
+            ammo_type,
+            combat_use,
             structure,
             max_structure,
             max_stack_size,
