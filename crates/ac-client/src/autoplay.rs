@@ -337,9 +337,19 @@ pub struct Team {
     pub follow_distance: f32,
 }
 
-/// A leader further off than this is followed before anything else,
-/// a fight included; nearer, the fight comes first.
-const FOLLOW_BREAK: f32 = 40.0;
+/// A leader further off than twice the following distance (and at least
+/// this) is followed before anything else, a fight included; nearer,
+/// the fight comes first. Following is the follower's job.
+const FOLLOW_BREAK: f32 = 10.0;
+/// A follower fights only what is within this of its leader: a monster
+/// further off would draw it away.
+const FOLLOW_FIGHT_RADIUS: f32 = 25.0;
+
+/// How far from its leader a follower keeping `keep` metres may stray
+/// before following comes before everything else.
+pub fn follow_break(keep: f32) -> f32 {
+    (2.0 * keep).max(FOLLOW_BREAK)
+}
 /// Up to this far the follower walks straight for the leader, letting
 /// the steering find the way; further (the leader took a portal) a
 /// journey is planned.
@@ -2408,10 +2418,14 @@ impl Client {
     }
 
     /// The nearest creature the name rules allow, within the radius.
-    fn pick_target(&self, cfg: &Fight) -> Option<u32> {
+    fn pick_target(&mut self, cfg: &Fight) -> Option<u32> {
         let me = self.player.as_ref()?.world_position();
         let now = Instant::now();
-        self.world
+        // A follower fights beside its leader, not wherever a monster
+        // happens to be.
+        let leader_at = self.followed_leader().map(|m| m.world);
+        let candidates: Vec<(u32, glam::Vec3)> = self
+            .world
             .objects
             .values()
             .filter(|o| {
@@ -2432,11 +2446,44 @@ impl Client {
             // With the vitae high, the hard ones and the killer wait.
             .filter(|o| !self.shy_of(o))
             .filter_map(|o| {
-                let d = o.world_pos()?.distance(me);
-                (d <= cfg.radius).then_some((d, o.guid))
+                let at = o.world_pos()?;
+                let near_leader = leader_at.is_none_or(|l| at.distance(l) <= FOLLOW_FIGHT_RADIUS);
+                (at.distance(me) <= cfg.radius && near_leader).then_some((o.guid, at))
             })
-            .min_by(|a, b| a.0.total_cmp(&b.0))
-            .map(|(_, g)| g)
+            .collect();
+        // The nearest one we can actually hit: one behind a wall is
+        // taken only when nothing is in sight, and then the fight rules
+        // walk round to it.
+        candidates
+            .into_iter()
+            .map(|(guid, at)| {
+                let seen = self.can_see_at(at);
+                ((!seen) as u8, at.distance(me), guid)
+            })
+            .min_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)))
+            .map(|(_, _, g)| g)
+    }
+
+    /// The leader this character follows, when it follows one.
+    pub(crate) fn followed_leader(&self) -> Option<&Mate> {
+        let team = &self.autoplay.config.team;
+        if !team.enabled || !team.follow || team.lead || self.autoplay.team.leader {
+            return None;
+        }
+        self.autoplay.team.leader_mate().filter(|m| m.leads)
+    }
+
+    /// Whether a spell or arrow from here would reach something standing
+    /// at `at` without hitting a wall first (see `Player::sees`).
+    pub(crate) fn can_see_at(&mut self, at: glam::Vec3) -> bool {
+        let assets = self.assets.clone();
+        match self.player.as_mut() {
+            Some(pl) => {
+                let me = pl.world_position();
+                pl.sees(&assets, me, at)
+            }
+            None => true,
+        }
     }
 
     /// Note what this character is running short of, so the others can
@@ -2562,7 +2609,7 @@ impl Client {
             self.set_noclip(leader.flying);
         }
         let flat = glam::Vec2::new(leader.world.x - me.x, leader.world.y - me.y).length();
-        let far = flat > FOLLOW_BREAK;
+        let far = flat > follow_break(keep);
         if urgent && !far {
             return false;
         }
@@ -3028,6 +3075,12 @@ mod tests {
         assert!(choose_recipe(ammo_type::ATLATL, 100, &carried, None).is_none());
         // Untrained (0): nothing at all.
         assert!(choose_recipe(ammo_type::ARROW, 0, &carried, None).is_none());
+    }
+
+    #[test]
+    fn a_follower_strays_no_further_than_twice_its_distance() {
+        assert_eq!(follow_break(4.0), 10.0);
+        assert_eq!(follow_break(8.0), 16.0);
     }
 
     #[test]

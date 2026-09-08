@@ -701,6 +701,25 @@ impl Player {
         b.collision.clone()
     }
 
+    /// Whether a ray from our eyes at `from` (feet) to the chest of
+    /// something standing at `to` (feet) crosses static geometry: what a
+    /// spell or an arrow would hit before its target. Only the ray, no
+    /// capsule: a creature seen over a fence can be shot over it.
+    pub fn sees(&mut self, assets: &Assets, from: Vec3, to: Vec3) -> bool {
+        let eyes = from + Vec3::new(0.0, 0.0, 1.4);
+        let chest = to + Vec3::new(0.0, 0.0, 1.0);
+        let mut blocks = vec![self.landblock()];
+        for b in [block_of(from), block_of(to)] {
+            if !blocks.contains(&b) {
+                blocks.push(b);
+            }
+        }
+        !blocks.iter().any(|&blk| {
+            self.collision(assets, blk)
+                .is_some_and(|c| c.world.segment_hit(eyes, chest).is_some())
+        })
+    }
+
     /// Whether the straight walk from `from` to `to` is blocked: static
     /// geometry of landblock `block` (or of the blocks under either end)
     /// crosses the chest-height line, or the capsule cannot walk it. The

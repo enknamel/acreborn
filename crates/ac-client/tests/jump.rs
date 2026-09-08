@@ -306,3 +306,24 @@ fn flying_ignores_the_ground_and_landing_finds_it_again() {
         high.z
     );
 }
+
+#[test]
+fn a_wall_hides_what_is_behind_it() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(std::path::Path::new(&dir)).unwrap();
+    // The Holtburg meeting hall: standing near its south wall.
+    let cell = 0x0125_010F;
+    let start = Vec3::new(25.5, -44.5, 0.0);
+    let mut pl = Player::new(&assets, cell, start, Quat::IDENTITY);
+    pl.set_motion_table(&assets, 0x0200_0001, 0x0900_0001);
+    for _ in 0..30 {
+        pl.update(&assets, &Input::default(), 1.0 / 30.0);
+    }
+    let me = pl.world_position();
+    // A step away in the room: in sight. Ten metres through the wall
+    // to the south: not.
+    assert!(pl.sees(&assets, me, me + Vec3::new(0.0, 2.0, 0.0)));
+    assert!(!pl.sees(&assets, me, me + Vec3::new(0.0, -10.0, 0.0)));
+}

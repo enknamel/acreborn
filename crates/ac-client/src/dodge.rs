@@ -154,6 +154,9 @@ pub const STICKY_REACH: f32 = 4.0;
 /// An attack goes out only from within this fraction of its reach,
 /// so a target edging away does not put the next one out of range.
 pub const WITHIN: f32 = 0.85;
+/// Without a line of sight the walk goes for the target itself, stopping
+/// this close: round the corner it will be in sight long before that.
+const NO_SIGHT_STOP: f32 = 2.5;
 
 /// How far a spell with `base_constant` and `base_mod` reaches for a
 /// caster whose school skill (trained level, no buffs) is `skill`.
@@ -218,23 +221,40 @@ impl Client {
             self.stop_approaching();
             return false;
         };
-        let stop = range * WITHIN;
-        if at.distance(me) <= stop {
+        // Within reach is not enough: a spell or an arrow also needs a
+        // clear line to the target. Behind a wall, walk round (the
+        // steering finds the way) until it is in sight and in reach.
+        let seen = self.can_see_at(at);
+        let stop = if seen { range * WITHIN } else { NO_SIGHT_STOP };
+        if at.distance(me) <= stop && seen {
             self.stop_approaching();
             return false;
         }
         if self.dodge.approaching != Some(target) {
-            tracing::info!(
-                "range: {name} is {:.1} m off, reach {range:.1} m: closing to {stop:.1} m",
-                at.distance(me)
-            );
+            if seen {
+                tracing::info!(
+                    "range: {name} is {:.1} m off, reach {range:.1} m: closing to {stop:.1} m",
+                    at.distance(me)
+                );
+            } else {
+                tracing::info!(
+                    "range: no line of sight to {name} ({:.1} m off): moving",
+                    at.distance(me)
+                );
+            }
             self.interrupt_travel("closing on a target");
             self.steering.reset();
         }
         self.dodge.approaching = Some(target);
         self.follow = Some(crate::Follow { target: at, stop });
-        self.autoplay
-            .say(Doing::Fighting, format!("closing on {name}"));
+        self.autoplay.say(
+            Doing::Fighting,
+            if seen {
+                format!("closing on {name}")
+            } else {
+                format!("getting {name} in sight")
+            },
+        );
         true
     }
 
