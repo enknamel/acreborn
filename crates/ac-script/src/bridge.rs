@@ -381,6 +381,24 @@ impl Api for CtxApi<'_, '_> {
         on
     }
 
+    fn team_lead(&mut self, on: bool) -> bool {
+        let c = self.client();
+        c.autoplay.config.team.lead = on;
+        if on {
+            c.autoplay.config.team.enabled = true;
+        }
+        on
+    }
+
+    fn follow(&mut self, on: bool) -> bool {
+        let c = self.client();
+        c.autoplay.config.team.follow = on;
+        if !on {
+            c.follow = None;
+        }
+        on
+    }
+
     fn team_role(&mut self, role: &str) -> String {
         use ac_client::autoplay::Role;
         let c = self.client();

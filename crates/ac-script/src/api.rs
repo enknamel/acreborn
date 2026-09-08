@@ -77,6 +77,11 @@ pub trait Api {
     /// This character's role on the team: "fighter", "healer" or
     /// "debuffer". Returns the role in force.
     fn team_role(&mut self, role: &str) -> String;
+    /// This character leads the team: the others come to it, follow it
+    /// about and fly when it flies.
+    fn team_lead(&mut self, on: bool) -> bool;
+    /// Follow the team's leader about (on by default).
+    fn follow(&mut self, on: bool) -> bool;
     /// The teammates heard from, as maps of `name`, `guid`, `health`,
     /// `role`, `target`, `target_name`, `leader`, `in_fellowship`; plus
     /// the key `me_leader` on a first map for whether this one leads.
@@ -394,6 +399,8 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("enchantments", || with_api(|a| a.enchantments()));
     engine.register_fn("team", |on: bool| with_api(|a| a.team(on)));
     engine.register_fn("team_role", |r: &str| with_api(|a| a.team_role(r)));
+    engine.register_fn("team_lead", |on: bool| with_api(|a| a.team_lead(on)));
+    engine.register_fn("follow", |on: bool| with_api(|a| a.follow(on)));
     engine.register_fn("teammates", || with_api(|a| a.teammates()));
     engine.register_fn("travel_style", |style: &str| {
         with_api(|a| a.travel_style(style))

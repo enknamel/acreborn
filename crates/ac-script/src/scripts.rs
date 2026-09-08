@@ -391,6 +391,14 @@ mod tests {
             self.calls.push(format!("team({on})"));
             on
         }
+        fn team_lead(&mut self, on: bool) -> bool {
+            self.record(format!("team_lead {on}"));
+            on
+        }
+        fn follow(&mut self, on: bool) -> bool {
+            self.record(format!("follow {on}"));
+            on
+        }
         fn team_role(&mut self, role: &str) -> String {
             self.calls.push(format!("team_role({role})"));
             role.to_string()
@@ -1024,7 +1032,7 @@ mod tests {
             let _bound = Bound::new(&mut rec);
             scripts.rescan();
         }
-        assert_eq!(scripts.len(), 4, "{:?}", scripts.names());
+        assert_eq!(scripts.len(), 5, "{:?}", scripts.names());
         assert!(
             rec.logs
                 .iter()

@@ -139,6 +139,29 @@ ACREBORN_BUS=127.0.0.1:9600 cargo run -p acbot -- ... --bus          # another b
   ordered per sender only. Sockets live on background threads; the main
   loop only drains a channel.
 
+## Playing one, the rest following
+
+The team rules (`ac_client::autoplay`, Autoplay panel → Team) know a
+leader. Without one it is whoever's name sorts first and nobody follows
+anyone; tick **lead** on the client you play by hand (or call
+`team_lead(true)` from a script) and every other session on the team
+comes to you, keeps within a few metres (the "follow" distance), fights
+what turns up, and:
+
+- flies when you fly (Y) and lands when you land -- a follower's
+  no-clip follows the leader's, and it flies straight at you;
+- walks straight after you within 120 m, letting the steering find
+  the way round walls, and plans a journey to you (portals included)
+  when you have got further than that, planning again as you move on;
+- drops a fight once you are more than 40 m away;
+- accepts your fellowship invitations, which your client sends even
+  with autoplay off (the leader's fellowship housekeeping runs whenever
+  the team is on).
+
+`scripts/examples/follow.rhai` sets a follower up with one `/follow`.
+Every process has to be on the bus (`--bus`) for the sessions to hear
+each other; sessions in one process hear each other anyway.
+
 ## Resources
 
 * **DAT archives.** `ac_dat::DatArchive` mmaps the files. Within a process

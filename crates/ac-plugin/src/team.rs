@@ -62,7 +62,8 @@ impl Roster {
 
     /// The team as one session sees it: everyone else on the roster,
     /// and whether this session's character leads. The leader is the
-    /// character whose name sorts first, this one included.
+    /// character that asked to lead (the one played by hand), or else
+    /// the one whose name sorts first, this one included.
     pub fn view_for(&self, me: &Mate) -> TeamView {
         let mut mates: Vec<Mate> = self
             .heard
@@ -70,13 +71,17 @@ impl Roster {
             .map(|h| h.mate.clone())
             .filter(|m| !(m.name == me.name && m.guid == me.guid))
             .collect();
-        let first = mates
-            .iter()
-            .map(|m| m.name.as_str())
-            .chain(std::iter::once(me.name.as_str()))
-            .filter(|n| !n.is_empty())
-            .min()
-            .map(str::to_string);
+        let named = |lead_only: bool| {
+            mates
+                .iter()
+                .chain(std::iter::once(me))
+                .filter(|m| !lead_only || m.leads)
+                .map(|m| m.name.as_str())
+                .filter(|n| !n.is_empty())
+                .min()
+                .map(str::to_string)
+        };
+        let first = named(true).or_else(|| named(false));
         let leader = first.as_deref() == Some(me.name.as_str());
         for m in &mut mates {
             m.leader = first.as_deref() == Some(m.name.as_str());
@@ -143,6 +148,8 @@ fn describe(client: &ac_client::Client, session: usize) -> Option<Mate> {
         leader: false,
         life_magic: client.life_magic(),
         can_soften: client.can_soften(),
+        leads: cfg.lead,
+        flying: client.noclip(),
     })
 }
 

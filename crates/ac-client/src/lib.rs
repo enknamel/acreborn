@@ -73,6 +73,14 @@ pub enum Event {
 pub const DEFAULT_SPEED_BOOST: f32 = 2.0;
 pub const DEFAULT_JUMP_HEIGHT: f32 = 9.0;
 
+/// Where a follower is heading and how close it stops (see
+/// `Client::follow`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Follow {
+    pub target: glam::Vec3,
+    pub stop: f32,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     /// `host` or `host:port` of the login (primary) port.
@@ -181,6 +189,9 @@ pub struct Client {
     pub salvage_open: bool,
     /// A jump asked for by a script or the bot, done on the next tick.
     pub pending_jump: Option<f32>,
+    /// Someone being kept up with (a team's leader): where they are and
+    /// how close to stop. Walked or flown to like a journey's leg.
+    pub follow: Option<Follow>,
     /// Client-side multiplier on the run speed (see
     /// [`player::run_rate`] for the game's own rate and the server's
     /// tolerance). 1 is the game as it was.
@@ -295,6 +306,7 @@ impl Client {
             previous_selected: None,
             salvage_open: false,
             pending_jump: None,
+            follow: None,
             speed_boost: DEFAULT_SPEED_BOOST,
             jump_height: DEFAULT_JUMP_HEIGHT,
             appraisals: std::collections::HashMap::new(),
@@ -695,7 +707,8 @@ impl Client {
             // Server-driven MoveTo (using something out of reach): run toward
             // the target until close enough, unless the user takes over.
             // Without one, the current leg of the overland route.
-            if (self.move_to.is_none() && travel_goal.is_none()) || manual {
+            if (self.move_to.is_none() && travel_goal.is_none() && self.follow.is_none()) || manual
+            {
                 self.steering.reset();
             }
             {
@@ -709,12 +722,33 @@ impl Client {
                     Some(ac_world::object::MoveTarget::Position { cell, local }) => {
                         Some((ac_world::landblock_origin(cell) + local, 0.3, cell))
                     }
-                    None => travel_goal,
+                    None => travel_goal.or_else(|| {
+                        self.follow.map(|f| {
+                            let bx = (f.target.x / 192.0).floor().clamp(0.0, 255.0) as u32;
+                            let by = (f.target.y / 192.0).floor().clamp(0.0, 255.0) as u32;
+                            (f.target, f.stop, (bx << 24) | (by << 16))
+                        })
+                    }),
                 };
                 if let Some((g, stop, goal_cell)) = goal {
                     let d = g - pl.world_position();
                     let flat = glam::Vec2::new(d.x, d.y);
-                    if !manual && flat.length() > stop {
+                    if !manual && pl.noclip {
+                        // Flying: straight there, up or down as needed,
+                        // nothing in the way.
+                        if flat.length() > stop {
+                            pl.heading = (-flat.x).atan2(flat.y);
+                            input.forward = 1.0;
+                            input.run = true;
+                        }
+                        input.climb = if d.z > 1.0 {
+                            1.0
+                        } else if d.z < -1.0 {
+                            -1.0
+                        } else {
+                            0.0
+                        };
+                    } else if !manual && flat.length() > stop {
                         // Straight at the goal while nothing is in the
                         // way; through the waypoints of a route otherwise.
                         let aim = self.steering.steer(

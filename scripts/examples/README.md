@@ -10,6 +10,7 @@ loaded; `/scripts reload` reloads everything. Errors show in the chat log.
 | `greeter.rhai` | `/hello [name]` says hello in local chat (a `command` hook) |
 | `autoloot.rhai` | When the attack target dies, opens its corpse and takes everything (a `tick` hook with state in `this`) |
 | `assist.rhai` | Posts the attack target on the bus; other sessions attack it (`post` / `messages`) |
+| `follow.rhai` | `/follow` joins the team as a follower: comes to the leader, keeps close, fights, flies when the leader flies (`team`, `follow`, `autoplay`) |
 | `find_items.rhai` | F6 lists the carried weapons with damage over 10 and their summaries (`find_items`, `appraise_all`; a `key` hook) |
 
 ## Hooks

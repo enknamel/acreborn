@@ -451,7 +451,20 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                         });
                 });
                 ui.checkbox(&mut cfg.team.focus_fire, "fight what the leader fights")
-                    .on_hover_text("The leader is whoever's name sorts first");
+                    .on_hover_text("The leader is the one that leads, else whoever's name sorts first");
+                ui.checkbox(&mut cfg.team.lead, "lead: the others come to me and follow me about")
+                    .on_hover_text(
+                        "For the character played by hand. The others keep close,                          fly when it flies, and take a journey after it when it                          goes through a portal",
+                    );
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut cfg.team.follow, "follow the leader, keeping within");
+                    ui.add(
+                        egui::DragValue::new(&mut cfg.team.follow_distance)
+                            .speed(0.5)
+                            .range(1.5..=30.0)
+                            .suffix(" m"),
+                    );
+                });
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut cfg.team.fellowship, "form a fellowship");
                     ui.add(

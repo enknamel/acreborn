@@ -299,7 +299,23 @@ pub struct Team {
     /// the vulnerability lands cost next to nothing, and every second
     /// the target is not being hit is a second it is hitting someone.
     pub wait_for_debuff: bool,
+    /// This character leads: the others come to it, follow it about and
+    /// fly when it flies. The one played by hand, usually. Without one
+    /// the leader is whoever's name sorts first, and nobody follows.
+    pub lead: bool,
+    /// Follow the leader about (a character that leads never does).
+    pub follow: bool,
+    /// How close to keep to the leader, metres.
+    pub follow_distance: f32,
 }
+
+/// A leader further off than this is followed before anything else,
+/// a fight included; nearer, the fight comes first.
+const FOLLOW_BREAK: f32 = 40.0;
+/// Up to this far the follower walks straight for the leader, letting
+/// the steering find the way; further (the leader took a portal) a
+/// journey is planned.
+const FOLLOW_WALK: f32 = 120.0;
 
 impl Default for Team {
     fn default() -> Self {
@@ -314,6 +330,9 @@ impl Default for Team {
             keep_stocked: vec![("Healing Kit".into(), 1)],
             hard_fight_health: 400,
             wait_for_debuff: false,
+            lead: false,
+            follow: true,
+            follow_distance: 4.0,
         }
     }
 }
@@ -345,6 +364,10 @@ pub struct Mate {
     pub life_magic: u32,
     /// It knows a vulnerability or an imperil it can cast right now.
     pub can_soften: bool,
+    /// It asked to lead (see `Team::lead`).
+    pub leads: bool,
+    /// It is flying (no-clip); followers fly too.
+    pub flying: bool,
 }
 
 /// The team as the host last saw it.
@@ -357,6 +380,11 @@ pub struct TeamView {
 }
 
 impl TeamView {
+    /// The one leading, if it is one of the others.
+    pub fn leader_mate(&self) -> Option<&Mate> {
+        self.mates.iter().find(|m| m.leader)
+    }
+
     /// The target the team is on: the leader's, else the first anyone has.
     pub fn target(&self) -> Option<(u32, String)> {
         let leader = self
@@ -461,6 +489,7 @@ pub enum Doing {
     Buffing,
     Debuffing,
     Helping,
+    Following,
 }
 
 impl Doing {
@@ -474,6 +503,7 @@ impl Doing {
             Doing::Buffing => "buffing",
             Doing::Debuffing => "debuffing",
             Doing::Helping => "helping the team",
+            Doing::Following => "following the leader",
         }
     }
 }
@@ -548,6 +578,9 @@ pub struct Autoplay {
     last_debuff: Option<Instant>,
     last_give: Option<Instant>,
     last_recruit: Option<Instant>,
+    /// Where the journey after a far-off leader was bound, to plan
+    /// again once it has moved on.
+    follow_trip: Option<glam::Vec2>,
 }
 
 impl Autoplay {
@@ -849,6 +882,15 @@ impl Client {
     /// Run the rules for this moment. Call it once a frame; it does at
     /// most one thing.
     pub fn tick_autoplay(&mut self, now: Instant) {
+        // The team's housekeeping runs whether or not the character
+        // plays on its own: a leader played by hand still gathers the
+        // fellowship, and everyone answers its invitations.
+        if self.autoplay.config.team.enabled && self.world.player_guid.is_some() {
+            self.autoplay_accept_invites();
+            if self.autoplay.config.team.lead && !self.autoplay.config.enabled {
+                self.autoplay_fellowship(now);
+            }
+        }
         if !self.autoplay.config.enabled || self.world.player_guid.is_none() {
             if !self.autoplay.status.is_empty() && !self.autoplay.config.enabled {
                 self.autoplay.doing = Doing::Idle;
@@ -893,6 +935,12 @@ impl Client {
         if self.autoplay_loot(now) {
             return;
         }
+        // A leader that has got well away is caught up with before
+        // anything else; a nearby one is followed once the fighting is
+        // done.
+        if self.autoplay_follow(now, true) {
+            return;
+        }
         if self.autoplay_team(now) {
             return;
         }
@@ -900,6 +948,9 @@ impl Client {
             return;
         }
         if self.autoplay_buff(now, false) {
+            return;
+        }
+        if self.autoplay_follow(now, false) {
             return;
         }
         if self.autoplay_resume_journey() {
@@ -2097,6 +2148,142 @@ impl Client {
         self.autoplay.wants = wants;
     }
 
+    /// A fellowship invitation from anyone is accepted while on a team:
+    /// the leader sends them, and the leader is trusted.
+    fn autoplay_accept_invites(&mut self) {
+        const FELLOWSHIP: u32 = 4;
+        let invites: Vec<(u32, u32)> = self
+            .world
+            .confirmations
+            .iter()
+            .filter(|c| c.kind == FELLOWSHIP)
+            .map(|c| (c.kind, c.context))
+            .collect();
+        for (kind, context) in invites {
+            self.confirm(kind, context, true);
+        }
+    }
+
+    /// The leader brings the others into a fellowship, one invitation
+    /// every few seconds. True when one went out.
+    fn autoplay_fellowship(&mut self, now: Instant) -> bool {
+        let team = self.autoplay.config.team.clone();
+        if !team.enabled || !team.fellowship || !self.autoplay.team.leader {
+            return false;
+        }
+        let Some(me) = self.player.as_ref().map(|p| p.world_position()) else {
+            return false;
+        };
+        if self
+            .autoplay
+            .last_recruit
+            .is_some_and(|t| now.duration_since(t) <= Duration::from_secs(5))
+        {
+            return false;
+        }
+        let mates: Vec<(u32, String)> = self
+            .autoplay
+            .team
+            .mates
+            .iter()
+            .filter(|m| !m.in_fellowship && m.guid != 0 && m.world.distance(me) < 25.0)
+            .map(|m| (m.guid, m.name.clone()))
+            .collect();
+        let Some((guid, name)) = mates.first().cloned() else {
+            return false;
+        };
+        if self.world.fellowship.is_none() {
+            let fname = team.fellowship_name.clone();
+            self.fellowship_create(&fname, true);
+        } else {
+            self.fellowship_recruit(guid);
+        }
+        self.autoplay.last_recruit = Some(now);
+        self.autoplay.say(
+            Doing::Helping,
+            format!("bringing {name} into the fellowship"),
+        );
+        true
+    }
+
+    /// Keep up with the leader: fly when it flies, walk straight after
+    /// it while it is near, plan a journey after it when it has gone
+    /// through a portal. With `urgent`, only a leader that has got well
+    /// away counts (it is fetched before a fight); otherwise any leader
+    /// further than the following distance. True while on the way.
+    fn autoplay_follow(&mut self, now: Instant, urgent: bool) -> bool {
+        let team = self.autoplay.config.team.clone();
+        if !team.enabled || !team.follow || team.lead || self.autoplay.team.leader {
+            return false;
+        }
+        let Some(leader) = self
+            .autoplay
+            .team
+            .leader_mate()
+            .filter(|m| m.leads)
+            .cloned()
+        else {
+            return false;
+        };
+        let Some(me) = self.player.as_ref().map(|p| p.world_position()) else {
+            return false;
+        };
+        let keep = team.follow_distance.max(1.5);
+        // Fly when the leader flies, land when it lands.
+        if leader.flying != self.noclip() {
+            self.set_noclip(leader.flying);
+        }
+        let flat = glam::Vec2::new(leader.world.x - me.x, leader.world.y - me.y).length();
+        let far = flat > FOLLOW_BREAK;
+        if urgent && !far {
+            return false;
+        }
+        let level = !leader.flying || (leader.world.z - me.z).abs() < 2.0;
+        if flat <= keep && level {
+            if self.follow.take().is_some() {
+                self.steering.reset();
+            }
+            if self.autoplay.follow_trip.take().is_some() && self.traveling() {
+                self.cancel_travel();
+            }
+            return false;
+        }
+        if far {
+            // Whatever we were fighting is not worth losing the leader.
+            self.autoplay.casting_at = None;
+            self.attack_target = None;
+        }
+        if leader.flying || flat < FOLLOW_WALK {
+            // Straight after it: the steering finds the way round
+            // walls, and flight has nothing in the way.
+            if self.autoplay.follow_trip.take().is_some() && self.traveling() {
+                self.cancel_travel();
+            }
+            self.follow = Some(crate::Follow {
+                target: leader.world,
+                stop: keep,
+            });
+        } else {
+            // Out of sight (through a portal, say): a journey there,
+            // planned again once it has moved on.
+            self.follow = None;
+            let goal = glam::Vec2::new(leader.world.x, leader.world.y);
+            let stale = self
+                .autoplay
+                .follow_trip
+                .is_none_or(|g| g.distance(goal) > 30.0);
+            if stale || !self.traveling() {
+                if self.travel_to(goal) {
+                    self.autoplay.follow_trip = Some(goal);
+                }
+            }
+        }
+        let _ = now;
+        self.autoplay
+            .say(Doing::Following, format!("following {}", leader.name));
+        true
+    }
+
     /// The things done for the team: land the debuffs on its target,
     /// recruit it into a fellowship, hand over what someone is short of,
     /// and heal whoever is worst hurt. True when it acted.
@@ -2108,36 +2295,8 @@ impl Client {
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
 
-        // Bring the others into a fellowship.
-        if team.fellowship
-            && self.autoplay.team.leader
-            && self
-                .autoplay
-                .last_recruit
-                .is_none_or(|t| now.duration_since(t) > Duration::from_secs(5))
-        {
-            let mates: Vec<(u32, String)> = self
-                .autoplay
-                .team
-                .mates
-                .iter()
-                .filter(|m| !m.in_fellowship && m.guid != 0 && m.world.distance(me) < 25.0)
-                .map(|m| (m.guid, m.name.clone()))
-                .collect();
-            if let Some((guid, name)) = mates.first().cloned() {
-                if self.world.fellowship.is_none() {
-                    let fname = team.fellowship_name.clone();
-                    self.fellowship_create(&fname, true);
-                } else {
-                    self.fellowship_recruit(guid);
-                }
-                self.autoplay.last_recruit = Some(now);
-                self.autoplay.say(
-                    Doing::Helping,
-                    format!("bringing {name} into the fellowship"),
-                );
-                return true;
-            }
+        if self.autoplay_fellowship(now) {
+            return true;
         }
 
         // Hand over what a teammate is short of.
