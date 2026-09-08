@@ -782,7 +782,7 @@ impl App {
         let flying = self.nets.get(i)?.client.noclip();
         let input = self.nets.get(i)?.client.player.as_ref().map(|_| {
             if is_active {
-                // Flying, the jump key climbs and Z descends.
+                // Flying, the jump key climbs and Control descends.
                 player::Input {
                     forward: (keys.contains(&KeyCode::KeyW) as i8
                         - keys.contains(&KeyCode::KeyS) as i8) as f32,
@@ -792,7 +792,8 @@ impl App {
                     jump: jump && !flying,
                     jump_held: keys.contains(&KeyCode::Space) && !flying,
                     climb: if flying {
-                        (keys.contains(&KeyCode::Space) as i8 - keys.contains(&KeyCode::KeyZ) as i8)
+                        (keys.contains(&KeyCode::Space) as i8
+                            - keys.contains(&KeyCode::ControlLeft) as i8)
                             as f32
                     } else {
                         0.0
@@ -1321,16 +1322,17 @@ impl ApplicationHandler for App {
                         self.toggle_combat();
                         return;
                     }
-                    // F flies: no walls, no floors, no gravity, Space up
-                    // and Z down; F again drops the character onto
-                    // whatever is below.
-                    if code == KeyCode::KeyF && event.state == ElementState::Pressed {
+                    // Y flies: no walls, no floors, no gravity, Space up
+                    // and Control down; Y again drops the character onto
+                    // whatever is below. (F is the fellowship panel, and
+                    // every other letter is taken too.)
+                    if code == KeyCode::KeyY && event.state == ElementState::Pressed {
                         if let Some(net) = self.nets.get_mut(self.active) {
                             let on = !net.client.noclip();
                             net.client.set_noclip(on);
                             net.client.events.push(ac_client::Event::Chat {
                                 text: if on {
-                                    "Flying: walls and gravity are off. Space climbs, Z descends, F lands.".into()
+                                    "Flying: walls and gravity are off. Space climbs, Control descends, Y lands.".into()
                                 } else {
                                     "Landing.".into()
                                 },

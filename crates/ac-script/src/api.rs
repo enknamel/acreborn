@@ -255,7 +255,7 @@ pub trait Api {
     /// (0 = by skill; the client caps it at the server's tolerance, 9.5).
     fn jump_height(&mut self, metres: f64);
     /// Fly through walls and floors (true), or stop and drop to the
-    /// ground (false). Space climbs and Z descends in the viewer.
+    /// ground (false). Space climbs and Control descends in the viewer.
     fn noclip(&mut self, on: bool);
     fn select(&mut self, guid: i64);
     fn log(&mut self, text: &str);

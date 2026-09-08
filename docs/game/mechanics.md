@@ -921,8 +921,9 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   does, can fly. What ACE refuses: a move both 50 m from the last it
   accepted and more than a landblock away; crossing straight from one
   dungeon block to another, or from a building's interior cell to
-  another building's in a different landblock. So the viewer's F key
-  flies (Space up, Z down, F again drops onto whatever is below), and
+  another building's in a different landblock. So the viewer's Y key
+  flies (Space up, Control down, Y again drops onto whatever is below;
+  F is the fellowship panel and every other letter is taken), and
   scripts have `noclip(true|false)`.
 * **A building's door can open onto bare terrain** (a villa's grounds:
   cell 6F8B015F at Loredane Villas). Leaving the interior floor with
