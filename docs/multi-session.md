@@ -409,7 +409,16 @@ what it has not (`Client::appraise_all`, one item at a time) and
 publishes as the answers come in. Both are rate-limited to once every
 10 s. From code, `Client::holdings_search(line)` searches the same
 store (`ac_client::holdings::store()`) and returns the hits with the
-account, character, online flag, place and `ItemStats`.
+account, character, online flag, place and `ItemStats`; from a script,
+`find_items_everywhere(query)` returns the same hits as maps of
+`account`, `character`, `online`, `place`, `taken_at` and `stats` (the
+`find_items` item map), e.g.
+
+```rhai
+for hit in find_items_everywhere("slot:ring epics>=2") {
+    log(hit.character + " (" + hit.place + "): " + hit.stats.name);
+}
+```
 
 ## Resources
 

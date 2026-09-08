@@ -53,6 +53,9 @@ pub struct Recorder {
     pub items: Array,
     pub unappraised: i64,
     pub traveling: bool,
+    /// What `find_items_everywhere()` answers: maps of `account`,
+    /// `character`, `online`, `place` and `stats`.
+    pub holdings: Array,
     /// The loot rules as `(query, action)`, what `loot_rules()` answers
     /// and `loot_rule_add` / `loot_rules_clear` edit.
     pub loot_rules: Vec<(String, String)>,
@@ -276,6 +279,10 @@ impl Api for Recorder {
     fn find_items(&mut self, query: &str) -> Array {
         self.record(format!("find_items {query}"));
         self.items.clone()
+    }
+    fn find_items_everywhere(&mut self, query: &str) -> Array {
+        self.record(format!("find_items_everywhere {query}"));
+        self.holdings.clone()
     }
     fn loot_rules(&mut self) -> Array {
         self.loot_rules
@@ -755,12 +762,24 @@ mod tests {
                     for r in loot_rules() { log(r.query + " -> " + r.action); }
                     log("item 7: " + loot_action(7));
                     log("salvager: " + type_of(salvager()));
+                    for hit in find_items_everywhere("slot:ring epics>=2") {
+                        log(hit.character + " (" + hit.place + "): " + hit.stats.name);
+                    }
                     return true;
                 }
                 false
             }
             "#,
         );
+        let mut stats = Map::new();
+        stats.insert("name".into(), "Ornate Ring".into());
+        let mut hit = Map::new();
+        hit.insert("account".into(), "acc1".into());
+        hit.insert("character".into(), "Brannoc".into());
+        hit.insert("online".into(), false.into());
+        hit.insert("place".into(), "pack".into());
+        hit.insert("stats".into(), Dynamic::from_map(stats));
+        h.api.holdings = vec![Dynamic::from_map(hit)];
         assert!(h.command("rules", ""));
         assert_eq!(
             h.script_logs(),
@@ -773,8 +792,12 @@ mod tests {
                 "ws<6 -epics>0 -> salvage",
                 "item 7: keep",
                 "salvager: ()",
+                "Brannoc (pack): Ornate Ring",
             ]
         );
+        assert!(h
+            .calls()
+            .contains(&"[0] find_items_everywhere slot:ring epics>=2".to_string()));
         assert!(h.calls().contains(&"[0] loot_rules_clear".to_string()));
         assert!(h.errors().is_empty(), "{:?}", h.logs());
     }

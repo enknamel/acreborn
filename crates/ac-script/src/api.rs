@@ -185,6 +185,13 @@ pub trait Api {
     /// compare numbers; `spell:blood`, `type:armor`, `mat:iron`,
     /// `skill:sword`, `slot:ring`, `tier:epic`, `wielded`, `unappraised`.
     fn find_items(&mut self, query: &str) -> Array;
+    /// The same search over every character's last known inventory,
+    /// this process's sessions and (over the bus) every other's, online
+    /// or not: each hit is the `item_stats` map under `stats`, plus
+    /// `account`, `character`, `online` and `place` ("worn", "pack" or
+    /// a side pack's name). Numbers only match items that were appraised
+    /// when their snapshot was taken.
+    fn find_items_everywhere(&mut self, query: &str) -> Array;
     /// The autoplay loot rules in order, as maps `{ query, action }`
     /// (action one of "keep", "salvage", "sell", "skip"); the first rule
     /// whose search matches an item decides what is done with it.
@@ -495,6 +502,9 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("salvage", |items: Array| with_api(|a| a.salvage(items)));
     engine.register_fn("item_stats", || with_api(|a| a.item_stats()));
     engine.register_fn("find_items", |q: &str| with_api(|a| a.find_items(q)));
+    engine.register_fn("find_items_everywhere", |q: &str| {
+        with_api(|a| a.find_items_everywhere(q))
+    });
     engine.register_fn("loot_rules", || with_api(|a| a.loot_rules()));
     engine.register_fn("loot_rule_add", |q: &str, act: &str| {
         with_api(|a| a.loot_rule_add(q, act))

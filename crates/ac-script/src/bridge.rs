@@ -913,6 +913,23 @@ impl Api for CtxApi<'_, '_> {
             .collect()
     }
 
+    fn find_items_everywhere(&mut self, query: &str) -> Array {
+        self.client()
+            .holdings_search(query)
+            .iter()
+            .map(|h| {
+                let mut m = Map::new();
+                m.insert("account".into(), h.account.clone().into());
+                m.insert("character".into(), h.character.clone().into());
+                m.insert("online".into(), h.online.into());
+                m.insert("place".into(), h.place.clone().into());
+                m.insert("taken_at".into(), Dynamic::from_int(h.taken_at as i64));
+                m.insert("stats".into(), Dynamic::from_map(item_map(&h.stats)));
+                Dynamic::from_map(m)
+            })
+            .collect()
+    }
+
     fn loot_rules(&mut self) -> Array {
         self.client()
             .autoplay
