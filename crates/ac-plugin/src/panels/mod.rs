@@ -12,8 +12,10 @@
 //!   the person clicked (guids to take, buy, cast...);
 //! * the `Plugin` impl: `ui` builds the view, draws it, and turns the
 //!   clicks into `Client` calls (`interact`, `take`, `buy`, `cast`...);
-//!   `key` handles the panel's toggle (I inventory, K skills, P spellbook,
-//!   B spell bar, O components, U buffs, J playing on its own).
+//!   `key` handles the panel's toggle, asking [`crate::keys`] whether the
+//!   key is the one bound to it (only the most used panels have a key
+//!   out of the box; the menu, on Escape, opens the rest and changes the
+//!   bindings). Every window has a [`title_bar`] with a close button.
 //!
 //! A panel's data comes from a [`Source`]: `Live` reads the session, `Demo`
 //! holds a canned view for the offline `--demo-ui` screenshot (clicks are
@@ -33,6 +35,7 @@ pub mod housing;
 pub mod inventory;
 pub mod loot;
 pub mod map;
+pub mod menu;
 pub mod nameplates;
 pub mod options;
 pub mod radar;
@@ -328,8 +331,10 @@ pub fn title_bar(ui: &mut egui::Ui, id: &str, text: impl Into<String>) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let close = ui
                 .add(
-                    egui::Button::new(egui::RichText::new("✕").color(egui::Color32::from_gray(200)))
-                        .frame(false),
+                    egui::Button::new(
+                        egui::RichText::new("✕").color(egui::Color32::from_gray(200)),
+                    )
+                    .frame(false),
                 )
                 .on_hover_text("Close");
             if close.clicked() {
@@ -482,6 +487,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(components::Components::default()),
         Box::new(buffs::Buffs::default()),
         Box::new(autoplay::Autoplay::default()),
+        Box::new(menu::Menu::default()),
     ]
 }
 
@@ -520,6 +526,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         )),
         Box::new(buffs::Buffs::demo(tables.as_ref().map(|(t, _)| &**t))),
         Box::new(autoplay::Autoplay::demo()),
+        Box::new(menu::Menu::demo()),
     ]
 }
 

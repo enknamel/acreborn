@@ -1,5 +1,5 @@
 //! Inventory: what the character wears and carries, grouped by pack,
-//! searchable and sortable. I toggles it.
+//! searchable and sortable. Its key is bindable from the menu.
 //!
 //! * The search line matches names, materials, kinds and spell names,
 //!   and compares numbers: `dmg>10`, `al>=200`, `value<100`, `ws>=5`,
@@ -26,7 +26,7 @@
 //!   merge. Packs themselves hang from the main pack: picking one up
 //!   equips it in a free side slot.
 
-use super::{caption, has_sheet, item_row, title, window, Item, ItemDrag, Source};
+use super::{caption, has_sheet, item_row, title, title_bar, window, Item, ItemDrag, Source};
 use crate::icons::{IconCache, IconLayers};
 use crate::Settings;
 use crate::{egui, Client, Ctx, Plugin};
@@ -437,17 +437,7 @@ pub fn draw(
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(328.0, 428.0));
-        ui.horizontal(|ui| {
-            title(ui, "Inventory");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let burden = if v.burden_capacity > 0 {
-                    format!("{} / {} bu", v.burden, v.burden_capacity)
-                } else {
-                    format!("{} bu", v.burden)
-                };
-                caption(ui, burden);
-            });
-        });
+        title_bar(ui, "inventory", "Inventory");
         ui.horizontal(|ui| {
             caption(
                 ui,
@@ -459,6 +449,14 @@ pub fn draw(
             if !v.foci.is_empty() {
                 caption(ui, format!("foci: {}", v.foci.join(", ")));
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let burden = if v.burden_capacity > 0 {
+                    format!("{} / {} bu", v.burden, v.burden_capacity)
+                } else {
+                    format!("{} bu", v.burden)
+                };
+                caption(ui, burden);
+            });
         });
         ui.horizontal(|ui| {
             let edit = egui::TextEdit::singleline(&mut st.search)
@@ -633,7 +631,7 @@ pub fn draw(
 
 pub struct Inventory {
     source: Source<InventoryView>,
-    /// Open (I toggles it). Starts open.
+    /// Open (its bound key toggles it). Starts open.
     pub show: bool,
     pub state: State,
     /// The split popup: (stack guid, amount chosen so far).
@@ -854,6 +852,9 @@ impl Plugin for Inventory {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "inventory") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -863,6 +864,9 @@ impl Plugin for Inventory {
         };
         let Some(v) = v else { return };
         let actions = draw(egui, cx.icons(), &v, &mut self.state);
+        if super::closed("inventory") {
+            self.show = false;
+        }
         if let Some(g) = actions.use_on_from {
             self.state.pending_use = Some(g);
         }
@@ -931,7 +935,7 @@ impl Plugin for Inventory {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::I && pressed {
+        if pressed && crate::keys::bound("inventory", key) {
             self.show = !self.show;
             return true;
         }

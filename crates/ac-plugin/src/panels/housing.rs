@@ -1,11 +1,11 @@
-//! Housing (H): our house (type, where, whether this period's
+//! Housing (bindable from the menu): our house (type, where, whether this period's
 //! maintenance is paid) with Recall, guest management (add by name,
 //! remove, storage permission, open house, allegiance access, boot) and
 //! Abandon; and, after using a house sign, that house's requirements,
 //! owner and price with Buy and Pay maintenance, which take the items
 //! from the pack.
 
-use super::{caption, title, window, Source};
+use super::{caption, title, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -181,7 +181,7 @@ pub fn draw(egui: &egui::Context, v: &HousingView, guest_name: &mut String) -> A
         ui.set_min_size(egui::vec2(484.0, 314.0));
         match &v.house {
             None => {
-                title(ui, "Housing");
+                title_bar(ui, "housing", "Housing");
                 ui.label(
                     egui::RichText::new(if v.loaded {
                         "You own no house. Use a house sign to see what it costs."
@@ -193,6 +193,7 @@ pub fn draw(egui: &egui::Context, v: &HousingView, guest_name: &mut String) -> A
                 );
             }
             Some(h) => {
+                title_bar(ui, "housing", "Housing");
                 title(ui, format!("Your {} ({:#010x})", h.kind, h.cell));
                 ui.label(
                     egui::RichText::new(if h.rent_paid {
@@ -400,6 +401,9 @@ impl Plugin for Housing {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "housing") {
+            self.show = ask.apply(self.show);
+        }
         // A used sign opens the window on its own.
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             let seq = c.world.house_profile_seq;
@@ -457,10 +461,13 @@ impl Plugin for Housing {
                 c.house_boot("");
             }
         }
+        if super::closed("housing") {
+            self.show = false;
+        }
     }
 
     fn key(&mut self, cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::H && pressed {
+        if pressed && crate::keys::bound("housing", key) {
             self.show = !self.show;
             if self.show {
                 if let Some(c) = cx.try_client() {

@@ -1,9 +1,9 @@
-//! Character options (X): the server-side switches, as checkboxes, and
+//! Character options (bindable from the menu): the server-side switches, as checkboxes, and
 //! at the bottom a "Reset window layout" button that forgets where every
 //! panel was dragged (`egui::Memory::reset_areas`) so they all return to
 //! their default positions.
 
-use super::{title, window, Source};
+use super::{title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_client::options::{CharacterOption, OPTIONS};
 
@@ -51,7 +51,7 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(344.0, 408.0));
-        title(ui, "Character options");
+        title_bar(ui, "options", "Character options");
         egui::ScrollArea::vertical()
             .max_height(350.0)
             .show(ui, |ui| {
@@ -186,6 +186,9 @@ impl Plugin for Options {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "options") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -195,6 +198,9 @@ impl Plugin for Options {
         };
         let Some(v) = v else { return };
         let changed = draw(egui, &v);
+        if super::closed("options") {
+            self.show = false;
+        }
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             for (o, on) in changed.options {
                 c.set_option(&o, on);
@@ -211,7 +217,7 @@ impl Plugin for Options {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::X && pressed {
+        if pressed && crate::keys::bound("options", key) {
             self.show = !self.show;
             return true;
         }

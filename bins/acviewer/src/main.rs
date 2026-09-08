@@ -6,7 +6,7 @@
 //!   acviewer --chargen aluvian,m,3,0,0,0,0.5     # a dressed-up human head
 //!
 //! Controls: right mouse drag to look, WASD to move, Q/E down/up,
-//! Shift to go faster, Escape to quit.
+//! Shift to go faster, Escape for the menu (which quits).
 
 mod camera;
 mod gpu;
@@ -245,6 +245,9 @@ struct App {
     fx: world_fx::WorldFx,
     /// Draw the planned route as a line of marks on the ground.
     show_route: bool,
+    /// The menu's Quit: the next frame saves the settings, disconnects
+    /// and leaves the event loop.
+    quit_requested: bool,
     /// Something was drawn as particles last frame, so an empty list
     /// this frame still has to be uploaded to clear it.
     drew_particles: bool,
@@ -365,6 +368,9 @@ impl App {
         }
         if let Some(a) = r.activate {
             self.switch_to(a);
+        }
+        if r.quit {
+            self.quit_requested = true;
         }
     }
 
@@ -1273,6 +1279,13 @@ impl ApplicationHandler for App {
                 }
                 event_loop.exit()
             }
+            WindowEvent::RedrawRequested if self.quit_requested => {
+                self.plugins.save_settings();
+                for net in &mut self.nets {
+                    net.client.disconnect(Instant::now());
+                }
+                event_loop.exit()
+            }
             WindowEvent::Resized(size) => {
                 if let Some(g) = &mut self.gpu {
                     g.resize(size.width, size.height);
@@ -1384,12 +1397,8 @@ impl ApplicationHandler for App {
                         self.keys.clear();
                         return;
                     }
-                    if code == KeyCode::Escape {
-                        if let Some(net) = self.nets.get_mut(self.active) {
-                            net.client.disconnect(Instant::now());
-                        }
-                        event_loop.exit();
-                    }
+                    // Escape belongs to the menu plugin (close the newest
+                    // window, else open the menu, which can quit).
                     match event.state {
                         ElementState::Pressed => {
                             self.keys.insert(code);
@@ -1603,6 +1612,7 @@ fn main() -> Result<()> {
             fx: Default::default(),
             show_route: true,
             drew_particles: false,
+            quit_requested: false,
             started: Instant::now(),
             audio: None,
             lobby: Default::default(),
@@ -2125,6 +2135,7 @@ fn main() -> Result<()> {
         fx: Default::default(),
         show_route: true,
         drew_particles: false,
+        quit_requested: false,
         started: Instant::now(),
         audio: None,
         lobby: Default::default(),

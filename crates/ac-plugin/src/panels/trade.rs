@@ -1,9 +1,10 @@
 //! Secure trade with another player: open by double-clicking them (peace
 //! mode, close by). Both windows show both offers; drag items from the
 //! inventory into yours; Accept on both sides swaps the items. Any change
-//! to an offer clears both acceptances, as the server does.
+//! to an offer clears both acceptances, as the server does. The title
+//! bar's close button ends the trade.
 
-use super::{caption, item_row, stats_tooltip, title, window, Item, ItemDrag, Source};
+use super::{caption, item_row, stats_tooltip, title_bar, window, Item, ItemDrag, Source};
 use crate::icons::IconCache;
 use crate::{egui, Client, Ctx, Plugin};
 use ac_client::items::ItemStats;
@@ -29,6 +30,7 @@ pub struct Actions {
     pub accept: bool,
     pub decline: bool,
     pub reset: bool,
+    /// The title bar's close button (or Escape): end the trade.
     pub close: bool,
 }
 
@@ -105,7 +107,7 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &TradeView) -> Actio
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(424.0, 284.0));
-        title(ui, format!("Trade with {}", v.partner));
+        title_bar(ui, "trade", format!("Trade with {}", v.partner));
         ui.columns(2, |cols| {
             let (zone, _) =
                 cols[0].dnd_drop_zone::<ItemDrag, _>(egui::Frame::new().inner_margin(2), |ui| {
@@ -171,11 +173,11 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &TradeView) -> Actio
             if ui.button("Reset").clicked() {
                 actions.reset = true;
             }
-            if ui.button("Close").clicked() {
-                actions.close = true;
-            }
         });
     });
+    if super::closed("trade") {
+        actions.close = true;
+    }
     actions
 }
 

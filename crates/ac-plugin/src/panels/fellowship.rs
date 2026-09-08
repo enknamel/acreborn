@@ -1,9 +1,9 @@
-//! Fellowship (F): the server's group of up to nine players sharing XP
+//! Fellowship (key bindable from the menu): the server's group of up to nine players sharing XP
 //! and optionally loot. Create one with a name, recruit the selected
 //! player (they answer a confirmation), leave, or as leader dismiss
 //! members or disband. The member list shows everyone's vitals.
 
-use super::{caption, title, window, Source};
+use super::{caption, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,7 +100,7 @@ pub fn draw(
         ui.set_min_size(egui::vec2(424.0, 224.0));
         match &v.name {
             None => {
-                title(ui, "Fellowship");
+                title_bar(ui, "fellowship", "Fellowship");
                 ui.horizontal(|ui| {
                     ui.label("Name");
                     ui.add(egui::TextEdit::singleline(new_name).desired_width(160.0));
@@ -121,8 +121,9 @@ pub fn draw(
                 );
             }
             Some(name) => {
-                title(
+                title_bar(
                     ui,
+                    "fellowship",
                     format!(
                         "{name} ({}){}",
                         v.members.len(),
@@ -252,6 +253,9 @@ impl Plugin for Fellowship {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "fellowship") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -261,6 +265,9 @@ impl Plugin for Fellowship {
         };
         let Some(v) = v else { return };
         let a = draw(egui, &v, &mut self.new_name, &mut self.share);
+        if super::closed("fellowship") {
+            self.show = false;
+        }
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             if let Some((name, share)) = a.create {
                 c.fellowship_create(&name, share);
@@ -282,7 +289,7 @@ impl Plugin for Fellowship {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::F && pressed {
+        if pressed && crate::keys::bound("fellowship", key) {
             self.show = !self.show;
             return true;
         }

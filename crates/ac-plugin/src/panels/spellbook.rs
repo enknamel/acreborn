@@ -5,16 +5,17 @@
 //! or drag it onto the bar or one of its tabs; right-click (or the `i`
 //! button) for details: school, level, mana, duration, description, the
 //! current formula with each component's presence in the packs, a Cast
-//! button and Delete (with confirmation, RemoveSpellC2S). P toggles it; it
-//! sits beside the skills panel when both are open, and publishes whether
-//! it is open as [`OPEN_KEY`] so the spell bar shows with it.
+//! button and Delete (with confirmation, RemoveSpellC2S). Its key (P out
+//! of the box, bindable from the menu) toggles it; it sits beside the
+//! skills panel when both are open, and publishes whether it is open as
+//! [`OPEN_KEY`] so the spell bar shows with it.
 
 use std::collections::HashMap;
 
 use ac_formats::spell_components::SpellComponentTable;
 use ac_formats::spell_table::{school, Spell, SpellTable};
 
-use super::{caption, fmt_seconds, has_sheet, title, window, Source, SpellDrag};
+use super::{caption, fmt_seconds, has_sheet, title_bar, window, Source, SpellDrag};
 use crate::icons::{IconCache, IconLayers};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
@@ -346,8 +347,9 @@ pub fn draw(
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(368.0, 368.0));
-        title(
+        title_bar(
             ui,
+            "spellbook",
             format!("Spellbook ({} of {})", shown.len(), v.rows.len()),
         );
         let bits = if v.filters == 0 {
@@ -491,7 +493,7 @@ pub fn draw(
 #[derive(Default)]
 pub struct Spellbook {
     source: Source<SpellbookView>,
-    /// Open (P toggles it). Starts closed.
+    /// Open (its key or the menu toggles it). Starts closed.
     pub show: bool,
     state: UiState,
 }
@@ -539,6 +541,9 @@ impl Plugin for Spellbook {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "spellbook") {
+            self.show = ask.apply(self.show);
+        }
         cx.board.set(OPEN_KEY, self.show);
         if !self.show {
             return;
@@ -564,6 +569,9 @@ impl Plugin for Spellbook {
         };
         let Some(v) = v else { return };
         let a = draw(egui, cx.icons(), &v, x, shown_bar, &mut self.state);
+        if super::closed("spellbook") {
+            self.show = false;
+        }
         match &mut self.source {
             Source::Demo(d) => {
                 if let Some(bit) = a.toggle {
@@ -608,7 +616,7 @@ impl Plugin for Spellbook {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::P && pressed {
+        if pressed && crate::keys::bound("spellbook", key) {
             self.show = !self.show;
             return true;
         }

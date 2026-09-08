@@ -3,9 +3,10 @@
 //! ordered list of shortcuts into the spellbook and nothing else (see
 //! `docs/game/mechanics.md`, "The spell bar is not the component list").
 //!
-//! The bar is visible while B has toggled it on, while the spellbook is
-//! open, or while the character is in magic mode. Keys, when it is visible
-//! and no text box has focus:
+//! The bar is visible while its key (B out of the box, bindable from the
+//! menu) has toggled it on, while the spellbook is open, or while the
+//! character is in magic mode. Keys, when it is visible and no text box
+//! has focus:
 //!
 //! * `1`..`9` cast the nth spell of the shown tab;
 //! * PageUp / Insert show the next / previous tab, PageDown / Delete
@@ -27,7 +28,7 @@ use ac_client::magic::{CastCheck, SPELL_BARS};
 use ac_formats::spell_components::SpellComponentTable;
 use ac_formats::spell_table::SpellTable;
 
-use super::{caption, has_sheet, window, Source, SpellDrag};
+use super::{caption, has_sheet, title_bar, window, Source, SpellDrag};
 use crate::icons::{IconCache, IconLayers};
 use crate::{egui, Client, Ctx, Plugin};
 
@@ -243,16 +244,16 @@ pub fn draw(
     window(
         "spellbar",
         egui::pos2(vp.center().x - width * 0.5, vp.max.y - 160.0),
-        egui::vec2(width, 96.0),
+        egui::vec2(width, 116.0),
         170,
         6,
     )
     .show(egui, |ui| {
-        ui.set_min_size(egui::vec2(width - 12.0, 84.0));
+        ui.set_min_size(egui::vec2(width - 12.0, 104.0));
+        title_bar(ui, "spellbar", "Spell bar");
         let bar = &v.bars[shown];
         let sel = selected.and_then(|i| bar.get(i));
         ui.horizontal(|ui| {
-            caption(ui, "Spells");
             for (i, tab) in v.bars.iter().enumerate() {
                 let r = ui
                     .selectable_label(i == shown, format!("{}", i + 1))
@@ -351,9 +352,12 @@ pub fn draw(
                 }
             }
             if bar.is_empty() {
+                let key = crate::keys::binding("spellbook")
+                    .map(|k| format!(", {}", k.symbol_or_name()))
+                    .unwrap_or_default();
                 caption(
                     ui,
-                    "(empty: drag or double-click spells from the spellbook, P)",
+                    format!("(empty: drag or double-click spells from the spellbook{key})"),
                 );
             }
         });
@@ -375,7 +379,8 @@ pub fn draw(
 
 pub struct SpellBar {
     source: Source<BarView>,
-    /// Toggled by B; the bar also shows with the spellbook or in magic mode.
+    /// Toggled by its key or the menu; the bar also shows with the
+    /// spellbook or in magic mode.
     pub show: bool,
     /// The shown tab, 0-based.
     pub shown: usize,
@@ -540,6 +545,9 @@ impl Plugin for SpellBar {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "spellbar") {
+            self.show = ask.apply(self.show);
+        }
         (self.ctrl, self.shift) =
             egui.input(|i| (i.modifiers.ctrl || i.modifiers.command, i.modifiers.shift));
         let spellbook_open = cx
@@ -574,6 +582,9 @@ impl Plugin for SpellBar {
             self.selected = None;
         }
         let a = draw(egui, cx.icons(), &self.view, self.shown, self.selected);
+        if super::closed("spellbar") {
+            self.show = false;
+        }
         self.apply(cx, a);
     }
 
@@ -581,7 +592,7 @@ impl Plugin for SpellBar {
         if !pressed {
             return false;
         }
-        if key == egui::Key::B {
+        if crate::keys::bound("spellbar", key) {
             self.show = !self.show;
             return true;
         }

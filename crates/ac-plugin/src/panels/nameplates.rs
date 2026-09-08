@@ -1,6 +1,7 @@
 //! Nameplates: names over the creatures, players and portals near the
 //! character in the 3D view, with a health bar under anything that has
-//! been hurt or is the target. V toggles them.
+//! been hurt or is the target. The menu toggles them (or a key bound
+//! there).
 //!
 //! The host publishes the frame's camera on the blackboard as
 //! `camera.view_proj` (16 floats, column-major) and the plugin projects
@@ -220,6 +221,9 @@ impl Plugin for Nameplates {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "nameplates") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -236,7 +240,7 @@ impl Plugin for Nameplates {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::V && pressed {
+        if pressed && crate::keys::bound("nameplates", key) {
             self.show = !self.show;
             return true;
         }

@@ -1,11 +1,11 @@
-//! Allegiance (L): the patron/vassal tree the server sends us (monarch,
+//! Allegiance (key bindable from the menu): the patron/vassal tree the server sends us (monarch,
 //! patron, ourselves and our direct vassals), with what each member
 //! passes up. Swear to the selected player (they answer a confirmation),
 //! break with the patron or a vassal, refresh, and as monarch name the
 //! allegiance; officers set the message of the day. Vassals, patron,
 //! monarch and co-vassal chat go through `/v`, `/p`, `/m`, `/c`.
 
-use super::{caption, title, window, Source};
+use super::{caption, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -189,7 +189,7 @@ pub fn draw(
         ui.set_min_size(egui::vec2(544.0, 244.0));
         match &v.name {
             None => {
-                title(ui, "Allegiance");
+                title_bar(ui, "allegiance", "Allegiance");
                 ui.label(
                     egui::RichText::new(if v.loaded {
                         "Not in an allegiance. Select a player near you and swear to them; \
@@ -202,8 +202,9 @@ pub fn draw(
                 );
             }
             Some(name) => {
-                title(
+                title_bar(
                     ui,
+                    "allegiance",
                     format!(
                         "{name}: {} members, {} below you, rank {}",
                         v.total_members, v.total_vassals, v.rank
@@ -394,6 +395,9 @@ impl Plugin for Allegiance {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "allegiance") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -403,6 +407,9 @@ impl Plugin for Allegiance {
         };
         let Some(v) = v else { return };
         let a = draw(egui, &v, &mut self.new_name, &mut self.new_motd);
+        if super::closed("allegiance") {
+            self.show = false;
+        }
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             if let Some(g) = a.swear {
                 c.swear_allegiance(g);
@@ -425,7 +432,7 @@ impl Plugin for Allegiance {
     }
 
     fn key(&mut self, cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::L && pressed {
+        if pressed && crate::keys::bound("allegiance", key) {
             self.show = !self.show;
             if self.show {
                 if let Some(c) = cx.try_client() {

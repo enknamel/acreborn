@@ -1,7 +1,7 @@
 //! Buffs: the enchantment registry (`Client::enchantments`) as two compact
 //! lists, beneficial and harmful, each entry with its icon, name and time
-//! left, soonest to expire first; vitae on its own line. U toggles it (on
-//! by default).
+//! left, soonest to expire first; vitae on its own line. Its key (bindable
+//! from the menu) toggles it (on by default).
 //!
 //! Time left is `start_time + duration - elapsed`: ACE sends `start_time`
 //! as the (non-positive) number of seconds the spell has already run,
@@ -17,7 +17,7 @@ use std::time::Instant;
 use ac_formats::spell_table::SpellTable;
 use ac_world::stats::Enchantment;
 
-use super::{caption, fmt_seconds, has_sheet, window, Source};
+use super::{caption, fmt_seconds, has_sheet, title_bar, window, Source};
 use crate::icons::{IconCache, IconLayers};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
@@ -198,16 +198,14 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &BuffsView) {
     )
     .show(egui, |ui| {
         ui.set_min_width(248.0);
-        ui.horizontal(|ui| {
-            super::title(ui, "Buffs");
-            if let Some(p) = v.vitae {
-                ui.label(
-                    egui::RichText::new(format!("Vitae -{p}%"))
-                        .color(egui::Color32::from_rgb(255, 150, 120))
-                        .strong(),
-                );
-            }
-        });
+        title_bar(ui, "buffs", "Buffs");
+        if let Some(p) = v.vitae {
+            ui.label(
+                egui::RichText::new(format!("Vitae -{p}%"))
+                    .color(egui::Color32::from_rgb(255, 150, 120))
+                    .strong(),
+            );
+        }
         egui::ScrollArea::vertical()
             .max_height(170.0)
             .show(ui, |ui| {
@@ -308,6 +306,9 @@ impl Plugin for Buffs {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "buffs") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -321,10 +322,13 @@ impl Plugin for Buffs {
         if let Some(v) = v {
             draw(egui, cx.icons(), &v);
         }
+        if super::closed("buffs") {
+            self.show = false;
+        }
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::U && pressed {
+        if pressed && crate::keys::bound("buffs", key) {
             self.show = !self.show;
             return true;
         }

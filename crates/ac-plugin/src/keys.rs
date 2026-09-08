@@ -24,22 +24,86 @@ pub struct Action {
 
 /// Every panel and action a key can open, in menu order.
 pub const ACTIONS: &[Action] = &[
-    Action { id: "menu", label: "Menu", default: Some("Escape") },
-    Action { id: "inventory", label: "Inventory", default: Some("I") },
-    Action { id: "map", label: "Map", default: Some("M") },
-    Action { id: "skills", label: "Skills", default: Some("K") },
-    Action { id: "spellbook", label: "Spellbook", default: Some("P") },
-    Action { id: "spellbar", label: "Spell bar", default: Some("B") },
-    Action { id: "buffs", label: "Buffs", default: None },
-    Action { id: "components", label: "Components", default: None },
-    Action { id: "autoplay", label: "Play on its own", default: None },
-    Action { id: "fellowship", label: "Fellowship", default: None },
-    Action { id: "allegiance", label: "Allegiance", default: None },
-    Action { id: "social", label: "Social", default: None },
-    Action { id: "housing", label: "Housing", default: None },
-    Action { id: "appraisal", label: "Appraisal", default: None },
-    Action { id: "nameplates", label: "Nameplates", default: None },
-    Action { id: "options", label: "Options", default: None },
+    Action {
+        id: "menu",
+        label: "Menu",
+        default: Some("Escape"),
+    },
+    Action {
+        id: "inventory",
+        label: "Inventory",
+        default: Some("I"),
+    },
+    Action {
+        id: "map",
+        label: "Map",
+        default: Some("M"),
+    },
+    Action {
+        id: "skills",
+        label: "Skills",
+        default: Some("K"),
+    },
+    Action {
+        id: "spellbook",
+        label: "Spellbook",
+        default: Some("P"),
+    },
+    Action {
+        id: "spellbar",
+        label: "Spell bar",
+        default: Some("B"),
+    },
+    Action {
+        id: "buffs",
+        label: "Buffs",
+        default: None,
+    },
+    Action {
+        id: "components",
+        label: "Components",
+        default: None,
+    },
+    Action {
+        id: "autoplay",
+        label: "Play on its own",
+        default: None,
+    },
+    Action {
+        id: "fellowship",
+        label: "Fellowship",
+        default: None,
+    },
+    Action {
+        id: "allegiance",
+        label: "Allegiance",
+        default: None,
+    },
+    Action {
+        id: "social",
+        label: "Social",
+        default: None,
+    },
+    Action {
+        id: "housing",
+        label: "Housing",
+        default: None,
+    },
+    Action {
+        id: "appraisal",
+        label: "Appraisal",
+        default: None,
+    },
+    Action {
+        id: "nameplates",
+        label: "Nameplates",
+        default: None,
+    },
+    Action {
+        id: "options",
+        label: "Options",
+        default: None,
+    },
 ];
 
 /// Keys the viewer itself answers to, not bindable here, listed so the
@@ -128,10 +192,7 @@ pub fn load(settings: &Settings) {
     b.clear();
     for a in ACTIONS {
         if let Some(name) = settings.get::<String>(&format!("keys.{}", a.id)) {
-            b.insert(
-                a.id.to_string(),
-                (!name.is_empty()).then_some(name),
-            );
+            b.insert(a.id.to_string(), (!name.is_empty()).then_some(name));
         }
     }
 }

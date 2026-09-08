@@ -4,7 +4,7 @@
 //! turned to), the title and the scribe. Close hides it until the next
 //! book.
 
-use super::{caption, title, window, Source};
+use super::{caption, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,14 +57,7 @@ pub fn draw(egui: &egui::Context, v: &BookView, page: &mut usize) -> Actions {
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(440.0, 340.0));
-        ui.horizontal(|ui| {
-            title(ui, &v.title);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Close").clicked() {
-                    actions.close = true;
-                }
-            });
-        });
+        title_bar(ui, "book", &v.title);
         if !v.author.is_empty() {
             caption(ui, format!("by {}", v.author));
         }
@@ -111,6 +104,9 @@ pub fn draw(egui: &egui::Context, v: &BookView, page: &mut usize) -> Actions {
             }
         });
     });
+    if super::closed("book") {
+        actions.close = true;
+    }
     actions
 }
 

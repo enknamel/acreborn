@@ -1,9 +1,9 @@
 //! Skills: the character sheet (level, experience, skill credits) and every
-//! skill with its value, ranks and training. K toggles it. Whether it is
-//! open is published on the blackboard as [`OPEN_KEY`] so the spellbook
-//! can sit beside it.
+//! skill with its value, ranks and training. Its key (K out of the box,
+//! bindable from the menu) toggles it. Whether it is open is published on
+//! the blackboard as [`OPEN_KEY`] so the spellbook can sit beside it.
 
-use super::{caption, has_sheet, window, Source};
+use super::{caption, has_sheet, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
 /// Blackboard key: `true` while the skills panel is open.
@@ -168,11 +168,7 @@ pub fn draw(egui: &egui::Context, v: &SkillsView) -> Actions {
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(488.0, 398.0));
-        ui.label(
-            egui::RichText::new(format!("{}  level {}", v.name, v.level))
-                .color(egui::Color32::WHITE)
-                .strong(),
-        );
+        title_bar(ui, "skills", format!("{}  level {}", v.name, v.level));
         ui.label(
             egui::RichText::new(format!(
                 "XP {}   unassigned {}   skill credits {}",
@@ -299,12 +295,12 @@ pub fn draw(egui: &egui::Context, v: &SkillsView) -> Actions {
 #[derive(Default)]
 pub struct Skills {
     source: Source<SkillsView>,
-    /// Open (K toggles it). Starts closed.
+    /// Open (its key or the menu toggles it). Starts closed.
     pub show: bool,
 }
 
 impl Skills {
-    /// A small sheet; closed until K, like the live one.
+    /// A small sheet; closed until opened, like the live one.
     pub fn demo() -> Self {
         let row = |name, value, ranks, advancement| SkillRow {
             id: 0,
@@ -373,6 +369,9 @@ impl Plugin for Skills {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "skills") {
+            self.show = ask.apply(self.show);
+        }
         cx.board.set(OPEN_KEY, self.show);
         if !self.show {
             return;
@@ -383,6 +382,9 @@ impl Plugin for Skills {
         };
         if let Some(v) = v {
             let a = draw(egui, &v);
+            if super::closed("skills") {
+                self.show = false;
+            }
             if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
                 for i in a.raise_attribute {
                     c.raise_attribute(i);
@@ -401,7 +403,7 @@ impl Plugin for Skills {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::K && pressed {
+        if pressed && crate::keys::bound("skills", key) {
             self.show = !self.show;
             return true;
         }

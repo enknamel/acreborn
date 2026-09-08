@@ -1,9 +1,9 @@
-//! Social (N): the title shown under your name (pick one of those you
-//! have earned), the friends list with who is online, and the squelch
-//! list. Add a friend or squelch someone by name or from the selected
-//! player; remove with the buttons.
+//! Social (opened from the menu, or by a key bound there): the title
+//! shown under your name (pick one of those you have earned), the friends
+//! list with who is online, and the squelch list. Add a friend or squelch
+//! someone by name or from the selected player; remove with the buttons.
 
-use super::{caption, title, window, Source};
+use super::{caption, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -139,7 +139,7 @@ pub fn draw(egui: &egui::Context, v: &SocialView, name_box: &mut String) -> Acti
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(424.0, 304.0));
-        title(ui, "Social");
+        title_bar(ui, "social", "Social");
         ui.horizontal(|ui| {
             caption(ui, "Title");
             let current = v
@@ -276,6 +276,9 @@ impl Plugin for Social {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "social") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -285,6 +288,9 @@ impl Plugin for Social {
         };
         let Some(v) = v else { return };
         let a = draw(egui, &v, &mut self.name_box);
+        if super::closed("social") {
+            self.show = false;
+        }
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             if let Some(t) = a.set_title {
                 c.set_title(t);
@@ -304,7 +310,7 @@ impl Plugin for Social {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::N && pressed {
+        if pressed && crate::keys::bound("social", key) {
             self.show = !self.show;
             return true;
         }

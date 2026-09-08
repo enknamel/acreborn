@@ -1,5 +1,6 @@
 //! Loot: the corpse or chest we are looking into, mid screen. Double-click
-//! an item to take it, "Take all" for everything, "Close" to stop looking.
+//! an item to take it, "Take all" for everything, the title bar's close
+//! button (or Escape) to stop looking.
 //!
 //! * Hovering an item shows its stats (see `ItemStats::summary`); a
 //!   single click selects and appraises it; "Appraise all" asks about
@@ -10,7 +11,7 @@
 //! * Drop carried items on the window to store them in the container.
 
 use super::{
-    caption, inventory::Row, item_row, stats_tooltip, title, window, Filter, ItemDrag, Source,
+    caption, inventory::Row, item_row, stats_tooltip, title_bar, window, Filter, ItemDrag, Source,
 };
 use crate::icons::IconCache;
 use crate::{egui, Client, Ctx, Plugin};
@@ -125,16 +126,12 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &LootView, f: &mut F
     )
     .show(egui, |ui| {
         ui.set_min_size(size - egui::vec2(16.0, 16.0));
-        ui.horizontal(|ui| {
-            title(ui, &v.name);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if filtering {
-                    caption(ui, format!("{} of {}", shown.len(), v.rows.len()));
-                } else {
-                    caption(ui, format!("{} items", v.rows.len()));
-                }
-            });
-        });
+        title_bar(ui, "loot", &v.name);
+        if filtering {
+            caption(ui, format!("{} of {}", shown.len(), v.rows.len()));
+        } else {
+            caption(ui, format!("{} items", v.rows.len()));
+        }
         if searchable {
             let changed = f.draw(ui, "loot_search", size.x - 60.0);
             if changed && f.needs_appraisal() && v.unappraised() > 0 {
@@ -203,9 +200,6 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &LootView, f: &mut F
             {
                 actions.appraise_all = true;
             }
-            if ui.button("Close").clicked() {
-                actions.close = true;
-            }
         });
         let (r, _) = ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new().inner_margin(2), |ui| {
             ui.label(
@@ -217,6 +211,9 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &LootView, f: &mut F
             actions.store.push(p.0);
         }
     });
+    if super::closed("loot") {
+        actions.close = true;
+    }
     actions
 }
 

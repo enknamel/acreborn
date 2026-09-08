@@ -6,7 +6,7 @@
 //! onto it in the inventory panel, and answer the chance-of-success
 //! question.
 
-use super::{item_row, title, window, Item, ItemDrag, Source};
+use super::{item_row, title_bar, window, Item, ItemDrag, Source};
 use crate::icons::IconCache;
 use crate::{egui, Client, Ctx, Plugin};
 
@@ -80,7 +80,7 @@ pub fn draw(
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(384.0, 284.0));
-        title(ui, "Salvage");
+        title_bar(ui, "salvage", "Salvage");
         if !v.has_tool {
             ui.label(
                 egui::RichText::new("You need an Ust in your pack.")
@@ -141,9 +141,6 @@ pub fn draw(
             if ui.button("Clear").clicked() {
                 actions.clear = true;
             }
-            if ui.button("Close").clicked() {
-                actions.close = true;
-            }
         });
         ui.label(
             egui::RichText::new(
@@ -154,6 +151,9 @@ pub fn draw(
             .small(),
         );
     });
+    if super::closed("salvage") {
+        actions.close = true;
+    }
     actions
 }
 

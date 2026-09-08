@@ -1,4 +1,4 @@
-//! Playing on its own (J): the rules the character follows when nobody
+//! Playing on its own (key bindable from the menu): the rules the character follows when nobody
 //! is at the keyboard, and a line saying what it is doing right now.
 //!
 //! The rules themselves live in `ac_client::autoplay`; this panel only
@@ -22,7 +22,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{caption, title, window, Source};
+use super::{caption, title, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_client::autoplay::{Buffs, Config, Fight, Loot, Role, Style, Survive};
 use ac_client::items::{ItemStats, Query};
@@ -190,11 +190,9 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
     )
     .show(egui, |ui| {
         ui.set_min_width(300.0);
-        ui.checkbox(
-            &mut cfg.enabled,
-            egui::RichText::new("Play on its own").strong().size(16.0),
-        )
-        .on_hover_text("Let the character heal, fight, loot and buff by itself");
+        title_bar(ui, "autoplay", "Play on its own");
+        ui.checkbox(&mut cfg.enabled, egui::RichText::new("Enabled").strong())
+            .on_hover_text("Let the character heal, fight, loot and buff by itself");
         let line = status_line(&v.doing, &v.status);
         let colour = if cfg.enabled {
             egui::Color32::from_rgb(150, 210, 150)
@@ -556,7 +554,7 @@ pub fn view(c: &Client) -> AutoplayView {
 
 pub struct Autoplay {
     source: Source<AutoplayView>,
-    /// Open (J toggles it). Starts closed.
+    /// Open (its key toggles it). Starts closed.
     pub show: bool,
     /// The rules as last edited or read from the settings file; handed
     /// to each session as it appears and written back on exit.
@@ -658,6 +656,9 @@ impl Plugin for Autoplay {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "autoplay") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -678,9 +679,11 @@ impl Plugin for Autoplay {
         if open(super::components::OPEN_KEY) {
             x += 268.0;
         }
-        let Some(edited) = draw(egui, &v, x, &mut self.drafts) else {
-            return;
-        };
+        let edited = draw(egui, &v, x, &mut self.drafts);
+        if super::closed("autoplay") {
+            self.show = false;
+        }
+        let Some(edited) = edited else { return };
         match &mut self.source {
             // The demo panel is live enough to click through offline.
             Source::Demo(d) => {
@@ -696,7 +699,7 @@ impl Plugin for Autoplay {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::J && pressed {
+        if pressed && crate::keys::bound("autoplay", key) {
             self.show = !self.show;
             return true;
         }

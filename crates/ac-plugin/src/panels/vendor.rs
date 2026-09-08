@@ -1,6 +1,6 @@
 //! Vendor: the shop we are trading with, top centre. The vendor's stock
 //! on the left with Buy buttons, our sellable pack items on the right
-//! with Sell buttons; Close ends the trade.
+//! with Sell buttons; the title bar's close button ends the trade.
 //!
 //! Both lists take the inventory's search language and kind chips
 //! (`dmg>10`, `type:armor`, `spell:blood`) and a sort (name, price,
@@ -8,7 +8,7 @@
 //! "Sell all shown" sells everything the right-hand search leaves, and
 //! "Appraise all" fetches the numbers for whatever is still unappraised.
 
-use super::{caption, stats_tooltip, title, window, Filter, Source};
+use super::{caption, stats_tooltip, title_bar, window, Filter, Source};
 use crate::{egui, Client, Ctx, Plugin};
 use ac_client::items::{self, ItemStats, NumKey, SortKey};
 
@@ -76,6 +76,7 @@ pub fn shown(items: &[TradeItem], f: &Filter, sort: usize, descending: bool) -> 
 pub struct Actions {
     pub buy: Vec<u32>,
     pub sell: Vec<u32>,
+    /// The title bar's close button (or Escape): end the trade.
     pub close: bool,
     /// Single-clicked stock or pack items: select and appraise.
     pub inspect: Vec<u32>,
@@ -221,11 +222,8 @@ pub fn draw(egui: &egui::Context, v: &VendorView, st: &mut State) -> Actions {
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(544.0, 464.0));
+        title_bar(ui, "vendor", &v.name);
         ui.horizontal(|ui| {
-            title(ui, &v.name);
-            if ui.button("Close").clicked() {
-                actions.close = true;
-            }
             caption(ui, "sort");
             egui::ComboBox::from_id_salt("vendor_sort")
                 .selected_text(SORTS[st.sort.min(SORTS.len() - 1)].0)
@@ -302,6 +300,9 @@ pub fn draw(egui: &egui::Context, v: &VendorView, st: &mut State) -> Actions {
             }
         });
     });
+    if super::closed("vendor") {
+        actions.close = true;
+    }
     actions
 }
 

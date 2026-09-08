@@ -3,8 +3,9 @@
 //! with its count and the quantity the character wants to keep (0..999,
 //! `SetDesiredComponentLevel`, edited in place); the foci carried per
 //! school; and "Fill from vendor", which buys up to the desired counts
-//! while a vendor is open (`@fillcomps`). O toggles it; it sits beside the
-//! skills and spellbook panels when they are open.
+//! while a vendor is open (`@fillcomps`). Its key (bindable from the menu)
+//! toggles it; it sits beside the skills and spellbook panels when they
+//! are open.
 //!
 //! Components are consumed by the server on each cast, never by the spell
 //! bar (see `docs/game/mechanics.md`); this panel only shows what is
@@ -15,7 +16,7 @@ use std::collections::HashMap;
 use ac_formats::spell_components::{component_type, SpellComponentTable};
 use ac_formats::spell_table::school;
 
-use super::{caption, has_sheet, title, window, Source};
+use super::{caption, has_sheet, title_bar, window, Source};
 use crate::icons::{IconCache, IconLayers};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 
@@ -184,7 +185,7 @@ pub fn draw(
         ui.set_min_size(egui::vec2(248.0, 368.0));
         ui.horizontal(|ui| {
             let total: usize = v.groups.iter().map(|(_, r)| r.len()).sum();
-            title(ui, format!("Components ({total})"));
+            title_bar(ui, "components", format!("Components ({total})"));
             if ui
                 .add_enabled(v.vendor_open, egui::Button::new("Fill from vendor"))
                 .on_hover_text("buy up to the desired quantities from the open vendor")
@@ -281,7 +282,7 @@ pub fn draw(
 #[derive(Default)]
 pub struct Components {
     source: Source<ComponentsView>,
-    /// Open (O toggles it). Starts closed.
+    /// Open (its key toggles it). Starts closed.
     pub show: bool,
     state: UiState,
 }
@@ -370,6 +371,9 @@ impl Plugin for Components {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "components") {
+            self.show = ask.apply(self.show);
+        }
         cx.board.set(OPEN_KEY, self.show);
         if !self.show {
             return;
@@ -389,6 +393,9 @@ impl Plugin for Components {
             x += 384.0;
         }
         let a = draw(egui, cx.icons(), &v, x, &mut self.state);
+        if super::closed("components") {
+            self.show = false;
+        }
         match &mut self.source {
             Source::Demo(d) => {
                 for (id, want) in a.desired {
@@ -413,7 +420,7 @@ impl Plugin for Components {
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::O && pressed {
+        if pressed && crate::keys::bound("components", key) {
             self.show = !self.show;
             return true;
         }

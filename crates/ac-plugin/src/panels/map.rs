@@ -1,4 +1,4 @@
-//! Map (M): the world map of Dereth or the current landblock (a
+//! Map (bindable from the menu): the world map of Dereth or the current landblock (a
 //! dungeon's floor plan indoors), with the character, everything the
 //! server has sent for the landblock (players, NPCs, monsters, items,
 //! portals, doors) as dots, and the overland route being walked.
@@ -31,7 +31,7 @@
 //! instead of a thicket of trees. Forty-nine landblocks take about a
 //! tenth of a second and thirty megabytes of pixels.
 
-use super::{caption, has_sheet, title, window, Source};
+use super::{caption, has_sheet, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_scene::mapimage::MapImage;
 use glam::Vec2;
@@ -542,8 +542,8 @@ pub fn draw(
     )
     .show(egui, |ui| {
         ui.set_min_size(size - egui::vec2(12.0, 12.0));
+        title_bar(ui, "map", "Map");
         ui.horizontal(|ui| {
-            title(ui, "Map");
             ui.selectable_value(&mut st.tab, Tab::World, "World");
             ui.selectable_value(
                 &mut st.tab,
@@ -895,6 +895,9 @@ impl Plugin for Map {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "map") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -950,10 +953,13 @@ impl Plugin for Map {
         for l in lines {
             cx.log(l);
         }
+        if super::closed("map") {
+            self.show = false;
+        }
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::M && pressed {
+        if pressed && crate::keys::bound("map", key) {
             self.show = !self.show;
             return true;
         }

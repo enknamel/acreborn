@@ -1,8 +1,8 @@
-//! The appraisal window (Z): what the server told us about the last
+//! The appraisal window (key bindable from the menu): what the server told us about the last
 //! object we assessed. It never opens by itself, because it used to
 //! appear under the pointer on the first click of a double-click and
-//! swallow the second; Z opens and closes it, and while it is open it
-//! follows whatever is assessed next. The one-line summary always goes
+//! swallow the second; its key opens and closes it, and while it is open
+//! it follows whatever is assessed next. The one-line summary always goes
 //! to the chat log, and the inventory shows an item's stats on hover.
 //! Items show value,
 //! burden, workmanship and material, armor level with per-damage
@@ -12,7 +12,7 @@
 //! attributes and armor by location. Close hides it until the next
 //! appraisal.
 
-use super::{caption, title, window, Source};
+use super::{caption, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_net::messages::Appraisal;
 
@@ -275,9 +275,9 @@ pub fn view(c: &Client) -> Option<AppraisalView> {
     ))
 }
 
-/// Returns true when Close was clicked.
+/// Returns true when the window was closed (its title bar's close
+/// button, or Escape).
 pub fn draw(egui: &egui::Context, v: &AppraisalView) -> bool {
-    let mut close = false;
     let w = egui.viewport_rect().width();
     window(
         "appraisal",
@@ -288,17 +288,10 @@ pub fn draw(egui: &egui::Context, v: &AppraisalView) -> bool {
     )
     .show(egui, |ui| {
         ui.set_min_size(egui::vec2(424.0, 264.0));
-        ui.horizontal(|ui| {
-            title(ui, &v.name);
-            if v.failed {
-                caption(ui, "(appraisal failed)");
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Close").clicked() {
-                    close = true;
-                }
-            });
-        });
+        title_bar(ui, "appraisal", &v.name);
+        if v.failed {
+            caption(ui, "(appraisal failed)");
+        }
         egui::ScrollArea::vertical()
             .max_height(230.0)
             .show(ui, |ui| {
@@ -330,13 +323,13 @@ pub fn draw(egui: &egui::Context, v: &AppraisalView) -> bool {
                 }
             });
     });
-    close
+    super::closed("appraisal")
 }
 
 #[derive(Default)]
 pub struct AppraisalPanel {
     source: Source<AppraisalView>,
-    /// Open (Z toggles it). Starts closed.
+    /// Open (its key toggles it). Starts closed.
     pub show: bool,
 }
 
@@ -372,6 +365,9 @@ impl Plugin for AppraisalPanel {
     }
 
     fn ui(&mut self, cx: &mut Ctx, egui: &egui::Context) {
+        if let Some(ask) = super::take_open(cx.board, "appraisal") {
+            self.show = ask.apply(self.show);
+        }
         if !self.show {
             return;
         }
@@ -383,13 +379,13 @@ impl Plugin for AppraisalPanel {
             }
         };
         let Some(v) = v else { return };
-        if draw(egui, &v) {
+        if draw(egui, &v) || super::closed("appraisal") {
             self.show = false;
         }
     }
 
     fn key(&mut self, _cx: &mut Ctx, key: egui::Key, pressed: bool) -> bool {
-        if key == egui::Key::Z && pressed {
+        if pressed && crate::keys::bound("appraisal", key) {
             self.show = !self.show;
             return true;
         }

@@ -262,14 +262,19 @@ plan, objects in the landblock with search and kind chips, overland
 travel by double-click or town name), `loot` (search, kind chips, stat tooltips, "Take all" and "Appraise
 all"), `vendor` (the same over both lists, plus a sort and "Sell all
 shown"),
-`skills` (K), `spellbook` (P), `spellbar` (B), `components` (O), `buffs`
-(U), `trade`, `fellowship` (F), `allegiance` (L), `housing` (H; a used house sign opens it), `social`
-(N: title, friends, squelches), `book` (opens on a used book, sign or
-plaque), `appraisal` (Z; shows the last thing assessed, and never opens by
+`skills` (K), `spellbook` (P), `spellbar` (B), `components`, `buffs`, `trade`, `fellowship`, `allegiance`, `housing` (a used house sign opens it), `social`
+(title, friends, squelches), `book` (opens on a used book, sign or
+plaque), `appraisal` (shows the last thing assessed, and never opens by
 itself), `salvage`
 (opens when the Ust is used), `confirm` (the
-server's Yes/No questions), `options` (X), `combat` (the height/power bar),
-`autoplay` (J; see below). Each
+server's Yes/No questions), `options`, `combat` (the height/power bar),
+`autoplay` (see below), `menu` (Escape: every panel with its key, the
+keys themselves, and Quit). Only the inventory (I), map (M), skills (K),
+spellbook (P) and spell bar (B) have a key out of the box; the menu opens
+the rest, and any key can be changed there -- the bindings live in the
+settings file, so every client on the machine shares them (`crate::keys`).
+Every window has a title bar with a close button, and Escape closes the
+window opened last before it opens the menu. Each
 has the same three parts, so any of them is a template for a UI plugin:
 
 * `view(&Client) -> View`: a plain struct of what to draw, built from the
@@ -340,7 +345,7 @@ The magic panels follow `docs/game/mechanics.md` (section 1) and build on
   click selects, double-click or Cast casts (`cast`). Hovering shows
   `can_cast`'s verdict (no caster, missing components by name, mana); such
   spells are dimmed but still castable, the server has the last word.
-* **components** (O): `components()` grouped by kind with the count and an
+* **components**: `components()` grouped by kind with the count and an
   editable desired quantity 0..999 (`set_desired_component`), the foci
   carried per school (`has_focus`), and "Fill from vendor"
   (`fill_components`, enabled while `world.open_vendor` is set).
