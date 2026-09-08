@@ -913,6 +913,65 @@ impl Api for CtxApi<'_, '_> {
             .collect()
     }
 
+    fn loot_rules(&mut self) -> Array {
+        self.client()
+            .autoplay
+            .config
+            .loot
+            .rules()
+            .iter()
+            .map(|r| {
+                let mut m = Map::new();
+                m.insert("query".into(), r.query.clone().into());
+                m.insert("action".into(), r.action.label().to_string().into());
+                Dynamic::from_map(m)
+            })
+            .collect()
+    }
+
+    fn loot_rule_add(&mut self, query: &str, action: &str) -> bool {
+        use ac_client::autoplay::{LootAction, LootRule};
+        use ac_client::items::Query;
+        let Some(action) = LootAction::parse(action) else {
+            return false;
+        };
+        if query.trim().is_empty() || Query::check(query).is_err() {
+            return false;
+        }
+        let loot = &mut self.client().autoplay.config.loot;
+        loot.migrate();
+        loot.rules.push(LootRule::new(query.trim(), action));
+        true
+    }
+
+    fn loot_rules_clear(&mut self) {
+        let loot = &mut self.client().autoplay.config.loot;
+        loot.rules.clear();
+        loot.filters.clear();
+    }
+
+    fn loot_action(&mut self, guid: i64) -> String {
+        let Ok(guid) = u32::try_from(guid) else {
+            return String::new();
+        };
+        let c = self.client();
+        c.stats_of(guid)
+            .map(|s| c.autoplay.loot_action(&s).label().to_string())
+            .unwrap_or_default()
+    }
+
+    fn salvager(&mut self) -> Dynamic {
+        let c = self.client();
+        let Some((name, guid)) = c.best_salvager() else {
+            return Dynamic::UNIT;
+        };
+        let mut m = Map::new();
+        m.insert("name".into(), name.into());
+        m.insert("guid".into(), int(guid));
+        m.insert("me".into(), (c.world.player_guid == Some(guid)).into());
+        Dynamic::from_map(m)
+    }
+
     fn appraise_all(&mut self) -> i64 {
         self.client().appraise_all() as i64
     }

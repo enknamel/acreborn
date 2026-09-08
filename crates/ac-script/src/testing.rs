@@ -53,6 +53,9 @@ pub struct Recorder {
     pub items: Array,
     pub unappraised: i64,
     pub traveling: bool,
+    /// The loot rules as `(query, action)`, what `loot_rules()` answers
+    /// and `loot_rule_add` / `loot_rules_clear` edit.
+    pub loot_rules: Vec<(String, String)>,
 }
 
 impl Recorder {
@@ -273,6 +276,39 @@ impl Api for Recorder {
     fn find_items(&mut self, query: &str) -> Array {
         self.record(format!("find_items {query}"));
         self.items.clone()
+    }
+    fn loot_rules(&mut self) -> Array {
+        self.loot_rules
+            .iter()
+            .map(|(q, a)| {
+                let mut m = Map::new();
+                m.insert("query".into(), q.clone().into());
+                m.insert("action".into(), a.clone().into());
+                Dynamic::from_map(m)
+            })
+            .collect()
+    }
+    fn loot_rule_add(&mut self, query: &str, action: &str) -> bool {
+        self.record(format!("loot_rule_add {query} {action}"));
+        if ac_client::autoplay::LootAction::parse(action).is_none()
+            || ac_client::items::Query::check(query).is_err()
+        {
+            return false;
+        }
+        self.loot_rules
+            .push((query.trim().to_string(), action.trim().to_lowercase()));
+        true
+    }
+    fn loot_rules_clear(&mut self) {
+        self.record("loot_rules_clear");
+        self.loot_rules.clear();
+    }
+    fn loot_action(&mut self, guid: i64) -> String {
+        self.record(format!("loot_action {guid}"));
+        "keep".into()
+    }
+    fn salvager(&mut self) -> Dynamic {
+        Dynamic::UNIT
     }
     fn appraise_all(&mut self) -> i64 {
         self.record("appraise_all");
@@ -701,6 +737,45 @@ mod tests {
                 "[1] attack #77",
             ]
         );
+        assert!(h.errors().is_empty(), "{:?}", h.logs());
+    }
+
+    #[test]
+    fn loot_rules_are_read_added_and_cleared() {
+        let mut h = ScriptHarness::from_source(
+            "r.rhai",
+            r#"
+            fn command(name, args) {
+                if name == "rules" {
+                    loot_rules_clear();
+                    log("added " + loot_rule_add("slot:ring epics>=2", "keep"));
+                    log("added " + loot_rule_add("ws<6 -epics>0", "salvage"));
+                    log("bad action " + loot_rule_add("value>250", "burn"));
+                    log("bad query " + loot_rule_add("(value>250", "keep"));
+                    for r in loot_rules() { log(r.query + " -> " + r.action); }
+                    log("item 7: " + loot_action(7));
+                    log("salvager: " + type_of(salvager()));
+                    return true;
+                }
+                false
+            }
+            "#,
+        );
+        assert!(h.command("rules", ""));
+        assert_eq!(
+            h.script_logs(),
+            [
+                "added true",
+                "added true",
+                "bad action false",
+                "bad query false",
+                "slot:ring epics>=2 -> keep",
+                "ws<6 -epics>0 -> salvage",
+                "item 7: keep",
+                "salvager: ()",
+            ]
+        );
+        assert!(h.calls().contains(&"[0] loot_rules_clear".to_string()));
         assert!(h.errors().is_empty(), "{:?}", h.logs());
     }
 

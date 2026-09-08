@@ -306,10 +306,10 @@ fn rule_list(
         let mut action = LootAction::parse(drafts.get(&action_key)).unwrap_or_default();
         action_box(ui, &format!("{key}.new.action"), &mut action);
         *drafts.get(&action_key) = action.label().to_string();
-        if ui.add(egui::Button::new("add").small()).clicked() || entered {
-            if add_rule(rules, &text, action) {
-                drafts.get(key).clear();
-            }
+        if (ui.add(egui::Button::new("add").small()).clicked() || entered)
+            && add_rule(rules, &text, action)
+        {
+            drafts.get(key).clear();
         }
     });
     if let Some(p) = Query::check(drafts.get(key)).err() {

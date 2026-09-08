@@ -178,10 +178,30 @@ pub trait Api {
     /// past `appraised` are zero (or empty) until the item is appraised.
     fn item_stats(&mut self) -> Array;
     /// The items of `item_stats` matching a search line: words match the
-    /// name, material, kind or a spell name; `dmg>10`, `al>=200`,
-    /// `value<100`, `ws>=5`, `wield<=100` compare numbers; `spell:blood`,
-    /// `type:armor`, `mat:iron`, `skill:sword`, `wielded`, `unappraised`.
+    /// name, material, kind, a spell name or a slot word; `"epic life"`
+    /// is a phrase; a space is `and`, `or`, `not` (or `-x`) and
+    /// parentheses combine; `dmg>10`, `al>=200`, `value<100`, `ws>=5`,
+    /// `wield<=100`, `epics>=2`, `legendaries>=1`, `cantrips`, `spells>=3`
+    /// compare numbers; `spell:blood`, `type:armor`, `mat:iron`,
+    /// `skill:sword`, `slot:ring`, `tier:epic`, `wielded`, `unappraised`.
     fn find_items(&mut self, query: &str) -> Array;
+    /// The autoplay loot rules in order, as maps `{ query, action }`
+    /// (action one of "keep", "salvage", "sell", "skip"); the first rule
+    /// whose search matches an item decides what is done with it.
+    fn loot_rules(&mut self) -> Array;
+    /// Add a loot rule at the end: a search in the `find_items` language
+    /// and an action word. False when the action is unknown or the
+    /// search does not parse cleanly.
+    fn loot_rule_add(&mut self, query: &str, action: &str) -> bool;
+    /// Drop every loot rule (the always / never names stay).
+    fn loot_rules_clear(&mut self);
+    /// What autoplay will do with an item by guid: its tag if it was
+    /// tagged when taken, else what the rules say now ("keep",
+    /// "salvage", "sell", "skip"); "" for an unknown guid.
+    fn loot_action(&mut self, guid: i64) -> String;
+    /// Who salvages for the team, this character included: a map
+    /// `{ name, guid, me }`, or unit when nobody carries an Ust.
+    fn salvager(&mut self) -> Dynamic;
     /// Queue an appraisal of every carried item without one (sent one at
     /// a time in the background); returns how many were queued.
     fn appraise_all(&mut self) -> i64;
@@ -475,6 +495,13 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("salvage", |items: Array| with_api(|a| a.salvage(items)));
     engine.register_fn("item_stats", || with_api(|a| a.item_stats()));
     engine.register_fn("find_items", |q: &str| with_api(|a| a.find_items(q)));
+    engine.register_fn("loot_rules", || with_api(|a| a.loot_rules()));
+    engine.register_fn("loot_rule_add", |q: &str, act: &str| {
+        with_api(|a| a.loot_rule_add(q, act))
+    });
+    engine.register_fn("loot_rules_clear", || with_api(|a| a.loot_rules_clear()));
+    engine.register_fn("loot_action", |g: i64| with_api(|a| a.loot_action(g)));
+    engine.register_fn("salvager", || with_api(|a| a.salvager()));
     engine.register_fn("appraise_all", || with_api(|a| a.appraise_all()));
     engine.register_fn("unappraised", || with_api(|a| a.unappraised()));
     engine.register_fn("allegiance_name", |n: &str| {
