@@ -12,16 +12,21 @@
 //!    fight. Fighting with spells, the buffs take turns with the attack
 //!    spells rather than crowding them out (`buff_yields_to_attack`).
 //! 3. **Loot**: a corpse of something we killed is opened, the items
-//!    that pass the filters are taken, and it is closed again.
-//! 4. **Fight**: pick the nearest creature that passes the name rules
+//!    the rules say to take are taken, and it is closed again.
+//! 4. **Salvage**: items the rules tagged for salvage are salvaged by
+//!    the team's best salvager, and carried to it by everyone else.
+//! 5. **Fight**: pick the nearest creature that passes the name rules
 //!    and attack it, with the weapon that suits it best.
-//! 5. **Top up buffs**: in a quiet moment, recast anything that has
+//! 6. **Top up buffs**: in a quiet moment, recast anything that has
 //!    run out or will soon.
 //!
-//! Loot is filtered with the inventory's own search language
-//! (`crate::items::Query`), so a rule reads `value>500`,
-//! `type:armor al>=200` or `spell:blood`. Items are appraised first when
-//! a rule needs numbers.
+//! Loot is judged by ordered [`LootRule`]s in the inventory's own search
+//! language (`crate::items::Query`): `value>500` keep, `slot:ring
+//! epics>=2` keep, `ws<6 -epics>0` salvage. The first rule that matches
+//! decides ([`loot_action`]); items are appraised first when a rule
+//! needs numbers. Everything a rule keeps, salvages or sells is picked
+//! up, and its guid tagged with the action (`Autoplay::loot_action`) for
+//! the salvage pass, the UI and scripts.
 //!
 //! Nothing here talks to the UI: the panel edits a [`Config`] and reads
 //! [`Autoplay::status`].
@@ -55,6 +60,23 @@ const STANCE_CHANGE: Duration = Duration::from_millis(1000);
 const FLETCHING: u32 = 37;
 /// The same note is not logged again within this.
 const NOTE_EVERY: Duration = Duration::from_secs(5);
+/// Least time between two salvage batches, and between two hand-offs.
+const SALVAGE_EVERY: Duration = Duration::from_secs(3);
+/// How long a salvage batch or a hand-off is given to take effect (the
+/// items leaving the pack) before it counts as refused.
+const SALVAGE_TIMEOUT: Duration = Duration::from_secs(5);
+/// A batch or an item refused this many times is left alone.
+const SALVAGE_TRIES: u8 = 3;
+/// The salvager is walked to when within this; further off, the salvage
+/// waits for the team to come together.
+const HAND_OFF_RANGE: f32 = 30.0;
+/// Close enough to hand something over (ACE's use radius, with room).
+const GIVE_REACH: f32 = 2.0;
+/// How long an item that arrived in the pack waits for its appraisal
+/// before the rules judge it as it is.
+const TAG_TIMEOUT: Duration = Duration::from_secs(15);
+/// The Salvaging skill.
+const SALVAGING: u32 = 40;
 /// How often the buffs are gone through to see what is due.
 const BUFF_CHECK_EVERY: Duration = Duration::from_millis(1000);
 /// Least time between two attack orders.
@@ -246,32 +268,141 @@ impl Style {
     pub const ALL: [Style; 4] = [Style::Auto, Style::Melee, Style::Missile, Style::Magic];
 }
 
-/// What loot is worth taking.
+/// What to do with an item a loot rule matches.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LootAction {
+    /// Take it and keep it.
+    #[default]
+    Keep,
+    /// Take it and salvage it (or carry it to whoever salvages).
+    Salvage,
+    /// Take it to sell on the next run to town.
+    Sell,
+    /// Leave it on the corpse.
+    Skip,
+}
+
+impl LootAction {
+    pub const ALL: [LootAction; 4] = [
+        LootAction::Keep,
+        LootAction::Salvage,
+        LootAction::Sell,
+        LootAction::Skip,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LootAction::Keep => "keep",
+            LootAction::Salvage => "salvage",
+            LootAction::Sell => "sell",
+            LootAction::Skip => "skip",
+        }
+    }
+
+    /// The action a word names ("keep", "salvage", "sell", "skip").
+    pub fn parse(word: &str) -> Option<LootAction> {
+        let w = word.trim().to_lowercase();
+        LootAction::ALL.into_iter().find(|a| a.label() == w)
+    }
+
+    /// Whether an item the rule matches is picked up at all.
+    pub fn takes(self) -> bool {
+        self != LootAction::Skip
+    }
+}
+
+/// One loot rule: a search in the inventory's language and what to do
+/// with an item it matches. Rules are tried in order and the first
+/// match decides.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LootRule {
+    pub query: String,
+    pub action: LootAction,
+}
+
+impl LootRule {
+    pub fn new(query: impl Into<String>, action: LootAction) -> Self {
+        LootRule {
+            query: query.into(),
+            action,
+        }
+    }
+}
+
+/// What loot is worth taking, and what to do with it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Loot {
     pub enabled: bool,
-    /// Take an item that matches any of these searches (the inventory's
-    /// language: `value>500`, `type:armor al>=200`, `spell:blood`).
+    /// The rules, first match wins (see [`loot_action`]). Missing from
+    /// an old config, whose `filters` become keep rules.
+    #[serde(default)]
+    pub rules: Vec<LootRule>,
+    /// The old flat list: searches whose matches were taken. Read for
+    /// compatibility, folded into `rules` by [`Loot::rules`] and
+    /// [`Loot::migrate`], never written again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<String>,
-    /// Always take these, whatever the filters say (by name).
+    /// Always take these, whatever the rules say (by name).
     pub always: Vec<String>,
-    /// Never take these (by name), even when a filter matches.
+    /// Never take these (by name), even when a rule matches.
     pub never: Vec<String>,
     /// Ask the server about the corpse's items before deciding, so that
-    /// filters on damage, armour and spells can be judged.
+    /// rules on damage, armour and spells can be judged.
     pub appraise: bool,
+    /// Salvage what the rules tagged, when this character is the team's
+    /// best salvager.
+    pub salvage: bool,
+    /// Carry what the rules tagged to the team's best salvager, when
+    /// that is someone else.
+    pub hand_off: bool,
 }
 
 impl Default for Loot {
     fn default() -> Self {
         Loot {
             enabled: true,
-            filters: vec!["value>250".into()],
+            rules: vec![LootRule::new("value>250", LootAction::Keep)],
+            filters: Vec::new(),
             always: vec!["Pyreal".into()],
             never: Vec::new(),
             appraise: true,
+            salvage: true,
+            hand_off: true,
         }
+    }
+}
+
+impl Loot {
+    /// The rules in force: `rules`, then any old `filters` as keep rules
+    /// (blank and repeated ones dropped).
+    pub fn rules(&self) -> Vec<LootRule> {
+        let mut out = self.rules.clone();
+        for f in &self.filters {
+            let f = f.trim();
+            if f.is_empty() || out.iter().any(|r| r.query.trim() == f) {
+                continue;
+            }
+            out.push(LootRule::new(f, LootAction::Keep));
+        }
+        out
+    }
+
+    /// Fold the old `filters` into `rules` for good.
+    pub fn migrate(&mut self) {
+        if !self.filters.is_empty() {
+            self.rules = self.rules();
+            self.filters.clear();
+        }
+    }
+
+    /// Whether any rule needs the items appraised first.
+    pub fn needs_appraisal(&self) -> bool {
+        self.rules()
+            .iter()
+            .any(|r| Query::parse(&r.query).needs_appraisal())
     }
 }
 
@@ -423,6 +554,24 @@ pub struct Mate {
     pub autoplay: bool,
     /// It follows the leader about (`Team::follow`, and not leading).
     pub following: bool,
+    /// Its Salvaging as it stands, buffs counted, and whether it carries
+    /// an Ust: what decides who salvages for the team.
+    pub salvaging: u32,
+    pub has_ust: bool,
+}
+
+/// Who salvages for the team, out of `mates` (the caller includes
+/// itself): the highest Salvaging among those with an Ust, ties to the
+/// name that sorts first. `None` when nobody carries an Ust.
+pub fn best_salvager<'a>(mates: impl Iterator<Item = &'a Mate>) -> Option<(String, u32)> {
+    mates
+        .filter(|m| m.has_ust && m.guid != 0)
+        .max_by(|a, b| {
+            a.salvaging
+                .cmp(&b.salvaging)
+                .then_with(|| b.name.cmp(&a.name))
+        })
+        .map(|m| (m.name.clone(), m.guid))
 }
 
 /// The team as the host last saw it.
@@ -548,16 +697,38 @@ pub fn choose_recipe(
 }
 
 pub fn wanted_loot(stats: &crate::items::ItemStats, l: &Loot) -> bool {
+    loot_action(stats, l).takes()
+}
+
+/// What the rules say to do with an item: `never` names are skipped,
+/// `always` names kept, then the first rule whose search matches
+/// decides; nothing matching is skipped. A blank rule matches nothing.
+pub fn loot_action(stats: &crate::items::ItemStats, l: &Loot) -> LootAction {
     if name_matches(&stats.name, &l.never) {
-        return false;
+        return LootAction::Skip;
     }
     if name_matches(&stats.name, &l.always) {
-        return true;
+        return LootAction::Keep;
     }
-    l.filters.iter().any(|f| {
-        let q = Query::parse(f);
-        !q.is_empty() && stats.matches(&q)
-    })
+    l.rules()
+        .iter()
+        .find(|r| {
+            let q = Query::parse(&r.query);
+            !q.is_empty() && stats.matches(&q)
+        })
+        .map(|r| r.action)
+        .unwrap_or(LootAction::Skip)
+}
+
+/// Whether an item that turned up in the pack (given, bought, made)
+/// should be tagged, and with what: the rules' salvage and sell
+/// verdicts, since keep and skip mean nothing for something already
+/// carried. A salvage bag is only tagged when a rule names it.
+pub fn arrival_tag(stats: &crate::items::ItemStats, l: &Loot) -> Option<LootAction> {
+    match loot_action(stats, l) {
+        a @ (LootAction::Salvage | LootAction::Sell) => Some(a),
+        _ => None,
+    }
 }
 
 /// What the character is doing on its own right now.
@@ -569,6 +740,8 @@ pub enum Doing {
     Fleeing,
     Fighting,
     Looting,
+    /// Salvaging, or carrying salvage to whoever does.
+    Salvaging,
     Buffing,
     Debuffing,
     Helping,
@@ -595,6 +768,7 @@ impl Doing {
             Doing::Fleeing => "breaking off",
             Doing::Fighting => "fighting",
             Doing::Looting => "looting",
+            Doing::Salvaging => "salvaging",
             Doing::Buffing => "buffing",
             Doing::Debuffing => "debuffing",
             Doing::Helping => "helping the team",
@@ -682,6 +856,25 @@ pub struct Autoplay {
     pub(crate) looted: Vec<u32>,
     /// Corpse items we asked the server about.
     appraising: bool,
+    /// What the rules said about each carried item taken as loot (or
+    /// found in the pack afterwards), by guid: the salvage pass, the UI
+    /// and scripts read it.
+    tags: std::collections::BTreeMap<u32, LootAction>,
+    /// Carried items already looked at by the salvage pass, so an item
+    /// is judged once, when it arrives. Empty until the first pass,
+    /// which takes what is carried then as the baseline (nothing owned
+    /// before the rules ran is salvaged behind the player's back).
+    seen: std::collections::BTreeSet<u32>,
+    baselined: bool,
+    /// Arrivals waiting for their appraisal before the rules judge
+    /// them, and since when.
+    pending_tags: Vec<(u32, Instant)>,
+    /// The salvage batch sent, and when; refused batches and hand-offs
+    /// are counted per item so a stubborn one is given up on.
+    salvaging: Option<(Vec<u32>, Instant)>,
+    handing: Option<(u32, Instant)>,
+    refused: std::collections::BTreeMap<u32, u8>,
+    last_salvage: Option<Instant>,
     /// The other characters being played, as the host last saw them.
     pub team: TeamView,
     /// Targets this character has landed its debuffs on.
@@ -715,6 +908,27 @@ impl Autoplay {
     /// fighter's counterpart to `Client::attack_target`.
     pub fn casting_at(&self) -> Option<u32> {
         self.casting_at
+    }
+
+    /// What is to be done with an item: its tag if it was tagged when
+    /// taken (or when it arrived), else what the rules say of it now.
+    pub fn loot_action(&self, stats: &crate::items::ItemStats) -> LootAction {
+        self.tags
+            .get(&stats.guid)
+            .copied()
+            .unwrap_or_else(|| loot_action(stats, &self.config.loot))
+    }
+
+    /// Tag an item by hand (a script, the inventory panel): what the
+    /// salvage pass does with it from now on.
+    pub fn tag(&mut self, guid: u32, action: LootAction) {
+        self.tags.insert(guid, action);
+        self.seen.insert(guid);
+    }
+
+    /// Every tag, by guid.
+    pub fn tags(&self) -> &std::collections::BTreeMap<u32, LootAction> {
+        &self.tags
     }
 
     /// Let go of whatever is being fought: the spells' target and the
@@ -1137,6 +1351,11 @@ impl Client {
         if self.autoplay_team(now) {
             return;
         }
+        // Salvage sits between the fights: it is left alone while
+        // anything is being fought, and picked up when nothing is.
+        if self.autoplay_salvage(now) {
+            return;
+        }
         if self.autoplay_fight(now) {
             return;
         }
@@ -1268,11 +1487,8 @@ impl Client {
                 return true;
             }
             let cfg = self.autoplay.config.loot.clone();
-            // The stat filters need the numbers first.
-            let needs = cfg
-                .filters
-                .iter()
-                .any(|f| Query::parse(f).needs_appraisal());
+            // The stat rules need the numbers first.
+            let needs = cfg.needs_appraisal();
             if cfg.appraise && needs && !self.autoplay.appraising {
                 let missing: Vec<u32> = items
                     .iter()
@@ -1315,9 +1531,15 @@ impl Client {
                         let me = self.world.stats.name.to_lowercase();
                         !me.is_empty() && o.name.to_lowercase() == format!("corpse of {me}")
                     });
-                if own_corpse || wanted_loot(&stats, &cfg) {
-                    tracing::info!("autoplay: taking {}", stats.name);
+                let action = if own_corpse {
+                    LootAction::Keep
+                } else {
+                    loot_action(&stats, &cfg)
+                };
+                if action.takes() {
+                    tracing::info!("autoplay: taking {} ({})", stats.name, action.label());
                     self.take(*g);
+                    self.autoplay.tag(*g, action);
                     took += 1;
                 }
             }
@@ -1645,12 +1867,290 @@ impl Client {
 
     /// This character's Life Magic as it stands (skill 33).
     pub fn life_magic(&self) -> u32 {
+        self.skill_now(33)
+    }
+
+    /// This character's Salvaging as it stands, buffs counted.
+    pub fn salvaging(&self) -> u32 {
+        self.skill_now(SALVAGING)
+    }
+
+    /// A skill as it stands right now, 0 when the sheet lacks it.
+    fn skill_now(&self, id: u32) -> u32 {
         let stats = &self.world.stats;
-        let Some(sk) = stats.skill(33) else {
+        let Some(sk) = stats.skill(id) else {
             return 0;
         };
         let table = self.assets.skill_table().ok();
-        stats.skill_current(sk, table.as_ref().and_then(|t| t.get(33)))
+        stats.skill_current(sk, table.as_ref().and_then(|t| t.get(id)))
+    }
+
+    /// Who salvages for the team, this character included: the highest
+    /// Salvaging among those carrying an Ust (see [`best_salvager`]).
+    /// Off the team it is this character, if it has an Ust.
+    pub fn best_salvager(&self) -> Option<(String, u32)> {
+        let me = Mate {
+            name: self.world.stats.name.clone(),
+            guid: self.world.player_guid.unwrap_or(0),
+            salvaging: self.salvaging(),
+            has_ust: self.salvage_tool().is_some(),
+            ..Default::default()
+        };
+        best_salvager(std::iter::once(&me).chain(self.autoplay.team.mates.iter()))
+    }
+
+    /// Look at what has turned up in the pack since last time and tag
+    /// what the rules would salvage or sell (see [`arrival_tag`]): the
+    /// salvage a teammate handed over, mostly. The first pass only
+    /// notes what is carried.
+    fn autoplay_tag_arrivals(&mut self, now: Instant, cfg: &Loot) {
+        let carried: Vec<u32> = self
+            .world
+            .inventory()
+            .chain(self.world.wielded())
+            .map(|o| o.guid)
+            .collect();
+        let ap = &mut self.autoplay;
+        if !ap.baselined {
+            ap.seen = carried.iter().copied().collect();
+            ap.baselined = true;
+            return;
+        }
+        ap.seen.retain(|g| carried.contains(g));
+        ap.tags.retain(|g, _| carried.contains(g));
+        ap.refused.retain(|g, _| carried.contains(g));
+        ap.pending_tags.retain(|(g, _)| carried.contains(g));
+        for g in &carried {
+            if ap.seen.insert(*g) && !ap.tags.contains_key(g) {
+                ap.pending_tags.push((*g, now));
+            }
+        }
+        let needs = cfg.appraise && cfg.needs_appraisal();
+        let pending = std::mem::take(&mut self.autoplay.pending_tags);
+        for (g, since) in pending {
+            let Some(stats) = self.stats_of(g) else {
+                continue;
+            };
+            if needs && !stats.appraised && now.duration_since(since) < TAG_TIMEOUT {
+                self.appraise_many([g]);
+                self.autoplay.pending_tags.push((g, since));
+                continue;
+            }
+            if let Some(action) = arrival_tag(&stats, cfg) {
+                tracing::info!(
+                    "autoplay: {} arrived, tagged {}",
+                    stats.name,
+                    action.label()
+                );
+                self.autoplay.tags.insert(g, action);
+            }
+        }
+    }
+
+    /// Carried items tagged for salvage that can go: not worn, not
+    /// wanted by a blank tag. `bags` says whether salvage bags count
+    /// (they are handed on, never salvaged again).
+    fn salvage_tagged(&self, bags: bool) -> Vec<(u32, String)> {
+        let me = self.world.player_guid;
+        let mut items: Vec<(u32, String)> = self
+            .autoplay
+            .tags
+            .iter()
+            .filter(|(_, a)| **a == LootAction::Salvage)
+            .filter_map(|(g, _)| self.world.objects.get(g))
+            .filter(|o| o.wielder != me && self.world.is_carried(o.guid))
+            .filter(|o| {
+                let bag = o.name.starts_with("Salvaged ");
+                if bag {
+                    bags
+                } else {
+                    o.material != 0 && o.workmanship > 0.0
+                }
+            })
+            .filter(|o| {
+                self.autoplay
+                    .refused
+                    .get(&o.guid)
+                    .is_none_or(|n| *n < SALVAGE_TRIES)
+            })
+            .map(|o| (o.guid, o.name.clone()))
+            .collect();
+        items.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+        items
+    }
+
+    /// Salvage what the rules tagged, or carry it to whoever salvages
+    /// for the team. Runs between fights. True while busy with it.
+    fn autoplay_salvage(&mut self, now: Instant) -> bool {
+        let cfg = self.autoplay.config.loot.clone();
+        if self.world.player_guid.is_none() {
+            return false;
+        }
+        self.autoplay_tag_arrivals(now, &cfg);
+        if !cfg.enabled || self.attack_target.is_some() || self.autoplay.corpse.is_some() {
+            return false;
+        }
+        // A batch on its way: wait for the items to go, and count a
+        // refusal against each when they do not.
+        if let Some((items, since)) = self.autoplay.salvaging.clone() {
+            let left: Vec<u32> = items
+                .iter()
+                .copied()
+                .filter(|g| self.world.is_carried(*g))
+                .collect();
+            if left.is_empty() {
+                self.autoplay.salvaging = None;
+                self.autoplay.say(
+                    Doing::Salvaging,
+                    format!("salvaged {} item(s)", items.len()),
+                );
+            } else if now.duration_since(since) < SALVAGE_TIMEOUT {
+                return true;
+            } else {
+                self.autoplay.salvaging = None;
+                for g in left {
+                    let n = self.autoplay.refused.entry(g).or_default();
+                    *n += 1;
+                    if *n >= SALVAGE_TRIES {
+                        let name = self.world.objects.get(&g).map(|o| o.name.clone());
+                        self.autoplay.tags.insert(g, LootAction::Keep);
+                        self.autoplay.note(
+                            format!("could not salvage {}, keeping it", name.unwrap_or_default()),
+                            now,
+                        );
+                    }
+                }
+            }
+        }
+        if let Some((item, since)) = self.autoplay.handing {
+            if !self.world.is_carried(item) {
+                self.autoplay.handing = None;
+            } else if now.duration_since(since) < SALVAGE_TIMEOUT {
+                return true;
+            } else {
+                self.autoplay.handing = None;
+                let n = self.autoplay.refused.entry(item).or_default();
+                *n += 1;
+                if *n >= SALVAGE_TRIES {
+                    let name = self
+                        .world
+                        .objects
+                        .get(&item)
+                        .map(|o| o.name.clone())
+                        .unwrap_or_default();
+                    self.autoplay.tags.insert(item, LootAction::Keep);
+                    self.autoplay
+                        .note(format!("{name} was not taken, keeping it"), now);
+                }
+            }
+        }
+        let Some((who, guid)) = self.best_salvager() else {
+            if !self.salvage_tagged(false).is_empty() {
+                self.autoplay
+                    .note("salvage waiting: nobody on the team carries an Ust", now);
+            }
+            return false;
+        };
+        let rate_ok = self
+            .autoplay
+            .last_salvage
+            .is_none_or(|t| now.duration_since(t) >= SALVAGE_EVERY);
+        if Some(guid) == self.world.player_guid {
+            if !cfg.salvage {
+                return false;
+            }
+            let items = self.salvage_tagged(false);
+            if items.is_empty() || !rate_ok {
+                return false;
+            }
+            // The server salvages in peace mode only.
+            if self.combat {
+                self.toggle_combat();
+                return true;
+            }
+            let guids: Vec<u32> = items.iter().map(|(g, _)| *g).collect();
+            if !self.salvage(&guids) {
+                return false;
+            }
+            self.autoplay.salvaging = Some((guids.clone(), now));
+            self.autoplay.last_salvage = Some(now);
+            self.autoplay.say(
+                Doing::Salvaging,
+                format!("salvaging {} item(s)", guids.len()),
+            );
+            return true;
+        }
+        if !cfg.hand_off {
+            return false;
+        }
+        let items = self.salvage_tagged(true);
+        if items.is_empty() {
+            return false;
+        }
+        let Some(mate) = self
+            .autoplay
+            .team
+            .mates
+            .iter()
+            .find(|m| m.guid == guid)
+            .cloned()
+        else {
+            return false;
+        };
+        let Some(me) = self.player.as_ref().map(|p| p.world_position()) else {
+            return false;
+        };
+        // Not while it is fighting, and not from across the map.
+        if mate.target.is_some() {
+            return false;
+        }
+        let distance = mate.world.distance(me);
+        if distance > HAND_OFF_RANGE {
+            self.autoplay.note(
+                format!(
+                    "salvage waiting: {who} is {distance:.0} m off (salvaging {})",
+                    mate.salvaging
+                ),
+                now,
+            );
+            return false;
+        }
+        if distance > GIVE_REACH {
+            if self
+                .follow
+                .is_none_or(|f| f.target.distance(mate.world) > 1.0)
+            {
+                self.interrupt_travel("taking salvage to the salvager");
+                self.steering.reset();
+            }
+            self.follow = Some(crate::Follow {
+                target: mate.world,
+                stop: GIVE_REACH * 0.8,
+            });
+            self.autoplay
+                .say(Doing::Salvaging, format!("taking salvage to {who}"));
+            return true;
+        }
+        if self.follow.take().is_some() {
+            self.steering.reset();
+        }
+        if !rate_ok {
+            return true;
+        }
+        let (item, name) = items[0].clone();
+        if !self.give(guid, item, None) {
+            return false;
+        }
+        self.autoplay.handing = Some((item, now));
+        self.autoplay.last_salvage = Some(now);
+        self.autoplay.say(
+            Doing::Salvaging,
+            format!(
+                "giving {name} to {who} to salvage ({} left)",
+                items.len() - 1
+            ),
+        );
+        true
     }
 
     /// Knows a vulnerability or an imperil it could cast right now (a
@@ -2521,8 +3021,15 @@ impl Client {
         // The server asks the character before recruiting it only when
         // its options allow: with "accept fellowship requests" off the
         // leader's invitation is refused outright, and with "automatically
-        // accept" on it never has to be answered. A teammate keeps both on.
-        for name in ["accept fellowship", "automatically accept fellowship"] {
+        // accept" on it never has to be answered. A teammate keeps both on,
+        // and lets the others give it items: that is how salvage reaches
+        // whoever salvages, and the server refuses a gift to anyone with
+        // the option off (ACE `CharacterOptions1.AllowGive`).
+        for name in [
+            "accept fellowship",
+            "automatically accept fellowship",
+            "let other players give you items",
+        ] {
             if let Some(o) = crate::options::option_by_name(name) {
                 if !self.option_enabled(o) {
                     self.set_option(o, true);
@@ -3121,18 +3628,144 @@ mod tests {
         assert!(wanted_loot(&item("Ornate Ring", 900, 0), &l));
         assert!(!wanted_loot(&item("Rusty Nail", 3, 0), &l));
         assert!(wanted_loot(&item("Pyreal", 12, 0), &l));
-        // A stat filter.
-        l.filters = vec!["type:armor al>=200".into()];
+        // A stat rule.
+        l.rules = vec![LootRule::new("type:armor al>=200", LootAction::Keep)];
         assert!(wanted_loot(&item("Platemail", 100, 240), &l));
         assert!(!wanted_loot(&item("Platemail", 100, 120), &l));
-        // Never wins over always and the filters.
+        // Never wins over always and the rules.
         l.never = vec!["platemail".into()];
         assert!(!wanted_loot(&item("Platemail", 100, 240), &l));
-        // A blank filter matches nothing.
-        l.filters = vec!["".into()];
+        // A blank rule matches nothing.
+        l.rules = vec![LootRule::new("", LootAction::Keep)];
         l.never = Vec::new();
         assert!(!wanted_loot(&item("Ornate Ring", 900, 0), &l));
         assert!(wanted_loot(&item("Pyreal", 12, 0), &l), "always still wins");
+    }
+
+    #[test]
+    fn the_first_matching_rule_decides() {
+        let mut l = Loot::default();
+        l.rules = vec![
+            LootRule::new("slot:ring epics>=2", LootAction::Keep),
+            LootRule::new("ring", LootAction::Salvage),
+            LootRule::new("value>250", LootAction::Keep),
+            LootRule::new("armor", LootAction::Sell),
+        ];
+        let ring = |spells: &[&str]| ItemStats {
+            name: "Gold Ring".into(),
+            kind: "jewelry",
+            valid_locations: crate::items::slot::FINGER,
+            appraised: true,
+            value: 900,
+            material: "Gold",
+            workmanship: 5.0,
+            spells: spells.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        };
+        let two = ring(&["Epic Strength", "Epic Focus"]);
+        let one = ring(&["Epic Strength"]);
+        assert_eq!(loot_action(&two, &l), LootAction::Keep);
+        // The salvage rule comes before the value rule.
+        assert_eq!(loot_action(&one, &l), LootAction::Salvage);
+        assert!(wanted_loot(&one, &l), "salvage is still picked up");
+        assert_eq!(
+            loot_action(&item("Platemail", 100, 240), &l),
+            LootAction::Sell
+        );
+        assert_eq!(loot_action(&item("Rusty Nail", 3, 0), &l), LootAction::Skip);
+        assert!(!LootAction::Skip.takes());
+        // Never and always still cut across the rules.
+        l.never = vec!["gold".into()];
+        assert_eq!(loot_action(&two, &l), LootAction::Skip);
+        l.never.clear();
+        l.always = vec!["gold".into()];
+        assert_eq!(loot_action(&one, &l), LootAction::Keep);
+        // What arrives in the pack is only tagged for salvage or sale.
+        l.always.clear();
+        assert_eq!(arrival_tag(&one, &l), Some(LootAction::Salvage));
+        assert_eq!(arrival_tag(&two, &l), None);
+        assert_eq!(arrival_tag(&item("Rusty Nail", 3, 0), &l), None);
+        assert_eq!(
+            arrival_tag(&item("Platemail", 100, 240), &l),
+            Some(LootAction::Sell)
+        );
+        assert_eq!(LootAction::parse("Salvage"), Some(LootAction::Salvage));
+        assert_eq!(LootAction::parse("burn"), None);
+        assert!(l.needs_appraisal());
+        l.rules = vec![LootRule::new("value>250", LootAction::Keep)];
+        assert!(!l.needs_appraisal());
+    }
+
+    #[test]
+    fn old_filters_become_keep_rules() {
+        let old = r#"{"enabled":true,"filters":["value>500","type:armor al>=200"],"always":["Pyreal"],"never":[],"appraise":true}"#;
+        let mut l: Loot = serde_json::from_str(old).unwrap();
+        assert!(l.rules.is_empty());
+        assert_eq!(
+            l.rules(),
+            vec![
+                LootRule::new("value>500", LootAction::Keep),
+                LootRule::new("type:armor al>=200", LootAction::Keep),
+            ]
+        );
+        // The old list is in force before anything is migrated.
+        assert!(wanted_loot(&item("Ornate Ring", 900, 0), &l));
+        assert!(!wanted_loot(&item("Ornate Ring", 300, 0), &l));
+        assert!(l.salvage && l.hand_off, "new switches take their defaults");
+        l.migrate();
+        assert!(l.filters.is_empty());
+        assert_eq!(l.rules.len(), 2);
+        // Written back, the filters are gone and the rules stay.
+        let text = serde_json::to_string(&l).unwrap();
+        assert!(!text.contains("filters"));
+        assert!(text.contains(r#""action":"keep""#));
+        let back: Loot = serde_json::from_str(&text).unwrap();
+        assert_eq!(back, l);
+        // A rule mentioned both ways is one rule.
+        let both =
+            r#"{"rules":[{"query":"value>500","action":"salvage"}],"filters":["value>500"," "]}"#;
+        let l: Loot = serde_json::from_str(both).unwrap();
+        assert_eq!(
+            l.rules(),
+            vec![LootRule::new("value>500", LootAction::Salvage)]
+        );
+    }
+
+    #[test]
+    fn the_best_salvager_has_an_ust_and_the_highest_skill() {
+        let mate = |name: &str, guid: u32, salvaging: u32, has_ust: bool| Mate {
+            name: name.into(),
+            guid,
+            salvaging,
+            has_ust,
+            ..Default::default()
+        };
+        let team = vec![
+            mate("Zed", 1, 300, true),
+            mate("Amy", 2, 300, true),
+            mate("Bob", 3, 400, false),
+            mate("Cal", 4, 200, true),
+        ];
+        // Bob's skill is highest but he has no Ust; Amy and Zed tie and
+        // the name that sorts first wins.
+        assert_eq!(best_salvager(team.iter()), Some(("Amy".into(), 2)));
+        assert_eq!(best_salvager(team[3..].iter()), Some(("Cal".into(), 4)));
+        assert_eq!(best_salvager(team[2..3].iter()), None);
+        assert_eq!(best_salvager(std::iter::empty()), None);
+        // Someone not yet in the world (guid 0) cannot be handed anything.
+        assert_eq!(best_salvager([mate("Nobody", 0, 999, true)].iter()), None);
+    }
+
+    #[test]
+    fn tags_answer_before_the_rules_do() {
+        let mut ap = Autoplay::default();
+        ap.config.loot.rules = vec![LootRule::new("value>250", LootAction::Keep)];
+        let ring = item("Ornate Ring", 900, 0);
+        assert_eq!(ap.loot_action(&ring), LootAction::Keep);
+        ap.tag(ring.guid, LootAction::Salvage);
+        assert_eq!(ap.loot_action(&ring), LootAction::Salvage);
+        assert_eq!(ap.tags().get(&ring.guid), Some(&LootAction::Salvage));
+        assert_eq!(Doing::Salvaging.label(), "salvaging");
     }
 
     #[test]

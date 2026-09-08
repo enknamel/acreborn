@@ -4,6 +4,8 @@
 //! fighting, land the debuffs on it, hand a teammate what it is short
 //! of, heal whoever is worst hurt, bring everyone into one fellowship.
 //! Those rules read a [`TeamView`], and until now nothing filled it in.
+//! The word each session gives about itself carries its Salvaging and
+//! whether it has an Ust, so everyone agrees on who salvages.
 //!
 //! This plugin does. Every session with the team rules on says who it
 //! is and what it is doing, a few times a second, on the blackboard:
@@ -287,6 +289,8 @@ pub fn describe(client: &ac_client::Client, session: usize) -> Option<Mate> {
         mana: vital_fraction(stats, 2),
         autoplay: client.autoplay.config.enabled,
         following: cfg.enabled && cfg.follow && !cfg.lead,
+        salvaging: client.salvaging(),
+        has_ust: client.salvage_tool().is_some(),
     })
 }
 
