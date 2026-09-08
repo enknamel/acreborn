@@ -494,6 +494,9 @@ impl App {
                 ui.push_chat(text, kind);
             }
             self.pending_switch = r.activate;
+            if r.quit {
+                self.quit_requested = true;
+            }
         }
         if let Some((item, px, py)) = world_drop {
             self.world_drop(item, px, py, (w, h));
