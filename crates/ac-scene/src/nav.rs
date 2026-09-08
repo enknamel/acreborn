@@ -65,10 +65,17 @@ impl Ground<'_> {
             return None;
         }
         let floor = self.collision.floor_at(p, cap.step_up, cap.step_down);
-        // Inside something: its floor is what we stand on.
+        // Inside something: its floor is what we stand on -- unless the
+        // ground runs above it, when it is a cellar or a dungeon under
+        // a hill, and from up here the hill is the floor.
         if let Some((z, cell)) = floor {
             if cell != 0 {
-                return Some((z, cell));
+                let buried = self
+                    .terrain_under(p.x, p.y)
+                    .is_some_and(|t| t > z + 0.5 && p.z >= t - cap.step_down);
+                if !buried {
+                    return Some((z, cell));
+                }
             }
         }
         match self.terrain_under(p.x, p.y) {

@@ -703,6 +703,20 @@ impl Player {
                     floor = Some((old.z, 0));
                 }
             }
+            // An interior floor under the ground we walk on -- a cellar,
+            // a dungeon beneath a hill -- is not ours to stand on from
+            // outside; the hill is. Without this a character walking up a
+            // hillside over the Halls of Metos dropped onto the halls'
+            // floor and carried on under the mountain.
+            if let Some((z, cell)) = floor {
+                if cell != 0 && !indoors {
+                    if let Some(t) = self.terrain_at(assets, world) {
+                        if t > z + 0.5 {
+                            floor = Some((t, 0));
+                        }
+                    }
+                }
+            }
             match floor {
                 Some((z, cell)) if cell != 0 => {
                     // Standing on an interior cell's floor: that cell owns us.
