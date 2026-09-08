@@ -284,7 +284,10 @@ itself), `salvage`
 server's Yes/No questions), `options`, `combat` (the height/power bar),
 `autoplay` (see below), `fleet` (every character being played, in this
 process and on the bus, with autoplay/follow/regroup/stop controls; see
-`docs/multi-session.md`, "Fleet view"), `menu` (Escape: every panel
+`docs/multi-session.md`, "Fleet view"), `holdings` ("Items": every
+character's inventory on every account, online or not, searched with
+the inventory's query language; see `docs/multi-session.md`, "Items
+across characters"), `menu` (Escape: every panel
 with its key, the keys themselves, and Quit). Only the inventory (I), map (M), skills (K),
 spellbook (P) and spell bar (B) have a key out of the box; the menu opens
 the rest, and any key can be changed there -- the bindings live in the

@@ -289,6 +289,64 @@ acviewer --connect 127.0.0.1:9000 -a LEADER -v PASSWORD --mute --screenshot out.
     --fleet-start fleetbot1:testpass:"Fleetbot One":bow:holtburg --fleet-stop-after 45
 ```
 
+## Items across characters
+
+The Items window (menu → **Items (all characters)**; no key out of the
+box, bindable there; the **items** button in the Fleet window;
+`crates/ac-plugin/src/panels/holdings.rs`) searches every character's
+inventory on every account at once: the sessions of this process, the
+sessions of every other process on the bus, and characters that are
+not logged in at all, so "which character has a Hauberk with Epic Life
+Magic Aptitude" or "any ring with two or more epics" is one search.
+
+**What is published.** Each session takes a snapshot of its own items
+(`ac_client::holdings::CharacterHoldings`: account, character, guid,
+`taken_at` in unix seconds, `online`, and one `HoldingRecord` per item,
+the owned form of `ItemStats` with the appraised numbers and spells
+when the item has been appraised, and only its name, kind, value and
+burden when it has not; nothing is appraised just for the snapshot)
+when its inventory has arrived, whenever an item is added, removed,
+moved, wielded or appraised (at most once every 2 s), every 30 s
+regardless, and once more with `online: false` when the session ends
+(a logout, a dropped connection, a stopped session). The snapshot is
+`set` on the blackboard, and so on the bus, under
+`holdings.<account>/<character>` (the account in lower case), which the
+hub keeps and hands every process on joining, so a client started
+later sees everyone already playing. Without `--bus` the snapshots stay
+in the process and the files.
+
+**Where the files live.** Every snapshot is also written to
+`<cache dir>/holdings/<account>/<character>.json` (the cache dir is
+`$ACSWARM_CACHE_DIR` or `~/.cache/acswarm`, the same as the world
+grid's; names are made file-system safe). Every process reads the
+whole directory once at start, so a character that is not logged in
+is searchable from its last snapshot; the newer `taken_at` wins
+wherever two snapshots of one character meet (a file and a bus value,
+two processes). A snapshot counts as **online** while it says so and
+is under 90 s old, so a process that died without saying goodbye fades
+out after its last heartbeat; the Updated column says "online" or how
+long ago the snapshot was taken.
+
+**Searching.** The search line is the inventory's own
+(`ac_client::items::Query`: words, `spell:`, `type:`, `mat:`, `skill:`,
+`slot:ring`, `tier:epic`, `wielded`, `unappraised`, numbers such as
+`al>=300` and `epics>=2`, `or`, `not`, parentheses and quoted phrases;
+the `?` beside the box lists them). The table shows the character
+(green when online), account, item, where it sits (worn, the main
+pack, or the side pack's name), value, spells and when the snapshot was
+taken; a click on a column sorts by it, a click on a row shows the
+item's summary underneath, and the header counts characters, items and
+how many are not yet appraised. A search that needs appraised numbers
+(damage, armor, spells, cantrip counts) cannot match an unappraised
+item, and the window says so; **Refresh** publishes this process's
+snapshots again and posts `holdings.request` (`{"all": true}`, or
+`{"account", "character"}` for one), on which every session appraises
+what it has not (`Client::appraise_all`, one item at a time) and
+publishes as the answers come in. Both are rate-limited to once every
+10 s. From code, `Client::holdings_search(line)` searches the same
+store (`ac_client::holdings::store()`) and returns the hits with the
+account, character, online flag, place and `ItemStats`.
+
 ## Resources
 
 What one process shares between its sessions, and what the Nth session

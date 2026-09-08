@@ -63,7 +63,11 @@ command line at all: the Fleet panel (menu → Fleet → Sessions) takes
 follower accounts, starts them as extra sessions of the client you play,
 creates their characters when the account has none, puts them on your
 team as followers, and remembers them for the next launch ("Starting a
-fleet from the client" in the same document).
+fleet from the client" in the same document). The Items window (menu →
+Items (all characters), or the Fleet panel's **items** button) searches
+every character's inventory on every account at once, the ones online
+and the ones not, with the inventory's own search language ("Items
+across characters" there).
 
 Against a local ACE (`tools/ace/up.sh` starts one in Docker):
 
