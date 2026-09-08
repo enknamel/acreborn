@@ -464,6 +464,11 @@ impl Client {
         }
     }
 
+    /// Where the journey is going, while one is under way.
+    pub fn travel_goal_xy(&self) -> Option<Vec2> {
+        self.travel.goal
+    }
+
     pub fn cancel_travel(&mut self) {
         if self.travel.trip.take().is_some() {
             tracing::info!("travel: cancelled");

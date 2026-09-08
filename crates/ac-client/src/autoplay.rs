@@ -36,6 +36,10 @@ const LOOT_TIMEOUT: Duration = Duration::from_secs(6);
 const HEAL_EVERY: Duration = Duration::from_millis(2500);
 /// Least time between two casts of the same buff.
 const BUFF_EVERY: Duration = Duration::from_millis(1500);
+/// A target that takes no damage for this long is let go.
+const STALL_AFTER: Duration = Duration::from_secs(20);
+/// And left alone for this long afterwards.
+const GIVE_UP_FOR: Duration = Duration::from_secs(90);
 /// A change of weapon is asked for at most this often.
 const REWIELD_EVERY: Duration = Duration::from_millis(1000);
 /// Ammunition is made at most this often: a use takes a moment and
@@ -517,6 +521,14 @@ pub struct Autoplay {
     last_rewield: Option<Instant>,
     /// A weapon to wield as soon as the hands are empty.
     pending_wield: Option<u32>,
+    /// A journey put down for a fight, to be picked up again after it.
+    resume_trip: Option<glam::Vec2>,
+    /// The target being worked on, since when, and its health when
+    /// last seen to drop: a target that takes no damage for a while is
+    /// out of reach, and is let go.
+    engaged: Option<(u32, Instant, f32)>,
+    /// Targets let go, and when, so they are left alone for a while.
+    given_up: Vec<(u32, Instant)>,
     /// When ammunition was last made.
     last_craft: Option<Instant>,
     /// When stamina was last poured into mana or Revitalize cast.
@@ -890,6 +902,9 @@ impl Client {
         if self.autoplay_buff(now, false) {
             return;
         }
+        if self.autoplay_resume_journey() {
+            return;
+        }
         let doing = self.autoplay.doing;
         if doing != Doing::Idle {
             self.autoplay.say(Doing::Idle, "waiting");
@@ -933,6 +948,7 @@ impl Client {
                 .next();
             if let Some(kit) = kit {
                 let me = self.world.player_guid.unwrap_or(0);
+                self.remember_journey();
                 self.use_on(kit, me);
                 self.autoplay.last_heal = Some(now);
                 self.autoplay
@@ -1132,6 +1148,8 @@ impl Client {
         }
         self.autoplay.casting_at = None;
         self.autoplay.armed_for = None;
+        // Opening a corpse is "using something", which ends a journey.
+        self.remember_journey();
         self.interact(guid);
         self.autoplay.corpse = Some((guid, now));
         self.autoplay.say(Doing::Looting, format!("looting {name}"));
@@ -1493,6 +1511,9 @@ impl Client {
         }
         // Already on one that is still alive.
         if let Some(t) = self.attack_target {
+            if self.stalled_on(t, now) {
+                return false;
+            }
             if let Some(o) = self.world.objects.get(&t) {
                 if o.health.unwrap_or(1.0) > 0.0 {
                     let name = o.name.clone();
@@ -1538,6 +1559,7 @@ impl Client {
                     if self.autoplay_plan_hard(guid, &name, now) {
                         return true;
                     }
+                    self.remember_journey();
                     self.arm_for(guid, stance);
                     self.enter_combat();
                     self.attack(guid);
@@ -1560,6 +1582,13 @@ impl Client {
                     && !o.is_player
             })
             .filter(|o| wanted_target(&o.name, &cfg))
+            .filter(|o| {
+                !self
+                    .autoplay
+                    .given_up
+                    .iter()
+                    .any(|(g, t)| *g == o.guid && now.duration_since(*t) < GIVE_UP_FOR)
+            })
             .filter_map(|o| {
                 let p = o.world_pos()?;
                 let d = p.distance(me);
@@ -1572,6 +1601,7 @@ impl Client {
         if self.autoplay_plan_hard(guid, &name, now) {
             return true;
         }
+        self.remember_journey();
         self.arm_for(guid, stance);
         self.enter_combat();
         self.attack(guid);
@@ -1609,7 +1639,13 @@ impl Client {
                 .get(&g)
                 .is_some_and(|o| o.health.unwrap_or(1.0) > 0.0)
         };
-        // Stay on the one already being fought while it lives.
+        // Stay on the one already being fought while it lives, and is
+        // taking damage.
+        if let Some(g) = self.autoplay.casting_at {
+            if self.stalled_on(g, now) {
+                return false;
+            }
+        }
         let target = match self.autoplay.casting_at {
             Some(g) if alive(self, g) => Some(g),
             _ => {
@@ -1934,12 +1970,91 @@ impl Client {
         ids
     }
 
+    /// A swing cancels the journey (the move-to and the trip cannot both
+    /// steer). Note where it was going, so it is taken up again once
+    /// the fight is over.
+    fn remember_journey(&mut self) {
+        if self.traveling() {
+            if let Some(goal) = self.travel_goal_xy() {
+                self.autoplay.resume_trip = Some(goal);
+            }
+        }
+    }
+
+    /// Pick the journey up again after a fight, once there is nothing
+    /// else to do.
+    fn autoplay_resume_journey(&mut self) -> bool {
+        let Some(goal) = self.autoplay.resume_trip else {
+            return false;
+        };
+        if self.traveling() || self.attack_target.is_some() || self.autoplay.casting_at.is_some() {
+            return false;
+        }
+        self.autoplay.resume_trip = None;
+        if self.travel_to(goal) {
+            self.autoplay.say(Doing::Idle, "back on the road");
+            return true;
+        }
+        false
+    }
+
+    /// Note the target being worked on. True when it has taken no
+    /// damage for too long and should be let go: it is out of reach,
+    /// behind something, or not what it seems.
+    fn stalled_on(&mut self, guid: u32, now: Instant) -> bool {
+        let health = self
+            .world
+            .objects
+            .get(&guid)
+            .and_then(|o| o.health)
+            .unwrap_or(1.0);
+        match self.autoplay.engaged {
+            Some((g, since, last)) if g == guid => {
+                if health < last - 0.001 {
+                    self.autoplay.engaged = Some((guid, now, health));
+                    false
+                } else if now.duration_since(since) > STALL_AFTER {
+                    let name = self
+                        .world
+                        .objects
+                        .get(&guid)
+                        .map(|o| o.name.clone())
+                        .unwrap_or_default();
+                    self.autoplay
+                        .note(format!("giving up on {name}: no damage in a while"), now);
+                    self.autoplay
+                        .given_up
+                        .retain(|(_, t)| now.duration_since(*t) < GIVE_UP_FOR);
+                    self.autoplay.given_up.push((guid, now));
+                    self.autoplay.engaged = None;
+                    self.attack_target = None;
+                    self.autoplay.casting_at = None;
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => {
+                self.autoplay.engaged = Some((guid, now, health));
+                false
+            }
+        }
+    }
+
     /// The nearest creature the name rules allow, within the radius.
     fn pick_target(&self, cfg: &Fight) -> Option<u32> {
         let me = self.player.as_ref()?.world_position();
+        let now = Instant::now();
         self.world
             .objects
             .values()
+            .filter(|o| {
+                !self
+                    .autoplay
+                    .given_up
+                    .iter()
+                    .any(|(g, t)| *g == o.guid && now.duration_since(*t) < GIVE_UP_FOR)
+            })
             .filter(|o| {
                 o.item_type & ac_world::item_type::CREATURE != 0
                     && o.object_desc_flags & ac_world::object_desc_flags::ATTACKABLE != 0
@@ -2137,6 +2252,13 @@ impl Client {
         }
         let fighting = self.attack_target.is_some() || self.autoplay.casting_at.is_some();
         if !urgent && cfg.out_of_combat_only && fighting {
+            return false;
+        }
+        // On a journey the top-ups wait: every cast roots the character
+        // where it stands, and a character with a hundred buffs to put
+        // back would never leave town. What is about to run out still
+        // goes back up on the way.
+        if !urgent && self.traveling() {
             return false;
         }
         if self
