@@ -257,7 +257,10 @@ impl From<&ItemStats> for HoldingRecord {
 }
 
 impl HoldingRecord {
-    /// Back to the searchable form.
+    /// Back to the searchable form. Fields `ItemStats` grows that a
+    /// record does not keep take their default, hence the update
+    /// syntax even while there are none.
+    #[allow(clippy::needless_update)]
     pub fn to_stats(&self) -> ItemStats {
         ItemStats {
             guid: self.guid,
@@ -461,8 +464,9 @@ impl HoldingsStore {
                 }
                 match std::fs::read_to_string(&path)
                     .map_err(|e| e.to_string())
-                    .and_then(|t| serde_json::from_str::<CharacterHoldings>(&t).map_err(|e| e.to_string()))
-                {
+                    .and_then(|t| {
+                        serde_json::from_str::<CharacterHoldings>(&t).map_err(|e| e.to_string())
+                    }) {
                     Ok(h) => {
                         self.merge(h);
                         n += 1;
@@ -613,11 +617,7 @@ impl Client {
             guid: self.world.player_guid.unwrap_or(0),
             taken_at: unix_now(),
             online,
-            items: self
-                .item_stats()
-                .iter()
-                .map(HoldingRecord::from)
-                .collect(),
+            items: self.item_stats().iter().map(HoldingRecord::from).collect(),
         })
     }
 
@@ -712,10 +712,8 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "acswarm-holdings-{}-{name}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("acswarm-holdings-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
@@ -755,7 +753,10 @@ mod tests {
 
     #[test]
     fn keys_and_names() {
-        assert_eq!(bus_key("FleetBot1", "Fleetbot One"), "holdings.fleetbot1/Fleetbot One");
+        assert_eq!(
+            bus_key("FleetBot1", "Fleetbot One"),
+            "holdings.fleetbot1/Fleetbot One"
+        );
         assert_eq!(
             parse_bus_key("holdings.fleetbot1/Fleetbot One"),
             Some(("fleetbot1", "Fleetbot One"))
@@ -823,7 +824,10 @@ mod tests {
         assert_eq!(places, [("Alice", "Pack"), ("Bob", "pack")]);
         let hits = store.search(&Query::parse("spell:epic wielded"), now);
         assert_eq!(hits.len(), 1);
-        assert_eq!((hits[0].account.as_str(), hits[0].place.as_str()), ("AccOne", "worn"));
+        assert_eq!(
+            (hits[0].account.as_str(), hits[0].place.as_str()),
+            ("AccOne", "worn")
+        );
         assert!(hits[0].online);
         assert!(store.search(&Query::parse("dmg>20"), now).is_empty());
         assert_eq!(store.search(&Query::parse(""), now).len(), 4);

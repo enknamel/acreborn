@@ -75,6 +75,11 @@ pub const ACTIONS: &[Action] = &[
         default: None,
     },
     Action {
+        id: "holdings",
+        label: "Items (all characters)",
+        default: None,
+    },
+    Action {
         id: "fellowship",
         label: "Fellowship",
         default: None,

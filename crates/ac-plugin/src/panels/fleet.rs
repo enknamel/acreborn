@@ -582,6 +582,9 @@ pub struct Actions {
     pub lead: Option<bool>,
     /// The Sessions section was opened or closed.
     pub sessions_open: Option<bool>,
+    /// The "items" button: open the Items window (every character's
+    /// inventory, see `super::holdings`).
+    pub items: bool,
 }
 
 const HEALTH: egui::Color32 = egui::Color32::from_rgb(200, 40, 40);
@@ -767,6 +770,13 @@ fn header(ui: &mut egui::Ui, v: &FleetView, compact: bool, a: &mut Actions) {
             all(a, Request::Stop);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .add(egui::Button::new("items").small())
+                .on_hover_text("Search every character's inventory, online or not")
+                .clicked()
+            {
+                a.items = true;
+            }
             let mut c = compact;
             if ui
                 .checkbox(&mut c, egui::RichText::new("compact").small())
@@ -1756,6 +1766,9 @@ impl Plugin for Fleet {
         if let Some(o) = a.sessions_open {
             self.sessions_open = o;
             cx.settings.set("fleet.sessions_open", o);
+        }
+        if a.items {
+            super::request_open(cx.board, super::holdings::ID, super::Ask::Open);
         }
         if matches!(self.source, Source::Demo(_)) {
             return;
