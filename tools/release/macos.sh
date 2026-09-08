@@ -3,8 +3,9 @@
 #
 #   tools/release/macos.sh [VERSION] [--notarize] [--universal]
 #
-# Produces dist/acswarm-VERSION-macos.zip holding acswarm.app (the
-# viewer) and the command-line tools beside it. Signing uses the
+# Produces dist/acswarm-VERSION-macos.dmg holding acswarm.app (the
+# viewer), an Applications shortcut to drag it onto, and the
+# command-line tools beside it. Signing uses the
 # "Developer ID Application" identity in the login keychain (set
 # SIGN_ID to pick one). Notarization needs credentials stored once with
 #   xcrun notarytool store-credentials acswarm --apple-id YOU@EXAMPLE \
@@ -68,15 +69,28 @@ else
   spctl --assess --type execute --verbose=2 "$APP" || echo "(spctl needs notarization to pass; see --notarize)"
 fi
 
-ZIP=dist/acswarm-$VERSION-macos.zip
-rm -f "$ZIP"
-ditto -c -k --keepParent "$DIST" "$ZIP"
-
+# Notarize the app first (via a zip) so the ticket can be stapled to it
+# before it goes into the disk image; then notarize and staple the image.
 if (( NOTARIZE )); then
+  ZIP=dist/acswarm-$VERSION-app.zip
+  rm -f "$ZIP" && ditto -c -k --keepParent "$APP" "$ZIP"
   xcrun notarytool submit "$ZIP" --keychain-profile acswarm --wait
   xcrun stapler staple "$APP"
-  # Re-zip with the ticket stapled to the app.
-  rm -f "$ZIP" && ditto -c -k --keepParent "$DIST" "$ZIP"
+  rm -f "$ZIP"
   spctl --assess --type execute --verbose=2 "$APP"
 fi
-echo "release: $ZIP"
+
+DMG=dist/acswarm-$VERSION-macos.dmg
+rm -f "$DMG"
+ln -sfn /Applications "$DIST/Applications"
+hdiutil create -volname "acswarm $VERSION" -srcfolder "$DIST" -fs HFS+ -format UDZO -ov "$DMG"
+rm -f "$DIST/Applications"
+if (( ! UNSIGNED )); then
+  codesign --force --timestamp --sign "$SIGN_ID" "$DMG"
+fi
+if (( NOTARIZE )); then
+  xcrun notarytool submit "$DMG" --keychain-profile acswarm --wait
+  xcrun stapler staple "$DMG"
+  spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+fi
+echo "release: $DMG"

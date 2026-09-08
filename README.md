@@ -276,8 +276,8 @@ in [`scripts/examples/`](scripts/examples/README.md); the plugin is
 
 ## Releases
 
-Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: archives for
-macOS (`acswarm.app` plus the tools), Windows (x86_64 zip) and Linux
+Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: a macOS disk
+image (`acswarm.app` plus the tools), Windows (x86_64 zip) and Linux
 (x86_64 tar.gz, built on Ubuntu 22.04 for glibc compatibility) are
 attached to a GitHub release with generated notes. Run it by hand from
 the Actions tab to try the builds without tagging. Signing happens when
@@ -293,10 +293,11 @@ anyway"). Linux binaries are not signed.
 `tools/release/macos.sh VERSION` builds the binaries, wraps the viewer
 in `acswarm.app` (with `acbot`, `acclient`, `aclauncher` and the example
 scripts beside it), signs everything with the "Developer ID Application"
-identity in the login keychain (hardened runtime, timestamp) and zips
-`dist/acswarm-VERSION-macos.zip`. Add `--notarize` to submit the zip to
-Apple, staple the ticket and re-zip -- needed once so Gatekeeper opens
-it on other Macs; store the credentials first with
+identity in the login keychain (hardened runtime, timestamp) and packs
+it all into `dist/acswarm-VERSION-macos.dmg` with an Applications
+shortcut. Add `--notarize` to submit the app and then the disk image to
+Apple and staple both tickets -- needed so Gatekeeper opens it on other
+Macs; store the credentials first with
 `xcrun notarytool store-credentials acswarm --apple-id ... --team-id ...
 --password <app-specific password>`. `--universal` builds for Apple
 silicon and Intel in one binary.
