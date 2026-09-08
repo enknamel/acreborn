@@ -24,6 +24,11 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   BINS: -p acviewer -p acbot -p acclient -p aclauncher
+  # A step's own `env` is not visible to its `if`, so whether a secret is
+  # set is decided here, at the workflow level.
+  HAS_MACOS_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+  HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
+  HAS_WINDOWS_CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
 
 jobs:
   version:
@@ -74,7 +79,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release $env:BINS.Split(' ')
       - name: Sign (when a certificate is provided)
-        if: env.PFX != ''
+        if: env.HAS_WINDOWS_CERT == 'true'
         env:
           PFX: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           PFX_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
@@ -108,7 +113,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Import the signing certificate (when provided)
-        if: env.P12 != ''
+        if: env.HAS_MACOS_CERT == 'true'
         env:
           P12: ${{ secrets.MACOS_CERT_P12_BASE64 }}
           P12_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -122,7 +127,7 @@ jobs:
           rm cert.p12
           echo "SIGNED=1" >> "$GITHUB_ENV"
       - name: Store notarization credentials (when provided)
-        if: env.APPLE_ID != '' && env.SIGNED == '1'
+        if: env.HAS_APPLE_ID == 'true' && env.SIGNED == '1'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
