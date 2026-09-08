@@ -790,13 +790,6 @@ impl Client {
             return Vec::new();
         };
         let trained = crate::buffs::trained_skills(&self.world.stats.skills);
-        let armour: Vec<u32> = self
-            .world
-            .wielded()
-            // Armour, not clothing: a bane on a shirt hardens nothing.
-            .filter(|o| o.item_type & ac_world::item_type::ARMOR != 0)
-            .map(|o| o.guid)
-            .collect();
         let least = self.autoplay.config.buffs.least_chance;
         // Likely enough to land, and with the components and mana to
         // try: a wand not yet in hand is the one lack that does not
@@ -808,6 +801,12 @@ impl Client {
                     crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster
                 )
         };
+        // Anything the armour spells could harden: armour, clothing or
+        // a shield, since a cast at ourselves lands on all of it.
+        let wears_armour = self.world.wielded().any(|o| {
+            o.item_type & (ac_world::item_type::ARMOR | ac_world::item_type::CLOTHING) != 0
+                || o.valid_locations & ac_world::equip::SHIELD != 0
+        });
         // The weapon in hand decides which weapon skill is worth a buff.
         let weapon_skill = match self.combat_stance() {
             Stance::Magic => Some(0),
@@ -827,7 +826,8 @@ impl Client {
             known: &self.world.stats.spells,
             trained: &trained,
             stance: self.combat_stance(),
-            armour: &armour,
+            guid: self.world.player_guid.unwrap_or(0),
+            wears_armour,
             usable: &usable,
             weapon_skill,
         };

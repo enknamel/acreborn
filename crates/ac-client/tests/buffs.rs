@@ -37,13 +37,13 @@ fn a_swordsman_gets_his_own_masteries_and_the_highest_level_he_can_land() {
         BLOOD_DRINKER_SELF_VI,
         SPIRIT_DRINKER_SELF_VI,
     ];
-    let armour = [0x8000_0001u32, 0x8000_0002];
     let all = |_: u32| true;
     let me = Character {
         known: &known,
         trained: &[HEAVY_WEAPONS],
         stance: Stance::Melee,
-        armour: &armour,
+        guid: 0x5000_0001,
+        wears_armour: true,
         usable: &all,
         weapon_skill: Some(HEAVY_WEAPONS),
     };
@@ -61,7 +61,8 @@ fn a_swordsman_gets_his_own_masteries_and_the_highest_level_he_can_land() {
     // The weapon aura, not the caster's.
     assert!(spells.contains(&BLOOD_DRINKER_SELF_VI));
     assert!(!spells.contains(&SPIRIT_DRINKER_SELF_VI));
-    // Impenetrability on each piece of armour.
+    // Impenetrability once, cast at ourselves: the server spreads it
+    // over everything worn.
     let on_armour: Vec<u32> = wants
         .iter()
         .filter(|w| w.spell == IMPENETRABILITY_VI)
@@ -70,7 +71,15 @@ fn a_swordsman_gets_his_own_masteries_and_the_highest_level_he_can_land() {
             Target::Me => None,
         })
         .collect();
-    assert_eq!(on_armour, armour);
+    assert_eq!(on_armour, vec![0x5000_0001]);
+    // Nothing worn: nothing to harden.
+    let bare = Character {
+        wears_armour: false,
+        ..me
+    };
+    assert!(!wanted(&table, &bare)
+        .iter()
+        .any(|w| w.spell == IMPENETRABILITY_VI));
 
     // The same character as a mage: the other mastery and the other aura.
     let mage = Character {

@@ -14,8 +14,10 @@
 //!   weapon skills, only the one for the weapon in hand;
 //! * the Item auras that suit the way it fights: damage, speed and
 //!   accuracy for a weapon in hand, the caster's own for a wand;
-//! * and, on each piece of armour it wears, the Item spells that
-//!   harden it: Impenetrability and the banes.
+//! * and the Item spells that harden what it wears, Impenetrability
+//!   and the banes. Cast on the character itself, each of those lands
+//!   on every enchantable piece worn and the shield at once, so it is
+//!   one cast a spell rather than one a piece.
 //!
 //! Of each, the highest level it can actually land. Knowing a spell is
 //! not the same as being able to cast it: every spell has a power, the
@@ -49,7 +51,9 @@ pub struct Want {
 pub enum Target {
     /// Cast on the character (an untargeted cast).
     Me,
-    /// Cast on an item the character wears.
+    /// Cast at a thing by guid. For the armour spells that thing is the
+    /// character itself: the server spreads a targeted Impenetrability
+    /// or bane over everything worn.
     Item(u32),
 }
 
@@ -61,8 +65,10 @@ pub struct Character<'a> {
     pub trained: &'a [u32],
     /// How it fights, from what is in its hands.
     pub stance: Stance,
-    /// Guids of the armour it wears.
-    pub armour: &'a [u32],
+    /// The character's own guid, and whether it wears anything the
+    /// armour spells could harden.
+    pub guid: u32,
+    pub wears_armour: bool,
     /// The skill of the weapon in hand, when one is: only that weapon
     /// skill is buffed. `Some(0)` for a caster, which uses none; `None`
     /// for empty hands, when every trained weapon skill is fair.
@@ -140,11 +146,10 @@ pub fn wanted(table: &SpellTable, me: &Character) -> Vec<Want> {
             if keep {
                 offer(id, sp, Target::Me);
             }
-        } else if sp.school == school::ITEM && fx.is_armor() {
-            // Impenetrability and the banes go on each piece worn.
-            for &guid in me.armour {
-                offer(id, sp, Target::Item(guid));
-            }
+        } else if sp.school == school::ITEM && fx.is_armor() && me.wears_armour {
+            // Impenetrability and the banes, cast at ourselves: the
+            // server puts them on every piece worn.
+            offer(id, sp, Target::Item(me.guid));
         }
     }
     best.into_iter()
