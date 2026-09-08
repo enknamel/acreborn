@@ -660,6 +660,18 @@ impl Player {
             return false;
         }
         let old = self.world_position();
+        tracing::trace!(
+            "update: airborne {} cell {:#010x} at {:?} heading {:.2} vel {:?}",
+            self.airborne,
+            self.cell,
+            self.local,
+            self.heading,
+            if self.airborne {
+                self.air_velocity
+            } else {
+                self.ground_velocity
+            }
+        );
         let vel = if self.airborne {
             self.air_velocity
         } else {
@@ -686,6 +698,14 @@ impl Player {
                     // Where the step began: walls we start in front of
                     // hold us, ledges are measured from our feet.
                     let w = c.walk(old, world, &cap);
+                    tracing::trace!(
+                        "walk {blk:#010x}: {:?} -> {:?} gives {:?}, floor {:?}, blocked {}",
+                        old - ac_world::landblock_origin(blk),
+                        world - ac_world::landblock_origin(blk),
+                        w.pos - ac_world::landblock_origin(blk),
+                        w.floor,
+                        w.blocked
+                    );
                     if w.blocked {
                         blocked = true;
                         break;
