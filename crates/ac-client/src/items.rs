@@ -1,8 +1,9 @@
 //! Carried items as searchable records: what an item is from its object
 //! description, plus its numbers once it has been appraised (damage,
 //! armor level, spells, wield requirement...). [`Query`] parses an
-//! inventory search line ("dmg>10 spell:blood type:weapon") and
-//! [`ItemStats::matches`] tests an item against it.
+//! inventory search line ("dmg>10 spell:blood type:weapon", "slot:ring
+//! epics>=2", "hauberk \"epic life magic\"", "(ring or bracelet) not
+//! minors>0") and [`ItemStats::matches`] tests an item against it.
 
 use crate::Client;
 use ac_net::messages::Appraisal;
@@ -369,12 +370,54 @@ impl ItemStats {
             NumKey::Stack => Some(self.stack as f64),
             NumKey::Attack => Some((self.attack_bonus - 1.0) * 100.0),
             NumKey::Defense => Some((self.defense_bonus - 1.0) * 100.0),
+            // Spell counts are known once appraised (or when the
+            // description itself names a spell, a scroll's say); an
+            // unknown list is not an empty one.
+            NumKey::Spells => self.spells_known().then_some(self.spells.len() as f64),
+            NumKey::Cantrips => self.spells_known().then_some(self.tiers().count() as f64),
+            NumKey::Minors => self.tier_count(Tier::Minor),
+            NumKey::Moderates => self.tier_count(Tier::Moderate),
+            NumKey::Majors => self.tier_count(Tier::Major),
+            NumKey::Epics => self.tier_count(Tier::Epic),
+            NumKey::Legendaries => self.tier_count(Tier::Legendary),
         }
     }
 
-    /// Whether the item matches every term of the query.
+    fn spells_known(&self) -> bool {
+        self.appraised || !self.spells.is_empty()
+    }
+
+    fn tier_count(&self, tier: Tier) -> Option<f64> {
+        self.spells_known().then_some(self.cantrips(tier) as f64)
+    }
+
+    /// Whether the item matches the query (an empty one matches all).
     pub fn matches(&self, q: &Query) -> bool {
-        q.terms.iter().all(|t| self.matches_term(t))
+        q.expr.as_ref().is_none_or(|e| self.matches_expr(e))
+    }
+
+    fn matches_expr(&self, e: &Expr) -> bool {
+        match e {
+            Expr::Term(t) => self.matches_term(t),
+            Expr::Not(inner) => !self.matches_expr(inner),
+            Expr::And(all) => all.iter().all(|e| self.matches_expr(e)),
+            Expr::Or(any) => any.iter().any(|e| self.matches_expr(e)),
+        }
+    }
+
+    /// The cantrip tier of each spell on the item that is one.
+    pub fn tiers(&self) -> impl Iterator<Item = Tier> + '_ {
+        self.spells.iter().filter_map(|s| Tier::of_spell(s))
+    }
+
+    /// How many cantrips of `tier` the item carries.
+    pub fn cantrips(&self, tier: Tier) -> usize {
+        self.tiers().filter(|t| *t == tier).count()
+    }
+
+    /// Whether the item goes in `slot` (see [`slot_mask`]).
+    pub fn fits_slot(&self, slot: u32) -> bool {
+        self.valid_locations & slot != 0
     }
 
     fn matches_term(&self, t: &Term) -> bool {
@@ -385,16 +428,137 @@ impl ItemStats {
                     || has(self.material, w)
                     || has(self.kind, w)
                     || self.spells.iter().any(|s| has(s, w))
+                    || slot_mask(w).is_some_and(|m| self.fits_slot(m))
             }
             Term::Spell(w) => self.spells.iter().any(|s| has(s, w)),
             Term::Kind(w) => self.kind == w || (w == "weapon" && self.damage_high > 0),
             Term::Material(w) => has(self.material, w),
             Term::Skill(w) => has(&self.weapon_skill, w) || has(&self.wield_skill, w),
+            Term::Slot(mask) => self.fits_slot(*mask),
+            Term::Tier(tier) => self.cantrips(*tier) > 0,
             Term::Wielded => self.wielded,
             Term::Unappraised => !self.appraised,
             Term::Num(key, op, v) => self.number(*key).is_some_and(|x| op.test(x, *v)),
         }
     }
+}
+
+/// A cantrip's tier, read off the front of its name ("Epic Strength",
+/// "Legendary Life Magic Aptitude"): what an item's spell list says, not
+/// what is cast.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Tier {
+    Minor,
+    Moderate,
+    Major,
+    Epic,
+    Legendary,
+}
+
+impl Tier {
+    pub const ALL: [Tier; 5] = [
+        Tier::Minor,
+        Tier::Moderate,
+        Tier::Major,
+        Tier::Epic,
+        Tier::Legendary,
+    ];
+
+    /// The word a query uses for the tier.
+    pub fn word(self) -> &'static str {
+        match self {
+            Tier::Minor => "minor",
+            Tier::Moderate => "moderate",
+            Tier::Major => "major",
+            Tier::Epic => "epic",
+            Tier::Legendary => "legendary",
+        }
+    }
+
+    /// The tier named by a query word ("epic"), if any.
+    pub fn parse(word: &str) -> Option<Tier> {
+        Tier::ALL.into_iter().find(|t| t.word() == word)
+    }
+
+    /// The tier a spell name starts with, if it is a cantrip's.
+    pub fn of_spell(name: &str) -> Option<Tier> {
+        let lower = name.to_lowercase();
+        Tier::ALL.into_iter().find(|t| {
+            lower
+                .strip_prefix(t.word())
+                .is_some_and(|rest| rest.starts_with(' '))
+        })
+    }
+}
+
+/// Where an item is worn, as `valid_locations` bits (ACE `EquipMask`).
+/// The weapon and shield bits live in `ac_world::equip`.
+pub mod slot {
+    pub const HEAD: u32 = 0x1;
+    pub const CHEST_WEAR: u32 = 0x2;
+    pub const ABDOMEN_WEAR: u32 = 0x4;
+    pub const UPPER_ARM_WEAR: u32 = 0x8;
+    pub const LOWER_ARM_WEAR: u32 = 0x10;
+    pub const HANDS: u32 = 0x20;
+    pub const UPPER_LEG_WEAR: u32 = 0x40;
+    pub const LOWER_LEG_WEAR: u32 = 0x80;
+    pub const FEET: u32 = 0x100;
+    pub const CHEST_ARMOR: u32 = 0x200;
+    pub const ABDOMEN_ARMOR: u32 = 0x400;
+    pub const UPPER_ARM_ARMOR: u32 = 0x800;
+    pub const LOWER_ARM_ARMOR: u32 = 0x1000;
+    pub const UPPER_LEG_ARMOR: u32 = 0x2000;
+    pub const LOWER_LEG_ARMOR: u32 = 0x4000;
+    pub const NECK: u32 = 0x8000;
+    pub const WRIST: u32 = 0x1_0000 | 0x2_0000;
+    pub const FINGER: u32 = 0x4_0000 | 0x8_0000;
+    pub const TRINKET: u32 = 0x400_0000;
+    pub const CLOAK: u32 = 0x800_0000;
+    pub const SIGIL: u32 = 0x1000_0000 | 0x2000_0000 | 0x4000_0000;
+    pub const CHEST: u32 = CHEST_WEAR | CHEST_ARMOR;
+    pub const ABDOMEN: u32 = ABDOMEN_WEAR | ABDOMEN_ARMOR;
+    pub const UPPER_ARMS: u32 = UPPER_ARM_WEAR | UPPER_ARM_ARMOR;
+    pub const LOWER_ARMS: u32 = LOWER_ARM_WEAR | LOWER_ARM_ARMOR;
+    pub const UPPER_LEGS: u32 = UPPER_LEG_WEAR | UPPER_LEG_ARMOR;
+    pub const LOWER_LEGS: u32 = LOWER_LEG_WEAR | LOWER_LEG_ARMOR;
+    pub const ARMS: u32 = UPPER_ARMS | LOWER_ARMS;
+    pub const LEGS: u32 = UPPER_LEGS | LOWER_LEGS;
+}
+
+/// The slot words a query may use (`slot:ring`), with their bits.
+pub const SLOTS: [(&str, u32); 27] = [
+    ("head", slot::HEAD),
+    ("chest", slot::CHEST),
+    ("abdomen", slot::ABDOMEN),
+    ("arms", slot::ARMS),
+    ("upperarms", slot::UPPER_ARMS),
+    ("lowerarms", slot::LOWER_ARMS),
+    ("hands", slot::HANDS),
+    ("legs", slot::LEGS),
+    ("upperlegs", slot::UPPER_LEGS),
+    ("lowerlegs", slot::LOWER_LEGS),
+    ("feet", slot::FEET),
+    ("neck", slot::NECK),
+    ("necklace", slot::NECK),
+    ("bracelet", slot::WRIST),
+    ("wrist", slot::WRIST),
+    ("ring", slot::FINGER),
+    ("finger", slot::FINGER),
+    ("trinket", slot::TRINKET),
+    ("cloak", slot::CLOAK),
+    ("sigil", slot::SIGIL),
+    ("aetheria", slot::SIGIL),
+    ("melee", ac_world::equip::MELEE_WEAPON),
+    ("shield", ac_world::equip::SHIELD),
+    ("missile", ac_world::equip::MISSILE_WEAPON),
+    ("ammo", ac_world::equip::MISSILE_AMMO),
+    ("wand", ac_world::equip::HELD),
+    ("twohanded", ac_world::equip::TWO_HANDED),
+];
+
+/// The `valid_locations` bits a slot word names, if it is one.
+pub fn slot_mask(word: &str) -> Option<u32> {
+    SLOTS.iter().find(|(w, _)| *w == word).map(|(_, m)| *m)
 }
 
 /// Numeric fields a query can compare and a list can sort by.
@@ -414,6 +578,15 @@ pub enum NumKey {
     Stack,
     Attack,
     Defense,
+    /// Spells on the item, all of them.
+    Spells,
+    /// Cantrips of any tier, and of each.
+    Cantrips,
+    Minors,
+    Moderates,
+    Majors,
+    Epics,
+    Legendaries,
 }
 
 impl NumKey {
@@ -434,6 +607,13 @@ impl NumKey {
             "stack" | "count" => NumKey::Stack,
             "attack" | "atk" => NumKey::Attack,
             "defense" | "def" => NumKey::Defense,
+            "spells" => NumKey::Spells,
+            "cantrips" => NumKey::Cantrips,
+            "minors" => NumKey::Minors,
+            "moderates" => NumKey::Moderates,
+            "majors" => NumKey::Majors,
+            "epics" => NumKey::Epics,
+            "legendaries" => NumKey::Legendaries,
             _ => return None,
         })
     }
@@ -454,6 +634,13 @@ impl NumKey {
             NumKey::Stack => "stack",
             NumKey::Attack => "attack bonus",
             NumKey::Defense => "defense bonus",
+            NumKey::Spells => "spells",
+            NumKey::Cantrips => "cantrips",
+            NumKey::Minors => "minor cantrips",
+            NumKey::Moderates => "moderate cantrips",
+            NumKey::Majors => "major cantrips",
+            NumKey::Epics => "epic cantrips",
+            NumKey::Legendaries => "legendary cantrips",
         }
     }
 
@@ -487,7 +674,8 @@ impl Op {
 /// One term of a query.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Term {
-    /// Matches the name, material, kind or a spell name.
+    /// Matches the name, material, kind, a spell name or a slot word. A
+    /// quoted phrase (`"epic life magic"`) is one word, spaces and all.
     Word(String),
     /// `spell:blood`
     Spell(String),
@@ -497,68 +685,350 @@ pub enum Term {
     Material(String),
     /// `skill:sword` (the weapon's skill or the wield requirement)
     Skill(String),
+    /// `slot:ring` (see [`SLOTS`])
+    Slot(u32),
+    /// `tier:epic`: at least one cantrip of the tier.
+    Tier(Tier),
     /// `wielded`
     Wielded,
     /// `unappraised`
     Unappraised,
-    /// `dmg>10`, `al>=200`, `value<100`
+    /// `dmg>10`, `al>=200`, `value<100`, `epics>=2`
     Num(NumKey, Op, f64),
 }
 
+/// A query as a tree: terms joined by `and` (a space), `or`, `not` (or a
+/// leading `-`) and parentheses.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Expr {
+    Term(Term),
+    Not(Box<Expr>),
+    And(Vec<Expr>),
+    Or(Vec<Expr>),
+}
+
+impl Expr {
+    /// Every term in the tree.
+    pub fn terms(&self) -> Vec<&Term> {
+        match self {
+            Expr::Term(t) => vec![t],
+            Expr::Not(e) => e.terms(),
+            Expr::And(es) | Expr::Or(es) => es.iter().flat_map(|e| e.terms()).collect(),
+        }
+    }
+}
+
 /// A parsed search line. Words are matched case-insensitively as
-/// substrings; every term must hold.
+/// substrings; a space between terms means both must hold, `or` means
+/// either, `not x` (or `-x`) means the opposite, and parentheses group:
+/// `a b or c` is `(a and b) or c`. Bad input never fails to parse, it
+/// just means less (see [`Query::check`] for what was wrong with it).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Query {
-    pub terms: Vec<Term>,
+    pub expr: Option<Expr>,
+}
+
+/// A piece of a search line as the tokenizer cuts it.
+#[derive(Clone, Debug, PartialEq)]
+enum Token {
+    Open,
+    Close,
+    Or,
+    And,
+    Not,
+    /// A word, and whether it was quoted (a quoted `or` is a word).
+    Word(String),
+}
+
+/// Cut a line into tokens: parentheses stand alone even when stuck to a
+/// word, double quotes hold a phrase together (`"epic life"` or
+/// `spell:"life magic"`), and a leading `-` on a word is a `not`.
+fn tokenize(line: &str) -> Vec<Token> {
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let mut chars = line.chars().peekable();
+    let flush = |word: &mut String, out: &mut Vec<Token>| {
+        if word.is_empty() {
+            return;
+        }
+        let w = std::mem::take(word);
+        let lower = w.to_lowercase();
+        out.push(match lower.as_str() {
+            "or" | "|" | "||" => Token::Or,
+            "and" | "&" | "&&" => Token::And,
+            "not" | "!" => Token::Not,
+            _ => Token::Word(lower),
+        });
+    };
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_whitespace() => flush(&mut word, &mut out),
+            '(' => {
+                flush(&mut word, &mut out);
+                out.push(Token::Open);
+            }
+            ')' => {
+                flush(&mut word, &mut out);
+                out.push(Token::Close);
+            }
+            '-' | '!' if word.is_empty() && chars.peek().is_some_and(|n| !n.is_whitespace()) => {
+                out.push(Token::Not);
+            }
+            '"' => {
+                // A phrase: whatever was typed before the quote (a
+                // `spell:` key) stays in front of it.
+                for c in chars.by_ref() {
+                    if c == '"' {
+                        break;
+                    }
+                    word.push(c);
+                }
+                let w = std::mem::take(&mut word).to_lowercase();
+                if !w.is_empty() {
+                    out.push(Token::Word(w));
+                }
+            }
+            c => word.push(c),
+        }
+    }
+    flush(&mut word, &mut out);
+    out
+}
+
+/// A recursive-descent parser over the tokens that never fails: a
+/// stray `)` is skipped, a missing one closes at the end of the line,
+/// an `or` with nothing on one side joins what there is.
+struct Parser<'a> {
+    tokens: &'a [Token],
+    at: usize,
+    problems: Vec<String>,
+}
+
+impl Parser<'_> {
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.at)
+    }
+
+    fn or_expr(&mut self) -> Option<Expr> {
+        let mut parts = Vec::new();
+        loop {
+            if let Some(e) = self.and_expr() {
+                parts.push(e);
+            }
+            if self.peek() == Some(&Token::Or) {
+                self.at += 1;
+                if self.peek().is_none() || self.peek() == Some(&Token::Close) {
+                    self.problems.push("nothing after `or`".into());
+                }
+                continue;
+            }
+            break;
+        }
+        match parts.len() {
+            0 => None,
+            1 => parts.pop(),
+            _ => Some(Expr::Or(parts)),
+        }
+    }
+
+    fn and_expr(&mut self) -> Option<Expr> {
+        let mut parts = Vec::new();
+        loop {
+            match self.peek() {
+                None | Some(Token::Or) | Some(Token::Close) => break,
+                Some(Token::And) => {
+                    self.at += 1;
+                }
+                _ => {
+                    if let Some(e) = self.unary() {
+                        parts.push(e);
+                    }
+                }
+            }
+        }
+        match parts.len() {
+            0 => None,
+            1 => parts.pop(),
+            _ => Some(Expr::And(parts)),
+        }
+    }
+
+    fn unary(&mut self) -> Option<Expr> {
+        let tok = self.peek()?.clone();
+        self.at += 1;
+        match tok {
+            Token::Not => {
+                let inner = self.unary();
+                if inner.is_none() {
+                    self.problems.push("nothing after `not`".into());
+                }
+                inner.map(|e| Expr::Not(Box::new(e)))
+            }
+            Token::Open => {
+                let inner = self.or_expr();
+                if self.peek() == Some(&Token::Close) {
+                    self.at += 1;
+                } else {
+                    self.problems.push("a `(` without its `)`".into());
+                }
+                if inner.is_none() {
+                    self.problems.push("empty parentheses".into());
+                }
+                inner
+            }
+            Token::Close => {
+                self.problems.push("a `)` without its `(`".into());
+                None
+            }
+            // `and`/`or` here is a stray one; the loops above eat the
+            // meaningful ones.
+            Token::And | Token::Or => None,
+            Token::Word(w) => {
+                let (term, problem) = parse_term(&w);
+                if let Some(p) = problem {
+                    self.problems.push(p);
+                }
+                Some(Expr::Term(term))
+            }
+        }
+    }
+}
+
+/// One word as a term, and what was doubtful about it (an unknown key
+/// still becomes a plain word, so the query keeps working).
+fn parse_term(w: &str) -> (Term, Option<String>) {
+    match parse_num(w) {
+        Ok(Some(t)) => return (t, None),
+        Ok(None) => {}
+        Err(problem) => return (Term::Word(w.to_string()), Some(problem)),
+    }
+    if let Some((k, v)) = w.split_once(':') {
+        let v = v.to_string();
+        if v.is_empty() {
+            return (
+                Term::Word(w.to_string()),
+                Some(format!("nothing after `{k}:`")),
+            );
+        }
+        return match k {
+            "spell" | "spells" => (Term::Spell(v), None),
+            "type" | "kind" | "is" => (Term::Kind(v), None),
+            "mat" | "material" => (Term::Material(v), None),
+            "skill" => (Term::Skill(v), None),
+            "slot" | "wear" => match slot_mask(&v) {
+                Some(m) => (Term::Slot(m), None),
+                None => (
+                    Term::Word(w.to_string()),
+                    Some(format!(
+                        "unknown slot `{v}` (try {})",
+                        SLOTS.iter().map(|(w, _)| *w).collect::<Vec<_>>().join(", ")
+                    )),
+                ),
+            },
+            "tier" | "cantrip" => match Tier::parse(&v) {
+                Some(t) => (Term::Tier(t), None),
+                None => (
+                    Term::Word(w.to_string()),
+                    Some(format!(
+                        "unknown tier `{v}` (minor, moderate, major, epic, legendary)"
+                    )),
+                ),
+            },
+            _ => (
+                Term::Word(w.to_string()),
+                Some(format!("unknown key `{k}:`")),
+            ),
+        };
+    }
+    (
+        match w {
+            "wielded" | "worn" => Term::Wielded,
+            "unappraised" => Term::Unappraised,
+            _ => Term::Word(w.to_string()),
+        },
+        None,
+    )
+}
+
+impl Parser<'_> {
+    /// The whole line. Anything left over after the first expression (a
+    /// stray `)`) is skipped and what follows it joined on with `and`,
+    /// so nothing typed is silently dropped.
+    fn line(&mut self) -> Option<Expr> {
+        let mut expr = self.or_expr();
+        while self.at < self.tokens.len() {
+            if self.peek() == Some(&Token::Close) {
+                self.problems.push("a `)` without its `(`".into());
+                self.at += 1;
+            }
+            if let Some(more) = self.or_expr() {
+                expr = Some(match expr {
+                    Some(Expr::And(mut all)) => {
+                        all.push(more);
+                        Expr::And(all)
+                    }
+                    Some(e) => Expr::And(vec![e, more]),
+                    None => more,
+                });
+            } else if self.peek() != Some(&Token::Close) {
+                self.at += 1;
+            }
+        }
+        expr
+    }
 }
 
 impl Query {
     pub fn parse(line: &str) -> Query {
-        let mut terms = Vec::new();
-        for raw in line.split_whitespace() {
-            let w = raw.to_lowercase();
-            if let Some(t) = parse_num(&w) {
-                terms.push(t);
-                continue;
-            }
-            if let Some((k, v)) = w.split_once(':') {
-                if v.is_empty() {
-                    continue;
-                }
-                let v = v.to_string();
-                terms.push(match k {
-                    "spell" | "spells" => Term::Spell(v),
-                    "type" | "kind" | "is" => Term::Kind(v),
-                    "mat" | "material" => Term::Material(v),
-                    "skill" => Term::Skill(v),
-                    _ => Term::Word(w.clone()),
-                });
-                continue;
-            }
-            terms.push(match w.as_str() {
-                "wielded" | "worn" => Term::Wielded,
-                "unappraised" => Term::Unappraised,
-                _ => Term::Word(w),
-            });
+        let tokens = tokenize(line);
+        let mut p = Parser {
+            tokens: &tokens,
+            at: 0,
+            problems: Vec::new(),
+        };
+        Query { expr: p.line() }
+    }
+
+    /// What is wrong with a line, for a rule editor to show: unbalanced
+    /// parentheses, an unknown key (`foo:bar`, `x<3`), a dangling `or`.
+    /// The line still parses (see [`Query::parse`]); this only says
+    /// whether it means what was typed.
+    pub fn check(line: &str) -> Result<(), String> {
+        let tokens = tokenize(line);
+        let mut p = Parser {
+            tokens: &tokens,
+            at: 0,
+            problems: Vec::new(),
+        };
+        let _ = p.line();
+        match p.problems.first() {
+            None => Ok(()),
+            Some(first) => Err(first.clone()),
         }
-        Query { terms }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.terms.is_empty()
+        self.expr.is_none()
+    }
+
+    /// Every term of the query, whatever joins them.
+    pub fn terms(&self) -> Vec<&Term> {
+        self.expr.as_ref().map(|e| e.terms()).unwrap_or_default()
     }
 
     /// Whether any term needs the items to have been appraised.
     pub fn needs_appraisal(&self) -> bool {
-        self.terms.iter().any(|t| match t {
+        self.terms().iter().any(|t| match t {
             Term::Num(k, _, _) => k.needs_appraisal(),
-            Term::Spell(_) | Term::Skill(_) => true,
+            Term::Spell(_) | Term::Skill(_) | Term::Tier(_) => true,
             _ => false,
         })
     }
 }
 
-fn parse_num(w: &str) -> Option<Term> {
+/// `dmg>10` as a term: `Ok(None)` when the word has no comparison in
+/// it, `Err` when it has one but the key or the number is not right.
+fn parse_num(w: &str) -> Result<Option<Term>, String> {
     for (sym, op) in [
         (">=", Op::Ge),
         ("<=", Op::Le),
@@ -567,13 +1037,33 @@ fn parse_num(w: &str) -> Option<Term> {
         ("=", Op::Eq),
     ] {
         if let Some((k, v)) = w.split_once(sym) {
-            let key = NumKey::parse(k)?;
-            let v: f64 = v.parse().ok()?;
-            return Some(Term::Num(key, op, v));
+            let Some(key) = NumKey::parse(k) else {
+                return Err(format!("unknown number `{k}`"));
+            };
+            let Ok(v) = v.parse::<f64>() else {
+                return Err(format!("`{v}` is not a number"));
+            };
+            return Ok(Some(Term::Num(key, op, v)));
         }
     }
-    None
+    Ok(None)
 }
+
+/// The language in a few lines, for a help popover.
+pub const HELP: &[(&str, &str)] = &[
+    ("word", "name, material, kind, spell or slot contains it"),
+    ("\"epic life magic\"", "a phrase, matched whole"),
+    ("a b", "both must hold"),
+    ("a or b", "either; a b or c is (a and b) or c"),
+    ("not a, -a", "the opposite"),
+    ("(a or b) c", "parentheses group"),
+    ("value>250, al>=200, dmg>10", "numbers: value, burden, ws, dmg, al, speed, wield, mana, sc, uses, tinks, stack, atk, def"),
+    ("epics>=2, legendaries>=1, majors, minors, cantrips, spells>=3", "how many cantrips of a tier (or spells at all) are on it"),
+    ("tier:epic", "at least one cantrip of the tier"),
+    ("slot:ring", "where it is worn: head, chest, abdomen, arms, hands, legs, feet, neck, bracelet, ring, trinket, cloak, sigil, melee, shield, missile, ammo, wand, twohanded"),
+    ("spell:blood, type:armor, mat:iron, skill:sword", "one field"),
+    ("wielded, unappraised", "flags"),
+];
 
 /// The order of a sorted list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -856,7 +1346,7 @@ mod tests {
     fn parses_terms() {
         let q = Query::parse("Sword dmg>10 al>=100 spell:blood type:armor mat:iron wielded x<3");
         assert_eq!(
-            q.terms,
+            q.terms().into_iter().cloned().collect::<Vec<_>>(),
             vec![
                 Term::Word("sword".into()),
                 Term::Num(NumKey::Damage, Op::Gt, 10.0),
@@ -869,9 +1359,227 @@ mod tests {
                 Term::Word("x<3".into()),
             ]
         );
+        assert!(matches!(q.expr, Some(Expr::And(_))));
         assert!(q.needs_appraisal());
         assert!(!Query::parse("sword value>10").needs_appraisal());
         assert!(Query::parse("").is_empty());
+        assert!(Query::parse("   ").is_empty());
+        assert!(Query::parse("()").is_empty());
+    }
+
+    #[test]
+    fn parses_or_not_and_parentheses() {
+        let word = |w: &str| Expr::Term(Term::Word(w.into()));
+        // A space is `and`, and binds tighter than `or`.
+        assert_eq!(
+            Query::parse("a b or c").expr,
+            Some(Expr::Or(vec![
+                Expr::And(vec![word("a"), word("b")]),
+                word("c")
+            ]))
+        );
+        assert_eq!(
+            Query::parse("a (b or c)").expr,
+            Some(Expr::And(vec![
+                word("a"),
+                Expr::Or(vec![word("b"), word("c")])
+            ]))
+        );
+        // Parentheses stuck to a word still count.
+        assert_eq!(
+            Query::parse("(b or c) a").expr,
+            Some(Expr::And(vec![
+                Expr::Or(vec![word("b"), word("c")]),
+                word("a")
+            ]))
+        );
+        assert_eq!(
+            Query::parse("not a").expr,
+            Some(Expr::Not(Box::new(word("a"))))
+        );
+        assert_eq!(
+            Query::parse("-a").expr,
+            Some(Expr::Not(Box::new(word("a"))))
+        );
+        assert_eq!(
+            Query::parse("a and -b").expr,
+            Some(Expr::And(vec![word("a"), Expr::Not(Box::new(word("b")))]))
+        );
+        // A quoted phrase is one word, alone or after a key.
+        assert_eq!(
+            Query::parse("\"epic life magic\" ring").expr,
+            Some(Expr::And(vec![word("epic life magic"), word("ring")]))
+        );
+        assert_eq!(
+            Query::parse("spell:\"life magic\"").expr,
+            Some(Expr::Term(Term::Spell("life magic".into())))
+        );
+        // Bad input still means something.
+        assert_eq!(Query::parse("a or").expr, Some(word("a")));
+        assert_eq!(Query::parse("or a").expr, Some(word("a")));
+        assert_eq!(Query::parse("a)").expr, Some(word("a")));
+        assert_eq!(
+            Query::parse("(a b").expr,
+            Some(Expr::And(vec![word("a"), word("b")]))
+        );
+        assert_eq!(Query::parse("not").expr, None);
+        // The new keys.
+        assert_eq!(
+            Query::parse("slot:ring epics>=2 tier:epic spells<4")
+                .terms()
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec![
+                Term::Slot(slot::FINGER),
+                Term::Num(NumKey::Epics, Op::Ge, 2.0),
+                Term::Tier(Tier::Epic),
+                Term::Num(NumKey::Spells, Op::Lt, 4.0),
+            ]
+        );
+        assert!(Query::parse("epics>=2").needs_appraisal());
+        assert!(Query::parse("tier:epic").needs_appraisal());
+        assert!(!Query::parse("slot:ring").needs_appraisal());
+    }
+
+    #[test]
+    fn check_reports_what_is_wrong() {
+        assert_eq!(Query::check("sword dmg>10 (a or b) -c"), Ok(()));
+        assert_eq!(Query::check("\"epic life\" slot:ring epics>=2"), Ok(()));
+        assert_eq!(Query::check(""), Ok(()));
+        assert!(Query::check("(a or b").unwrap_err().contains("`(`"));
+        assert!(Query::check("a or b)").unwrap_err().contains("`)`"));
+        assert!(Query::check("x<3")
+            .unwrap_err()
+            .contains("unknown number `x`"));
+        assert!(Query::check("dmg>ten")
+            .unwrap_err()
+            .contains("not a number"));
+        assert!(Query::check("foo:bar")
+            .unwrap_err()
+            .contains("unknown key `foo:`"));
+        assert!(Query::check("slot:tail")
+            .unwrap_err()
+            .contains("unknown slot"));
+        assert!(Query::check("tier:huge")
+            .unwrap_err()
+            .contains("unknown tier"));
+        assert!(Query::check("a or").unwrap_err().contains("`or`"));
+        assert!(Query::check("a not").unwrap_err().contains("`not`"));
+        assert!(Query::check("()").unwrap_err().contains("empty"));
+        assert!(Query::check("spell:")
+            .unwrap_err()
+            .contains("nothing after"));
+    }
+
+    /// A ring, a bracelet and a hauberk with cantrips on them.
+    fn ring(spells: &[&str]) -> ItemStats {
+        ItemStats {
+            guid: 10,
+            name: "Ornate Ring".into(),
+            kind: "jewelry",
+            item_type: item_type::JEWELRY,
+            valid_locations: slot::FINGER,
+            appraised: true,
+            spells: spells.iter().map(|s| s.to_string()).collect(),
+            value: 4000,
+            ..Default::default()
+        }
+    }
+
+    fn hauberk(spells: &[&str]) -> ItemStats {
+        ItemStats {
+            guid: 11,
+            name: "Chainmail Hauberk".into(),
+            kind: "armor",
+            item_type: item_type::ARMOR,
+            valid_locations: slot::CHEST_ARMOR | slot::ABDOMEN_ARMOR | slot::UPPER_ARM_ARMOR,
+            appraised: true,
+            armor_level: 300,
+            spells: spells.iter().map(|s| s.to_string()).collect(),
+            value: 9000,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cantrip_tiers_are_read_off_spell_names() {
+        assert_eq!(Tier::of_spell("Epic Strength"), Some(Tier::Epic));
+        assert_eq!(
+            Tier::of_spell("legendary life magic aptitude"),
+            Some(Tier::Legendary)
+        );
+        assert_eq!(Tier::of_spell("Minor Coordination"), Some(Tier::Minor));
+        assert_eq!(Tier::of_spell("Moderate Focus"), Some(Tier::Moderate));
+        assert_eq!(Tier::of_spell("Major Impregnability"), Some(Tier::Major));
+        // Only at the front, and only as a whole word.
+        assert_eq!(Tier::of_spell("Blood Drinker IV"), None);
+        assert_eq!(Tier::of_spell("Epicurean's Delight"), None);
+        assert_eq!(Tier::of_spell("Strength of the Epic"), None);
+        let r = ring(&[
+            "Epic Strength",
+            "Epic Coordination",
+            "Major Focus",
+            "Blood Drinker IV",
+        ]);
+        assert_eq!(r.cantrips(Tier::Epic), 2);
+        assert_eq!(r.number(NumKey::Cantrips), Some(3.0));
+        assert_eq!(r.number(NumKey::Spells), Some(4.0));
+        assert_eq!(r.number(NumKey::Legendaries), Some(0.0));
+        // Not appraised, no spells known: the counts are unknown, not 0.
+        let mut blank = ring(&[]);
+        blank.appraised = false;
+        assert_eq!(blank.number(NumKey::Epics), None);
+        assert!(!blank.matches(&Query::parse("epics<1")));
+        assert!(ring(&[]).matches(&Query::parse("epics<1")));
+    }
+
+    #[test]
+    fn the_users_three_examples() {
+        let h = hauberk(&[
+            "Epic Life Magic Aptitude",
+            "Major Armor Self",
+            "Epic Impregnability",
+        ]);
+        let plain = hauberk(&["Minor Strength"]);
+        // "a Hauberk with Epic Life Mastery" (however the cantrip is
+        // spelt, a phrase finds it).
+        let q = Query::parse("hauberk \"epic life\"");
+        assert!(h.matches(&q));
+        assert!(!plain.matches(&q));
+        assert!(h.matches(&Query::parse("hauberk spell:\"epic life magic\"")));
+        assert!(h.matches(&Query::parse("slot:chest tier:epic \"life magic\"")));
+        // "any Ring with multiple epics".
+        let two = ring(&["Epic Strength", "Epic Coordination", "Minor Focus"]);
+        let one = ring(&["Epic Strength", "Major Coordination"]);
+        let q = Query::parse("slot:ring epics>=2");
+        assert!(two.matches(&q));
+        assert!(!one.matches(&q));
+        assert!(!h.matches(&q), "a hauberk is not a ring");
+        assert!(
+            two.matches(&Query::parse("ring epics>1")),
+            "a bare slot word"
+        );
+        // "more than 2 epics".
+        let three = ring(&["Epic Strength", "Epic Coordination", "Epic Focus"]);
+        let q = Query::parse("epics>2");
+        assert!(three.matches(&q));
+        assert!(!two.matches(&q));
+        assert!(three.matches(&Query::parse("epics>=3 or legendaries>=1")));
+        // Structure round the examples.
+        let q = Query::parse("(slot:ring or slot:bracelet) epics>=2 not minors>0");
+        assert!(two.matches(&Query::parse("(slot:ring or slot:bracelet) epics>=2")));
+        assert!(!two.matches(&q), "it has a minor on it");
+        assert!(three.matches(&q));
+        assert!(h.matches(&Query::parse("slot:chest or slot:ring")));
+        assert!(!h.matches(&Query::parse("-hauberk")));
+        assert!(h.matches(&Query::parse("armor -slot:ring")));
+        // Slot words fit any of a slot's bits.
+        assert!(h.matches(&Query::parse("slot:abdomen")));
+        assert!(!h.matches(&Query::parse("slot:legs")));
+        assert!(!h.matches(&Query::parse("slot:hands")));
+        assert_eq!(slot_mask("bracelet"), Some(slot::WRIST));
+        assert_eq!(slot_mask("tail"), None);
     }
 
     #[test]
