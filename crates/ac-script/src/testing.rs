@@ -104,6 +104,14 @@ impl Api for Recorder {
         self.record(format!("team_lead {on}"));
         on
     }
+    fn growth(&mut self, on: bool) -> bool {
+        self.record(format!("growth {on}"));
+        on
+    }
+    fn fight(&mut self, on: bool) -> bool {
+        self.record(format!("fight {on}"));
+        on
+    }
     fn follow(&mut self, on: bool) -> bool {
         self.record(format!("follow {on}"));
         on

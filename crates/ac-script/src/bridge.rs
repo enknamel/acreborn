@@ -390,6 +390,24 @@ impl Api for CtxApi<'_, '_> {
         on
     }
 
+    fn growth(&mut self, on: bool) -> bool {
+        let c = self.client();
+        let g = &mut c.autoplay.config.growth;
+        g.auto_xp = on;
+        g.hunt_grounds = on;
+        g.town_runs = on;
+        on
+    }
+
+    fn fight(&mut self, on: bool) -> bool {
+        let c = self.client();
+        c.autoplay.config.fight.enabled = on;
+        if !on {
+            c.attack_target = None;
+        }
+        on
+    }
+
     fn follow(&mut self, on: bool) -> bool {
         let c = self.client();
         c.autoplay.config.team.follow = on;

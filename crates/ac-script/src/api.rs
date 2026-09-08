@@ -82,6 +82,12 @@ pub trait Api {
     fn team_lead(&mut self, on: bool) -> bool;
     /// Follow the team's leader about (on by default).
     fn follow(&mut self, on: bool) -> bool;
+    /// The growth rules (spend experience, seek hunting grounds, run to
+    /// town) on or off; all three at once.
+    fn growth(&mut self, on: bool) -> bool;
+    /// The fight rules (pick a creature and attack it) on or off. Off,
+    /// the character still heals, buffs, loots and dodges.
+    fn fight(&mut self, on: bool) -> bool;
     /// The teammates heard from, as maps of `name`, `guid`, `health`,
     /// `role`, `target`, `target_name`, `leader`, `in_fellowship`; plus
     /// the key `me_leader` on a first map for whether this one leads.
@@ -401,6 +407,8 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("team_role", |r: &str| with_api(|a| a.team_role(r)));
     engine.register_fn("team_lead", |on: bool| with_api(|a| a.team_lead(on)));
     engine.register_fn("follow", |on: bool| with_api(|a| a.follow(on)));
+    engine.register_fn("growth", |on: bool| with_api(|a| a.growth(on)));
+    engine.register_fn("fight", |on: bool| with_api(|a| a.fight(on)));
     engine.register_fn("teammates", || with_api(|a| a.teammates()));
     engine.register_fn("travel_style", |style: &str| {
         with_api(|a| a.travel_style(style))
