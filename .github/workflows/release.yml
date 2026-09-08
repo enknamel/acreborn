@@ -24,6 +24,10 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   BINS: -p acviewer -p acbot -p acclient -p aclauncher
+  # Release archives carry no debug info (the dev profile keeps it for
+  # backtraces; it made the Linux tarball 130 MB).
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+  CARGO_PROFILE_RELEASE_STRIP: symbols
   # A step's own `env` is not visible to its `if`, so whether a secret is
   # set is decided here, at the workflow level.
   HAS_MACOS_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
