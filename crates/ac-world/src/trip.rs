@@ -12,6 +12,12 @@
 //! on foot is only believed within [`WALK_REACH`]; the character cannot
 //! walk between continents, so a trip across the sea has to be portals
 //! all the way.
+//!
+//! A recall spell the character can cast (see [`Recall`] and
+//! `crate::recalls`) is a hop from wherever it stands straight to the
+//! spell's destination, costing only the cast. The caller says which
+//! ones it can cast right now; the planner takes one when it beats the
+//! walk or the portals, and a journey can go on from where it lands.
 
 use crate::portals::{self, Portal};
 use glam::Vec2;
@@ -23,6 +29,9 @@ pub const WALK_SPEED: f32 = 5.0;
 pub const DETOUR: f32 = 1.3;
 /// Taking a portal costs this many seconds (walking into it, the load).
 pub const PORTAL_SECONDS: f32 = 20.0;
+/// Casting a recall costs this many seconds: coming to a stop, the cast
+/// itself, the server's two-second pause before the teleport, the load.
+pub const RECALL_SECONDS: f32 = 10.0;
 /// The farthest a single leg on foot is believed (metres). Longer than
 /// this and the trip has to find a portal.
 pub const WALK_REACH: f32 = 1200.0;
@@ -30,6 +39,18 @@ pub const WALK_REACH: f32 = 1200.0;
 pub const PORTAL_REACH: f32 = 900.0;
 /// Close enough to the goal to stop (metres).
 pub const ARRIVED: f32 = 15.0;
+
+/// A recall spell the character can cast right now, and where it lands:
+/// what the caller hands the planner. The destination of a named
+/// recall comes from `crate::recalls::fixed`; that of Lifestone Sending
+/// or Portal Recall is one of the character's saved positions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Recall {
+    pub spell: u32,
+    pub name: String,
+    pub exit: Vec2,
+    pub exit_cell: u32,
+}
 
 /// One step of a journey.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +67,13 @@ pub enum Step {
         exit: Vec2,
         exit_cell: u32,
     },
+    /// Stand still, cast this spell, and come out at its destination.
+    Recall {
+        spell: u32,
+        name: String,
+        exit: Vec2,
+        exit_cell: u32,
+    },
 }
 
 impl Step {
@@ -53,7 +81,21 @@ impl Step {
     pub fn end(&self) -> Vec2 {
         match self {
             Step::Walk(p) => *p,
-            Step::Portal { exit, .. } => *exit,
+            Step::Portal { exit, .. } | Step::Recall { exit, .. } => *exit,
+        }
+    }
+
+    /// Where this step takes the character, and the cell there: `None`
+    /// for a walk, whose end is wherever the ground is.
+    pub fn exit(&self) -> Option<(Vec2, u32)> {
+        match self {
+            Step::Walk(_) => None,
+            Step::Portal {
+                exit, exit_cell, ..
+            }
+            | Step::Recall {
+                exit, exit_cell, ..
+            } => Some((*exit, *exit_cell)),
         }
     }
 }
@@ -75,22 +117,31 @@ impl Trip {
             .count()
     }
 
-    /// A line for the player: "walk 320 m", "2 portals, then walk 180 m".
-    pub fn summary(&self) -> String {
-        let walk: f32 = self
-            .steps
+    /// How many recall spells it casts.
+    pub fn recalls(&self) -> usize {
+        self.steps
             .iter()
-            .filter_map(|s| match s {
-                Step::Walk(_) => Some(()),
-                _ => None,
-            })
-            .count() as f32;
-        let _ = walk;
+            .filter(|s| matches!(s, Step::Recall { .. }))
+            .count()
+    }
+
+    /// A line for the player: "on foot, about 3 min", "2 portals, about
+    /// 4 min", "Lifestone Sending, then one portal, about 2 min".
+    pub fn summary(&self) -> String {
         let mins = (self.seconds / 60.0).round() as u32;
-        match self.portals() {
-            0 => format!("on foot, about {mins} min"),
-            1 => format!("one portal, about {mins} min"),
-            n => format!("{n} portals, about {mins} min"),
+        let recall = self.steps.iter().find_map(|s| match s {
+            Step::Recall { name, .. } => Some(name.as_str()),
+            _ => None,
+        });
+        let hops = match self.portals() {
+            0 => "on foot".to_string(),
+            1 => "one portal".to_string(),
+            n => format!("{n} portals"),
+        };
+        match (recall, self.portals()) {
+            (None, _) => format!("{hops}, about {mins} min"),
+            (Some(r), 0) => format!("{r}, about {mins} min"),
+            (Some(r), _) => format!("{r}, then {hops}, about {mins} min"),
         }
     }
 }
@@ -104,7 +155,16 @@ fn walk_seconds(a: Vec2, b: Vec2) -> f32 {
 /// cannot walk out of the Town Network hub into the countryside).
 fn can_walk(a: Vec2, a_cell: u32, b: Vec2, b_cell: u32, reach: f32) -> bool {
     let indoors = |c: u32| c & 0xFFFF >= 0x100;
-    let same_block = a_cell & 0xFFFF_0000 == b_cell & 0xFFFF_0000;
+    // A goal given by position alone (cell 0) is outdoors in the block
+    // its position lies in: from inside a shop in that block, the
+    // walk out of the door is a walk, not a portal hop.
+    let block_of = |p: Vec2| (((p.x / 192.0) as u32) << 24) | (((p.y / 192.0) as u32) << 16);
+    let b_block = if b_cell == 0 {
+        block_of(b)
+    } else {
+        b_cell & 0xFFFF_0000
+    };
+    let same_block = a_cell & 0xFFFF_0000 == b_block;
     if indoors(a_cell) || indoors(b_cell) {
         // Inside, only within the same landblock (the hub, a dungeon).
         return same_block;
@@ -159,6 +219,12 @@ pub struct Prefs {
     /// How far from a spot a portal is still a candidate for the next
     /// hop, metres.
     pub portal_reach: f32,
+    /// What casting a recall is reckoned to cost, in seconds.
+    pub recall_seconds: f32,
+    /// Whether to cast recall spells at all. Off, the recalls handed to
+    /// the planner are ignored: a corpse run that must not leave the
+    /// dungeon, a character saving its components.
+    pub use_recalls: bool,
 }
 
 impl Default for Prefs {
@@ -175,6 +241,16 @@ impl Prefs {
             max_portals: 8,
             walk_reach: WALK_REACH,
             portal_reach: PORTAL_REACH,
+            recall_seconds: RECALL_SECONDS,
+            use_recalls: true,
+        }
+    }
+
+    /// The same journey without casting anything.
+    pub fn without_recalls(self) -> Self {
+        Prefs {
+            use_recalls: false,
+            ..self
         }
     }
 
@@ -243,8 +319,38 @@ pub fn plan_with(
     avoid: &[Vec2],
     prefs: Prefs,
 ) -> Option<Trip> {
-    // Straight there, when that is a believable walk.
-    if can_walk(from, from_cell, goal, 0, prefs.walk_reach) {
+    plan_with_recalls(from, from_cell, goal, level, quests_done, avoid, &[], prefs)
+}
+
+/// Which way a node of the search was reached.
+#[derive(Clone, Copy)]
+enum Edge {
+    Portal(usize),
+    Recall(usize),
+}
+
+/// [`plan_with`] for a character that can cast `recalls` right now
+/// (known, with the components and mana, and somewhere for each to
+/// go). A recall is a hop from the start straight to its destination
+/// for [`Prefs::recall_seconds`]; it is taken when that beats walking
+/// and portals, and the journey goes on from where it lands, through
+/// portals if need be. One cast at most: a second recall from where the
+/// first lands would have been no better cast from the start.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_with_recalls(
+    from: Vec2,
+    from_cell: u32,
+    goal: Vec2,
+    level: u32,
+    quests_done: &[String],
+    avoid: &[Vec2],
+    recalls: &[Recall],
+    prefs: Prefs,
+) -> Option<Trip> {
+    let recalls: &[Recall] = if prefs.use_recalls { recalls } else { &[] };
+    // Straight there, when that is a believable walk and there is no
+    // spell that might be quicker.
+    if recalls.is_empty() && can_walk(from, from_cell, goal, 0, prefs.walk_reach) {
         return Some(Trip {
             steps: vec![Step::Walk(goal)],
             seconds: walk_seconds(from, goal),
@@ -274,7 +380,7 @@ pub fn plan_with(
         at: from,
         cell: from_cell,
     }];
-    let mut came: Vec<Option<(usize, usize)>> = vec![None]; // (node, portal)
+    let mut came: Vec<Option<(usize, Edge)>> = vec![None]; // (node, how)
     let mut cost = vec![0.0f32];
     let mut queue = BinaryHeap::new();
     queue.push(Queued {
@@ -304,6 +410,28 @@ pub fn plan_with(
         if expanded > 4000 {
             break;
         }
+        // Cast a recall: from the start only, since a spell that goes to
+        // the same place from anywhere is never better cast later.
+        if q.idx == 0 {
+            for (ri, r) in recalls.iter().enumerate() {
+                let next = q.cost + prefs.recall_seconds;
+                if best.map(|(b, _)| next >= b).unwrap_or(false) {
+                    continue;
+                }
+                nodes.push(Node {
+                    at: r.exit,
+                    cell: r.exit_cell,
+                });
+                came.push(Some((q.idx, Edge::Recall(ri))));
+                cost.push(next);
+                let idx = nodes.len() - 1;
+                queue.push(Queued {
+                    cost: next,
+                    est: next + walk_seconds(r.exit, goal),
+                    idx,
+                });
+            }
+        }
         // Take a portal whose mouth we can reach from here.
         for (pi, p) in portals.iter().enumerate() {
             if seen_portal[pi] {
@@ -326,7 +454,7 @@ pub fn plan_with(
                 at: p.to_xy(),
                 cell: p.to_cell,
             });
-            came.push(Some((q.idx, pi)));
+            came.push(Some((q.idx, Edge::Portal(pi))));
             cost.push(next);
             let idx = nodes.len() - 1;
             queue.push(Queued {
@@ -341,25 +469,39 @@ pub fn plan_with(
     // worth; the caller asked for fewer.
     let mut hops = 0;
     let mut at = end;
-    while let Some((prev, _)) = came[at] {
-        hops += 1;
+    while let Some((prev, how)) = came[at] {
+        if matches!(how, Edge::Portal(_)) {
+            hops += 1;
+        }
         at = prev;
     }
     if hops > prefs.max_portals {
         return None;
     }
-    // Walk back through the portals taken.
+    // Walk back through the portals taken and the spell cast.
     let mut steps = Vec::new();
     let mut at = end;
-    #[allow(clippy::needless_late_init)]
-    while let Some((prev, pi)) = came[at] {
-        let p: &Portal = portals[pi];
-        steps.push(Step::Portal {
-            name: p.name.clone(),
-            mouth: p.from_xy(),
-            mouth_cell: p.from_cell,
-            exit: p.to_xy(),
-            exit_cell: p.to_cell,
+    while let Some((prev, how)) = came[at] {
+        steps.push(match how {
+            Edge::Portal(pi) => {
+                let p: &Portal = portals[pi];
+                Step::Portal {
+                    name: p.name.clone(),
+                    mouth: p.from_xy(),
+                    mouth_cell: p.from_cell,
+                    exit: p.to_xy(),
+                    exit_cell: p.to_cell,
+                }
+            }
+            Edge::Recall(ri) => {
+                let r = &recalls[ri];
+                Step::Recall {
+                    spell: r.spell,
+                    name: r.name.clone(),
+                    exit: r.exit,
+                    exit_cell: r.exit_cell,
+                }
+            }
         });
         at = prev;
     }
@@ -371,6 +513,18 @@ pub fn plan_with(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_walk_out_of_a_shop_to_its_own_block_is_a_walk() {
+        // Inside a Holtburg shop (cell A9B4016A), bound for a spot
+        // outdoors in the same block (cell unknown): a walk.
+        let inside = Vec2::new(0xA9 as f32 * 192.0 + 100.0, 0xB4 as f32 * 192.0 + 100.0);
+        let outside = inside + Vec2::new(20.0, 10.0);
+        assert!(can_walk(inside, 0xA9B4_016A, outside, 0, 1000.0));
+        // The next block over is not walked to from indoors.
+        let next = inside + Vec2::new(192.0, 0.0);
+        assert!(!can_walk(inside, 0xA9B4_016A, next, 0, 1000.0));
+    }
     use crate::towns;
 
     fn place(name: &str) -> Vec2 {
@@ -443,6 +597,128 @@ mod tests {
                 "took the refused portal again"
             );
         }
+    }
+
+    /// An outdoor cell for a world position (the landblock's first cell).
+    fn cell_of(p: Vec2) -> u32 {
+        ((p.x / 192.0) as u32) << 24 | ((p.y / 192.0) as u32) << 16 | 1
+    }
+
+    fn recall_to(name: &str, spell: u32, exit: Vec2) -> Recall {
+        Recall {
+            spell,
+            name: name.to_string(),
+            exit,
+            exit_cell: cell_of(exit),
+        }
+    }
+
+    #[test]
+    fn a_recall_makes_a_far_journey_short() {
+        let from = place("Holtburg");
+        let goal = place("Arwic");
+        let by_portal = plan(from, 0xA9B4_0019, goal).expect("no trip to Arwic");
+        // A spell that lands a short walk from Arwic beats the Town Network.
+        let recalls = [recall_to("Arwic Recall", 9001, goal + Vec2::new(80.0, 0.0))];
+        let trip = plan_with_recalls(
+            from,
+            0xA9B4_0019,
+            goal,
+            0,
+            &[],
+            &[],
+            &recalls,
+            Prefs::quick(),
+        )
+        .expect("no trip with the recall");
+        assert!(
+            matches!(&trip.steps[0], Step::Recall { spell: 9001, name, .. } if name == "Arwic Recall"),
+            "{trip:?}"
+        );
+        assert_eq!(trip.steps.last(), Some(&Step::Walk(goal)));
+        assert_eq!(trip.portals(), 0);
+        assert_eq!(trip.recalls(), 1);
+        assert!(
+            trip.seconds < by_portal.seconds,
+            "{} vs {}",
+            trip.seconds,
+            by_portal.seconds
+        );
+        assert!(
+            trip.summary().starts_with("Arwic Recall"),
+            "{}",
+            trip.summary()
+        );
+        assert_eq!(
+            trip.steps[0].exit(),
+            Some((recalls[0].exit, recalls[0].exit_cell))
+        );
+        // Switched off, the same journey goes by portal.
+        let walked = plan_with_recalls(
+            from,
+            0xA9B4_0019,
+            goal,
+            0,
+            &[],
+            &[],
+            &recalls,
+            Prefs::quick().without_recalls(),
+        )
+        .expect("no trip without the recall");
+        assert_eq!(walked.recalls(), 0);
+        assert_eq!(walked.steps, by_portal.steps);
+    }
+
+    #[test]
+    fn a_recall_that_lands_farther_than_walking_is_not_used() {
+        let from = place("Holtburg");
+        let near = from + Vec2::new(150.0, 80.0);
+        // Lands on the far side of the continent: worse than the walk.
+        let far = [recall_to("Yaraq Recall", 9002, place("Yaraq"))];
+        let trip = plan_with_recalls(from, 0xA9B4_0019, near, 0, &[], &[], &far, Prefs::quick())
+            .expect("no trip");
+        assert_eq!(trip.steps, vec![Step::Walk(near)]);
+        // Lands where we already stand: the cast is wasted.
+        let here = [recall_to("Holtburg Recall", 9003, from)];
+        let trip = plan_with_recalls(from, 0xA9B4_0019, near, 0, &[], &[], &here, Prefs::quick())
+            .expect("no trip");
+        assert_eq!(trip.steps, vec![Step::Walk(near)]);
+        let goal = place("Arwic");
+        let trip = plan_with_recalls(from, 0xA9B4_0019, goal, 0, &[], &[], &here, Prefs::quick())
+            .expect("no trip");
+        assert_eq!(trip.recalls(), 0, "{trip:?}");
+        assert!(trip.portals() >= 1);
+    }
+
+    #[test]
+    fn a_recall_can_be_followed_by_portals() {
+        // From the open sea nothing can be walked to; a recall to
+        // Holtburg puts the Town Network in reach of Arwic.
+        let sea = Vec2::new(0x60 as f32 * 192.0, 0x70 as f32 * 192.0);
+        let goal = place("Arwic");
+        let recalls = [recall_to("Lifestone Sending", 1636, place("Holtburg"))];
+        let trip = plan_with_recalls(
+            sea,
+            cell_of(sea),
+            goal,
+            0,
+            &[],
+            &[],
+            &recalls,
+            Prefs::quick(),
+        )
+        .expect("no trip from the sea");
+        assert!(
+            matches!(&trip.steps[0], Step::Recall { spell: 1636, .. }),
+            "{trip:?}"
+        );
+        assert!(trip.portals() >= 1, "{trip:?}");
+        assert!(
+            trip.summary().starts_with("Lifestone Sending, then"),
+            "{}",
+            trip.summary()
+        );
+        assert_eq!(trip.steps.last(), Some(&Step::Walk(goal)));
     }
 
     #[test]

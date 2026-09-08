@@ -8,7 +8,9 @@
 //! fn on_event(ev)           // a server event for a session: ev.kind is
 //!                           // "chat" (text, chat_kind), "sound" (volume),
 //!                           // "connected", "terminated" (reason),
-//!                           // "refused" (code) or "placed" (cell)
+//!                           // "refused" (code), "placed" (cell) or
+//!                           // "autoplay" (doing, text: what autoplay
+//!                           // switched to doing)
 //! fn tick(dt)               // once per frame per session, dt in seconds
 //! fn command(name, args)    // "/name args" typed in chat; true = handled
 //! fn key(name, pressed)     // a key such as "F5" went down/up; true = consumed
@@ -29,6 +31,7 @@
 pub mod api;
 pub mod bridge;
 pub mod scripts;
+pub mod testing;
 
 use std::path::PathBuf;
 
@@ -38,6 +41,7 @@ use rhai::{Dynamic, Map};
 pub use api::{with_api, Api, Bound};
 pub use bridge::CtxApi;
 pub use scripts::Scripts;
+pub use testing::{Recorder, ScriptHarness};
 
 /// `$ACREBORN_SCRIPTS`, else `~/.acreborn/scripts`.
 pub fn default_dir() -> PathBuf {
@@ -102,6 +106,11 @@ pub fn event_map(ev: &Event) -> Map {
                 ac_client::creation::create_failure_message(*code).into(),
             );
             "character_create_failed"
+        }
+        Event::Autoplay { doing, text } => {
+            m.insert("doing".into(), doing.clone().into());
+            m.insert("text".into(), text.clone().into());
+            "autoplay"
         }
     };
     m.insert("kind".into(), kind.into());
@@ -194,6 +203,20 @@ mod tests {
                 .into_string()
                 .unwrap(),
             "bye"
+        );
+    }
+
+    #[test]
+    fn autoplay_events_carry_doing_and_text() {
+        let m = event_map(&Event::Autoplay {
+            doing: "looting".into(),
+            text: "looting Drudge Skulker".into(),
+        });
+        assert_eq!(m["kind"].clone().into_string().unwrap(), "autoplay");
+        assert_eq!(m["doing"].clone().into_string().unwrap(), "looting");
+        assert_eq!(
+            m["text"].clone().into_string().unwrap(),
+            "looting Drudge Skulker"
         );
     }
 

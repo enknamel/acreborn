@@ -1,7 +1,7 @@
 //! acbot: run many game sessions in one process with no window and no GPU.
 //!
 //! Every `--client` becomes an `ac_client::Client`; the loop ticks each one
-//! `--tick-hz` times a second with no keyboard input (plugins and the
+//! `--hz` (`--tick-hz`) times a second with no keyboard input (plugins and the
 //! server's move-to drive movement), prints what the server says, and runs
 //! the plugin host once per session per frame. Lines from `--say` and
 //! `--script` are typed one per second after the character is placed; those
@@ -34,8 +34,9 @@ struct Cli {
     /// A session to run: ACCOUNT:PASSWORD[:CHARACTER]. Repeat for more.
     #[arg(long = "client", required_unless_present = "show_rules")]
     clients: Vec<String>,
-    /// Ticks per second for every session.
-    #[arg(long, default_value_t = 20)]
+    /// Ticks per second for every session (`--hz` for short). 20 is
+    /// the game's pace; a process of followers gets by on 10.
+    #[arg(long, alias = "hz", default_value_t = 20)]
     tick_hz: u32,
     /// Run for this many seconds (0 = until Ctrl-C or every session ends).
     #[arg(long, default_value_t = 0)]
@@ -414,7 +415,10 @@ fn main() -> Result<()> {
                         );
                         sessions[i].ended = true;
                     }
-                    Event::Sound { .. } | Event::SpellLearned(_) | Event::SpellForgotten(_) => {}
+                    Event::Sound { .. }
+                    | Event::SpellLearned(_)
+                    | Event::SpellForgotten(_)
+                    | Event::Autoplay { .. } => {}
                 }
             }
             let r = host.frame(clients_of(&mut sessions), i, &events, dt, now);

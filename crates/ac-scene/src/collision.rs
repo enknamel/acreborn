@@ -37,6 +37,16 @@ pub struct Capsule {
     pub step_down: f32,
 }
 
+impl Capsule {
+    /// The same shape: a graph or route built for one serves the other.
+    pub fn same(&self, other: &Capsule) -> bool {
+        self.radius == other.radius
+            && self.height == other.height
+            && self.step_up == other.step_up
+            && self.step_down == other.step_down
+    }
+}
+
 impl Default for Capsule {
     fn default() -> Self {
         Capsule {

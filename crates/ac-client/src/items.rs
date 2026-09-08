@@ -54,6 +54,9 @@ pub struct ItemStats {
     pub kind: &'static str,
     pub stack: u32,
     pub wielded: bool,
+    /// Where it can be worn or held (see `ac_world::equip`): what tells
+    /// a shield from the rest of the armour.
+    pub valid_locations: u32,
     /// The pack holding it (our own guid for the main pack).
     pub container: u32,
     pub value: u32,
@@ -151,6 +154,7 @@ impl ItemStats {
                 o.stack_size.max(1)
             },
             wielded: me.is_some() && o.wielder == me,
+            valid_locations: o.valid_locations,
             container: o.container.unwrap_or(0),
             value: o.value,
             burden: o.burden,

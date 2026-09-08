@@ -12,6 +12,7 @@ loaded; `/scripts reload` reloads everything. Errors show in the chat log.
 | `assist.rhai` | Posts the attack target on the bus; other sessions attack it (`post` / `messages`) |
 | `follow.rhai` | `/follow` joins the team as a follower: comes to the leader, keeps close, fights, flies when the leader flies (`team`, `follow`, `autoplay`) |
 | `find_items.rhai` | F6 lists the carried weapons with damage over 10 and their summaries (`find_items`, `appraise_all`; a `key` hook) |
+| `watch.rhai` | Logs what autoplay does, for this session (`on_event` with `ev.kind == "autoplay"`) and for every other session and process (the `autoplay.event` bus topic) |
 
 ## Hooks
 
@@ -19,7 +20,11 @@ A script defines any of these top-level functions:
 
 ```rhai
 fn on_event(ev)         // ev.kind: "chat" (ev.text, ev.chat_kind), "sound" (ev.volume),
-                        // "connected", "terminated" (ev.reason), "refused" (ev.code), "placed" (ev.cell)
+                        // "connected", "terminated" (ev.reason), "refused" (ev.code), "placed" (ev.cell),
+                        // "spell_learned" / "spell_forgotten" (ev.spell), "characters" (ev.names, ev.count),
+                        // "character_created" (ev.guid, ev.name), "character_create_failed" (ev.code, ev.message),
+                        // "autoplay" (ev.doing: "fighting", "looting", "buffing", "healing", "following", "idle"...;
+                        //             ev.text: the Autoplay panel's line), once per change
 fn tick(dt)             // every frame, per session; dt in seconds
 fn command(name, args)  // "/name args" in the chat box; return true when handled
 fn key(name, pressed)   // "F5", "A", "Space"... went down (true) or up; return true to consume
@@ -64,8 +69,9 @@ Actions (on the current session; names match by prefix, like the console):
 
 Shared state:
 
-- `post(topic, value)`, `messages(topic)` (each `#{ from, topic, value }`, alive one frame)
+- `post(topic, value)`, `messages(topic)` (each `#{ from, topic, value }`, plus `origin` naming the process when it came over the bus; alive one frame)
 - `board_get(key)`, `board_set(key, value)`: values persist for the process
+- Topics the client itself posts on: `autoplay.event` (`{ session, name, doing, text }`, every change of what a session's autoplay is doing, from every session and, with `--bus`, every process), `autoplay.mate` (the team roster's heartbeat). `board_set("ui.open.inventory", "toggle")` opens or closes a panel (`"open"`, `"close"` too).
 
 Values cross to the other plugins as JSON: maps, arrays, strings, ints,
 floats, bools and `()` go through; other Rhai types do not.
@@ -73,3 +79,32 @@ floats, bools and `()` go through; other Rhai types do not.
 Session indices are zero-based (the console's `/switch N` is 1-based).
 A hook that throws, or spins for more than about two million operations,
 is stopped and reported; the rest of the client carries on.
+
+## Testing a script
+
+`ac_script::testing::ScriptHarness` runs a script with no server: it
+loads the file, answers `me()`, `objects()`, `messages()` and the rest
+from canned data, and records every action the script takes. The
+example scripts' own tests (`crates/ac-script/src/scripts.rs`) use it:
+
+```rust
+use ac_script::testing::ScriptHarness;
+
+#[test]
+fn greeter_answers_hello() {
+    let mut h = ScriptHarness::from_file("scripts/examples/greeter.rhai");
+    assert!(h.command("hello", "Asheron"));
+    assert!(!h.command("goodbye", ""));
+    assert_eq!(h.calls(), ["[0] say Hello, Asheron!"]);
+    assert!(h.errors().is_empty(), "{:?}", h.logs());
+}
+```
+
+`from_source(name, text)` takes the script inline; `me(key, value)` and
+`objects(list)` set what the script sees; `chat(text, kind)` and
+`event(&Event)` deliver events; `tick(dt)` / `ticks(n, dt)`, `command`,
+`press(key)` run the hooks; `session(i)` switches sessions;
+`deliver(from, origin, topic, value)` hands it a bus message;
+`calls()`, `script_logs()`, `posted()` and `board(key)` say what it did.
+Errors a hook raised are in `errors()`. `cargo test -p ac-script` runs
+the lot; `docs/sdk.md` has a longer example.

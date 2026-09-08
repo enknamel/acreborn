@@ -42,6 +42,10 @@ pub mod opcode {
     pub const PRIVATE_UPDATE_PROPERTY_INT: u32 = 0x02CD;
     pub const PRIVATE_UPDATE_PROPERTY_INT64: u32 = 0x02CF;
     pub const PRIVATE_UPDATE_PROPERTY_STRING: u32 = 0x02D5;
+    /// One of the character's saved positions (by `PositionType`):
+    /// `u8 sequence, u32 type, position`. The server sends only where
+    /// the last corpse fell; see `ac_world::recalls`.
+    pub const PRIVATE_UPDATE_POSITION: u32 = 0x02DB;
     pub const PRIVATE_UPDATE_SKILL: u32 = 0x02DD;
     pub const PRIVATE_UPDATE_SKILL_LEVEL: u32 = 0x02DF;
     pub const PRIVATE_UPDATE_SKILL_AC: u32 = 0x02E1;

@@ -41,6 +41,9 @@ fn main() {
                         ac_world::towns::map_of(*mouth),
                         ac_world::towns::map_of(*exit)
                     ),
+                    ac_world::trip::Step::Recall { name, exit, .. } => {
+                        println!("  cast {name:?} -> {:?}", ac_world::towns::map_of(*exit))
+                    }
                 }
             }
         }

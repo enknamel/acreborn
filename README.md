@@ -206,7 +206,7 @@ in plain text** in this file; it is only as private as your home directory.
 
 `acbot` runs many sessions in one process with no window and no GPU: the
 "as many clients as possible on one computer" case. Each `--client` logs in,
-enters the world and is ticked `--tick-hz` times a second (default 20; the
+enters the world and is ticked `--hz` (`--tick-hz`) times a second (default 20; the
 loop sleeps in between, and 4 Hz is enough for the server) with no keyboard
 input, so plugins and the server's own move-to drive movement. The console
 plugin (`ac_plugin::console::Console`, the same one the viewer registers)

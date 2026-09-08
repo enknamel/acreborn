@@ -10,6 +10,7 @@
 //!   buildings) as a list of placed models.
 
 pub mod anim;
+pub mod blockcache;
 pub mod chargen;
 pub mod collision;
 pub mod interior;
@@ -32,6 +33,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use ac_dat::DatArchive;
 use ac_formats::{
@@ -63,14 +65,36 @@ pub const CELLS_PER_BLOCK: u32 = 8;
 pub const BLOCK_SIZE: f32 = CELL_SIZE * CELLS_PER_BLOCK as f32;
 pub const VERTS_PER_SIDE: usize = 9;
 
-/// Memoizing asset loader. Single-threaded (`Rc`), intended to be owned by
-/// the viewer or client thread.
-pub struct Assets {
-    /// Where the archives were opened from (a second `Assets` can be
-    /// opened on another thread for long renders).
+/// The opened archives, shareable with another thread: a second
+/// [`Assets`] built on them ([`Assets::with_archives`]) maps and indexes
+/// nothing again. Cheap to clone.
+#[derive(Clone)]
+pub struct SharedArchives {
     pub data_dir: std::path::PathBuf,
-    pub portal: DatArchive,
-    pub cell: DatArchive,
+    pub portal: Arc<DatArchive>,
+    pub cell: Arc<DatArchive>,
+}
+
+impl SharedArchives {
+    pub fn open(data_dir: impl AsRef<Path>) -> Result<Self> {
+        let d = data_dir.as_ref();
+        Ok(SharedArchives {
+            data_dir: d.to_path_buf(),
+            portal: Arc::new(DatArchive::open(d.join("client_portal.dat"))?),
+            cell: Arc::new(DatArchive::open(d.join("client_cell_1.dat"))?),
+        })
+    }
+}
+
+/// Memoizing asset loader. Single-threaded (`Rc`), intended to be owned by
+/// the viewer or client thread and shared by every session on it.
+pub struct Assets {
+    /// Where the archives were opened from.
+    pub data_dir: std::path::PathBuf,
+    /// The archives (an `Arc`, so another thread's `Assets` can share
+    /// the mapping and the directory index; see [`Assets::archives`]).
+    pub portal: Arc<DatArchive>,
+    pub cell: Arc<DatArchive>,
     region: RefCell<Option<Rc<Region>>>,
     chargen: RefCell<Option<Rc<CharGen>>>,
     skill_table: RefCell<Option<Rc<SkillTable>>>,
@@ -95,6 +119,10 @@ pub struct Assets {
     /// that rendering and collision share one load.
     landblocks: RefCell<HashMap<u32, Rc<LandblockScene>>>,
     landblock_order: RefCell<VecDeque<u32>>,
+    /// Per-block collision and navigation, shared by every character
+    /// in the process (see [`blockcache`]).
+    pub blocks: blockcache::BlockCache,
+    world_grid: RefCell<Option<Rc<worldgrid::WorldGrid>>>,
 }
 
 /// How many assembled landblocks [`Assets::landblock`] keeps.
@@ -117,11 +145,24 @@ macro_rules! cached {
 
 impl Assets {
     pub fn open(data_dir: impl AsRef<Path>) -> Result<Self> {
-        let d = data_dir.as_ref();
-        Ok(Assets {
-            data_dir: d.to_path_buf(),
-            portal: DatArchive::open(d.join("client_portal.dat"))?,
-            cell: DatArchive::open(d.join("client_cell_1.dat"))?,
+        Ok(Self::with_archives(SharedArchives::open(data_dir)?))
+    }
+
+    /// The archives, to hand to another thread's [`Assets`].
+    pub fn archives(&self) -> SharedArchives {
+        SharedArchives {
+            data_dir: self.data_dir.clone(),
+            portal: self.portal.clone(),
+            cell: self.cell.clone(),
+        }
+    }
+
+    /// A loader over archives already open (its caches start empty).
+    pub fn with_archives(archives: SharedArchives) -> Self {
+        Assets {
+            data_dir: archives.data_dir,
+            portal: archives.portal,
+            cell: archives.cell,
             region: RefCell::new(None),
             chargen: RefCell::new(None),
             skill_table: RefCell::new(None),
@@ -144,7 +185,29 @@ impl Assets {
             physics_script_tables: Default::default(),
             landblocks: Default::default(),
             landblock_order: Default::default(),
-        })
+            blocks: Default::default(),
+            world_grid: RefCell::new(None),
+        }
+    }
+
+    /// The collision of landblock `block`, shared by every character in
+    /// the process (see [`blockcache::BlockCache::collision`]).
+    pub fn block_collision(&self, block: u32) -> Result<Rc<blockcache::BlockCollision>> {
+        self.blocks.collision(self, block)
+    }
+
+    /// The whole world's terrain at landblock-vertex resolution, read
+    /// from the on-disk cache (or built and cached) once per process.
+    pub fn world_grid(&self) -> Result<Rc<worldgrid::WorldGrid>> {
+        if let Some(g) = self.world_grid.borrow().as_ref() {
+            return Ok(g.clone());
+        }
+        let g = Rc::new(worldgrid::WorldGrid::load_cached(
+            self,
+            &worldgrid::WorldGrid::cache_dir(),
+        )?);
+        *self.world_grid.borrow_mut() = Some(g.clone());
+        Ok(g)
     }
 
     cached!(gfxobj, gfxobjs, GfxObj, portal);

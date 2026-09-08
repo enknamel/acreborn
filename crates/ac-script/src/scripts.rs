@@ -317,7 +317,6 @@ fn list_scripts(dir: &Path) -> BTreeMap<PathBuf, SystemTime> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use ac_plugin::Message;
@@ -325,384 +324,8 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
-    use crate::api::{Api, Bound};
-
-    /// An `Api` that records every call and answers reads from canned data.
-    #[derive(Default)]
-    struct Recorder {
-        calls: Vec<String>,
-        logs: Vec<String>,
-        autoplay_on: bool,
-        session: i64,
-        sessions: i64,
-        me: Map,
-        objects: Array,
-        board: HashMap<String, Value>,
-        posted: Vec<(String, Value)>,
-        inbox: Vec<Message>,
-        activate: Option<i64>,
-        /// What `item_stats()` / `find_items()` answer, and how many of
-        /// them count as unappraised.
-        items: Array,
-        unappraised: i64,
-        traveling: bool,
-    }
-
-    impl Recorder {
-        fn new() -> Self {
-            Recorder {
-                sessions: 2,
-                ..Default::default()
-            }
-        }
-
-        fn record(&mut self, s: impl std::fmt::Display) {
-            self.calls.push(format!("[{}] {s}", self.session));
-        }
-    }
-
-    impl Api for Recorder {
-        fn me(&mut self) -> Map {
-            let mut m = self.me.clone();
-            m.insert("session".into(), Dynamic::from_int(self.session));
-            m
-        }
-        fn travel_style(&mut self, style: &str) -> String {
-            self.calls.push(format!("travel_style({style})"));
-            style.to_string()
-        }
-        fn autoplay(&mut self, on: bool) -> bool {
-            self.calls.push(format!("autoplay({on})"));
-            self.autoplay_on = on;
-            on
-        }
-        fn autoplay_status(&mut self) -> String {
-            if self.autoplay_on {
-                "fighting Drudge Skulker".into()
-            } else {
-                String::new()
-            }
-        }
-        fn fight_style(&mut self, style: &str) -> String {
-            self.calls.push(format!("fight_style({style})"));
-            style.to_string()
-        }
-        fn team(&mut self, on: bool) -> bool {
-            self.calls.push(format!("team({on})"));
-            on
-        }
-        fn team_lead(&mut self, on: bool) -> bool {
-            self.record(format!("team_lead {on}"));
-            on
-        }
-        fn follow(&mut self, on: bool) -> bool {
-            self.record(format!("follow {on}"));
-            on
-        }
-        fn team_role(&mut self, role: &str) -> String {
-            self.calls.push(format!("team_role({role})"));
-            role.to_string()
-        }
-        fn teammates(&mut self) -> Array {
-            self.calls.push("teammates()".into());
-            Array::new()
-        }
-        fn enchantments(&mut self) -> Array {
-            self.calls.push("enchantments()".into());
-            Array::new()
-        }
-        fn wanted_buffs(&mut self) -> Array {
-            self.calls.push("wanted_buffs()".into());
-            Array::new()
-        }
-        fn attack_spells(&mut self, names: Array) -> Array {
-            let listed: Vec<String> = names.iter().map(|v| v.to_string()).collect();
-            self.calls
-                .push(format!("attack_spells({})", listed.join(",")));
-            names
-        }
-        fn objects(&mut self) -> Array {
-            self.objects.clone()
-        }
-        fn inventory(&mut self) -> Array {
-            Array::new()
-        }
-        fn container(&mut self) -> Array {
-            Array::new()
-        }
-        fn session_count(&mut self) -> i64 {
-            self.sessions
-        }
-        fn session(&mut self, i: i64) -> Option<Map> {
-            (i >= 0 && i < self.sessions).then(|| {
-                let mut m = Map::new();
-                m.insert("session".into(), Dynamic::from_int(i));
-                m
-            })
-        }
-        fn current_session(&mut self) -> i64 {
-            self.session
-        }
-        fn set_session(&mut self, i: i64) -> bool {
-            let ok = i >= 0 && i < self.sessions;
-            if ok {
-                self.session = i;
-            }
-            ok
-        }
-        fn use_name(&mut self, name: &str) -> bool {
-            self.record(format!("use {name}"));
-            true
-        }
-        fn use_guid(&mut self, guid: i64) -> bool {
-            self.record(format!("use #{guid}"));
-            true
-        }
-        fn activate(&mut self, _g: i64) -> bool {
-            false
-        }
-        fn pickup(&mut self, _g: i64) -> bool {
-            false
-        }
-        fn attack(&mut self, name: &str) -> bool {
-            self.record(format!("attack {name}"));
-            true
-        }
-        fn attack_guid(&mut self, guid: i64) -> bool {
-            self.record(format!("attack #{guid}"));
-            true
-        }
-        fn cast(&mut self, name: &str) -> bool {
-            self.record(format!("cast {name}"));
-            true
-        }
-        fn can_cast(&mut self, name: &str) -> String {
-            self.record(format!("can_cast {name}"));
-            "ok".into()
-        }
-        fn components(&mut self) -> Array {
-            Array::new()
-        }
-        fn fill_components(&mut self) -> i64 {
-            self.record("fill_components");
-            0
-        }
-        fn set_desired_component(&mut self, _name: &str, _quantity: i64) -> bool {
-            false
-        }
-        fn say(&mut self, text: &str) {
-            self.record(format!("say {text}"));
-        }
-        fn loot(&mut self, name: &str) -> bool {
-            self.record(format!("loot {name}"));
-            true
-        }
-        fn take(&mut self, guid: i64) -> bool {
-            self.record(format!("take #{guid}"));
-            true
-        }
-        fn raise(&mut self, _w: &str) -> bool {
-            false
-        }
-        fn train(&mut self, _s: &str) -> bool {
-            false
-        }
-        fn trade_open(&mut self, _p: i64) {}
-        fn trade_add(&mut self, _i: i64) -> bool {
-            false
-        }
-        fn trade_accept(&mut self) {}
-        fn trade_decline(&mut self) {}
-        fn trade_reset(&mut self) {}
-        fn trade_close(&mut self) {}
-        fn trade(&mut self) -> Map {
-            Map::new()
-        }
-        fn fellow_create(&mut self, _n: &str, _s: bool) {}
-        fn fellow_recruit(&mut self, _p: i64) {}
-        fn fellow_quit(&mut self, _d: bool) {}
-        fn confirmations(&mut self) -> rhai::Array {
-            rhai::Array::new()
-        }
-        fn confirm(&mut self, _y: bool) -> bool {
-            false
-        }
-        fn fellowship(&mut self) -> Dynamic {
-            Dynamic::UNIT
-        }
-        fn swear(&mut self, _p: i64) -> bool {
-            false
-        }
-        fn break_allegiance(&mut self, _m: i64) -> bool {
-            false
-        }
-        fn allegiance(&mut self) -> Dynamic {
-            Dynamic::UNIT
-        }
-        fn allegiance_refresh(&mut self) {}
-        fn salvageable(&mut self) -> rhai::Array {
-            rhai::Array::new()
-        }
-        fn salvage(&mut self, _items: rhai::Array) -> bool {
-            false
-        }
-        fn item_stats(&mut self) -> Array {
-            self.items.clone()
-        }
-        fn find_items(&mut self, query: &str) -> Array {
-            self.record(format!("find_items {query}"));
-            self.items.clone()
-        }
-        fn appraise_all(&mut self) -> i64 {
-            self.record("appraise_all");
-            std::mem::take(&mut self.unappraised)
-        }
-        fn unappraised(&mut self) -> i64 {
-            self.unappraised
-        }
-        fn allegiance_name(&mut self, _n: &str) {}
-        fn house_profile(&mut self) -> Dynamic {
-            Dynamic::UNIT
-        }
-        fn house(&mut self) -> Dynamic {
-            Dynamic::UNIT
-        }
-        fn house_query(&mut self) {}
-        fn buy_house(&mut self) -> bool {
-            false
-        }
-        fn rent_house(&mut self) -> bool {
-            false
-        }
-        fn abandon_house(&mut self) {}
-        fn house_guests(&mut self) -> Dynamic {
-            Dynamic::UNIT
-        }
-        fn house_guest(&mut self, _n: &str, _add: bool) {}
-        fn house_storage(&mut self, _n: &str, _on: bool) {}
-        fn house_open(&mut self, _on: bool) {}
-        fn chat(&mut self, _c: &str, _t: &str) -> bool {
-            false
-        }
-        fn option(&mut self, _n: &str, _on: bool) -> bool {
-            false
-        }
-        fn use_on(&mut self, _i: i64, _t: i64) -> bool {
-            false
-        }
-        fn drop_item(&mut self, _guid: i64) -> bool {
-            false
-        }
-        fn give(&mut self, _t: i64, _i: i64, _n: i64) -> bool {
-            false
-        }
-        fn put_in(&mut self, _i: i64, _c: i64) -> bool {
-            false
-        }
-        fn appraise(&mut self, _g: i64) {}
-        fn book(&mut self) -> Dynamic {
-            Dynamic::UNIT
-        }
-        fn read_page(&mut self, _i: i64) {}
-        fn augmentations(&mut self) -> rhai::Array {
-            rhai::Array::new()
-        }
-        fn emote(&mut self, _w: &str) -> bool {
-            false
-        }
-        fn friends(&mut self) -> rhai::Array {
-            rhai::Array::new()
-        }
-        fn add_friend(&mut self, _n: &str) {}
-        fn remove_friend(&mut self, _g: i64) {}
-        fn titles(&mut self) -> Map {
-            Map::new()
-        }
-        fn set_title(&mut self, _t: i64) {}
-        fn squelch(&mut self, _n: &str, _on: bool) {}
-        fn squelches(&mut self) -> rhai::Array {
-            rhai::Array::new()
-        }
-        fn appraisal(&mut self, _g: i64) -> Dynamic {
-            Dynamic::UNIT
-        }
-        fn split(&mut self, _i: i64, _n: i64) -> bool {
-            false
-        }
-        fn merge(&mut self, _f: i64, _t: i64) -> bool {
-            false
-        }
-        fn take_all(&mut self) -> i64 {
-            self.record("take_all");
-            0
-        }
-        fn close_container(&mut self) {
-            self.record("close_container");
-        }
-        fn buy(&mut self, name: &str) -> bool {
-            self.record(format!("buy {name}"));
-            true
-        }
-        fn sell(&mut self, name: &str) -> bool {
-            self.record(format!("sell {name}"));
-            true
-        }
-        fn combat(&mut self, on: bool) {
-            self.record(format!("combat {on}"));
-        }
-        fn jump(&mut self, p: f64) {
-            self.record(format!("jump {p}"));
-        }
-        fn speed_boost(&mut self, b: f64) {
-            self.record(format!("speed_boost {b}"));
-        }
-        fn jump_height(&mut self, m: f64) {
-            self.record(format!("jump_height {m}"));
-        }
-        fn noclip(&mut self, on: bool) {
-            self.record(format!("noclip {on}"));
-        }
-        fn select(&mut self, guid: i64) {
-            self.record(format!("select #{guid}"));
-        }
-        fn log(&mut self, text: &str) {
-            self.logs.push(text.to_string());
-        }
-        fn post(&mut self, topic: &str, value: Value) {
-            self.posted.push((topic.to_string(), value));
-        }
-        fn messages(&mut self, topic: &str) -> Vec<Message> {
-            self.inbox
-                .iter()
-                .filter(|m| m.topic == topic)
-                .cloned()
-                .collect()
-        }
-        fn board_get(&mut self, key: &str) -> Option<Value> {
-            self.board.get(key).cloned()
-        }
-        fn board_set(&mut self, key: &str, value: Value) {
-            self.board.insert(key.to_string(), value);
-        }
-        fn switch(&mut self, i: i64) {
-            self.activate = Some(i);
-        }
-        fn travel_to(&mut self, destination: &str) -> bool {
-            self.record(format!("travel_to {destination}"));
-            self.traveling = ac_world::towns::parse_destination(destination).is_some();
-            self.traveling
-        }
-        fn traveling(&mut self) -> bool {
-            self.traveling
-        }
-        fn cancel_travel(&mut self) {
-            self.record("cancel_travel");
-            self.traveling = false;
-        }
-        fn place(&mut self, name: &str) -> Dynamic {
-            crate::api::place_map(name)
-        }
-    }
+    use crate::api::Bound;
+    use crate::testing::{Recorder, ScriptHarness};
 
     /// A fresh directory for one test's scripts.
     fn script_dir() -> PathBuf {
@@ -1032,7 +655,7 @@ mod tests {
             let _bound = Bound::new(&mut rec);
             scripts.rescan();
         }
-        assert_eq!(scripts.len(), 5, "{:?}", scripts.names());
+        assert_eq!(scripts.len(), 6, "{:?}", scripts.names());
         assert!(
             rec.logs
                 .iter()
@@ -1044,19 +667,44 @@ mod tests {
 
     #[test]
     fn example_greeter_answers_hello() {
-        let mut scripts = Scripts::new(examples_dir());
-        let mut rec = Recorder::new();
-        {
-            let _bound = Bound::new(&mut rec);
-            scripts.rescan();
-            assert!(scripts.command(0, "hello", ""));
-            assert!(scripts.command(0, "hello", "Asheron"));
-            assert!(!scripts.command(0, "goodbye", ""));
-        }
+        // The harness: one script, canned data, recorded actions.
+        let mut h = ScriptHarness::from_file(examples_dir().join("greeter.rhai"));
+        assert!(h.command("hello", ""));
+        assert!(h.command("hello", "Asheron"));
+        assert!(!h.command("goodbye", ""));
         assert_eq!(
-            rec.calls,
+            h.calls(),
             ["[0] say Hello, everyone!", "[0] say Hello, Asheron!"]
         );
+        assert!(h.errors().is_empty(), "{:?}", h.logs());
+    }
+
+    #[test]
+    fn example_watch_logs_autoplay_here_and_abroad() {
+        let mut h = ScriptHarness::from_file(examples_dir().join("watch.rhai"));
+        // Our own change comes as an event.
+        h.event(&ac_client::Event::Autoplay {
+            doing: "fighting".into(),
+            text: "fighting Drudge Skulker".into(),
+        });
+        // Our own echo on the bus is skipped; another session of this
+        // process and another process are both reported.
+        let mine = serde_json::json!({"session": 0, "name": "Me", "doing": "fighting", "text": "fighting Drudge Skulker"});
+        let other = serde_json::json!({"session": 1, "name": "", "doing": "looting", "text": "looting Rat"});
+        let abroad = serde_json::json!({"session": 0, "name": "Bob", "doing": "buffing", "text": "casting Strength Self"});
+        h.deliver(0, None, "autoplay.event", mine)
+            .deliver(1, None, "autoplay.event", other)
+            .deliver(0, Some("bob"), "autoplay.event", abroad)
+            .tick(0.1);
+        assert_eq!(
+            h.script_logs(),
+            [
+                "[fighting] fighting Drudge Skulker (#1)",
+                "session 1: looting Rat",
+                "Bob @bob: casting Strength Self",
+            ]
+        );
+        assert!(h.errors().is_empty(), "{:?}", h.logs());
     }
 
     #[test]

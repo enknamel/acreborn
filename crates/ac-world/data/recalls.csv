@@ -1,0 +1,600 @@
+# Spells that send whoever they are cast on to a fixed place.
+# spell_id,name,cell,x,y,z
+# Cells are hex; the x/y/z are local to the cell's landblock.
+# Regenerate with reference/scripts/data/recalls.sh (reads the ACE
+# world database, the community's reconstruction of retail's server
+# data; the client's own SpellTable says the spell exists but not
+# where it goes).
+1634,Portal Sending,CE410007,12.6,152.8,55.1
+2000,Portal Sending,2DF0375,2.16,-63.34,-5.9
+2001,Portal Sending,2DA0334,218.454,-388.76,0
+2002,Portal Sending,2D70247,30,-30,-42
+2020,Recall Asmolum 1,F3170036,147,142,152
+2023,Recall the Sanctuary,F4180104,36.9,48.7,169.8
+2024,Recall Asmolum 2,F3170032,156,37,150.5
+2025,RecallAsmolum 3,F3170004,22,74,76.5
+2041,Aerlinthe Recall,BAE8001D,84,105,26
+2046,Portal to Teth,25810034,153.3,80.9,770
+2358,Lyceum Recall,BC110014,49,73,240
+2359,Portal Sending,1F402D2,170,-180,0
+2360,Portal Sending,11202D2,170,-180,0
+2361,Portal Sending,2A602D2,170,-180,0
+2362,Portal Sending,2A702D2,170,-180,0
+2363,Portal Sending,2A802D2,170,-180,0
+2364,Egress,1579003F,180,156,300
+2365,something you're gonna fear for a long time,2E43000C,33,80,7.5
+2367,Groovy Portal Sending,13A02AE,140,-40,12
+2368,a powerful force,8B680003,11.9,58,10
+2369,Expulsion,1F50229,50,-180,0
+2401,Into the Garden,299010D,70,-10,0
+2422,Send to Dryreach,DB75003B,186,65,36
+2476,Safe Harbor,1DB60025,98.5,98.1,120
+2477,Free Trip to the Aluvian Casino,A9B2001D,84,102,94
+2478,Cragstone Reinforcements camp recall,2750158,90,-610,0
+2479,Advance Camp Recall,27B0200,50,-30,6
+2480,Free Trip to the Gharun'dim Casino,7E64001D,85,108,12
+2481,Zaikhal Reinforcement Camp Recall,2740158,90,-610,0
+2482,Zaikhal Advance Camp Recall,27A0200,50,-30,0
+2483,Free Trip to the Sho Casino,DB54001E,85,132,20
+2484,Hebian-to Reinforcements Camp Portal,2730158,90,-610,0
+2485,Hebian-to Advance Camp Recall,2790200,50,-30,6
+2489,Free Ride to the Shoushi Southeast Outpost Portal,DE510016,62.751,120.047,16.005
+2490,Free Ride to the Holtburg South Outpost,A9B0000E,41.044,132.414,60.916
+2491,Free Ride to the Holtburg West Outpost,A5B40033,158.08,66.886,48.5
+2492,Free Ride to the Shoushi West Outpost,D655002C,133.717,82.224,47.458
+2493,Free Ride to the Yaraq East Outpost,81640006,19.634,128.282,27.949
+2494,Free Ride to the Yaraq North Outpost,7D680019,88.752,19.375,11.22
+2495,Send Reinforcements,D655002C,133.717,82.224,47.458
+2496,Send Reinforcements,39D02DC,120,-200,0
+2497,Send Reinforcements,D655002C,133.717,82.224,47.458
+2498,Send Reinforcements,D655002C,133.717,82.224,47.458
+2499,Send Reinforcements,D655002C,133.717,82.224,47.458
+2500,Send Reinforcements,D655002C,133.717,82.224,47.458
+2631,Secret Descent,527601CF,30,-220,12
+2632,Secret Ascent,2DF0375,2.16,-63.34,-5.9
+2633,Breaking and Entering,5275010F,-2.774,-12.5,2.08
+2634,Cautious Egress,DD500102,153.5,134,22
+2635,Witshire Passage,1C20123,80,-70,-24
+2651,Portal Sending Self Sacrifice,82930002,21.5,40.5,124
+2652,Portal Sending Merciless,69D50040,180.9,187.8,202
+2671,Portal to the Callous Heart,545D022E,270,-160,0.005
+2707,Elemental Pit,CF950036,159.9,142,20
+2795,Citadel Library,56530113,31.097,-10.963,0.005
+2796,Citadel Surface,BBC70025,102.5,107,71.005
+2797,Proving Grounds Rolling Death,5A4401A6,40,-184,0.5
+2798,Proving Grounds High,594401A6,40,-184,0.5
+2799,Proving Grounds Low,574401A6,40,-184,0.5
+2800,Proving Grounds Mid,584401A6,40,-184,0.5
+2801,Proving Grounds Extreme,5A4401D5,110,-133.175,0.005
+2802,Proving Grounds High,594401D5,110,-133.175,0.005
+2803,Proving Grounds Low,574401D5,110,-133.175,0.005
+2804,Proving Grounds Mid,584401D5,110,-133.175,0.005
+2805,Impudence,5A4401E9,20,-33.2,6.7
+2806,Impudence,594401E9,20,-33.2,6.7
+2807,Impudence,574401E9,20,-33.2,6.7
+2808,Impudence,584401E9,20,-33.2,6.7
+2813,Mount Lethe Recall,14550032,165,28,150
+2931,Recall Aphus Lassel,F6820033,145.7,49.855,58.005
+2935,Trial of the Tusker Hero,5F44019D,129.875,-53.804,0.005
+2936,Entrance to Tusker Island,F6820033,145.7,49.855,58.005
+2939,Entering the Temple,5D47017F,50,-120,18.005
+2940,Entering the Temple,5D48017F,50,-120,18.005
+2941,Ulgrim's Recall,1134001F,84.01,156.62,56.09
+2942,Free Ride to the Abandoned Mine,1C9022D,72.9,-30.2,0
+2943,Recall to the Singularity Caul,9040008,11.4,188.6,87.7
+2944,Storage Warehouse,574A010F,40.1,-7,0
+2945,Storage Warehouse,574B010F,40.1,-7,0
+2951,Gates of Knorr,63440113,10,-100,0.005
+2952,Courtyard of Knorr,6344010F,10,-60,0.005
+2953,Interior Gates of Knorr,6344010B,10,-20,0.005
+2954,Barracks Conveyance,39D02DC,120,-200,0
+2955,Forge Conveyance,39D02DC,120,-200,0
+2956,Research Chambers Conveyance,39D02DC,120,-200,0
+2957,Seat of Knorr,64440144,90,-300,-23.995
+2971,Bullseye,5F450147,170,-100,0
+2972,Oswald's Room,5F450144,170,-40,0
+2973,Access to the Secret Lair,5F450133,80,-250,0
+2974,Vagabond Passed,5F450124,69.981,-126.638,0
+2977,Portal spell to a hidden place,536D0151,20,-250,-35.995
+2984,Lyceum of Kivik Lir,2720140,60,-150,0.005
+2988,Beaten into Submission,5E4D01C4,166.97,-90,0.005
+2989,Portal to the Bandit Hideout.,5E4C01A6,20,-60,0.005
+2990,Knocked Out,F2220127,109.75,89.8,18.005
+3017,Greater Battle Dungeon Sending from Candeth Keep,65440203,20,-9.5,24.005
+3018,Greater Battle Dungeon Sending from Fort Tethana,6544021A,100,-9.5,24.005
+3019,Greater Battle Dungeon Sending from Nanto,65440201,10,-109.5,24.005
+3020,Greater Battle Dungeon Sending from Plateau,6544022B,120,-99.5,24.005
+3021,Greater Battle Dungeon Sending from Qalabar,65440226,120,-19.5,24.005
+3022,Greater Battle Dungeon Sending from Tou-Tou,65440224,110,-119.5,24.005
+3023,Greater Battle Dungeon Sending from Xarabydun,6544020D,30,-119.5,24.005
+3024,Greater Battle Dungeon Sending from Yaraq,654401FC,9.837,-30.79,24.005
+3026,Lesser Battle Dungeon Sending from Candeth Keep,65430203,20,-9.5,24.005
+3027,Lesser Battle Dungeon Sending from Fort Tethana,6543021A,100,-9.5,24.005
+3028,Lesser Battle Dungeon Sending from Nanto,65430201,10,-109.5,24.005
+3029,Lesser Battle Dungeon Sending from Plateau,6543022B,120,-99.5,24.005
+3030,Lesser Battle Dungeon Sending from Qalabar,65430226,120,-19.5,24.005
+3031,Lesser Battle Dungeon Sending from Tou-Tou,65430224,110,-119.5,24.005
+3032,Lesser Battle Dungeon Sending from Xarabydun,6543020D,30,-119.5,24.005
+3033,Lesser Battle Dungeon Sending from Yaraq,654301FC,9.837,-30.79,24.005
+3072,Hall of the Temple Guardians,65470103,70,-180,0
+3073,Matron's Outer Chamber,65450244,210,-120,0
+3095,Crypt of Jexki Ki,65450242,210,-80,0
+3096,Crypt of Ibrexi Jekti,65450215,160,-80,0
+3097,Hall of the Guardians,65470373,70,-140,30
+3098,Hall of the Greater Guardians,6547037A,80,-150,30
+3099,Hall of the Lesser Guardians,6547036F,60,-150,30
+3100,Antechamber of Ixir Zi's Temple,65450287,310,-190,10
+3101,Crypt of Ixir Zi,6545023F,210,-20,0
+3102,Kivik Lir's Temple,4550000C,40,90,10.005
+3103,Crypt of Kixkti Xri,65450260,260,-80,0
+3104,Hall of the Arbiter,6546032B,200,-110,0
+3105,Hall of the Arbiter,6546031B,180,-290,0
+3106,Hall of the Arbiter,65450223,180,-210,0
+3130,Halls of Liazk Itzi,62460622,120,-450,0.005
+3131,Halls of Liazk Itzi,62460696,360,-450,0.005
+3132,Halls of Liazk Itzi,6246060C,120,-120,0.005
+3133,Halls of Liazk Itzi,62460680,360,-120,0.005
+3134,Halls of Liazk Itzi,62460622,120,-450,0.005
+3135,Halls of Liazk Itzi,62460696,360,-450,0.005
+3136,Halls of Liazk Itzi,6246060C,120,-120,0.005
+3137,Halls of Liazk Itzi,62460680,360,-120,0.005
+3138,Antechamber of Liazk Itzi,624306AD,140,-100,0.05
+3139,Liazk Itzi's Crypt,624605D1,10,-120,0.005
+3140,Lair of Liazk Itzi,62430653,10,-110,0
+3141,Lair of Liazk Itzi,6243065D,10,-290,0
+3142,Lair of Liazk Itzi,624306B7,250,-130,0
+3143,Lair of Liazk Itzi,624306C1,250,-280,0
+3144,Liazk Itzi Guardians,624407BF,40,-100,0
+3145,Liazk Itzi Guardians,62440864,220,-110,0
+3146,Liazk Itzi Guardians,624507BF,40,-100,0
+3147,Liazk Itzi Guardians,62450864,220,-110,0
+3148,Liazk Itzi's Offering Room,624407E4,40,-190,0
+3149,Liazk Itzi's Offering Room,62440889,220,-210,0
+3150,Liazk Itzi's Offering Room,624507E4,40,-190,0
+3151,Liazk Itzi's Offering Room,62450889,220,-210,0
+3216,Transport to the Forbidden Catacombs,604B04B4,150,-140,0.005
+3238,Portal to Nanner Island,ED810029,128.804,15.063,-0.095
+3270,Hezhit's Safety,5F5002EA,80,-60,12.005
+3271,Hezhit's Safety,5F50030E,59.482,-70.701,18.005
+3272,Hezhit's Safety,5F5001EA,70,-50,0.005
+3273,Prison,5F500150,43.529,-79.771,0.005
+3274,Prison,5F500142,43.529,-49.771,0.005
+3275,Prison,5F50018C,60.229,-43.529,0.005
+3276,Prison,5F5001C3,80.229,-43.529,0.005
+3277,Prison,5F50020A,96.471,-50.288,0.005
+3278,Prison,5F500218,96.471,-80.229,0.005
+3279,Entrance to Hizk Ri's Temple,5C4C039E,70,0,0.005
+3280,Return to the Corridor,5C4C0346,60,-60,-5.995
+3281,Hizk Ri's Test,5F4905A9,80,-70,-5.995
+3282,Hizk Ri's Test,5F4A05A9,80,-70,-5.995
+3283,Hizk Ri's Test,5F4B05A9,80,-70,-5.995
+3284,Consort Hezhit,5F5001B1,70,-80,0.005
+3285,Attendant Jrvik,5F4F01B1,70,-80,0.005
+3286,Well of Tears,5C4D0605,70,-73.036,0.005
+3287,Well of Tears,5C4E0605,70,-73.036,0.005
+3288,Well of Tears,5C4F0605,70,-73.036,0.005
+3289,Patriarch Zixki,5F5101B1,70,-80,0.005
+3290,Jrvik's Safety,5F4F02EA,80,-60,12.005
+3291,Jrvik's Safety,5F4F030E,59.482,-70.701,18.005
+3292,Jrvik's Safety,5F4F01EA,70,-50,0.005
+3293,Prison,5F4F0150,43.529,-79.771,0.005
+3294,Prison,5F4F0142,43.529,-49.771,0.005
+3295,Prison,5F4F018C,60.229,-43.529,0.005
+3296,Prison,5F4F01C3,80.229,-43.529,0.005
+3297,Prison,5F4F020A,96.471,-50.288,0.005
+3298,Prison,5F4F0218,96.471,-80.229,0.005
+3299,Zixk's Safety,5F5102EA,80,-60,12.005
+3300,Zixk's Safety,5F51030E,59.482,-70.701,18.005
+3301,Zixk's Safety,5F5101EA,70,-50,0.005
+3302,Prison,5F510150,43.529,-79.771,0.005
+3303,Prison,5F510142,43.529,-49.771,0.005
+3304,Prison,5F51018C,60.229,-43.529,0.005
+3305,Prison,5F5101C3,80.229,-43.529,0.005
+3306,Prison,5F51020A,96.471,-50.288,0.005
+3307,Prison,5F510218,96.471,-80.229,0.005
+3315,The Sewer,5F4C0109,90,-295.824,0.005
+3316,The Sewer,5F4D0109,90,-295.824,0.005
+3317,The Sewer,5F4E0109,90,-295.824,0.005
+3318,Hizk Ri's Crypt,5C4C03A9,150,-20,0
+3319,Portal to Izji Qo's Temple,35700029,124.858,3.895,36.005
+3360,Entrance to the Burun Shrine,17C02AE,130,-120,0.005
+3411,Portal spell to a Hidden Chamber,2810112,10,-10,0.005
+3412,Halls of Kivik Lir,2720136,60,-80,0.005
+3413,Lesser Arena of Kivik Lir,2760291,100,-150,-5.995
+3414,Arena of Kivik Lir,2760287,100,-110,-5.995
+3415,Greater Arena of Kivik Lir,276027D,100,-70,-5.995
+3416,Gallery of Kivik Lir,277012E,30,-90,0.005
+3417,Gallery of Kivik Lir,2770185,110,-90,0.005
+3418,Gallery of Kivik Lir,27701DC,190,-90,0.005
+3419,Crypt of Kivik Lir,2720199,140,-100,0
+3420,Lesser Haven of Kivik Lir,27302C0,80,-110,0.005
+3421,Haven of Kivik Lir,27402C0,80,-110,0.005
+3422,Greater Haven of Kivik Lir,27502C0,80,-110,0.005
+3423,Trials of Kivik Lir,2760372,200,-110,0.005
+3424,Triumph Against the Trials,27607D9,200,-93.428,18.005
+3425,Lyceum of Kivik Lir,2720140,60,-150,0.005
+3482,Izji Qo's Antechamber,16D0132,60,-70,0.005
+3483,Izji Qo's Defenders,17102C1,70,-120,0.005
+3484,Izji Qo's Defenders,17202C1,70,-120,0.005
+3485,Izji Qo's Defenders,17302C1,70,-120,0.005
+3486,Into the Receiving Chamber,1740145,60,-150,0.005
+3487,Into the Receiving Chamber,174020C,30,-143.85,18.005
+3488,Into the Receiving Chamber,1740212,90,-143.95,18.005
+3489,Into the Receiving Chamber,1740222,114,-110,18.005
+3490,Into the Receiving Chamber,1740221,114,-50,18.005
+3491,Into the Receiving Chamber,174020D,90,-15.95,18.005
+3492,Into the Receiving Chamber,1740207,26.5,-20,18.005
+3493,Into the Receiving Chamber,17401F7,6,-50,18.005
+3494,Izji Qo's Crypt,16D014A,160,-70,0.005
+3495,Izji Qo's Test,16E01FB,70,-80,0.005
+3496,Inzji Qo's Test,16F01FB,70,-80,0.005
+3497,Izji Qo's Test,17001FB,70,-80,0.005
+3498,Disintegrated,A5B40033,158.08,66.886,48.5
+3534,Free Ride to the K'nath Lair,1930151,40,-10,0.005
+3535,Free Ride to Sanamar,33D90008,5.704,186.283,52.005
+3536,Portal Sending,1600178,10,-40,0.005
+3537,Portal Sending,1600178,10,-40,0.005
+3538,Portal Sending,1600304,114.656,-37.951,0.005
+3539,Portal Sending,1600304,114.656,-37.951,0.005
+3540,Portal Sending,1600313,140,-90,0.005
+3541,Portal Sending,1600313,140,-90,0.005
+3542,Portal Sending,160027D,81.029,-51.893,0.005
+3543,Portal Sending,160027D,81.029,-51.893,0.005
+3544,Portal Sending,16001DC,20,-100,0.005
+3545,Portal Sending,16001DC,20,-100,0.005
+3546,Portal Sending,16001EB,50,-40,0.005
+3547,Portal Sending,16001EB,50,-40,0.005
+3548,Portal Sending,1600178,10,-40,0.005
+3549,Portal Sending,1600165,10,-30,0.005
+3550,Portal Sending,1600152,10,-20,0.005
+3551,Portal Sending,160013F,10,-10,0.005
+3552,Portal Sending,16001C9,20,-40,0.005
+3553,Portal Sending,16001B6,20,-30,0.005
+3554,Portal Sending,16001A3,20,-20,0.005
+3555,Portal Sending,1600190,20,-10,0.005
+3556,Portal Sending,1600238,57.487,-146.476,0.005
+3557,Portal Sending,16002A1,77.796,-136.986,0.005
+3558,Portal Sending,16002FE,97.274,-147.086,0.005
+3559,Portal Sending,160022C,57.701,-127.749,0.005
+3560,Portal Sending,1600295,76.764,-116.408,0.005
+3561,Portal Sending,16002F2,97.949,-127.072,0.005
+3562,Portal Sending,160021E,57.709,-87.138,0.005
+3563,Portal Sending,1600289,77.599,-97.032,0.005
+3564,Portal Sending,16002E4,98.055,-88.202,0.005
+3565,Portal Sending,160027F,76.038,-79.603,0.005
+3566,Portal Sending,16001E9,50,-20,0.005
+3578,Depths of Liazk Itzi's Temple,FE07B3,100,-50,24
+3579,Underpassage of Liazk Itzi's Temple,2D902B0,10,-20,0.005
+3580,Center of Liazk Itzi's Temple,F80153,30,-80,0.005
+3581,Secrets of Liazk Itzi's Temple,16002A5,80,-160,0.005
+3582,Eaten!,F80107,30,-30,-12
+3583,Regurgitated,F80153,30,-80,0.005
+3584,Qin Xikit's Receiving Chamber,F304AF,50,-220,12
+3585,Eaten!,F30107,50,-80,-12
+3586,Qin Xikit's Antechamber,F907B4,100,-50,24
+3587,Portal Sending,CE410007,12.6,152.8,55.1
+3588,Secrets of Qin Xikit's Temple,16001DC,20,-100,0.005
+3589,Qin Xikit's Tomb,F30238,110,-110,0
+3590,Regurgitated!,F30193,50,-68.421,0.005
+3591,Access to Xi Ru's Font,EF0D0005,18.691,99.571,118.295
+3593,Eaten!,F70107,30,-30,-12
+3594,Underpassage of Hizk Ri's Temple,FD074E,100,-50,24
+3595,Underpassage of Hizk Ri's Temple,1F00454,20,-60,0.005
+3596,Center of Hizk Ri's Temple,F70153,30,-80,0.005
+3597,Secrets of Hizk Ri's Temple,1600313,140,-90,0.005
+3598,Regurgitated,F70153,30,-80,0.005
+3599,Eaten!,F60107,30,-30,-12
+3600,Depths of Ixir Zi's Temple,FC0731,100,-50,24
+3601,Underpassage of Ixir Zi's Temple,16B0454,20,-60,0.005
+3602,Center of Ixir Zi's Temple,F60153,30,-80,0.005
+3603,Secrets of Ixir Zi's Temple,1600307,120.411,-36.55,0.005
+3604,Regurgitated,F60153,30,-80,0.005
+3605,Portal to Cragstone,BB9F0040,169.358,168.251,54.005
+3606,Eaten!,F50107,30,-30,-12
+3607,Depth's of Izji Qo's Temple,FB0756,100,-50,24
+3608,Underpassage of Izji Qo's Temple,16,10,-20,0.005
+3609,Center of Izji Qo's Temple,F50153,30,-80,0.005
+3610,Secrets of Izji Qo's Temple,160027D,80,-50,0.005
+3611,Regurgitated,F50153,30,-80,0.005
+3612,Eaten!,F40107,30,-30,-12
+3613,Regurgitated,F40153,30,-80,0.005
+3614,Underpassage of Kivik Lir's Temple,1F202B0,10,-20,0.005
+3615,Center of Kivik Lir's Temple,F40153,30,-80,0.005
+3616,Secrets of Kivik Lir's Temple,16001EB,50,-40,0.005
+3617,Depths of Kivik Lir's Temple,FA076E,100,-50,24
+3618,Portal to Western Aphus Lassel,F36D0030,131.5,168.89,12.005
+3619,Portal to the Black Death Catacombs,D8CA0014,58.339,92.125,275.1
+3620,Portal to Black Spawn Den,1B90002D,122.6,111.8,30
+3621,Portal to Black Spawn Den,1338003E,175.8,136.1,98
+3622,Portal to Black Spawn Den,37340014,56.3,91.1,87.3
+3623,Portal to Center of the Obsidian Plains,2F2F0038,154.49,190.557,5.885
+3624,Portal to Hills Citadel,D3380005,5.5,109.8,168.5
+3625,Portal to the Kara Wetlands,C51D0032,163.03,29.614,42.159
+3626,Portal to the Marescent Plateau Base,1EB30010,34.1,188.5,0.297
+3627,Portal to Neydisa Castle,95D60033,146.9,71.3,99.763
+3628,Portal to the Northern Landbridge,40920004,14.433,93.33,-0.095
+3629,Portal to the Olthoi Horde Nest,C1CF0027,124.6,162.7,277.6
+3630,Portal to the Olthoi North,D9BD0035,161.811,103.221,2.607
+3631,Portal to the Renegade Fortress,2D5B001E,79.219,132.168,36.194
+3632,Portal to Ridge Citadel,9D270036,155,139.3,250.4
+3633,Portal to the Southern Landbridge,76150011,63.846,19.353,8.938
+3634,Portal To Valley of Death,28490033,162.145,61.219,0.005
+3635,Portal to Wilderness Citadel,CD2A0024,103.3,77.4,146.6
+3762,Defiled Temple Portal Sending,A8DF0010,33,176,30
+3763,Balloon Ride,1133001D,82.887,118.911,100.108
+3765,Entry to the Mausoleum of Bitterness,24035F,140,0,0.005
+3766,Entry to the Mausoleum of Bitterness,240368,150,-40,0.005
+3767,Entry to the Mausoleum of Bitterness,240365,140,-80,0.005
+3768,Bitter Punishment,C14B0007,12,156,520
+3769,Entry to the Mausoleum of Anger,250343,60,-80,0.005
+3770,Entry to the Mausoleum of Anger,25033A,50,-40,0.005
+3771,Entry to the Mausoleum of Anger,25033D,60,0,0.005
+3772,Entry to the Mausoleum of Anger,25035F,140,0,0.005
+3773,Entry to the Mausoleum of Anger,250368,150,-40,0.005
+3774,Entry to the Mausoleum of Anger,250365,140,-80,0.005
+3775,Angry Punishment,86D1000A,36,36,740
+3776,Entry to the Mausoleum of Cruelty,260343,60,-80,0.005
+3777,Entry to the Mausoleum of Cruelty,26033A,50,-40,0.005
+3778,Entry to the Mausoleum of Cruelty,26033D,60,0,0.005
+3779,Entry to the Mausoleum of Cruelty,26035F,140,0,0.005
+3780,Entry to the Mausoleum of Cruelty,260368,150,-40,0.005
+3781,Entry to the Mausoleum of Cruelty,260365,140,-80,0.005
+3782,Cruel Punishment,2698001E,85.217,130.872,594
+3783,Entry to the Accursed Mausoleum of Bitterness,270343,60,-80,0.005
+3784,Entry to the Accursed Mausoleum of Bitterness,27033A,50,-40,0.005
+3785,Entry to the Accursed Mausoleum of Bitterness,27033D,60,0,0.005
+3786,Entry to the Accursed Mausoleum of Bitterness,27035F,140,0,0.005
+3787,Entry to the Accursed Mausoleum of Bitterness,270368,150,-40,0.005
+3788,Entry to the Accursed Mausoleum of Bitterness,270365,140,-80,0.005
+3789,Slaughter Punishment,26310024,99.123,91.585,572
+3790,Entry to the Unholy Mausoleum of Bitterness,280343,60,-80,0.005
+3791,Entry to the Unholy Mausoleum of Bitterness,28033A,50,-40,0.005
+3792,Entry to the Unholy Mausoleum of Bitterness,28033D,60,0,0.005
+3793,Entry to the Unholy Mausoleum of Bitterness,28035F,140,0,0.005
+3794,Entry to the Unholy Mausoleum of Bitterness,280368,150,-40,0.005
+3795,Entry to the Unholy Mausoleum of Bitterness,280365,140,-80,0.005
+3796,Entry to the Mausoleum of Bitterness,240343,60,-80,0.005
+3797,Entry to the Mausoleum of Bitterness,24033A,50,-40,0.005
+3798,Entry to the Mausoleum of Bitterness,24033D,60,0,0.005
+3812,Tursh's Lair,2F0100,1.273,-1.189,0.005
+3813,Free Ride to Shoushi,DA55001D,84.8,99,20
+3814,Free Ride to Yaraq,7D64000D,31.9,104.6,11.9
+3815,Free Ride to Holtburg,A9B40019,84,7.1,94
+3826,a powerful force,F10625,110,-150,0.005
+3837,Water Island Access,1E080007,10.43,162,-0.095
+3838,Abandoned Mines Portal Sending,3C022D,70,-30,0.005
+3839,Brilliant Access,3B0364,210,-109.996,0.082
+3840,Dazzling Access,3B0309,40,-217.86,-5.995
+3841,Devastated Access,3D053C,222.07,-42.36,0.005
+3842,Northeast Coast Portal Sending,D1D7000B,46.304,56.1,-0.095
+3843,Fire Island Access,2DAF000E,38.42,132.8,48.005
+3844,Gatekeeper Access,79110040,174.1,174.46,200.005
+3845,Radiant Access,3B0335,80,0,0.005
+3846,Ruined Access,3A053C,222.076,-42.361,0.005
+3847,Cataracts of Xik Minru,F00141,20,-116.58,0.005
+3856,Ulgrim's Recall,1134001F,84.01,156.62,56.09
+3865,Glenden Wood Recall,A0A40025,96.302,119.847,59.955
+3868,Dardante's Keep Portal Sending,16002A5,80,-160,0.005
+3887,Entering the Hatch,5C0110,29.875,-41.06,0.005
+3888,Passage to the Rare Chambers,16002A5,80,-160,0.005
+3889,Inner Burial Chamber Portal Sending,E20104,409.818,-444.339,-29.995
+3898,Pooky's Recall 1,16002A5,80,-160,0.005
+3899,Pooky's Recall 2,16002A5,80,-160,0.005
+3900,Pooky's Recall 3,16002A5,80,-160,0.005
+3912,Lower Black Spear Temple Portal Sending,7E0229,200,-172,-29.995
+3920,Tunnels to the Harbinger,5E0314,49.914,-66.38,0.005
+3921,Harbinger's Lair,5D011D,10,-10,-5.503
+3922,Tunnels to the Harbinger,5E0317,279.914,-66.38,0.005
+3923,Tunnels to the Harbinger,5E0317,280,-66,0.01
+3924,Tunnels to the Harbinger,16002A5,80,-160,0.005
+3925,Harbinger's Lair,70011D,10,-10,-5.503
+3929,Rossu Morta Chapterhouse Recall,800128,80,-10,0.005
+3930,Whispering Blade Chapterhouse Recall,810128,80,-10,0.005
+3954,Access to the White Tower,16002A5,80,-160,0.005
+3958,White Tower Egress,16002A5,80,-160,0.005
+3966,Ringleader's Chambers,D00113,80.136,-150.45,-5.995
+3967,Bandit Trap,16002A5,80,-160,0.005
+3968,Bandit Hideout,D00214,40,3.257,12.01
+4012,White Totem Temple Sending,9A02CE,40,-500,0.005
+4013,Black Totem Temple Sending,9901E1,110,-200,0.005
+4014,Abyssal Totem Temple Sending,16002A5,80,-160,0.005
+4023,Disco Inferno Portal Sending,8A040230,160,-30,12.005
+4029,Return to the Hall of Champions,AF0118,40,-13.165,0.005
+4030,Colosseum Arena,B0016B,30,-1573,0.005
+4031,Advanced Colosseum Arena,B0015C,30,-1123,0.005
+4032,Colosseum Arena,B1016B,30,-1573,0.005
+4033,Advanced Colosseum Arena,B1015C,30,-1123,0.005
+4034,Colosseum Arena,B2016B,30,-1573,0.005
+4035,Advanced Colosseum Arena,B2015C,30,-1123,0.005
+4036,Colosseum Arena,B3016B,30,-1573,0.005
+4037,Advanced Colosseum Arena,B3015C,30,-1123,0.005
+4038,Colosseum Arena,B4016B,30,-1573,0.005
+4039,Advanced Colosseum Arena,B4015C,30,-1123,0.005
+4041,The Path to Bur,9C032C,40,-360,0.005
+4042,The Winding Path to Bur,16002A5,80,-160,0.005
+4063,Exit the Upper Catacomb,D40610,226.418,-86.95,-11.995
+4064,Access the Upper Catacomb,CE02AC,7.49,-117.796,0.005
+4065,Lower Catacomb Portal Sending,6C0278,110.062,-18.743,0.005
+4066,Access to the Ley Line Cavern,6202CF,70.015,-44.056,0.005
+4079,Work it Off,5F0160,39.881,-116.937,-11.995
+4080,Paid in Full,5F0197,237.27,0.003,-11.995
+4083,Kresovus' Warren Portal Sending,16002A5,80,-160,0.005
+4084,Bur Recall,9C0247,160,-70,-17.995
+4085,Entering Harraag's Hideout,16002A5,80,-160,0.005
+4098,Treasure Room,16002A5,80,-160,0.005
+4103,Black Water Portal Sending,CD020B,210,-260,0.005
+4104,Champion Arena,B6012C,220,-333,-12
+4105,Champion Arena,B60111,30,-333,-12
+4106,Travel to the Paradox-touched Olthoi Queen's Lair,16002A5,80,-160,0.005
+4127,Portal Punch,16002A5,80,-160,0.005
+4128,Call of the Mhoire Forge,482D0104,86.8,137.6,-14.795
+4129,Travel to the Prodigal Shadow Child's Lair,16002A5,80,-160,0.005
+4130,Travel to the Prodigal Shadow Child's Sanctum,16002A5,80,-160,0.005
+4143,Witnessing History,E90110,260,-180,-35.99
+4144,Witnessing History,2720140,60,-150,0.005
+4145,Crossing the Threshold of Darkness,A3011A,360,-180,-35.99
+4146,Crossing the Threshold of Darkness,D5011A,360,-180,-35.99
+4147,Crossing the Threshold of Darkness,DB011A,360,-180,-35.99
+4148,Crossing the Threshold of Darkness,E9011A,360,-180,-35.99
+4149,Crossing the Threshold of Darkness,16002A5,80,-160,0.005
+4150,Expulsion from Claude's Mind,1CC2002A,127.5,38,20.005
+4151,Sending to the Other World,A30300,120,-105,0.005
+4152,Sending to the Other World,D50300,120,-105,0.005
+4153,Sending to the Other World,DB0300,120,-105,0.005
+4154,Sending to the Other World,E90300,120,-105,0.005
+4155,Sending to the Other World,2720140,60,-150,0.005
+4156,Delving into Claude's Mind,A30188,80,-150,-17.99
+4157,Delving into Claude's Mind,D50188,80,-150,-17.99
+4158,Delving into Claude's Mind,DB0188,80,-150,-17.99
+4159,Delving into Claude's Mind,E90188,80,-150,-17.99
+4160,Delving into Claude's Mind,2720140,60,-150,0.005
+4161,Exploring the Past,A301D3,240,-130.015,-11.919
+4162,Exploring the Past,D501D3,240,-130.015,-11.919
+4163,Exploring the Past,DB01D3,240,-130.015,-11.919
+4164,Exploring the Past,E901D3,240,-130.015,-11.919
+4165,Exploring the Past,2720140,60,-150,0.005
+4166,Witnessing History,A30110,260,-180,-35.99
+4167,Witnessing History,D50110,260,-180,-35.99
+4168,Witnessing History,DB0110,260,-180,-35.99
+4176,Prodigal Harbinger's Lair,BC0105,20,-30,-35.995
+4177,Prodigal Harbinger's Antechamber,BC012D,0,-20,0.005
+4178,Prodigal Harbinger's Antechamber,BC0130,20,0,0.005
+4179,Prodigal Harbinger's Antechamber,BC0134,20,-40,0.005
+4180,Prodigal Harbinger's Antechamber,BC0137,40,-20,0.005
+4198,Paradox-touched Olthoi Infested Area Recall,C4B60002,22.709,26.045,318.005
+4200,Into the Darkness,13E010F,110,-130,-30
+4203,Dark Crypt Entrance,16002A5,80,-160,0.005
+4204,Dark Crypt Entrance,16002A5,80,-160,0.005
+4205,Dark Crypt Entrance,16002A5,80,-160,0.005
+4207,Arena of the Pumpkin King,AF016F,380,-53,0
+4213,Colosseum Recall,AF0118,40,-13.165,0.005
+4214,Return to the Keep,2B120029,120.64,1.55,48.005
+4218,Knockback,9F015C,90.132,-182.892,-41.995
+4219,Trial of the Arm,9F01D3,60,-330,-17.995
+4220,Trial of the Heart,9F013C,79.069,-120,-41.995
+4222,Chambers Beneath,16002A5,80,-160,0.005
+4223,Trials Graduation Chamber,16002A5,80,-160,0.005
+4224,Trial of the Mind,9F017E,80,-270,-35.995
+4225,Trials of the Arm; Mind and Heart,16002A5,80,-160,0.005
+4228,Awakening,D6044F,59.877,-36.177,66.005
+4229,Journey Into the Past,16002A5,80,-160,0.005
+4230,Bael'Zharon Dream Sending,16002A5,80,-160,0.005
+4233,Aerbax Recall Center Platform,2F2F002A,132,46,146
+4234,Aerbax Recall East Platform,302F0033,156,60,125.576
+4235,Aerbax Recall North Platform,2F30002C,131.896,84.04,125.58
+4236,Aerbax Recall South Platform,2F2E002A,131.963,35.718,125.58
+4237,Aerbax Recall West Platform,2E2F0023,107.666,59.99,125.58
+4238,Aerbax Expulsion,2F2E0030,131.943,184.23,100
+4247,Tanada Battle Burrows Portal Sending,A601C8,80,-240,0.005
+4248,Shroud Cabal North Outpost Sending,16002A5,80,-160,0.005
+4249,Shroud Cabal South Outpost Sending,16002A5,80,-160,0.005
+4250,Aerbax's Platform,16002A5,80,-160,0.005
+4251,Jester's Boot,482E0013,60.108,60.22,200
+4252,Entrance to the Jester's Cell,D701A2,108.387,-89.998,6.005
+4253,Entrance to the Jester's Cell,D70216,109.923,-90.002,24.005
+4254,Jester's Prison Hallway,D7011A,10.032,-120.098,6.005
+4255,Jester's Prison Entryway,D70100,110.007,-110.019,0.005
+4256,Jester Recall 1,D70225,134.111,-89.933,30.055
+4257,Jester Recall 2,D70226,129.415,-99.284,30.055
+4258,Jester Recall 3,D70223,119.985,-104.068,30.055
+4259,Jester Recall 4,D70220,110.671,-99.399,30.055
+4260,Jester Recall 5,D7021F,105.899,-90.012,30.055
+4261,Jester Recall 6,D7021E,110.633,-80.647,30.055
+4262,Jester Recall 7,D70221,119.965,-75.908,30.055
+4263,Jester Recall 8,D70224,129.345,-80.552,30.055
+4277,Jester's Prison Access,D70104,135.814,-110.065,0.005
+4278,Rytheran's Library Portal Sending,16002A5,80,-160,0.005
+4289,Access the Messenger's Sanctuary,16002A5,80,-160,0.005
+4717,Expedient Return to Ulgrim,1134001F,84.01,156.62,770
+4718,Welcomed by the Blood Witches,DA019A,110,-20,0.005
+4719,Welcomed by the Blood Witches,DA01EC,104.027,-169.995,6.005
+4720,Welcomed by the Blood Witches,DA01E1,198.076,-119.213,0.005
+4721,Travel to the Ruins of Degar'Alesh,F7310124,84,108,85
+4724,Gateway to Nyr'leha,3E0D000C,31.7,80.76,9.58
+4725,The Pit of Heretics,3A11012B,84.045,108.378,32.814
+4729,Travel to the Catacombs of Tar'Kelyn,BB0331,90.008,-120.075,0.005
+4907,Celestial Hand Stronghold Recall,16002A5,80,-160,0.005
+4908,Eldrytch Web Stronghold Recall,16002A5,80,-160,0.005
+4909,Radiant Blood Stronghold Recall,16002A5,80,-160,0.005
+4913,Aerlinthe Pyramid Portal Sending,16002A5,80,-160,0.005
+4914,Aerlinthe Pyramid Portal Exit,16002A5,80,-160,0.005
+4915,A'mun Pyramid Portal Sending,16002A5,80,-160,0.005
+4916,A'mun Pyramid Portal Exit,16002A5,80,-160,0.005
+4917,Esper Pyramid Portal Sending,16002A5,80,-160,0.005
+4918,Esper Pyramid Portal Exit,16002A5,80,-160,0.005
+4919,Halaetan Pyramid Portal Sending,16002A5,80,-160,0.005
+4920,Halaetan Pyramid Portal Exit,16002A5,80,-160,0.005
+4921,Linvak Pyramid Portal Sending,16002A5,80,-160,0.005
+4922,Linvak Pyramid Portal Exit,16002A5,80,-160,0.005
+4923,Obsidian Pyramid Portal Sending,16002A5,80,-160,0.005
+4924,Obsidian Pyramid Portal Exit,16002A5,80,-160,0.005
+4950,Tactical Defense,16002A5,80,-160,0.005
+4951,Tactical Defense,16002A5,80,-160,0.005
+4952,Tactical Defense,16002A5,80,-160,0.005
+4953,Test Portal,16002A5,80,-160,0.005
+4954,Crystalline Portal,316D003A,170.867,36.066,290.005
+4955,Portal Space Eddy,16002A5,80,-160,0.005
+4956,Tanada Sanctum Portal Sending,C901A9,80.218,-538.08,0.005
+4957,Tanada Sanctum Return,E74E0027,96.466,157.033,32.005
+4988,Tunnel Out,16002A5,80,-160,0.005
+4989,Mysterious Portal,880202F3,390,-10,0.005
+4990,Floor Puzzle Bypass,88020265,92,-30,0.005
+4991,Jump Puzzle Bypass,8802019C,32,-30,-18
+4992,Direct Assassin Access,48230031,166.5,3,64.005
+4993,Portal to Derethian Combat Arena,16002A5,80,-160,0.005
+4994,Get over here!,48230031,156.289,15,135.005
+4995,Portal to Derethian Combat Arena,16002A5,80,-160,0.005
+4996,Portal to Derethian Combat Arena,16002A5,80,-160,0.005
+4997,Portal to Derethian Combat Arena,16002A5,80,-160,0.005
+5008,Apostate Nexus Portal Sending,16002A5,80,-160,0.005
+5010,Entering Aerfalle's Sanctum,B5F003C3,110.502,-112.401,-15.19
+5012,Mar'uun,CA01C4,40,-130,0.01
+5013,Mar'uun,880403F8,40,-130,0.01
+5014,Mar'uun,880402DE,40,-130,-119.99
+5015,Mar'uun,880401C4,40,-130,-239.99
+5016,Mar'uun,88040512,40,-130,120.01
+5017,Mar'uun,890201C4,40,-130,0.01
+5018,Story of the Unknown Warrior,7E0403F2,189.785,-405.169,0.01
+5019,Portalspace Rift,8903012B,90,-10,0.01
+5020,Portalspace Rift,8903010A,10,-50,0.01
+5021,Portalspace Rift,89030107,10,-10,0.01
+5022,Portalspace Rift,89030119,50,-10,0.01
+5160,Mhoire Castle,452D0038,158.787,170.966,68.005
+5161,Mhoire Castle Great Hall,8C0303D9,119.945,-130.876,0.01
+5162,Mhoire Castle Northeast Tower,8C0307E6,219.624,-0.717,24.005
+5163,Mhoire Castle Northwest Tower,8C0307BD,39.969,0.005,24.005
+5164,Mhoire Castle Southeast Tower,8C0307C7,179.977,-220.008,24.005
+5165,Mhoire Castle Southwest Tower,8C03079A,-0.023,-180.047,24.01
+5167,Mhoire Castle Exit Portal,16002A5,80,-160,0.005
+5168,a spectacular view of the Mhoire lands,472E0001,12,12,200
+5169,a descent into the Mhoire catacombs,8C03036E,100.009,-9.997,0.005
+5170,a descent into the Mhoire catacombs,16002A5,80,-160,0.005
+5175,Facility Hub Recall,8A020212,58.639,-89.923,6.005
+5176,Celestial Hand Basement,8A030180,80,-211.186,0.005
+5177,Radiant Blood Basement,8A030212,220.046,-421.131,0.005
+5178,Eldrytch Web Basement,8A0302A2,350,-223,0.005
+5179,Celestial Hand Basement,8A030180,80,-170,0.005
+5180,Radiant Blood Basement,8A030210,220,-380,0.005
+5181,Eldrytch Web Basement,8A0302A0,350,-180,0.005
+5330,Gear Knight Invasion Area Camp Recall,21700031,145.507,14.367,178.005
+5533,Entering Lord Kastellar's Lab,79E90394,12,19,138
+5534,Entering the Bloodstone Factory,79E9033A,-147,16.5,139
+5539,Warded Cavern Passage,16002A5,80,-160,0.005
+5540,Warded Dungeon Passage,16002A5,80,-160,0.005
+5541,Lost City of Neftet Recall,8763000E,40.457,129.281,8.01
+6032,Imprisoned,584F0102,140,-110,-12
+6033,Impudence,585201F4,20.034,-33.2,6.005
+6034,Proving Grounds Rolling Death,585201A6,40,-184,0.5
+6147,Entrance to the Frozen Valley,7AE80002,18.433,30.168,120.006
+6148,Begone and Be Afraid,30190033,156,60,18.005
+6149,Rynthid Vision,587401E1,180.015,-75.427,0.005
+6150,Rynthid Recall,3032001C,83.3,89.2,133
+6154,Entering the Basement,16002A5,80,-160,0.005
+6183,Return to the Stronghold,E74D003F,180.047,156.015,34.005
+6184,Return to the Stronghold,BDA00023,96.289,51.048,-0.095
+6185,Return to the Stronghold,808F0014,55.812,83.319,124.005
+6321,Viridian Rise Recall,B3490013,67.3,64.3,56.372
+6322,Viridian Rise Great Tree Recall,B44A0039,191.8,11.6,117.988
+6325,Celestial Hand Stronghold Recall,E74D003F,187.488,164,32.005
+6326,Eldrytch Web Stronghold Recall,BDA00023,97.79,51.801,-0.095
+6327,Radiant Blood Stronghold Recall,808F0014,55.812,83.319,124.005

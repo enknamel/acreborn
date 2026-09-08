@@ -164,40 +164,97 @@ each other; sessions in one process hear each other anyway.
 
 ## Resources
 
-* **DAT archives.** `ac_dat::DatArchive` mmaps the files. Within a process
-  every session shares one `Rc<ac_scene::Assets>` (one mmap, one set of
-  decoded-asset caches, one 32-entry assembled-landblock LRU). Across
-  processes the mappings are separate but back onto the same page cache,
-  so N launcher processes cost one copy of the archive pages plus N sets
-  of decoded assets.
+What one process shares between its sessions, and what the Nth session
+costs. `crates/ac-client/examples/session_cost.rs` measures it without a
+server:
+
+```
+AC_DATA_DIR=... cargo run --release -p ac-client --example session_cost [N] [BLOCK]
+```
+
+It opens the archives once, starts N `Client`s (to a port nobody
+listens on), stands each character in a landblock (Holtburg by default)
+and makes each do what allocates: walk into a wall (the block's
+collision), plan around it (the nav graph), plan a journey (the world
+grid) and ask the wide planner for a route (the pathfinder thread), then
+100 idle ticks each. After each phase it prints the process RSS (`ps`)
+and, on macOS, the physical footprint (`vmmap`), which leaves out the
+file-backed archive pages.
+
+* **DAT archives.** `ac_dat::DatArchive` mmaps the files and walks the
+  directory into a sorted entry table (about 1M entries for the cell
+  archive: 23 MB private, and the directory nodes it touched, some 350 MB
+  of file-backed pages that the OS shares with every process on the
+  machine and drops under pressure). Within a process every session
+  shares one `Rc<ac_scene::Assets>`: one mapping, one entry table, one
+  set of decoded-asset caches, one 32-entry assembled-landblock LRU.
+  `Assets` now holds the archives as `Arc<DatArchive>`, so another
+  thread's `Assets` (`Assets::with_archives(assets.archives())`) shares
+  the mapping and the entry table too, with caches of its own.
+* **Pathfinder.** One planner thread per process (`ac_client::pathfinder`),
+  started by the first session that asks for a route. Every session's
+  `Pathfinder` handle sends asks down the same channel and gets answers
+  on its own; the thread keeps the newest ask per handle and the last
+  four assembled neighbourhoods (nine blocks of collision each, about
+  13 MB), so a party walking together plans on one. Before, each session
+  started a thread that opened the archives again: about 390 MB of RSS
+  per session, of which 23 MB was a second entry table.
+* **Block collision and nav graphs.** `Assets::block_collision(block)`
+  (`ac_scene::blockcache`) holds the process's `CollisionWorld` per
+  landblock, most recent 48, with the nav graphs built on it, one per
+  capsule shape. A `Player` keeps `Rc`s to the blocks it stands in or
+  next to and lets go of the rest as it walks on, so a session's own
+  hold on blocks is bounded (it was not before: a character that
+  crossed the map kept every block's collision it had built).
+* **World grid.** `Assets::world_grid()` reads the cached
+  `~/.cache/acreborn/worldgrid.bin` (about 16 MB in memory) once per
+  process; journeys share it.
 * **Scene caches are per process.** The viewer keeps one `mesh_cache`,
   `gpu_meshes`, `palettes`, motion `tables`, particle `fx` and
   `loaded_blocks` on the `App`, shared by every session; only the active
   session's surroundings are streamed and drawn, and only per-session
   state (`anims`, `pickables`) lives on each `Net`. Two sessions standing
   in Holtburg therefore hold one copy of its meshes.
-* **Memory, measured** (release build, Apple Silicon, one session in the
-  Academy dungeon, `vmmap`): graphics allocations 11-15 MB (about 400
-  materials, 44 MB of texture data before compression by the driver),
-  heap 50-80 MB, process footprint 230-440 MB of which the bulk is the
-  DAT archive pages, file-backed and shared by every process on the
-  machine. A headless `acbot` session is about 30 MB private. Before
-  `Gpu::flush` a headless `acviewer --screenshot` run leaked every
-  per-tick particle upload until the final submit (2.7 GB after 30 s);
-  windowed sessions were never affected.
+* **Memory, measured.** `session_cost` (release, Apple Silicon, 16 KB
+  pages, Holtburg), RSS after the last phase:
+
+  | sessions | before (RSS) | after (RSS) | after (footprint) |
+  |---:|---:|---:|---:|
+  | 1 | 795 MB | 421 MB | 66 MB |
+  | 4 | 2019 MB | 422 MB | -- |
+  | 8 | 3653 MB | 422 MB | 67 MB |
+  | 16 | -- | 424 MB | 69 MB |
+
+  Before, the Nth session cost about 410 MB of RSS (390 MB of it the
+  pathfinder's own archives, 16 MB its world grid, 2-3 MB its block
+  collision and graph). After, the first session still pays for the
+  world grid (24 MB), the planner's neighbourhood (13 MB) and the
+  block's collision (4 MB), once, and the Nth session costs about
+  0.2-0.3 MB: its `Client`, `Player` and per-session channel ends. The
+  372 MB the archives cost the RSS is shared file-backed pages; the
+  private footprint of the whole process with 16 sessions is 69 MB.
+  The earlier `vmmap` figures for the windowed viewer (graphics
+  allocations 11-15 MB, heap 50-80 MB, process footprint 230-440 MB) are
+  in addition to this for `acviewer`.
 * **Audio.** One `ac_audio::Audio` device per process, cloned into every
   session; only the active session's sounds play. `--mute` skips opening
   the device (and `--screenshot` implies it).
 * **Tick rates.** Windowed, every session ticks once per presented frame
   (vsync, `PresentMode::AutoVsync`), so a 60 Hz display gives 60 ticks/s
   per session; `dt` is clamped to 0.1 s so a stall does not teleport the
-  character. Headless `--screenshot` loops with a 1 ms sleep and logs
-  `ticks/s`. On the wire a moving character sends AutonomousPosition four
-  times a second, MoveToState on input changes, an echo every 5 s and an
-  ack every 2 s, so network cost per session is small.
-* **CPU.** `Client::tick` is cheap; scene assembly (`build_landblock`) is
-  the expensive step and runs for the active session only, one block per
-  frame.
+  character. `acbot` ticks every session `--hz N` times a second
+  (`--tick-hz`; default 20, the game's pace); a process of followers
+  gets by on `--hz 10`, which halves its share of the CPU. Headless
+  `--screenshot` loops with a 1 ms sleep and logs `ticks/s`. On the wire
+  a moving character sends AutonomousPosition four times a second,
+  MoveToState on input changes, an echo every 5 s and an ack every 2 s,
+  so network cost per session is small.
+* **CPU.** An idle `Client::tick` is 2-4 us per session (`session_cost`),
+  so 20 sessions at 20 Hz idle in well under a millisecond a second;
+  what costs is walking (collision per step, microseconds) and planning:
+  scene assembly (`build_landblock`, ~0.5 s a block) runs once per
+  process per block now, on the planner thread for neighbourhoods and on
+  the session thread for the block a character first walks into.
 
 ## Known limits
 

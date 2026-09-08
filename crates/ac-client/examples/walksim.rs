@@ -63,7 +63,7 @@ fn main() {
     }
 
     let mut steering = Steering::new(Instant::now());
-    let mut wide = Pathfinder::new(assets.data_dir.clone());
+    let mut wide = Pathfinder::new(&assets);
     let dt = 1.0 / 20.0;
     let t0 = Instant::now();
     let mut next = 0usize;

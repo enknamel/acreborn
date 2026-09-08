@@ -3,14 +3,17 @@
 //! ledges, falls under gravity, jumps, tracks the cell id, and reports
 //! movement to the server.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use ac_formats::landblock::CellLandblock;
 use ac_net::messages::{self, action, motion, RawMotion, WirePosition};
 use ac_net::session::Session;
 use ac_scene::anim::AnimPlayer;
-use ac_scene::collision::{Capsule, CollisionWorld, Vertical, GRAVITY};
+use ac_scene::blockcache::BlockCollision;
+use ac_scene::collision::{Capsule, Vertical, GRAVITY};
 use ac_scene::nav::{self, Ground, NavGraph};
 use ac_scene::scenery::TerrainSampler;
 use ac_scene::Assets;
@@ -60,16 +63,26 @@ pub struct Jump {
 /// `MotionCommand::Falling`, the airborne cycle.
 const FALLING: u32 = 0x4000_0015;
 
+/// A landblock the character stands in or near. The collision and the
+/// graph are the process's (`Assets::block_collision`), shared with
+/// every other character there; this only keeps the `Rc`s so that the
+/// walk does not look them up every frame.
 struct Block {
     lb: CellLandblock,
-    /// Static collision geometry, built on first use.
-    collision: Option<CollisionWorld>,
-    /// Navigation graph over the collision, built chunk by chunk as
-    /// paths are planned.
-    nav: Option<NavGraph>,
+    /// Static collision geometry, fetched from the shared cache on
+    /// first use.
+    collision: Option<Rc<BlockCollision>>,
+    /// Navigation graph over the collision for our capsule, built chunk
+    /// by chunk as paths are planned (by us or anyone else sharing it).
+    nav: Option<Rc<RefCell<NavGraph>>>,
     /// A dungeon block: no terrain to walk on.
     dungeon: bool,
 }
+
+/// Blocks further than this many landblocks from the character (in
+/// either axis) are let go of: they are still in the process cache for
+/// whoever is there, and come back at the cost of one lookup.
+const KEEP_BLOCKS_WITHIN: u32 = 1;
 
 /// Landblock id (`xxyy0000`) containing a world position.
 fn block_of(w: Vec3) -> u32 {
@@ -578,6 +591,7 @@ impl Player {
         if !self.blocks.contains_key(&block_id) {
             let lb_id = block_id | 0xFFFF;
             let lb = CellLandblock::parse(lb_id, &assets.cell.read(lb_id).ok()?).ok()?;
+            self.forget_far_blocks();
             self.blocks.insert(
                 block_id,
                 Block {
@@ -591,8 +605,28 @@ impl Player {
         self.blocks.get(&block_id)
     }
 
-    /// Collision world for a landblock, built from the assembled scene on
-    /// first use (this loads the block's models once, ~0.5 s).
+    /// Drop the blocks we have walked away from (see
+    /// [`KEEP_BLOCKS_WITHIN`]). The block we stand in and the one under
+    /// our world position (a dungeon's cells lie away from its block)
+    /// stay, with their neighbours.
+    fn forget_far_blocks(&mut self) {
+        let here = [self.landblock(), block_of(self.world_position())];
+        let near = |a: u32, b: u32| {
+            let (ax, ay) = (a >> 24, (a >> 16) & 0xFF);
+            let (bx, by) = (b >> 24, (b >> 16) & 0xFF);
+            ax.abs_diff(bx) <= KEEP_BLOCKS_WITHIN && ay.abs_diff(by) <= KEEP_BLOCKS_WITHIN
+        };
+        self.blocks
+            .retain(|&blk, _| here.iter().any(|&h| near(h, blk)));
+    }
+
+    /// How many landblocks the character holds on to.
+    pub fn blocks_held(&self) -> usize {
+        self.blocks.len()
+    }
+
+    /// Collision world for a landblock, from the process's shared cache
+    /// (built from the assembled scene on first use, ~0.5 s once).
     /// Whether the block we stand in is a dungeon: there is no terrain
     /// under it to fall onto, and no cell-0 floor can take us outside.
     fn in_dungeon(&mut self, assets: &Assets) -> bool {
@@ -610,7 +644,7 @@ impl Player {
         let cap = self.capsule;
         let height_table = self.height_table.clone();
         let b = self.blocks.get(&block)?;
-        let collision = b.collision.as_ref()?;
+        let collision = &b.collision.as_ref()?.world;
         let sampler = TerrainSampler::new(&b.lb, &height_table);
         let origin = ac_world::landblock_origin(block);
         let terrain =
@@ -655,16 +689,16 @@ impl Player {
         self.capsule
     }
 
-    fn collision(&mut self, assets: &Assets, block_id: u32) -> Option<&CollisionWorld> {
+    fn collision(&mut self, assets: &Assets, block_id: u32) -> Option<Rc<BlockCollision>> {
         let block_id = block_id & 0xFFFF_0000;
         self.block(assets, block_id)?;
         let b = self.blocks.get_mut(&block_id)?;
         if b.collision.is_none() {
-            let scene = ac_scene::landblock::load(assets, block_id).ok()?;
-            b.collision = CollisionWorld::from_scene(assets, &scene).ok();
-            b.dungeon = scene.is_dungeon;
+            let c = assets.block_collision(block_id).ok()?;
+            b.dungeon = c.dungeon;
+            b.collision = Some(c);
         }
-        b.collision.as_ref()
+        b.collision.clone()
     }
 
     /// Whether the straight walk from `from` to `to` is blocked: static
@@ -680,7 +714,7 @@ impl Player {
         }
         if blocks.iter().any(|&blk| {
             self.collision(assets, blk)
-                .is_some_and(|c| !nav::line_clear(c, from, to))
+                .is_some_and(|c| !nav::line_clear(&c.world, from, to))
         }) {
             return true;
         }
@@ -699,7 +733,7 @@ impl Player {
         let height_table = self.height_table.clone();
         let sea_types = self.sea_types(assets).to_vec();
         let b = self.blocks.get(&block)?;
-        let collision = b.collision.as_ref()?;
+        let collision = &b.collision.as_ref()?.world;
         let sampler = TerrainSampler::new(&b.lb, &height_table);
         let origin = ac_world::landblock_origin(block);
         let terrain =
@@ -733,21 +767,16 @@ impl Player {
         let height_table = self.height_table.clone();
         let sea_types = self.sea_types(assets).to_vec();
         let b = self.blocks.get_mut(&block)?;
-        let same_capsule = |n: &NavGraph| {
-            let c = n.capsule;
-            c.radius == cap.radius
-                && c.height == cap.height
-                && c.step_up == cap.step_up
-                && c.step_down == cap.step_down
-        };
-        if b.nav.as_ref().is_some_and(|n| !same_capsule(n)) {
+        if b.nav
+            .as_ref()
+            .is_some_and(|n| !n.borrow().capsule.same(&cap))
+        {
             b.nav = None;
         }
         if b.nav.is_none() {
-            let scene = ac_scene::landblock::load(assets, block).ok()?;
-            b.nav = Some(NavGraph::for_scene(&scene, b.collision.as_ref()?, &cap));
+            b.nav = Some(b.collision.as_ref()?.nav(assets, &cap).ok()?);
         }
-        let collision = b.collision.as_ref()?;
+        let collision = &b.collision.as_ref()?.world;
         let sampler = TerrainSampler::new(&b.lb, &height_table);
         let origin = ac_world::landblock_origin(block);
         let terrain =
@@ -768,7 +797,7 @@ impl Player {
             no_go: (!avoid.is_empty()).then_some(&no_go),
             outdoors_only: false,
         };
-        let nav = b.nav.as_mut()?;
+        let mut nav = b.nav.as_ref()?.borrow_mut();
         let (nodes, chunks) = (nav.len(), nav.chunk_count());
         let started = Instant::now();
         // A goal from the overland grid may float a storey off the

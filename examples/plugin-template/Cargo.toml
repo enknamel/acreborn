@@ -1,0 +1,21 @@
+[package]
+name = "plugin-template"
+description = "A minimal acreborn plugin (a panel, a key, a setting, a command) and an offline runner to try it without a server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "plugin-template"
+path = "src/main.rs"
+
+[dependencies]
+ac-plugin = { path = "../../crates/ac-plugin" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -12,6 +12,21 @@ use ac_formats::skill_table::SkillBase;
 use ac_net::messages::{event, opcode, split_game_event};
 use ac_net::wire::{Reader, Truncated};
 
+use crate::object::Position;
+
+/// A position as the server writes it in a property table:
+/// `u32 cell, f32 x y z, f32 qw qx qy qz`.
+fn read_position(r: &mut Reader) -> Result<Position, Truncated> {
+    let cell = r.u32()?;
+    let local = glam::Vec3::new(r.f32()?, r.f32()?, r.f32()?);
+    let (w, x, y, z) = (r.f32()?, r.f32()?, r.f32()?, r.f32()?);
+    Ok(Position {
+        cell,
+        local,
+        rotation: glam::Quat::from_xyzw(x, y, z, w).normalize(),
+    })
+}
+
 pub const ATTRIBUTE_NAMES: [&str; 6] = [
     "Strength",
     "Endurance",
@@ -515,6 +530,12 @@ pub struct PlayerStats {
     pub ints: Vec<(u32, i32)>,
     pub int64s: Vec<(u32, i64)>,
     pub strings: Vec<(u32, String)>,
+    /// The character's saved positions by the server's `PositionType`
+    /// word (`ac_world::recalls::position_type`): where the last corpse
+    /// fell, as the server sends it, and the places the recall spells go
+    /// (the lifestone, the tied portals' exits), which the server keeps
+    /// to itself and the client fills in from what it sees.
+    pub positions: Vec<(u32, Position)>,
 }
 
 pub mod property {
@@ -715,8 +736,9 @@ impl PlayerStats {
         if flags & 0x0020 != 0 {
             let (n, _) = (r.u16()?, r.u16()?);
             for _ in 0..n {
-                r.u32()?;
-                r.bytes(32)?;
+                let k = r.u32()?;
+                let p = read_position(&mut r)?;
+                st.set_recall_position(k, p);
             }
         }
         let vectors = r.u32()?;
@@ -958,6 +980,7 @@ impl PlayerStats {
             opcode::PRIVATE_UPDATE_PROPERTY_STRING => {
                 (self.update_string(body), StatsApplied::Stats)
             }
+            opcode::PRIVATE_UPDATE_POSITION => (self.update_position(body), StatsApplied::Stats),
             _ => return None,
         };
         if let Err(e) = r {
@@ -1102,6 +1125,42 @@ impl PlayerStats {
             Some(e) => e.1 = v,
             None => self.strings.push((k, v)),
         }
+    }
+
+    /// Record one of the character's saved positions (a `PositionType`
+    /// word from `ac_world::recalls::position_type`): what the server
+    /// sends, and what the client works out for itself when the
+    /// character uses a lifestone, ties a portal or walks through one.
+    pub fn set_recall_position(&mut self, kind: u32, p: Position) {
+        match self.positions.iter_mut().find(|(k, _)| *k == kind) {
+            Some(e) => e.1 = p,
+            None => self.positions.push((kind, p)),
+        }
+    }
+
+    /// Forget a saved position (a recall to it was refused).
+    pub fn clear_recall_position(&mut self, kind: u32) {
+        self.positions.retain(|(k, _)| *k != kind);
+    }
+
+    /// Where a recall of `kind` (a `PositionType` word) would land, if
+    /// known: `recalls::position_type::SANCTUARY` for the lifestone,
+    /// `LAST_PORTAL` for the last portal's exit, and so on.
+    pub fn recall_position(&self, kind: u32) -> Option<Position> {
+        self.positions
+            .iter()
+            .find(|(k, _)| *k == kind)
+            .map(|(_, p)| *p)
+    }
+
+    /// PrivateUpdatePosition (0x02DB): `u8 sequence, u32 type, position`.
+    fn update_position(&mut self, body: &[u8]) -> Result<(), Truncated> {
+        let mut r = Reader::new(body);
+        let _seq = r.u8()?;
+        let kind = r.u32()?;
+        let p = read_position(&mut r)?;
+        self.set_recall_position(kind, p);
+        Ok(())
     }
 
     fn update_int(&mut self, body: &[u8]) -> Result<(), Truncated> {
@@ -1324,6 +1383,44 @@ mod tests {
             .iter()
             .map(|e| (e.spell_id, e.layer))
             .collect()
+    }
+
+    fn write_position(w: &mut Writer, cell: u32, x: f32, y: f32, z: f32) {
+        w.u32(cell).f32(x).f32(y).f32(z);
+        w.f32(1.0).f32(0.0).f32(0.0).f32(0.0);
+    }
+
+    #[test]
+    fn saved_positions_are_kept_by_kind() {
+        use crate::recalls::position_type::{LAST_OUTSIDE_DEATH, SANCTUARY};
+        // A description whose position table holds the last corpse.
+        let mut w = Writer::new();
+        w.u32(0x0020).u32(10);
+        w.u16(1).u16(16).u32(LAST_OUTSIDE_DEATH);
+        write_position(&mut w, 0xA9B4_0019, 10.0, 20.0, 30.0);
+        w.u32(0).u32(0);
+        let mut st = PlayerStats::parse_description(&w.finish()).unwrap();
+        let corpse = st.recall_position(LAST_OUTSIDE_DEATH).expect("corpse");
+        assert_eq!(corpse.cell, 0xA9B4_0019);
+        assert_eq!(corpse.local, glam::Vec3::new(10.0, 20.0, 30.0));
+        assert!(st.recall_position(SANCTUARY).is_none());
+        // A PrivateUpdatePosition replaces it; the others are untouched.
+        let mut w = Writer::new();
+        w.u8(1).u32(LAST_OUTSIDE_DEATH);
+        write_position(&mut w, 0xC6A9_0010, 1.0, 2.0, 3.0);
+        assert_eq!(
+            st.apply(opcode::PRIVATE_UPDATE_POSITION, &w.finish()),
+            Some(StatsApplied::Stats)
+        );
+        assert_eq!(
+            st.recall_position(LAST_OUTSIDE_DEATH).unwrap().cell,
+            0xC6A9_0010
+        );
+        st.set_recall_position(SANCTUARY, Position::new_flat(0xA9B4_0019, glam::Vec3::ZERO));
+        assert_eq!(st.positions.len(), 2);
+        st.clear_recall_position(SANCTUARY);
+        assert!(st.recall_position(SANCTUARY).is_none());
+        assert!(st.recall_position(LAST_OUTSIDE_DEATH).is_some());
     }
 
     /// A PlayerDescription body with every section populated, in the

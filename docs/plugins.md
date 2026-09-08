@@ -1,5 +1,10 @@
 # Writing a plugin
 
+This is the reference for the in-process Rust surface. For the
+task-oriented guide (panels, events, driving the character, sharing
+state, scripts versus plugins versus processes, testing) see
+[sdk.md](sdk.md); for a plugin to copy, `examples/plugin-template`.
+
 A plugin is a plain Rust type implementing `ac_plugin::Plugin`, registered
 with the `Host` in `bins/acviewer/src/plugins/mod.rs`. It sees every
 session in the process through `Ctx`, can call any `ac_client::Client`
@@ -57,8 +62,17 @@ pub enum Event {
     Characters(Vec<CharacterEntry>),    // the account's list, when not auto-entering
     CharacterCreated { id: u32, name: String },
     CharacterCreateFailed(u32),         // ACE verification code (creation::create_failure_message)
+    Autoplay { doing: String, text: String }, // autoplay switched to doing something else
 }
 ```
+
+`Autoplay` is emitted once per change of the rules' state: `doing` is
+the state's name in lower case (`fighting`, `looting`, `buffing`,
+`healing`, `debuffing`, `helping`, `following`, `fleeing`, `idle`) and
+`text` the Autoplay panel's line. The host also posts each one on the
+blackboard topic `autoplay.event` (`ac_plugin::AUTOPLAY_TOPIC`) as
+`{"session", "name", "doing", "text"}`, so every session and every
+process on the bus can follow what every character is doing.
 
 ## `Ctx`
 

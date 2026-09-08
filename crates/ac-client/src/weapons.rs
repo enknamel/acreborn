@@ -281,6 +281,54 @@ pub fn best_missile(
     best.map(|(_, l, a)| (l, a))
 }
 
+/// The Two Handed Combat skill: what a two-handed weapon is swung with.
+const TWO_HANDED_COMBAT: u32 = 41;
+
+/// A weapon that takes both hands, so no shield goes with it. Told by
+/// what it is for, or by the skill it is swung with, or by the slot it
+/// asks for before it has been appraised.
+pub fn is_two_handed(item: &ItemStats) -> bool {
+    item.combat_use == combat_use::TWO_HANDED
+        || item.weapon_skill_id == TWO_HANDED_COMBAT
+        || item.valid_locations & ac_world::equip::TWO_HANDED != 0
+}
+
+/// A shield: armour that goes on the off hand.
+pub fn is_shield(item: &ItemStats) -> bool {
+    item.combat_use == combat_use::SHIELD || item.valid_locations & ac_world::equip::SHIELD != 0
+}
+
+/// Whether this weapon wants the off hand empty. The server will not
+/// put a shield on with a caster, a bow or crossbow, or a two-handed
+/// weapon (a thrown weapon, a dagger or a sword is fine); a missile
+/// weapon not yet appraised is taken for a bow, the common case.
+pub fn needs_free_offhand(item: &ItemStats) -> bool {
+    use ac_world::item_type;
+    if item.item_type & item_type::CASTER != 0 {
+        return true;
+    }
+    if item.item_type & item_type::MISSILE_WEAPON != 0 && !is_ammo(item) {
+        return is_launcher(item) || !item.appraised;
+    }
+    is_two_handed(item)
+}
+
+/// The best shield carried that the character may hold: the highest
+/// shield value, the dearest breaking a tie. `None` when none is.
+pub fn best_shield(carried: &[ItemStats], wielder: &Wielder) -> Option<Choice> {
+    carried
+        .iter()
+        .filter(|i| is_shield(i))
+        .filter(|i| wielder.can_wield(i))
+        .map(|i| Choice {
+            guid: i.guid,
+            name: i.name.clone(),
+            score: i.shield as f32 + i.value as f32 * 1e-6,
+            why: format!("shield {}", i.shield),
+        })
+        .reduce(|best, next| if next.score > best.score { next } else { best })
+}
+
 /// The skill a weapon is used with. The weapon profile says so for a
 /// sword or a bow, but a wand's appraisal names no skill: what it does
 /// name is the skill it asks of the wielder, which for a caster is the
@@ -514,6 +562,150 @@ mod tests {
         // Order does not decide it.
         let pick = best(&[fire, frost], Stance::Melee, Some(ice), &able()).unwrap();
         assert_eq!(pick.guid, 10);
+    }
+
+    #[test]
+    fn a_melee_weapon_is_picked_for_what_the_target_takes_most_from() {
+        use ac_world::item_type::MELEE_WEAPON;
+        use ac_world::wield;
+        // Something weak to fire and hardy against slashing.
+        let firefly = Creature {
+            wcid: 0,
+            name: "Firefly".into(),
+            health: 500,
+            takes: [
+                Some(0.6),
+                Some(1.0),
+                Some(1.0),
+                Some(1.0),
+                Some(1.5),
+                Some(1.0),
+                Some(1.0),
+                None,
+            ],
+        };
+        assert_eq!(firefly.takes_from(Element::Fire), 1.5);
+        // A hard-hitting plain sword, a lighter fire rending one, and a
+        // two-hander it takes a strong arm to lift.
+        let mut plain = weapon(MELEE_WEAPON, 30, 40, Element::Slash as u32, 0);
+        plain.guid = 1;
+        plain.name = "Broad Sword".into();
+        plain.weapon_skill_id = 44;
+        let mut fire = weapon(
+            MELEE_WEAPON,
+            18,
+            24,
+            Element::Fire as u32,
+            imbue::FIRE_RENDING,
+        );
+        fire.guid = 2;
+        fire.name = "Flaming Sword".into();
+        fire.weapon_skill_id = 44;
+        let mut great = weapon(MELEE_WEAPON, 40, 60, Element::Fire as u32, 0);
+        great.guid = 3;
+        great.name = "Great Fire Spear".into();
+        great.weapon_skill_id = TWO_HANDED_COMBAT;
+        great.combat_use = combat_use::TWO_HANDED;
+        great.wield_reqs = vec![(wield::RAW_ATTRIB, 1, 250)];
+        let carried = [plain.clone(), fire.clone(), great.clone()];
+
+        // Weak arms: the two-hander is out of reach, and the fire
+        // rending sword beats the harder-hitting plain one.
+        let weak = Wielder {
+            level: 50,
+            skills: vec![(44, 200, 200, 2), (TWO_HANDED_COMBAT, 200, 200, 2)],
+            attributes: [150; 6],
+            attributes_current: [150; 6],
+            vitals: [300; 3],
+        };
+        let pick = best(&carried, Stance::Melee, Some(&firefly), &weak).expect("a sword");
+        assert_eq!(pick.guid, 2, "{pick:?}");
+        assert!(
+            pick.why.contains("fire") && pick.why.contains("rending"),
+            "{}",
+            pick.why
+        );
+        // Against nothing in particular, the harder hitter.
+        assert_eq!(best(&carried, Stance::Melee, None, &weak).unwrap().guid, 1);
+        // Strong arms: the two-hander, which deals fire and hits hardest.
+        let strong = Wielder {
+            attributes: [300; 6],
+            attributes_current: [300; 6],
+            ..weak.clone()
+        };
+        assert_eq!(
+            best(&carried, Stance::Melee, Some(&firefly), &strong)
+                .unwrap()
+                .guid,
+            3
+        );
+        // A two-hander wants the off hand empty; a sword does not.
+        assert!(is_two_handed(&great) && needs_free_offhand(&great));
+        assert!(!is_two_handed(&fire) && !needs_free_offhand(&fire));
+        // Unappraised, the slot it asks for still says so.
+        let unseen = ItemStats {
+            appraised: false,
+            combat_use: 0,
+            weapon_skill_id: 0,
+            valid_locations: ac_world::equip::TWO_HANDED,
+            ..great.clone()
+        };
+        assert!(is_two_handed(&unseen));
+        // So does a wand or a bow; a thrown weapon may keep its shield.
+        let wand = weapon(ac_world::item_type::CASTER, 0, 0, Element::Fire as u32, 0);
+        assert!(needs_free_offhand(&wand));
+        let mut bow = weapon(ac_world::item_type::MISSILE_WEAPON, 0, 0, 0, 0);
+        bow.combat_use = combat_use::LAUNCHER;
+        bow.ammo_type = ac_world::fletching::ammo_type::ARROW;
+        assert!(needs_free_offhand(&bow));
+        let dart = weapon(
+            ac_world::item_type::MISSILE_WEAPON,
+            6,
+            9,
+            Element::Pierce as u32,
+            0,
+        );
+        assert!(!needs_free_offhand(&dart));
+    }
+
+    #[test]
+    fn the_best_shield_carried_goes_with_a_one_handed_weapon() {
+        use ac_world::item_type::ARMOR;
+        use ac_world::wield;
+        let shield = |guid: u32, value: u32, level: u32| ItemStats {
+            guid,
+            name: format!("Shield {guid}"),
+            item_type: ARMOR,
+            combat_use: combat_use::SHIELD,
+            valid_locations: ac_world::equip::SHIELD,
+            shield: level,
+            value,
+            appraised: true,
+            ..Default::default()
+        };
+        let mut tower = shield(1, 5000, 300);
+        // Skill 48 is Shield.
+        tower.wield_reqs = vec![(wield::RAW_SKILL, 48, 200)];
+        let buckler = shield(2, 100, 80);
+        let mut tunic = shield(3, 9000, 0);
+        tunic.combat_use = 0;
+        tunic.valid_locations = 0;
+        assert!(is_shield(&tower) && is_shield(&buckler) && !is_shield(&tunic));
+        let carried = [tunic, buckler.clone(), tower.clone()];
+        let untrained = Wielder {
+            level: 30,
+            skills: vec![(48, 50, 50, 1)],
+            attributes: [100; 6],
+            attributes_current: [100; 6],
+            vitals: [200; 3],
+        };
+        assert_eq!(best_shield(&carried, &untrained).unwrap().guid, 2);
+        let trained = Wielder {
+            skills: vec![(48, 250, 250, 2)],
+            ..untrained.clone()
+        };
+        assert_eq!(best_shield(&carried, &trained).unwrap().guid, 1);
+        assert!(best_shield(&carried[..1], &trained).is_none());
     }
 
     #[test]

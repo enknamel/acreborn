@@ -9,11 +9,14 @@ pub mod buffs;
 pub mod creation;
 pub mod daytime;
 pub mod emotes;
+pub mod growth;
 pub mod items;
 pub mod magic;
 pub mod options;
 pub mod pathfinder;
 pub mod player;
+pub mod recalls;
+pub mod recovery;
 pub mod route;
 pub mod travel;
 pub mod weapons;
@@ -63,6 +66,14 @@ pub enum Event {
     /// an ACE `CharacterGenerationVerificationResponse` code; see
     /// `creation::create_failure_message`.
     CharacterCreateFailed(u32),
+    /// Autoplay changed what it is doing (see `autoplay::Doing`): `doing`
+    /// is the state's name in lower case ("fighting", "looting",
+    /// "idle"...), `text` the line the panel shows ("fighting Drudge
+    /// Skulker"). Emitted once per change, not once per tick.
+    Autoplay {
+        doing: String,
+        text: String,
+    },
 }
 
 /// How to reach the server and who to be.
@@ -261,7 +272,7 @@ impl Client {
         );
         session.login(now);
         tracing::info!("connecting to {primary} as {}", config.account);
-        let data_dir = assets.data_dir.clone();
+        let pathfinder = pathfinder::Pathfinder::new(&assets);
         Ok(Client {
             config,
             socket,
@@ -280,7 +291,7 @@ impl Client {
             move_to: None,
             move_to_since: Instant::now(),
             steering: route::Steering::new(Instant::now()),
-            pathfinder: pathfinder::Pathfinder::new(data_dir),
+            pathfinder,
             travel: Default::default(),
             combat: false,
             magic: false,
@@ -701,6 +712,7 @@ impl Client {
         }
         // The next leg of the overland route, if one is being walked.
         let travel_goal = self.travel_goal(now);
+        let travelling = self.traveling();
         // Player movement, camera, and reporting.
         if let Some(pl) = self.player.as_mut() {
             let mut input = input;
@@ -730,6 +742,11 @@ impl Client {
                         })
                     }),
                 };
+                tracing::trace!(
+                    "move: goal {goal:?} manual {manual} move_to {:?} travelling {}",
+                    self.move_to,
+                    travelling
+                );
                 if let Some((g, stop, goal_cell)) = goal {
                     let d = g - pl.world_position();
                     let flat = glam::Vec2::new(d.x, d.y);
@@ -1076,6 +1093,7 @@ impl Client {
                         .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                         .unwrap_or(0);
                     tracing::info!("weenie error {code:#x}");
+                    self.recall_error(code);
                     // The informational ones (teleported, turbine chat) stay
                     // in the log; refusals reach the chat.
                     match weenie_errors::text(code) {
@@ -1147,6 +1165,7 @@ impl Client {
             _ => format!("{} says, \"{}\"", line.sender, line.text),
         };
         tracing::info!("chat: {text}");
+        self.recall_notice(&text);
         self.events.push(Event::Chat {
             text,
             kind: line.kind,
@@ -1280,6 +1299,7 @@ impl Client {
         // A caster is wielded (can_cast said so), so entering combat is
         // entering magic mode; there is no separate choice to make.
         self.enter_combat();
+        self.note_cast(spell);
         let table = self.assets.spell_table().ok();
         let entry = table.as_ref().and_then(|t| t.get(spell));
         let name = entry
@@ -2658,7 +2678,9 @@ impl Client {
         let Some(o) = self.world.objects.get(&item) else {
             return false;
         };
-        if me.is_none() || (o.container != me && o.wielder != me) {
+        // Anything carried will do, a side pack included: a bundle of
+        // arrowheads lives in one as often as not.
+        if me.is_none() || (!self.world.is_carried(item) && o.wielder != me) {
             return false;
         }
         let what = o.name.clone();
@@ -2905,8 +2927,10 @@ impl Client {
             .find(|t| *t != item && self.world.objects.contains_key(t))
     }
 
-    /// Events produced since the last drain.
+    /// Events produced since the last drain (autoplay's status changes
+    /// included, see `Event::Autoplay`).
     pub fn drain_events(&mut self) -> Vec<Event> {
+        self.events.append(&mut self.autoplay.announced);
         std::mem::take(&mut self.events)
     }
 }

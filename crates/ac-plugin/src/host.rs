@@ -13,6 +13,12 @@ use crate::{panels, Blackboard, BusClient, Client, Ctx, Event, Plugin, Settings}
 /// changed.
 pub const AUTOSAVE_EVERY: Duration = Duration::from_secs(30);
 
+/// The blackboard topic every [`Event::Autoplay`] is repeated on, as
+/// `{"session", "name", "doing", "text"}`: readable next frame by every
+/// plugin (`cx.board.messages_on`), every script (`messages`) and every
+/// other process on the bus (`origin` names it).
+pub const AUTOPLAY_TOPIC: &str = "autoplay.event";
+
 pub struct Host {
     plugins: Vec<Box<dyn Plugin>>,
     pub board: Blackboard,
@@ -131,7 +137,10 @@ impl Host {
     }
 
     /// Run every plugin's per-frame hooks for session `index`: its events
-    /// first, then tick.
+    /// first, then tick. An [`Event::Autoplay`] is also posted on the
+    /// blackboard topic [`AUTOPLAY_TOPIC`], so plugins and scripts in
+    /// every session, and every other process on the bus, hear what each
+    /// character is doing.
     pub fn frame(
         &mut self,
         clients: Vec<&mut Client>,
@@ -140,6 +149,24 @@ impl Host {
         dt: f32,
         now: Instant,
     ) -> Requests {
+        for ev in events {
+            if let Event::Autoplay { doing, text } = ev {
+                let name = clients
+                    .get(index)
+                    .map(|c| c.world.stats.name.clone())
+                    .unwrap_or_default();
+                self.board.post(
+                    index,
+                    AUTOPLAY_TOPIC,
+                    serde_json::json!({
+                        "session": index,
+                        "name": name,
+                        "doing": doing,
+                        "text": text,
+                    }),
+                );
+            }
+        }
         let mut cx = Ctx {
             clients,
             index,
@@ -296,5 +323,78 @@ impl Host {
 impl Default for Host {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Ctx;
+
+    /// A plugin that keeps the autoplay events it was handed.
+    #[derive(Default)]
+    struct Listener {
+        heard: std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>>,
+    }
+
+    impl Plugin for Listener {
+        fn name(&self) -> &str {
+            "listener"
+        }
+        fn on_event(&mut self, cx: &mut Ctx, ev: &Event) {
+            if let Event::Autoplay { doing, text } = ev {
+                self.heard.borrow_mut().push((doing.clone(), text.clone()));
+                cx.log(format!("autoplay: {text}"));
+            }
+        }
+    }
+
+    #[test]
+    fn autoplay_events_reach_plugins_and_the_board() {
+        let mut host = Host::new();
+        let listener = Listener::default();
+        let heard = listener.heard.clone();
+        host.register(Box::new(listener));
+        let events = vec![
+            Event::Autoplay {
+                doing: "fighting".into(),
+                text: "fighting Drudge Skulker".into(),
+            },
+            Event::Chat {
+                text: "hello".into(),
+                kind: 3,
+            },
+        ];
+        // No session at all (the way `--demo-ui` runs): the host must
+        // not need one to forward the event.
+        let r = host.frame(Vec::new(), 0, &events, 0.05, Instant::now());
+        assert_eq!(
+            r.chat,
+            [("autoplay: fighting Drudge Skulker".to_string(), 0)]
+        );
+        assert_eq!(
+            *heard.borrow(),
+            [(
+                "fighting".to_string(),
+                "fighting Drudge Skulker".to_string()
+            )]
+        );
+        // Posted this frame, readable next frame, on the documented topic.
+        assert_eq!(host.board.messages_on(AUTOPLAY_TOPIC).count(), 0);
+        host.end_frame();
+        let posted: Vec<_> = host.board.messages_on(AUTOPLAY_TOPIC).collect();
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].from, 0);
+        assert_eq!(
+            posted[0].value,
+            serde_json::json!({
+                "session": 0,
+                "name": "",
+                "doing": "fighting",
+                "text": "fighting Drudge Skulker",
+            })
+        );
+        // The chat line was not repeated on the board.
+        assert_eq!(host.board.messages().count(), 1);
     }
 }

@@ -166,19 +166,16 @@ impl Steering {
         // the line leaves this landblock, so the graph in it can still
         // take us around what is in the way.
         let leaves_block = goal_block & 0xFFFF_0000 != block;
-        let goal = if leaves_block {
-            match clip_to_block(me, goal, block) {
-                Some(edge) => edge,
-                // Already outside the block we think we are in: nothing
-                // sensible to plan on, so head for it.
-                None => {
-                    self.route = None;
-                    self.route_is_wide = false;
-                    return goal;
-                }
+        let following_wide = self.route_is_wide && self.route.is_some();
+        let goal = match plan_goal(me, goal, block, leaves_block, following_wide) {
+            Some(g) => g,
+            // Already outside the block we think we are in: nothing
+            // sensible to plan on, so head for it.
+            None => {
+                self.route = None;
+                self.route_is_wide = false;
+                return goal;
             }
-        } else {
-            goal
         };
         match self.last_pos {
             Some(p) if glam::Vec2::new(me.x - p.x, me.y - p.y).length() < PROGRESS => {
@@ -263,6 +260,17 @@ impl Steering {
                     self.route = Some(Route::new(goal, waypoints, now));
                     self.route_is_wide = false;
                 }
+                None if following_wide => {
+                    // The block's own graph finds nothing (the way on
+                    // is over a slope it cannot see, or through the
+                    // next block), but the neighbourhood route still
+                    // stands and a fresh one has been asked for: keep
+                    // walking it rather than run at the goal.
+                    tracing::debug!("route: no path in this block; keeping the wide route");
+                    if let Some(r) = self.route.as_mut() {
+                        r.planned = now;
+                    }
+                }
                 None => {
                     tracing::debug!("route: no path to {goal:?}, going straight");
                     self.route = None;
@@ -286,6 +294,33 @@ impl Steering {
             .as_ref()
             .map(|r| (r.remaining(me), r.goal, r.planned))
     }
+}
+
+/// The goal to plan on from `me` in landblock `block`: `goal` itself
+/// when it lies in the block (`leaves_block` false), else the point
+/// where the line to it leaves the block, so the block's own graph can
+/// still steer around what is in the way; `None` when we stand at that
+/// edge already and there is nothing left to plan on in this block.
+///
+/// A route from the neighbourhood planner is the exception: it was
+/// planned across the blocks and is worth more than anything this
+/// block's graph could say, so while one is being followed the goal is
+/// left as it is, whatever block it is in. Clipping it used to drop the
+/// route the moment it led across an edge, and a walker whose way
+/// around an unclimbable slope ran through the next block was sent
+/// straight at the slope again every time it reached the edge, for as
+/// long as the journey would wait.
+pub fn plan_goal(
+    me: Vec3,
+    goal: Vec3,
+    block: u32,
+    leaves_block: bool,
+    following_wide: bool,
+) -> Option<Vec3> {
+    if !leaves_block || following_wide {
+        return Some(goal);
+    }
+    clip_to_block(me, goal, block)
 }
 
 /// Where the line from `me` to `goal` leaves the landblock `block`,
@@ -359,6 +394,35 @@ mod tests {
         let short = origin + Vec3::new(96.0, 187.0, 0.0);
         let e = clip_to_block(short, short + Vec3::new(0.0, 60.0, 0.0), block).expect("ahead");
         assert!((e.y - (origin.y + 189.0)).abs() < 1e-3, "{e:?}");
+    }
+
+    #[test]
+    fn a_wide_route_is_not_clipped_at_the_block_edge() {
+        // The landblock-edge hesitation: standing a stride into 0x6E8F
+        // with the goal 55 m east, up a slope only a route through the
+        // block behind gets around.
+        let block = 0x6E8F_0000;
+        let origin = ac_world::landblock_origin(block);
+        let me = origin + Vec3::new(0.3, 92.7, 123.6);
+        let goal = origin + Vec3::new(55.0, 93.0, 142.3);
+        // The goal is in this block: nothing to clip either way.
+        assert_eq!(plan_goal(me, goal, block, false, false), Some(goal));
+        assert_eq!(plan_goal(me, goal, block, false, true), Some(goal));
+        // Straddling the edge, the character's cell says the block
+        // behind (0x6D8F): the clipped point would be under its feet,
+        // so a single-block plan has nothing to work with...
+        let behind = 0x6D8F_0000;
+        let straddling = origin + Vec3::new(-0.1, 92.7, 123.5);
+        assert_eq!(plan_goal(straddling, goal, behind, true, false), None);
+        // ...but a neighbourhood route being followed is kept, and the
+        // goal it was planned for stays the goal.
+        assert_eq!(plan_goal(straddling, goal, behind, true, true), Some(goal));
+        // Well inside a block with the goal beyond it and no wide route,
+        // the edge is what is planned on.
+        let inside = origin + Vec3::new(96.0, 96.0, 0.0);
+        let beyond = inside + Vec3::new(500.0, 0.0, 0.0);
+        let edge = plan_goal(inside, beyond, block, true, false).expect("clipped");
+        assert!((edge.x - (origin.x + 189.0)).abs() < 1e-3, "{edge:?}");
     }
 
     #[test]

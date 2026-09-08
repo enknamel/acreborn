@@ -1,0 +1,999 @@
+# Hunting grounds of Dereth: the outdoor landblocks where monsters spawn.
+# landblock,x,y,count,min_level,max_level,level,name
+# The landblock is hex; x/y are the average spawn point, local to it.
+# count is the number of spawn entries, min/max the level range among
+# them, and level/name the creature that spawns most often there.
+# Regenerate with reference/scripts/data/hunting.sh (reads the ACE
+# world database, the community's reconstruction of retail's server
+# data; the client has no copy of its own).
+1033,125,91,3,100,100,100,Virindi Executor
+1038,156,117,15,80,115,80,Pandemonium Shadow
+112E,165,52,11,115,115,115,Viamontian Knight
+1156,37,70,4,115,135,135,Falatacot Patrician
+1193,156,36,7,60,90,90,Olthoi Noble
+1292,84,100,21,60,90,90,Olthoi Noble
+1293,84,84,28,60,90,90,Olthoi Noble
+1294,108,68,21,60,90,90,Olthoi Noble
+1295,156,36,7,60,90,90,Olthoi Noble
+133A,46,133,4,115,135,115,Nightmare Wisp
+1343,108,180,4,115,135,135,Drudge Bloodletter
+137D,147,115,15,15,60,15,Drudge Servant
+1392,157,131,7,60,90,90,Olthoi Noble
+1393,84,84,28,60,90,90,Olthoi Noble
+1394,84,84,28,60,90,90,Olthoi Noble
+1395,84,84,28,60,90,90,Olthoi Noble
+1396,107,36,14,60,90,90,Olthoi Noble
+13B2,62,60,6,20,20,20,Blighted Pallid Moarsman
+1444,169,13,4,115,115,115,Plasma Golem
+1454,160,97,6,100,100,100,Magma Golem
+1455,144,27,8,20,100,100,Magma Golem
+1492,35,133,7,60,90,90,Olthoi Noble
+1493,69,100,21,60,90,90,Olthoi Noble
+1494,84,84,28,60,90,90,Olthoi Noble
+1495,84,84,28,60,90,90,Olthoi Noble
+1496,107,36,14,60,90,90,Olthoi Noble
+14B5,134,169,13,8,80,50,Hea Windreave
+152D,107,79,34,135,135,135,Apostate Virindi Aggressor
+1554,68,108,34,100,100,100,Diamond Golem
+1555,20,68,3,100,100,100,Magma Golem
+1568,177,34,5,100,135,100,Dark Master
+1594,60,132,14,60,90,90,Olthoi Noble
+1595,36,83,14,60,90,90,Olthoi Noble
+1643,167,105,15,100,100,100,Augmented Tumerok
+1746,80,170,14,115,135,115,Tumerok Trooper
+1747,83,38,16,115,135,115,Tumerok Trooper
+1830,70,149,20,115,135,115,Viamontian Knight
+1831,60,17,2,115,115,115,Viamontian Knight
+1832,12,12,4,115,115,115,Viamontian Knight
+183F,180,128,6,100,100,100,Tumerok High Priest
+18B5,59,128,11,80,100,100,Hea Shaman
+1936,102,34,2,135,135,135,Virindi Desecrator
+193F,28,149,27,80,100,100,Tumerok High Priest
+19B0,187,47,2,20,20,20,Olthoi Harvester
+1A13,160,98,52,160,160,160,Withered Banderling Hierophant
+1A1E,91,69,78,1,160,160,Withered Banderling Paragon
+1A52,36,52,5,115,115,115,Shadow Phantom
+1A8E,29,101,8,100,115,100,Shadow Seeker
+1ABC,131,82,7,60,60,60,Olthoi Legionary
+1B12,158,147,24,160,160,160,Withered Drudge Seraph
+1B13,77,108,40,160,160,160,Withered Banderling Paragon
+1B14,143,62,15,160,160,160,Withered Drudge Seraph Mystic
+1B7F,62,98,28,80,115,80,Tumerok Taskmaster
+1B81,143,88,15,100,115,100,Ascendant Tumerok
+1BBB,106,175,9,20,100,20,Olthoi Harvester
+1BBC,108,55,12,60,100,80,Hea Nualuan
+1C12,72,114,30,160,160,160,Withered Drudge Seraph
+1C13,98,107,55,160,160,160,Withered Revered Tumerok Shaman
+1C14,102,112,18,160,160,160,Withered Transcendent Tumerok
+1C15,133,19,8,160,160,160,Withered Raider Justicar
+1C1A,58,113,21,1,160,160,Withered Raider Justicar
+1D12,51,123,22,160,160,160,Withered Raider Justicar
+1D13,111,89,45,160,160,160,Withered Raider Justicar
+1D14,91,104,22,160,160,160,Withered Banderling Paragon
+1DB1,127,167,8,30,80,30,Tumerok Warrior
+1E09,106,63,6,160,160,160,Fire Golem
+1E13,29,133,10,160,160,160,Withered Drudge Seraph
+1E29,79,127,8,115,135,115,Abyssal Shadow
+1F09,6,78,7,160,160,160,Fire Golem
+1F29,41,185,4,115,115,115,Bane Grievver
+1F2A,120,85,16,115,160,135,Shadow Wraith
+1FBC,137,21,8,60,60,60,Olthoi Legionary
+2018,173,57,6,80,100,80,Ulu Sclavus
+20BF,57,108,15,60,60,60,Olthoi Soldier
+2111,34,37,17,160,160,160,Withered Revered Tumerok Shaman
+2117,109,125,6,80,100,80,Ulu Sclavus
+2118,91,74,41,80,115,100,Essa Sclavus Lord
+2119,101,15,6,80,100,80,Ulu Sclavus
+2171,53,122,13,135,300,135,Invading Iron Blade Phalanx
+2172,106,42,14,135,300,135,Invading Iron Blade Phalanx
+2176,143,84,7,185,185,185,Gear Hunter
+2217,35,182,3,80,100,80,Ulu Sclavus
+2218,33,125,9,80,100,80,Ulu Sclavus
+2259,118,75,10,50,115,50,Mox
+2271,108,84,13,135,300,135,Invading Iron Blade Phalanx
+2272,3,50,13,135,300,135,Invading Iron Blade Phalanx
+2273,115,22,13,135,300,135,Invading Iron Blade Phalanx
+228E,158,114,28,80,100,100,Tumerok Champion
+2298,132,108,7,60,90,90,Olthoi Noble
+2299,133,61,14,60,90,90,Olthoi Noble
+229A,100,60,21,60,90,90,Olthoi Noble
+22BF,19,103,1,60,60,60,Olthoi Legionary
+230F,64,55,8,135,135,135,Drudge Cabalist
+231B,130,162,2,15,15,15,Sandstone Golem
+231C,49,181,9,115,135,135,Raider Juggernaut
+231D,60,115,1,135,135,135,Banderling Aggressor
+2380,166,19,7,80,80,80,Tumerok Major
+2381,115,46,13,80,135,100,Tumerok High Priest
+238E,39,117,24,80,100,100,Tumerok High Priest
+2397,132,107,7,60,90,90,Olthoi Noble
+2398,84,84,28,60,90,90,Olthoi Noble
+2399,84,84,28,60,90,90,Olthoi Noble
+239A,84,85,28,60,90,90,Olthoi Noble
+239B,129,10,7,60,90,90,Olthoi Noble
+241B,111,68,3,15,15,15,Desert Rat
+2480,61,35,5,100,100,100,Insidious Monouga
+2482,37,18,1,100,100,100,Pyreal Golem
+2497,68,124,21,60,90,90,Olthoi Noble
+2498,84,85,28,60,90,90,Olthoi Noble
+2499,67,76,21,60,90,90,Olthoi Noble
+249A,35,110,14,60,90,90,Olthoi Noble
+249B,182,158,7,60,90,90,Olthoi Noble
+249C,132,60,7,60,90,90,Olthoi Noble
+24BC,169,101,4,8,40,8,Water Wisp
+24C0,80,54,28,135,220,135,Tendril of T'thuun
+251A,160,162,9,100,115,100,Skeletal Champion
+2545,130,130,9,100,115,100,Enku Zefir
+254E,35,24,7,30,50,50,Drudge Stalker
+2562,101,99,33,8,60,30,Tumerok Warrior
+2573,105,145,3,100,100,100,Gold Golem
+2574,128,9,2,60,60,60,Granite Golem
+2586,160,43,6,100,100,100,Extas Raider
+2597,35,157,7,60,90,90,Olthoi Noble
+2598,68,109,21,60,90,90,Olthoi Noble
+2599,85,36,14,60,90,90,Olthoi Noble
+259A,124,132,21,60,90,90,Olthoi Noble
+259B,133,124,21,60,90,90,Olthoi Noble
+259C,83,59,14,60,90,90,Olthoi Noble
+259D,89,83,3,8,8,8,Marsh Siraluun
+25BC,13,104,4,8,40,40,Littoral Siraluun
+2612,121,49,5,115,115,115,Brass Gromnie
+261A,122,135,6,1,135,135,Raider Juggernaut
+2686,79,44,6,100,100,100,Extas Raider
+2687,98,14,6,100,100,100,Extas Raider
+2698,84,84,28,60,90,90,Olthoi Noble
+2699,132,12,7,60,90,90,Olthoi Noble
+269A,132,156,14,60,90,90,Olthoi Noble
+269B,108,108,28,60,90,90,Olthoi Noble
+269C,132,59,7,60,90,90,Olthoi Noble
+26EC,143,147,8,4,4,4,Chicken
+2713,60,129,5,100,115,100,Tumerok Champion
+278B,51,38,6,30,30,30,Wild Monouga
+2797,84,132,14,60,90,90,Olthoi Noble
+2798,84,83,28,60,90,90,Olthoi Noble
+2799,100,59,21,60,90,90,Olthoi Noble
+279B,36,59,7,60,90,90,Olthoi Noble
+279C,37,60,7,60,90,90,Olthoi Noble
+2819,54,80,6,115,115,115,Brass Gromnie
+287A,55,168,1,8,8,8,Snowman
+2918,173,88,21,115,115,115,Small Sandstone Golem
+2986,20,144,8,80,100,80,Eater
+298C,91,101,22,8,60,30,Tumerok Warrior
+2A11,171,96,63,20,135,60,Flamma
+2A12,158,71,126,20,135,60,Flamma
+2A3F,108,9,5,100,100,100,Tormented Attendant
+2AE2,140,131,6,8,8,8,Blue Phyntos Wasp
+2AE3,84,119,10,8,8,8,Water Golem
+2B11,122,40,63,20,135,60,Flamma
+2B12,109,152,126,20,135,60,Flamma
+2BE2,16,145,8,8,8,8,Blue Phyntos Wasp
+2C11,46,168,63,20,135,60,Flamma
+2C12,32,81,126,20,135,60,Flamma
+2C15,181,107,13,100,115,100,Ascendant Tumerok
+2C2F,97,183,3,240,240,240,Lugian Lackey
+2C30,89,97,533,1,500,240,Rynthid Minion
+2D11,119,152,7,80,100,80,Wasteland Rat
+2D15,69,78,6,100,115,100,Ascendant Tumerok
+2D26,53,76,12,115,135,115,Assailer
+2D27,73,51,12,115,135,115,Assailer
+2D30,127,65,301,1,500,240,Rynthid Minion
+2D31,82,111,369,1,500,240,Rynthid Minion
+2D5A,121,159,20,100,100,100,Gotrok Fortress Guard
+2D5B,121,70,40,100,999,100,Tumerok High Priest
+2D6B,164,126,1,100,100,100,Crystal Shard
+2D8A,52,131,14,30,60,30,Tumerok Warrior
+2DAE,93,149,6,150,150,150,Water Golem
+2DAF,119,112,7,150,150,150,Water Golem
+2E13,81,65,8,115,115,115,Tumerok Trooper
+2E26,119,90,12,115,135,115,Assailer
+2E27,74,27,12,115,135,115,Assailer
+2E2E,124,52,30,160,711,160,Elemental Protector
+2E2F,110,61,3,160,999,160,Formless Shadow
+2E30,124,68,30,160,711,160,Elemental Protector
+2E6C,19,22,3,100,110,100,Crystalline Essence Array
+2E82,38,8,4,15,15,15,Veteran Reedshark
+2EAF,25,62,5,150,150,150,Water Golem
+2F13,132,87,5,80,80,80,Pandemonium Shadow
+2F2E,132,36,2,160,999,160,Formless Shadow
+2F2F,130,61,57,30,999,160,Elemental Protector
+2F30,132,82,3,160,999,160,Formless Shadow
+3010,131,80,3,100,100,100,Direland Rat
+302E,140,52,30,160,711,160,Elemental Protector
+302F,154,60,3,160,999,160,Formless Shadow
+3030,140,68,30,160,711,160,Elemental Protector
+3072,122,166,26,100,100,100,Augmented Tumerok
+3073,132,95,35,80,100,100,Augmented Tumerok
+3111,148,91,6,115,115,115,Brass Gromnie
+3173,30,79,21,100,100,100,Augmented Tumerok
+322D,37,15,5,30,80,30,Virindi Puppet
+326A,158,87,16,110,115,110,Crystalline Wisp
+326B,116,62,32,110,115,110,Crystalline Wisp
+326C,88,106,40,110,115,110,Crystalline Wisp
+3289,166,80,7,80,80,80,Tumerok Taskmaster
+3331,96,37,12,115,135,115,Assailer
+3332,69,62,12,115,135,115,Assailer
+3383,140,49,16,15,60,20,Tumerok Fighter
+3389,149,60,6,80,80,80,Tumerok Taskmaster
+33DA,108,108,8,200,200,200,Darcusch the Barbarian
+3415,156,93,9,100,100,100,Extas Raider
+3416,155,17,4,100,100,100,Extas Raider
+3428,174,30,3,60,60,60,Obsidian Golem
+3431,95,110,12,115,135,115,Assailer
+3432,50,52,12,115,135,115,Assailer
+344F,180,175,3,160,160,160,Warlock of the Blood
+3450,87,117,14,18,160,60,Warrior of the Blood
+354F,83,173,4,60,160,160,Warlock of the Blood
+3550,99,88,24,60,160,160,Warlock of the Blood
+356F,155,62,4,115,115,115,Guruk Smasher
+3619,96,118,12,80,100,100,Rampager
+361A,20,128,12,80,100,100,Rampager
+370B,86,106,16,100,300,100,Coral Golem
+3719,56,111,12,80,100,100,Rampager
+371A,42,46,12,80,100,100,Rampager
+376A,139,56,10,60,100,100,Diamond Golem
+3783,16,133,5,15,20,20,Tumerok Fighter
+380A,36,180,5,200,235,200,Moguth Moarsman
+3859,54,62,12,80,100,100,Rampager
+385A,164,118,12,80,100,100,Rampager
+386A,170,7,1,100,100,100,Pyreal Golem
+3881,91,162,18,15,60,20,Tumerok Fighter
+3886,104,18,4,100,100,100,Corrosion Wisp
+388C,109,43,1,15,15,15,Sandstone Golem
+394A,43,164,12,80,80,80,Tumerok Major
+3959,137,136,12,80,100,100,Rampager
+395A,158,135,12,80,100,100,Rampager
+3986,45,93,2,100,100,100,Coral Golem
+3A0A,85,85,14,100,300,100,Coral Golem
+3A4D,97,84,6,80,80,80,Tumerok Major
+3A6B,156,43,5,20,30,20,Tumerok Fighter
+3AA0,132,108,14,60,90,90,Olthoi Noble
+3AEA,136,87,14,100,115,100,Ruschk Warlord
+3B0B,72,71,5,165,999,165,Spawnling
+3B41,154,139,5,100,100,100,Nomad Mu-miyah
+3B4D,27,121,11,80,80,80,Tumerok Major
+3B4E,114,34,16,80,80,80,Tumerok Gladiator
+3B9F,132,155,7,60,90,90,Olthoi Noble
+3BA0,100,109,21,60,90,90,Olthoi Noble
+3BA1,84,84,28,60,90,90,Olthoi Noble
+3BA2,100,76,21,60,90,90,Olthoi Noble
+3BE7,27,52,13,100,115,115,Ruschk Sadist
+3C0C,59,131,13,100,300,100,Coral Golem
+3C0D,50,24,11,200,220,220,Master Archer
+3C40,105,59,4,100,115,100,Extas Raider
+3C4E,140,114,3,100,100,100,Tumerok High Priest
+3C8F,60,127,3,20,60,20,Lich
+3CA0,124,109,21,60,90,90,Olthoi Noble
+3CA1,108,84,28,60,90,90,Olthoi Noble
+3CA2,108,72,28,60,90,90,Olthoi Noble
+3CA3,157,35,7,60,90,90,Olthoi Noble
+3D0A,116,47,5,165,999,165,Spawnling
+3D31,155,61,13,20,60,20,Lich
+3DA0,107,157,14,60,90,90,Olthoi Noble
+3DA1,108,108,28,60,90,90,Olthoi Noble
+3DA2,108,108,28,60,90,90,Olthoi Noble
+3DE8,33,127,13,100,115,100,Ruschk Warlord
+3E0A,131,87,12,200,220,220,Master Archer
+3E0C,97,120,5,165,999,165,Spawnling
+3EA0,61,182,7,60,90,90,Olthoi Noble
+3EA1,108,108,28,60,90,90,Olthoi Noble
+3EA2,108,108,28,60,90,90,Olthoi Noble
+3EA3,156,35,7,60,90,90,Olthoi Noble
+3EEF,173,188,2,115,160,115,Ruschk Sadist
+3EF0,170,11,6,115,160,115,Ruschk Sadist
+3F0B,82,84,11,100,300,100,Coral Golem
+3FA0,60,180,7,60,90,90,Olthoi Noble
+3FA1,60,132,14,60,90,90,Olthoi Noble
+3FA2,60,132,14,60,90,90,Olthoi Noble
+3FB1,154,96,5,185,185,185,Hea Apostate Shock Trooper
+3FE7,84,91,16,80,100,80,Copper Legion Castle Guard
+3FF4,108,131,21,160,200,160,Viamontian Lord
+400C,106,59,12,200,220,220,Master Archer
+408,110,134,15,115,160,135,Raven Augur
+4092,177,167,2,15,15,15,Banderling Guard
+4093,63,138,39,60,80,80,Mercenary Mage
+40E6,103,86,19,115,135,115,Gold Legion Castle Guard
+40E7,96,96,19,135,200,135,Royal Thaumaturge
+40E8,97,36,12,135,185,135,Platinum Legion Castle Guard
+410A,117,116,15,100,300,100,Coral Golem
+410B,171,45,5,200,225,200,Moguth Moarsman
+410C,53,20,5,165,999,165,Spawnling
+4117,10,61,3,20,60,60,Lich Lord
+4154,22,124,28,1,100,100,Augmented Tumerok
+4192,18,172,8,15,60,15,Drudge Servant
+4198,160,116,46,60,80,60,Viamontian Footman
+41DD,63,58,7,100,100,100,Blighted Putrid Moarsman
+41E7,107,103,16,100,115,100,Silver Legion Castle Guard
+4218,86,13,3,20,60,20,Lich
+424E,189,148,1,20,20,20,Aste Sclavus
+4298,26,167,10,60,80,80,Mercenary
+42D8,125,115,1,8,8,8,Undead
+42EC,65,154,1,135,135,135,Ruschk Chief Garaktar
+4315,130,83,7,15,15,15,Zombie
+4317,11,32,6,30,30,30,Freshwater Armoredillo
+43F8,60,15,13,160,200,160,Viamontian Lord
+444F,36,146,20,100,115,100,Guruk Heavy
+4519,160,106,4,100,115,100,Tumerok Champion
+451A,172,78,3,100,100,100,Ascendant Tumerok
+452E,171,12,22,200,285,200,Pyre Minion
+4546,130,83,4,40,50,50,Gold Phyntos Wasp
+4547,163,59,4,15,40,40,Copper Golem
+4548,99,41,9,15,15,15,Mire Phyntos Wasp
+4550,160,84,3,15,20,15,Se Sclavus
+4619,88,112,6,100,100,100,Banderling Enforcer
+462C,54,170,17,135,135,135,Blight Spirit
+462E,139,82,29,135,285,200,Pyre Minion
+462F,107,16,1,265,265,265,Pyre Champion
+472C,90,87,45,135,300,200,Pyre Minion
+4757,71,112,8,30,30,30,Ash Gromnie
+47D6,82,153,1,8,8,8,Brown Rat
+4823,156,14,1,275,275,275,Selaina the Subtle
+482C,16,174,4,135,265,135,Grave Rat
+482D,81,98,71,135,300,200,Pyre Minion
+482E,65,104,70,135,300,240,Wight Blade Sorcerer
+482F,35,79,3,135,135,135,Blight Rat
+4830,32,175,7,220,220,220,K'nath Y'nda
+4831,144,99,29,220,220,220,K'nath B'orret
+485D,113,120,10,20,40,20,Skeleton Warrior
+48B5,142,114,1,200,200,200,Virindi Guard
+4A2D,145,99,13,135,135,135,Blight Revenant
+4AE1,137,32,17,1,305,240,Spectral Archer
+4AE2,128,132,39,220,265,240,Spectral Archer
+4AE3,64,42,7,240,240,240,Spectral Archer
+4AF2,132,107,8,115,115,115,Brass Gromnie
+4AF3,95,58,8,115,135,135,Blighted Grimy Moarsman
+4AF6,107,50,15,115,620,185,Ruschk Laktar
+4BB2,88,59,2,20,20,20,Flare
+4BE1,96,54,21,1,265,240,Spectral Archer
+4BE2,53,94,11,240,240,240,Spectral Archer
+4CE1,93,97,26,1,265,240,Spectral Archer
+4CE2,106,181,6,1,265,240,Spectral Archer
+4CE3,57,50,17,1,305,240,Spectral Archer
+4DF4,59,127,1,160,160,160,Uber Penguin
+4EA1,118,5,2,20,20,20,Tumerok Scout
+4EA4,89,94,10,8,15,15,Adult Reedshark
+4FD7,145,37,10,15,30,20,Male Tusker
+4FF1,88,80,22,115,135,135,Viamontian Tribune
+501A,122,129,8,80,100,100,Ascendant Tumerok
+503,86,36,4,135,135,135,Stalking Margul
+5119,136,82,4,20,30,20,Tumerok Fighter
+511A,64,89,4,100,100,100,Tumerok Champion
+519D,161,27,8,8,30,20,Tumerok Scout
+52D9,105,119,8,100,100,100,Enku Zefir
+5317,179,64,13,8,100,100,Banderling Enforcer
+5318,99,125,3,100,100,100,Diamond Golem
+5419,44,124,8,100,100,100,Banderling Thrasher
+56D6,172,124,2,60,60,60,Granite Golem
+57D6,53,135,4,8,8,8,Brown Armoredillo
+57D7,139,184,1,20,20,20,Dark Wisp
+58D7,82,6,1,15,15,15,Ghost Wisp
+5919,111,109,11,20,60,20,Tumerok Fighter
+591A,100,147,13,8,60,20,Tumerok Fighter
+599B,63,106,7,80,80,80,Blighted Disgusting Moarsman
+59A0,79,34,10,8,15,8,Reedshark Pup
+59BB,11,138,5,30,30,30,Freshwater Armoredillo
+5BDB,134,180,5,115,115,115,Ruschk Sadist
+609A,120,36,10,8,15,8,Undead
+63D5,29,100,5,15,15,15,Banderling Guard
+64D6,130,131,8,15,20,20,Mountain Rat
+64DE,153,83,4,50,80,50,Scrawed Grievver
+65DC,91,139,6,50,50,50,Scrawed Grievver
+65DD,89,89,7,50,50,50,Scrawed Grievver
+65DE,59,125,8,6,50,50,Scrawed Grievver
+65DF,121,25,3,50,50,50,Scrawed Grievver
+66B3,126,31,2,15,15,15,Mite Sentry
+66D4,60,108,9,80,80,80,White Phyntos Wasp
+66DC,55,159,1,50,50,50,Scrawed Grievver
+66DD,125,110,7,50,50,50,Scrawed Grievver
+66DE,115,92,5,50,50,50,Scrawed Grievver
+67DD,42,170,3,50,50,50,Scrawed Grievver
+67DE,57,42,4,6,50,50,Scrawed Grievver
+68B2,7,164,3,8,8,8,Wood Golem
+6AD9,34,158,6,100,100,100,Banderling Enforcer
+6BE2,155,80,6,2,4,2,Black Bunny
+6DC1,20,115,3,8,8,8,Water Wisp
+6F12,150,107,6,8,30,20,Tumerok Scout
+6F99,120,156,12,80,100,80,Faisi Sclavus
+6F9A,151,22,10,80,100,80,Ulu Sclavus
+7009,124,116,22,100,115,100,Small Coral Golem
+700A,130,86,32,100,115,100,Small Coral Golem
+70F,133,83,1,160,160,160,Graal Margul
+7109,90,110,81,100,185,100,Small Coral Golem
+710A,94,71,58,100,135,100,Small Coral Golem
+7208,55,145,12,100,100,100,Small Water Golem
+7209,85,117,79,100,185,100,Small Coral Golem
+720A,57,49,36,100,185,100,Small Coral Golem
+7211,78,106,1,20,20,20,Lich
+729B,81,166,6,15,15,15,Banderling Guard
+72C9,93,57,14,160,425,200,Tthuun Pillar
+72CC,128,69,9,15,15,15,Ice Golem
+72D2,105,180,1,8,8,8,Snowman
+72E7,72,144,2,8,8,8,Snowman
+7309,23,175,3,100,100,100,Small Water Golem
+75CE,99,55,16,12,20,12,Snowy Mattie
+77D9,9,29,2,8,8,8,Blue Phyntos Wasp
+77DA,50,120,9,100,100,100,Banderling Chanter
+77E7,51,150,12,220,240,240,Frozen Wight Archer
+77E8,122,90,12,240,240,240,Frozen Wight Archer
+7963,106,119,5,8,8,8,Shallows Shark
+7994,74,162,6,40,80,40,Gotrok Lithos
+799A,39,36,2,15,15,15,Black Rat
+7A60,97,24,9,16,30,16,Sandy Armoredillo Pup
+7A64,47,155,4,8,15,8,Drudge Prowler
+7A66,66,100,10,8,8,8,Drudge Skulker
+7A87,170,101,7,30,100,30,Tumerok Warrior
+7AC3,69,78,3,15,15,15,Ice Golem
+7B69,6,11,7,20,30,20,Tumerok Fighter
+7BC4,27,37,5,15,20,15,Zombie
+7BD0,88,123,10,60,100,100,Banderling Enforcer
+7BDB,91,66,17,20,100,20,Flare
+7BED,53,49,3,135,135,135,Drudge Bloodletter
+7C62,25,90,3,8,8,8,Drudge Sneaker
+7C65,158,31,5,8,8,8,Drudge Skulker
+7CD1,129,182,3,15,15,15,Banderling Guard
+7CD2,107,47,33,8,20,15,Banderling Guard
+7D62,180,10,1,15,15,15,Red Rat
+7D64,125,68,4,42,999,200,Drudge Pilferer
+7D66,113,93,3,8,8,8,Drudge Sneaker
+7D90,103,61,6,100,100,100,Viamontian Man-at-Arms
+7DEE,84,127,15,100,115,100,Stasis Wisp
+7E60,117,175,6,8,8,8,Drudge Skulker
+7E6E,138,65,5,8,8,8,Red Phyntos Wasp
+7EA3,12,164,6,8,15,8,Young Banderling
+7F64,105,20,4,8,15,15,Drudge Servant
+7F66,38,12,2,30,30,30,Small Fledgling Mukkir
+7F76,81,16,4,15,20,15,Drudge Slave
+7FE7,109,101,2,15,15,15,Ghost Wisp
+7FF1,181,85,5,5,15,12,Snowy Mattie
+8012,161,54,6,16,20,16,Sandy Armoredillo Pup
+8013,60,185,4,8,20,8,Skeleton
+806,114,128,50,115,161,135,Raven Augur
+806B,157,164,3,8,8,8,Skeleton
+808,149,123,12,160,220,160,Wretched
+8088,37,150,4,30,30,30,Wild Monouga
+808E,58,107,6,80,100,80,Viamontian Mercenary
+809,155,29,15,160,220,160,Biaka
+8094,56,16,6,135,135,135,Viamontian Tribune
+8178,63,164,6,15,20,20,Skeleton Warrior
+8179,102,98,7,15,20,15,Lesser Mu-miyah
+8190,183,155,5,115,115,115,Viamontian Knight
+8194,127,177,5,8,8,8,Drudge Prowler
+8196,107,89,4,16,20,16,Sandy Armoredillo Pup
+81C0,10,188,5,20,20,20,Mountain Rat
+825F,54,131,9,8,8,8,Red Phyntos Wasp
+8278,20,174,3,20,20,20,Skeleton Warrior
+8279,5,90,2,20,20,20,Skeleton Warrior
+82E6,15,182,6,8,8,8,Blue Phyntos Wasp
+835F,124,117,11,30,40,30,Sand Golem
+8372,44,100,5,8,8,8,Drudge Prowler
+8394,133,166,3,20,20,20,Rough Monouga
+848A,156,131,5,40,60,50,Brutish Monouga
+8493,149,138,13,30,80,60,Wily Monouga
+8494,78,85,6,50,60,60,Wily Monouga
+8495,12,13,4,60,60,60,Ferocious Monouga
+8566,101,84,4,8,8,8,Skeleton
+8587,126,135,1,50,50,50,Shadow Wisp
+8588,87,121,24,110,160,110,Old Zombie
+8589,183,43,4,110,160,110,Old Zombie
+866C,90,168,4,220,999,220,Gurog Grump
+8689,103,160,12,110,160,110,Old Zombie
+868A,151,42,4,110,160,110,Old Zombie
+868C,179,82,6,50,60,50,Brutish Monouga
+86CE,63,78,2,15,15,15,Ice Golem
+8764,92,91,156,1,300,1,Desert Cactus
+8765,97,79,208,1,300,1,Desert Cactus
+8766,99,82,234,1,300,1,Desert Cactus
+8787,152,177,5,40,50,40,Skeleton Lord
+87C9,59,35,5,15,30,15,Female Tusker
+884B,1,26,6,16,20,16,Sandy Armoredillo Pup
+8850,132,180,1,80,80,80,Iron Blade Lesser Lord
+8851,48,96,10,80,80,80,Gold Gear Lesser Lord
+8852,132,57,13,80,85,80,Copper Cog Trooper
+885A,35,132,2,8,8,8,Old Bones
+8864,107,74,130,1,300,1,Desert Cactus
+8866,93,83,182,1,300,1,Desert Cactus
+88AF,59,31,8,50,80,80,Banderling Berserker
+8959,141,151,2,8,8,8,Drudge Skulker
+8964,84,103,156,1,300,1,Desert Cactus
+8965,90,125,130,1,300,1,Desert Cactus
+8966,87,98,156,1,300,1,Desert Cactus
+8973,110,65,5,8,8,8,Skeleton
+8A59,148,158,2,8,8,8,Drudge Skulker
+8A5C,21,36,1,20,20,20,Skeleton Warrior
+8ADA,24,168,6,15,15,15,Ice Golem
+8B58,184,173,3,8,8,8,Drudge Skulker
+8B8A,75,89,2,16,20,16,Sandy Armoredillo Pup
+8BAF,88,149,5,15,30,15,Shadow Child
+8BDE,131,177,3,8,8,8,Water Wisp
+8BDF,132,23,5,8,60,8,Water Golem
+8C12,53,164,2,8,60,8,Static
+8C13,86,11,17,8,115,8,Static
+8C44,17,31,5,15,15,15,Red Rat
+8CB6,179,60,10,20,60,20,Tumerok Scout
+8D4E,156,46,13,80,80,80,Burun Ruuk Ruffian
+8D6F,61,182,2,8,20,8,Skeleton
+8DD0,46,166,5,20,60,20,Flare
+8E54,140,17,3,80,80,80,Tumerok Taskmaster
+8E5C,85,138,2,8,8,8,Drudge Slinker
+8E68,157,72,6,40,40,40,Skeleton Lord
+8ED0,167,113,4,80,100,80,Nubilous Golem
+8ED1,136,127,11,20,100,80,Nubilous Golem
+8ED2,146,75,8,80,100,80,Nubilous Golem
+8ED3,182,6,4,80,100,80,Nubilous Golem
+8F5C,75,112,5,8,8,8,Drudge Skulker
+8F5D,93,50,2,8,8,8,Drudge Sneaker
+8F68,76,74,5,20,20,20,Skeleton Captain
+8F76,167,14,9,2,8,2,Spiny Armoredillo Pup
+8FD0,66,148,8,80,100,80,Nubilous Golem
+8FD1,90,112,47,80,100,100,Firestorm
+8FD2,93,81,8,80,100,80,Nubilous Golem
+905,12,70,1,185,185,185,Penumbral Shadowmage
+905D,128,104,4,8,8,8,Drudge Skulker
+905E,72,75,2,8,8,8,Drudge Skulker
+9079,175,104,2,8,8,8,Drudge Skulker
+907E,140,44,3,8,8,8,Drudge Skulker
+908,94,115,12,160,220,160,Wretched
+909,100,36,6,160,220,160,Wretched
+90A9,61,112,16,15,30,15,Mudlurk Mosswart
+90AF,39,54,6,8,8,8,Young Banderling
+90B,13,60,1,185,185,185,Hastar the Misbegotten
+90D0,77,157,8,80,100,80,Nubilous Golem
+90D1,57,100,16,80,100,80,Nubilous Golem
+90D2,153,15,4,80,100,80,Nubilous Golem
+9146,46,17,5,15,20,15,Drudge Slave
+9424,164,31,2,15,15,15,Sandstone Golem
+942D,127,99,15,30,40,40,Gotrok Lithos
+947C,41,45,5,8,8,8,Red Phyntos Wasp
+94A6,59,178,12,15,30,15,Banderling Raver
+94CB,46,3,3,15,15,15,Limestone Golem
+94D6,19,125,7,5,8,5,Ethereal Wisp
+9537,156,47,19,20,50,20,Gotrok Laigus
+9579,16,15,1,8,8,8,Brown Rat
+957B,120,76,6,8,8,8,Drudge Skulker
+957C,116,22,3,8,8,8,Drudge Skulker
+957D,86,117,3,8,8,8,Drudge Sneaker
+95D6,28,85,2,15,15,15,Ghost Wisp
+95E9,77,92,36,80,100,100,Apostate Virindi Aggressor
+9626,18,69,6,20,40,40,Gotrok Lithos
+9627,19,18,2,40,40,40,Gotrok Lithos
+967A,156,85,2,8,8,8,Drudge Skulker
+967E,152,31,1,8,8,8,Drudge Skulker
+9682,83,15,6,8,20,8,Skeleton
+96BB,103,162,8,15,30,15,Female Tusker
+96C5,24,70,16,15,30,15,Mudlurk Mosswart
+96C9,26,117,8,8,15,15,Banderling Raider
+96D6,157,74,7,8,20,8,Green Phyntos Wasp
+979A,26,167,1,161,161,161,Olthoi Sentinel Tracker
+97A8,70,94,3,8,8,8,Banderling Scout
+985F,167,101,2,8,8,8,Skeleton
+9877,109,40,3,8,20,8,Skeleton
+9879,50,172,1,8,8,8,Undead
+987C,179,11,1,8,8,8,White Rat
+98D1,156,57,4,15,20,15,Female Tusker
+998D,156,37,10,16,20,16,Sandy Armoredillo Pup
+99D1,69,97,13,15,30,15,Female Tusker
+9A22,150,93,6,2,2,2,Straw Target Drudge
+9A7E,174,97,3,8,8,8,Mud Golem
+9B22,10,25,3,2,2,2,Oak Target Drudge
+9B79,54,157,5,8,8,8,Drudge Prowler
+9BC3,104,144,7,8,8,8,Blue Phyntos Wasp
+9C34,31,178,4,20,20,20,Gotrok Laigus
+9C35,28,21,4,20,40,20,Gotrok Laigus
+9D27,138,135,6,80,80,80,Gotrok Montok
+9D79,180,132,3,8,8,8,Drudge Prowler
+9D7B,127,111,3,8,8,8,Red Phyntos Wasp
+9D9B,60,53,10,8,8,8,Brown Armoredillo
+9DA8,78,182,1,8,8,8,Banderling Scout
+9DC1,152,46,3,8,8,8,Water Golem
+9E78,86,86,4,20,20,20,Skeleton Warrior
+9E79,146,59,1,20,20,20,Skeleton Warrior
+9EB3,16,106,1,8,8,8,Undead
+9EB6,159,72,4,50,50,50,Banderling Bandit
+9EBF,82,168,4,8,8,8,Blue Phyntos Wasp
+9EC0,89,15,2,8,8,8,Blue Phyntos Wasp
+9EC6,175,37,1,8,8,8,Water Wisp
+9ED2,87,35,4,50,50,50,Olthoi Worker
+9EE5,98,52,237,120,999,220,Master Soldier
+9F15,83,178,7,20,20,20,Lich
+9F29,36,160,5,40,135,40,Scold Lump
+9F2F,60,41,10,20,30,20,Gotrok Amploth
+9F79,105,109,4,20,20,20,Skeleton Warrior
+9F99,67,66,8,2,15,2,Spiny Armoredillo Pup
+9FA5,67,78,21,60,115,115,Blockade Guard
+9FA6,131,138,4,115,160,115,Viamontian Commander
+9FB5,115,138,2,8,8,8,Banderling Scout
+A01C,182,82,5,60,60,60,Gigas Raider
+A02B,126,70,10,20,50,20,Gotrok Laigus
+A05B,169,99,5,30,60,30,Shadow
+A079,125,127,4,8,20,8,Skeleton
+A09,149,82,15,135,160,135,Stalking Margul
+A0A5,72,168,1,8,8,8,Mud Golem
+A0B5,140,106,4,20,20,20,Mountain Rat
+A0BC,114,179,6,8,8,8,Drudge Prowler
+A0F,147,60,22,115,160,160,Raven Hunter
+A112,114,88,34,33,80,50,Gotrok Gigas
+A11C,29,82,6,60,60,60,Gigas Raider
+A11E,112,80,12,40,115,50,Obeloth Raider
+A12B,119,124,8,20,30,20,Gotrok Amploth
+A181,175,104,6,16,20,16,Sandy Armoredillo Pup
+A1A4,107,129,1,42,42,42,Pumpkin Buffer
+A1B5,56,145,1,20,20,20,Mountain Rat
+A1BF,77,134,4,30,30,30,Freshwater Armoredillo
+A21D,94,85,9,50,115,50,Lithos Raider
+A21F,111,85,12,40,115,50,Lithos Raider
+A235,36,79,10,15,40,15,Black Rat
+A282,37,61,3,20,20,20,Skeleton Warrior
+A2A1,60,89,4,115,160,115,Viamontian Commander
+A2A6,80,166,10,60,100,60,Famished Eater
+A2A7,47,26,16,60,100,100,Blockade Guard
+A2BD,16,75,5,30,30,30,Freshwater Armoredillo
+A31E,99,137,12,40,115,40,Amploth Raider
+A3A4,132,44,7,2,100,2,Brown Bunny
+A3AD,147,63,6,30,60,30,Essa Sclavus
+A3AE,130,99,3,50,50,50,Scrawed Grievver
+A4A3,19,150,11,60,100,80,Blockade Guard
+A4A4,34,50,5,60,100,60,Famished Eater
+A4A7,58,138,4,115,160,115,Viamontian Commander
+A4B4,53,39,4,2,8,2,Gnawer Shrethlet
+A5B0,55,145,1,15,15,15,Banderling Raider
+A66C,84,125,3,50,50,50,Gout
+A6B0,35,12,4,8,8,8,Drudge Sneaker
+A7B3,163,46,4,8,8,8,Drudge Skulker
+A7B4,13,90,4,8,8,8,Drudge Sneaker
+A82A,97,107,41,40,80,50,Gotrok Gigas
+A8E0,86,92,22,60,135,60,Spirit
+A911,183,30,3,30,30,30,Gotrok Obeloth
+A953,83,111,28,60,160,160,Warlock of the Blood
+A9B2,74,83,30,7,20,7,Blood Shrethlet
+A9B3,18,125,1,4,4,4,The Chicken
+A9B4,78,2,1,42,42,42,Pumpkin Buffer
+AA87,80,32,5,80,80,80,Drudge Ravener
+AAA8,156,53,12,80,80,80,Drudge Ravener
+AAB4,187,184,1,8,8,8,Drudge Skulker
+ABB3,4,128,2,8,8,8,Red Phyntos Wasp
+ABB4,80,61,2,8,8,8,Blue Phyntos Wasp
+AC23,48,70,1,8,8,8,Snowman
+AC7A,130,120,11,100,100,100,Zharalim
+ACB5,108,156,2,30,30,30,Small Fledgling Mukkir
+AD30,39,165,11,160,160,160,Iron Golem Guardian
+AD7D,36,69,2,40,40,40,Copper Golem
+ADAF,86,182,5,15,30,15,Sandstone Golem
+ADB0,61,108,5,8,8,8,Red Phyntos Wasp
+ADB6,139,132,6,8,8,8,Drudge Skulker
+ADB7,183,101,2,8,8,8,Drudge Skulker
+AE1A,96,97,32,30,80,60,Gigas Raider
+AE9E,134,129,9,2,23,23,Hollow Minion
+AEB1,150,60,12,8,8,8,Drudge Prowler
+AEC6,173,15,1,8,8,8,Drudge Prowler
+AFC6,100,91,6,15,15,15,Banderling Guard
+B047,36,11,4,1,60,60,Lich Lord
+B0AC,162,125,2,8,8,8,Banderling Scout
+B0C,106,153,7,135,160,135,Shadow Nightmare
+B128,111,50,7,80,80,80,Dual Fragment
+B131,84,181,2,80,80,80,Banderling Berserker
+B26F,161,119,5,8,15,8,Banderling Scout
+B270,118,30,10,8,15,8,Drudge Prowler
+B2A1,87,38,5,15,15,15,Banderling Guard
+B34A,151,82,126,265,320,265,Zefir Thorn Poisoner
+B36F,20,153,5,8,15,8,Drudge Slinker
+B448,121,160,115,90,400,90,Brier Wasp Hive
+B449,133,59,183,90,400,185,Sath'tik Tendril
+B44A,65,92,156,185,320,185,Sath'tik Tendril
+B44B,103,82,242,265,400,265,Zefir Thorn Poisoner
+B46E,155,43,4,8,8,8,Red Phyntos Wasp
+B46F,130,139,4,2,2,2,Oak Target Drudge
+B4A2,113,112,14,8,15,8,Young Banderling
+B4A4,133,130,9,8,8,8,Water Golem
+B4BF,7,36,1,15,15,15,Mite Sentry
+B4EE,171,124,7,100,160,100,Diamond Golem
+B548,97,144,230,90,400,90,Brier Wasp Hive
+B549,103,52,213,90,400,90,Brier Wasp Hive
+B54A,140,152,30,185,215,185,Sath'tik Tendril
+B54B,95,121,242,265,400,265,Zefir Thorn Poisoner
+B54C,81,25,88,265,400,265,Zefir Thorn Poisoner
+B56E,39,14,2,8,8,8,Drudge Prowler
+B56F,67,104,6,2,2,2,Straw Target Drudge
+B571,183,80,6,8,8,8,Drudge Slinker
+B589,118,131,7,8,15,8,Reedshark Pup
+B5A3,14,117,4,8,8,8,Drudge Prowler
+B5EA,135,57,5,80,100,100,Diamond Golem
+B5EE,163,111,3,80,100,80,Nubilous Golem
+B648,38,149,69,90,400,90,Brier Wasp Hive
+B649,93,81,414,90,400,90,Brier Wasp Hive
+B64A,121,80,256,185,400,185,Sath'tik Tendril
+B64B,80,139,150,185,400,185,Sath'tik Tendril
+B64C,20,18,22,265,400,265,Zefir Thorn Poisoner
+B66F,118,58,11,8,8,8,Outcast Monouga
+B677,69,62,9,8,20,8,Creeper Mosswart
+B68B,85,83,4,8,8,8,Wood Golem
+B6EB,180,182,38,50,115,100,Diamond Golem
+B6EC,179,107,57,50,115,100,Diamond Golem
+B6ED,179,10,38,50,115,100,Diamond Golem
+B6EE,100,87,312,80,135,115,Ascendant Drudge
+B70,69,107,29,115,115,115,Drudge Toiler
+B749,23,117,92,90,400,90,Brier Wasp Hive
+B74A,40,93,154,265,400,265,Zefir Thorn Poisoner
+B74B,27,57,34,185,400,185,Sath'tik Tendril
+B76A,118,29,1,8,8,8,Creeper Mosswart
+B797,54,112,3,8,8,8,Drudge Skulker
+B79D,146,125,2,8,8,8,Drudge Prowler
+B7B9,81,60,8,8,15,15,Black Rat
+B7EB,107,179,76,50,115,100,Diamond Golem
+B7ED,117,17,65,50,115,80,Nubilous Golem
+B822,85,133,2,8,8,8,Snowman
+B841,78,159,14,8,15,15,Banderling Guard
+B868,34,77,2,8,8,8,Creeper Mosswart
+B86B,95,109,4,8,8,8,Drudge Skulker
+B86D,26,175,1,8,8,8,Drudge Skulker
+B873,156,137,3,8,8,8,Drudge Skulker
+B89E,136,132,35,8,115,40,Drudge Lurker
+B89F,136,52,63,8,135,135,Drudge Biter
+B8CC,108,62,1,8,8,8,Snowman
+B8E8,165,139,12,50,115,80,Wasteland Rat
+B8E9,188,81,7,100,100,100,Coral Golem
+B8EA,188,83,7,100,100,100,Coral Golem
+B8EB,81,115,58,80,100,80,Cursed Bones
+B8ED,154,99,165,50,115,80,Nubilous Golem
+B8EE,173,38,50,50,115,80,Nubilous Golem
+B8EF,165,184,3,80,100,80,Nubilous Golem
+B8F0,156,49,3,80,100,80,Nubilous Golem
+B95F,58,91,39,1,100,100,Burun Ruuk Seer
+B96F,104,85,16,8,165,8,Static
+B971,45,35,1,8,8,8,White Rat
+B974,108,99,1,8,8,8,Drudge Skulker
+B978,66,29,12,8,15,15,Banderling Raider
+B99E,43,153,27,8,135,40,Drudge Lurker
+B99F,48,58,34,8,135,40,Drudge Lurker
+B9ED,71,110,190,50,115,100,Diamond Golem
+B9EE,76,73,160,50,115,80,Nubilous Golem
+B9EF,96,120,14,80,100,100,Magma Golem
+B9F0,88,69,25,80,100,80,Nubilous Golem
+BA60,132,151,1,50,50,50,Mosswart Soul Trapper
+BA61,49,133,4,80,100,80,Burun Ruuk Adherent
+BA63,149,148,4,40,80,40,Burun Ruuk Scamp
+BA64,115,93,2,80,80,80,Burun Ruuk Ruffian
+BA6D,162,136,3,8,8,8,Creeper Mosswart
+BA92,67,76,11,8,15,8,Grey Rat
+BAA1,122,10,2,8,8,8,Drudge Skulker
+BAAD,61,109,16,15,30,15,Mudlurk Mosswart
+BADD,13,179,1,160,160,160,Guardian Blue Coral Golem
+BAE9,4,131,5,100,100,100,Coral Golem
+BAEA,5,95,9,100,100,100,Coral Golem
+BAEB,103,181,61,50,115,100,Diamond Golem
+BB63,39,166,2,40,80,40,Burun Ruuk Scamp
+BB64,34,99,5,50,80,80,Burun Ruuk Ruffian
+BB66,22,113,10,8,15,8,Blue Phyntos Wasp
+BB67,24,108,11,8,15,15,Swamp Gromnie
+BB6C,86,170,8,8,15,8,Mosswart Feeder
+BB73,88,40,3,8,8,8,Drudge Skulker
+BBA3,92,85,1,8,8,8,Brown Armoredillo
+BBEB,86,177,76,50,115,100,Diamond Golem
+BBED,83,13,76,50,115,100,Diamond Golem
+BC28,34,181,2,40,40,40,Gotrok Lithos
+BC63,78,149,3,40,80,40,Burun Ruuk Scamp
+BC64,25,132,1,40,40,40,Burun Ruuk Scamp
+BC6C,105,178,3,8,8,8,Reedshark Pup
+BC9D,167,91,5,40,80,40,Drudge Lurker
+BCDD,77,147,12,8,15,8,Shallows Shark
+BCEB,14,180,38,50,115,100,Diamond Golem
+BCEC,13,83,57,50,115,100,Diamond Golem
+BCED,13,10,38,50,115,100,Diamond Golem
+BCEE,73,78,386,80,135,115,Ascendant Drudge
+BD5F,177,9,13,8,8,8,Water Golem
+BD60,28,61,7,20,60,20,Lich
+BD61,84,126,2,15,15,15,Barker Mosswart
+BD6E,41,105,3,8,8,8,Undead
+BDAF,179,130,7,15,15,15,Mite Sentry
+BDB4,129,165,8,50,50,50,Glacial Golem
+BDEE,91,139,238,115,135,115,Ascendant Drudge
+BDF1,103,108,29,100,135,115,Ancient Coral Golem
+BDF2,92,23,5,115,115,115,Vapor Golem
+BE69,129,41,15,100,135,100,Burun Ruuk Seer
+BE89,75,86,5,18,50,18,Broken Doll
+BF67,107,47,2,20,20,20,Male Tusker
+C04B,125,174,19,2,40,20,Skeleton Warrior
+C068,158,35,8,8,20,15,Mudlurk Mosswart
+C09,105,82,11,135,160,135,Stalking Margul
+C0AD,157,102,4,8,8,8,Mite Scamp
+C0B6,66,142,10,40,80,40,Gotrok Lithos
+C160,50,81,8,160,160,160,Sawato Bandit
+C174,126,146,1,8,8,8,Wood Golem
+C1B4,42,19,5,50,50,50,Olthoi Worker
+C1BA,152,159,3,50,50,50,Olthoi Worker
+C1BE,14,50,4,50,50,50,Olthoi Worker
+C25B,33,39,10,8,15,8,Mosswart Feeder
+C28C,31,106,7,2,2,2,Straw Target Drudge
+C291,188,152,3,8,8,8,Reedshark Pup
+C2D4,139,82,7,30,30,30,Zofrit Zefir
+C352,53,75,16,15,30,15,Mudlurk Mosswart
+C3E3,89,83,56,100,160,100,Sishalti Tendril
+C4B5,110,125,76,160,265,160,Paradox-touched Olthoi Noble
+C4BA,160,154,4,50,50,50,Olthoi Worker
+C4F2,103,103,27,220,220,220,Sclavus Acolyte of T'thuun
+C55A,131,83,2,8,8,8,Mud Golem
+C55E,116,177,2,8,15,8,Creeper Mosswart
+C62,45,35,21,1,135,115,Undead Sailor
+C660,80,39,9,8,50,15,Swamp Gromnie
+C661,162,21,2,115,115,115,Acolyte of the Depths
+C6A9,102,92,180,7,20,7,Blood Shrethlet
+C6B,45,18,5,115,115,115,Sirrocco
+C721,66,82,4,8,20,20,Lich
+C75D,108,105,7,8,20,15,Barker Mosswart
+C75E,126,109,17,15,60,15,Swamp Rat
+C75F,25,176,1,8,8,8,Water Golem
+C770,60,178,2,15,15,15,Barker Mosswart
+C772,85,122,8,80,80,80,Tumerok Gladiator
+C78,142,164,19,115,115,115,Banderling Predator
+C782,161,170,5,8,15,8,Reedshark Pup
+C7EB,36,82,7,215,220,220,Mukkir Progenitor
+C85F,48,60,8,8,15,8,Blue Phyntos Wasp
+C870,35,154,6,15,15,15,Mudlurk Mosswart
+C884,25,96,10,8,8,8,Drudge Prowler
+C891,148,80,4,8,8,8,Drudge Skulker
+C8A3,165,134,2,8,8,8,Drudge Skulker
+C958,19,74,4,50,80,50,Gotrok Gigas
+C95B,107,115,5,240,240,240,Mosswart Cynic
+C95F,53,20,6,8,15,15,Mire Phyntos Wasp
+C972,30,125,3,60,80,60,Tumerok Priest
+C98A,178,175,2,2,8,2,Spiny Armoredillo Pup
+CA42,134,29,3,8,8,8,Wood Golem
+CA89,50,54,2,8,8,8,Creeper Mosswart
+CAAC,16,54,2,8,8,8,Mite Scion
+CB32,144,174,2,20,20,20,Gotrok Laigus
+CB33,148,29,4,20,40,30,Gotrok Obeloth
+CB52,175,23,12,8,15,8,Mosswart Feeder
+CB87,58,183,2,2,8,2,Spiny Armoredillo Pup
+CBB4,24,47,2,15,15,15,Black Rat
+CC5E,99,7,2,8,8,8,Creeper Mosswart
+CC8E,167,53,2,8,8,8,Red Phyntos Wasp
+CC97,99,37,3,8,8,8,Drudge Slinker
+CD2A,129,119,6,80,80,80,Gotrok Montok
+CD45,116,148,10,11,15,11,Hunter Shrethlet
+CDC1,75,71,7,20,60,20,Chill
+CE4E,157,78,12,7,8,7,Blood Shrethlet
+CEB6,10,141,6,50,50,50,Olthoi Worker
+CF4A,35,156,11,8,15,8,Banderling Scout
+CF4B,79,176,4,8,8,8,Outcast Monouga
+CF50,127,148,7,15,15,15,Limestone Golem
+CF62,164,51,2,15,15,15,Se Sclavus
+CF7C,19,74,9,60,100,60,Tumerok Priest
+CF8B,61,13,12,15,50,15,Banderling Raider
+CFA0,142,70,3,15,15,15,Azure Gromnie
+CFE1,90,63,1,185,185,185,Bloodmouth Remoran
+D052,156,32,9,15,40,15,Kilif Zefir
+D054,86,68,14,20,40,20,Gotrok Amploth
+D05F,188,42,2,8,8,8,Creeper Mosswart
+D07,60,81,8,125,145,125,Glissnal Nefane
+D09,8,81,10,135,160,135,Stalking Margul
+D151,8,157,1,15,15,15,Ghost Wisp
+D240,60,184,3,80,80,80,Dark Revenant
+D25A,155,157,12,15,30,15,Barker Mosswart
+D2A8,110,70,26,40,60,40,Skeleton Lord
+D2D4,131,180,4,135,135,135,Raven Augur
+D2D6,18,141,5,30,30,30,Shore Armoredillo
+D338,11,142,5,30,40,30,Gotrok Obeloth
+D361,109,13,4,8,8,8,Mud Golem
+D424,83,60,4,80,80,80,Azael Zefir
+D454,156,60,8,11,15,11,Hunter Shrethlet
+D455,90,131,3,8,8,8,Drudge Skulker
+D4B1,169,128,8,8,15,15,Shallows Slayer
+D4B3,168,101,8,30,30,30,Shore Armoredillo
+D4B4,29,143,6,30,30,30,Shore Armoredillo
+D4B5,121,98,14,15,30,15,Shallows Slayer
+D53D,31,180,4,60,80,60,Obsidian Golem
+D570,132,54,16,15,30,15,Mudlurk Mosswart
+D590,27,118,10,15,15,15,Azure Gromnie
+D599,180,155,1,750,750,750,Tower Guardian
+D5DA,107,107,5,160,750,160,Ghastly Priestess
+D657,161,25,4,2,8,2,Gnawer Shrethlet
+D74F,37,63,3,15,30,15,Black Rat
+D751,54,66,1,8,8,8,Grey Rat
+D757,26,158,3,8,8,8,Banderling Scout
+D836,61,38,7,40,60,40,Copper Golem
+D855,120,122,14,2,4,2,Brown Bunny
+D856,37,185,2,2,8,2,Gnawer Shrethlet
+D85D,34,52,8,8,15,8,Mosswart Feeder
+D8CA,81,63,4,50,50,50,Olthoi Worker
+D953,170,149,3,8,8,8,Banderling Scout
+DA50,34,37,3,8,8,8,Drudge Prowler
+DA55,94,98,1,42,42,42,Pumpkin Buffer
+DA74,111,74,11,60,80,80,Tumerok Gladiator
+DA75,174,98,3,80,135,80,Extas Lugian
+DA76,85,182,8,60,80,80,Tumerok Gladiator
+DA77,56,136,10,60,80,80,Tumerok Gladiator
+DB39,58,108,1,40,40,40,Skeleton Lord
+DB58,110,110,3,15,15,15,Adult Reedshark
+DB74,111,34,15,20,30,20,Tumerok Fighter
+DB75,89,46,9,60,80,80,Tumerok Gladiator
+DB76,83,102,17,60,80,80,Tumerok Gladiator
+DB77,77,95,3,80,80,80,Tumerok Gladiator
+DC56,136,126,4,2,8,2,Spiny Armoredillo Pup
+DC58,50,155,8,7,30,8,Drudge Slinker
+DC5F,83,151,1,30,30,30,Mosswart Fanatic
+DC74,79,159,21,60,80,80,Tumerok Gladiator
+DC75,142,37,5,60,80,60,Tumerok Priest
+DD34,156,80,2,50,50,50,Sufut Zefir
+DD67,34,132,2,15,15,15,Mudlurk Mosswart
+DD83,143,30,8,15,15,15,Azure Gromnie
+DF31,156,134,4,100,100,100,Gold Golem
+DF44,31,66,16,40,80,50,Drudge Stalker
+DF61,80,40,12,40,60,40,Skeleton Lord
+E051,67,141,5,8,8,8,Drudge Skulker
+E24C,49,168,10,8,15,8,Undead
+E33C,62,55,8,2,8,2,Gnawer Shrethlet
+E355,64,58,1,15,15,15,Reedshark Elder
+E439,2,7,1,8,8,8,Drudge Robber
+E43D,61,16,1,4,4,4,Chick
+E454,50,127,17,8,30,30,Mosswart Fanatic
+E4D6,88,81,22,160,220,220,Townsperson
+E51D,116,105,21,30,50,30,Mosswart Fanatic
+E524,9,9,2,15,20,15,Sallow Moarsman
+E53B,125,139,3,8,8,8,Drudge Skulker
+E542,103,18,2,2,4,2,Brown Bunny
+E722,179,135,4,30,50,30,Mosswart Idolator
+E733,33,108,6,40,40,40,Blighted Rank Moarsman
+E81C,104,129,4,40,50,40,Rank Moarsman
+E91E,133,10,2,50,50,50,Jungle Phyntos Wasp
+E927,84,84,6,8,8,8,Small Shadow Child
+EA10,169,126,37,80,115,80,Disgusting Moarsman
+EB0F,123,138,4,80,80,80,Azael Zefir
+EB10,34,107,42,80,135,100,Putrid Moarsman
+EB1D,145,143,14,80,80,80,Mosswart Townsfolk
+EB2F,81,179,3,30,30,30,Ash Gromnie
+EC0D,138,166,7,100,115,100,Aste Sclavus Lord
+EC0E,149,67,15,80,115,115,Chomu Sclavus Lord
+EC0F,107,58,21,21,115,80,Disgusting Moarsman
+EC12,122,70,15,80,115,80,Mosswart Cringer
+EC23,122,98,21,30,80,40,Mosswart Zealot
+EC25,102,92,21,30,80,50,Mosswart Soul Trapper
+ED12,44,139,5,80,100,100,Plate Armoredillo
+EE1C,86,63,20,30,50,30,Mosswart Fanatic
+EF0D,81,46,17,80,100,100,Small Water Golem
+EF28,149,23,3,80,80,80,Disgusting Moarsman
+EF57,60,12,6,15,15,15,Lesser Mu-miyah
+F117,39,79,8,61,80,61,Revenant
+F11E,36,44,5,40,40,40,Island Armoredillo
+F11F,11,14,3,40,50,50,Fetid Moarsman
+F127,60,156,2,80,80,80,Cursed Wisp
+F128,155,110,7,67,80,67,Mosswart Clinger
+F156,179,128,5,20,60,20,Lich
+F15A,115,90,8,50,50,50,Banderling Bandit
+F173,18,17,4,115,160,115,Controlled Tusker
+F25B,12,39,3,50,50,50,Banderling Bandit
+F316,119,145,2,80,80,80,Faisi Sclavus
+F317,169,52,2,60,60,60,Skeleton Bone Lord
+F328,113,89,16,60,100,60,Obsidian Golem
+F33,62,60,6,115,115,115,Blighted Desolation Moarsman
+F38,178,68,1,115,115,115,Blighted Miry Moarsman
+F416,22,115,4,60,80,60,Skeleton Bone Knight
+F417,34,20,4,80,100,80,Faisi Sclavus
+F418,127,128,9,44,95,44,Slithayr Tendril
+F419,107,86,22,40,95,50,Shallows Devourer
+F41F,136,59,6,100,135,100,Lesser Void Knight
+F428,105,154,2,80,80,80,Ulu Sclavus
+F45A,151,25,46,8,160,8,Wood Golem
+F518,108,74,32,12,67,21,Glissnal Niffis
+F519,115,57,18,18,95,18,Slithis Tentacle
+F527,73,140,9,18,35,18,Slithis Tentacle
+F529,81,171,4,100,115,100,Putrid Moarsman
+F628,76,92,21,60,100,60,Skeleton Bone Knight
+F65B,104,183,1,220,220,220,Soldier
+F65C,123,49,3,220,999,220,Soldier
+F732,107,85,54,135,240,135,Tendril of T'thuun
+F757,129,139,7,8,15,8,Young Banderling
+F75A,31,181,7,240,240,240,Panumbris Shadow
+F75B,15,175,1,999,999,999,Shadow Vortex
+F75C,63,69,8,200,999,200,Pillar of Fire
+F819,132,13,3,100,100,100,Chomu Sclavus
+F824,144,73,13,79,100,80,Faisi Sclavus
+F828,9,112,6,115,115,115,Mosswart Scavenger
+F82F,166,108,30,220,220,220,K'nath B'orret
+F833,96,97,6,200,240,200,Blighted Verdant Moarsman
+F85A,72,53,7,8,15,8,Shallows Shark
+F87,60,51,1,100,100,100,Nomad Mu-miyah
+F921,62,109,3,80,80,80,Faisi Sclavus
+F923,84,119,7,60,80,80,Dark Leech
+F924,119,152,16,60,95,79,Sulthis Tentacle
+F927,158,62,1,115,115,115,Bane Grievver
+F92F,77,44,218,120,999,220,Master Soldier
+F930,94,136,30,1,185,185,Killer Phyntos Swarm
+F938,66,42,3,200,225,200,Verdant Moarsman
+FA34,74,99,20,160,220,220,Apostate Virindi Aggressor

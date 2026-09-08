@@ -857,7 +857,8 @@ impl App {
                 | ac_client::Event::Terminated(_)
                 | ac_client::Event::Refused(_)
                 | ac_client::Event::SpellLearned(_)
-                | ac_client::Event::SpellForgotten(_) => {}
+                | ac_client::Event::SpellForgotten(_)
+                | ac_client::Event::Autoplay { .. } => {}
             }
             if is_active {
                 self.lobby.on_event(ev);

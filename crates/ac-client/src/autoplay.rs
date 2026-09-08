@@ -8,12 +8,15 @@
 //!
 //! 1. **Stay alive**: below a fraction of health, use a healing kit or
 //!    cast a healing spell; below a lower fraction, break off the fight.
-//! 2. **Loot**: a corpse of something we killed is opened, the items
+//! 2. **Urgent buffs**: one about to run out goes back up, fight or no
+//!    fight. Fighting with spells, the buffs take turns with the attack
+//!    spells rather than crowding them out (`buff_yields_to_attack`).
+//! 3. **Loot**: a corpse of something we killed is opened, the items
 //!    that pass the filters are taken, and it is closed again.
-//! 3. **Fight**: pick the nearest creature that passes the name rules
-//!    and attack it.
-//! 4. **Buff**: out of combat, recast anything that has run out or is
-//!    about to.
+//! 4. **Fight**: pick the nearest creature that passes the name rules
+//!    and attack it, with the weapon that suits it best.
+//! 5. **Top up buffs**: in a quiet moment, recast anything that has
+//!    run out or will soon.
 //!
 //! Loot is filtered with the inventory's own search language
 //! (`crate::items::Query`), so a rule reads `value>500`,
@@ -45,6 +48,11 @@ const REWIELD_EVERY: Duration = Duration::from_millis(1000);
 /// Ammunition is made at most this often: a use takes a moment and
 /// the bundles need to answer.
 const CRAFT_EVERY: Duration = Duration::from_secs(4);
+/// How long dropping to peace mode takes on the server, which will not
+/// craft in any other stance.
+const STANCE_CHANGE: Duration = Duration::from_millis(1000);
+/// The Fletching skill.
+const FLETCHING: u32 = 37;
 /// The same note is not logged again within this.
 const NOTE_EVERY: Duration = Duration::from_secs(5);
 /// How often the buffs are gone through to see what is due.
@@ -77,6 +85,18 @@ pub struct Survive {
     pub mana_below: f32,
     /// Revitalize when stamina is under this fraction.
     pub stamina_below: f32,
+    /// After a death, go back for the corpse and take the gear off it
+    /// (see `crate::recovery`).
+    pub recover_corpse: bool,
+    /// Give up on the corpse when it has not been reached in this many
+    /// minutes.
+    pub corpse_minutes: f32,
+    /// While the vitae penalty is at least `vitae_above`, leave the
+    /// hard fights and whatever killed us alone.
+    pub vitae_wait: bool,
+    /// The vitae penalty, as a fraction, from which the fights are
+    /// picked with care: 0.25 is five deaths' worth.
+    pub vitae_above: f32,
 }
 
 impl Default for Survive {
@@ -89,6 +109,10 @@ impl Default for Survive {
             manage_mana: true,
             mana_below: 0.4,
             stamina_below: 0.3,
+            recover_corpse: true,
+            corpse_minutes: 10.0,
+            vitae_wait: true,
+            vitae_above: 0.25,
         }
     }
 }
@@ -435,6 +459,8 @@ pub struct Config {
     pub fight: Fight,
     pub loot: Loot,
     pub team: Team,
+    /// Growing and keeping supplied over the hours (see `crate::growth`).
+    pub growth: crate::growth::Growth,
 }
 
 /// Why a cast is refused, in a few words for a status line.
@@ -467,6 +493,29 @@ pub fn wanted_target(name: &str, f: &Fight) -> bool {
 }
 
 /// Whether an item is worth taking.
+/// The ammunition to make for a launcher that takes `fits` (see
+/// `ac_world::fletching::ammo_type`), from what is carried as `(wcid,
+/// guid)` pairs, within a Fletching of `fletching`: `(recipe, heads,
+/// shafts)`. The element `weakest` (the target's weakest, when known)
+/// comes first, then whatever is hardest to make, which is the better
+/// arrow. `None` when no pair of bundles carried makes anything the
+/// launcher shoots.
+pub fn choose_recipe(
+    fits: u32,
+    fletching: u32,
+    carried: &[(u32, u32)],
+    weakest: Option<ac_world::elements::Element>,
+) -> Option<(&'static ac_world::fletching::Recipe, u32, u32)> {
+    let held = |wcid: u32| carried.iter().find(|(w, _)| *w == wcid).map(|(_, g)| *g);
+    ac_world::fletching::making(fits)
+        .filter(|r| r.difficulty <= fletching)
+        .filter_map(|r| Some((r, held(r.source)?, held(r.target)?)))
+        .max_by_key(|(r, _, _)| {
+            let hits = weakest.is_some_and(|w| r.element() == Some(w));
+            (hits, r.difficulty)
+        })
+}
+
 pub fn wanted_loot(stats: &crate::items::ItemStats, l: &Loot) -> bool {
     if name_matches(&stats.name, &l.never) {
         return false;
@@ -493,6 +542,14 @@ pub enum Doing {
     Debuffing,
     Helping,
     Following,
+    /// Dead, or coming back from it (see `crate::recovery`).
+    Recovering,
+    /// Spending experience (see `crate::growth`).
+    Growing,
+    /// On the way to a hunting ground.
+    Traveling,
+    /// On a run to town.
+    Shopping,
 }
 
 impl Doing {
@@ -507,6 +564,10 @@ impl Doing {
             Doing::Debuffing => "debuffing",
             Doing::Helping => "helping the team",
             Doing::Following => "following the leader",
+            Doing::Recovering => "recovering from death",
+            Doing::Growing => "spending experience",
+            Doing::Traveling => "travelling",
+            Doing::Shopping => "in town",
         }
     }
 }
@@ -518,16 +579,23 @@ pub struct Autoplay {
     pub doing: Doing,
     /// A line for the panel: "fighting Drudge Skulker".
     pub status: String,
+    /// `Event::Autoplay`s not yet handed out: one per change of `doing`
+    /// or `status`, taken by `Client::drain_events`.
+    pub announced: Vec<crate::Event>,
     last_heal: Option<Instant>,
     last_attack: Option<Instant>,
-    /// When an attack spell last went out, and what it was thrown at:
-    /// a spell keeps no `attack_target` of its own the way a swing
-    /// does, so the engine remembers what it is working on.
+    /// When a spell of any kind last went out (attacks, debuffs and
+    /// buffs alike, since the server takes them one at a time), and
+    /// what the attack spells are being thrown at: a spell keeps no
+    /// `attack_target` of its own the way a swing does, so the engine
+    /// remembers what it is working on.
     last_cast: Option<Instant>,
     casting_at: Option<u32>,
     /// The target the weapon in hand was chosen for, so it is chosen
     /// once a fight and not once a frame.
-    armed_for: Option<u32>,
+    pub(crate) armed_for: Option<u32>,
+    /// Coming back from a death (see `crate::recovery`).
+    pub recovery: crate::recovery::Recovery,
     /// Targets already made vulnerable this fight.
     vulned: Vec<u32>,
     /// Hard targets being softened, and how far along: 0 the
@@ -550,12 +618,14 @@ pub struct Autoplay {
     put_down: Option<u32>,
     /// The ammunition chosen for the target, to be wielded with the bow.
     wanted_ammo: Option<u32>,
+    /// The shield to put on once a one-handed weapon is in hand.
+    wanted_shield: Option<u32>,
     /// When the hands were last asked to change weapon.
     last_rewield: Option<Instant>,
     /// A weapon to wield as soon as the hands are empty.
     pending_wield: Option<u32>,
     /// A journey put down for a fight, to be picked up again after it.
-    resume_trip: Option<glam::Vec2>,
+    pub(crate) resume_trip: Option<glam::Vec2>,
     /// The target being worked on, since when, and its health when
     /// last seen to drop: a target that takes no damage for a while is
     /// out of reach, and is let go.
@@ -564,12 +634,15 @@ pub struct Autoplay {
     given_up: Vec<(u32, Instant)>,
     /// When ammunition was last made.
     last_craft: Option<Instant>,
+    /// Bundles waiting to be used on each other once the character has
+    /// dropped to peace mode: `(heads, shafts, when peace was asked)`.
+    crafting: Option<(u32, u32, Instant)>,
     /// When stamina was last poured into mana or Revitalize cast.
     last_vital: Option<Instant>,
     /// The corpse being looted and when we started.
     corpse: Option<(u32, Instant)>,
     /// Corpses already emptied.
-    looted: Vec<u32>,
+    pub(crate) looted: Vec<u32>,
     /// Corpse items we asked the server about.
     appraising: bool,
     /// The other characters being played, as the host last saw them.
@@ -588,6 +661,8 @@ pub struct Autoplay {
     /// costs a search, and one that found no way is not tried again for
     /// a while.
     next_follow_plan: Option<Instant>,
+    /// The growth rules' own state (see `crate::growth`).
+    pub growth: crate::growth::State,
 }
 
 impl Autoplay {
@@ -597,11 +672,43 @@ impl Autoplay {
         self.casting_at
     }
 
+    /// A spell of any kind went out less than a cast ago, so another
+    /// sent now would queue behind it or be dropped.
+    fn cast_in_flight(&self, now: Instant) -> bool {
+        self.last_cast
+            .is_some_and(|t| now.duration_since(t) < CAST_EVERY)
+    }
+
+    /// Whether an urgent buff should stand aside for the attack this
+    /// moment. In a fight with spells, buffs and attacks take turns:
+    /// after a buff goes out, the next cast slot belongs to the attack,
+    /// and the buffs resume once it has been used, or has gone unused
+    /// for a whole slot (nothing castable, say). Without this a long
+    /// list of buffs coming due at once had the character "fighting"
+    /// something for twenty seconds without throwing a thing at it.
+    /// Outside a spell fight there is no attack cast to wait for.
+    fn buff_yields_to_attack(&self, now: Instant) -> bool {
+        if self.casting_at.is_none() {
+            return false;
+        }
+        if self.cast_in_flight(now) {
+            return true;
+        }
+        let buff_was_last = match (self.last_buff, self.last_cast) {
+            (Some(b), Some(c)) => b >= c,
+            _ => false,
+        };
+        buff_was_last
+            && self
+                .last_buff
+                .is_some_and(|t| now.duration_since(t) < 2 * CAST_EVERY)
+    }
+
     /// Something worth knowing that is not what the character is doing:
     /// logged, at most every few seconds for the same words, and the
     /// status left as it was. Said every tick it would drown the log
     /// and flip the status back and forth with whatever else is going on.
-    fn note(&mut self, text: impl Into<String>, now: Instant) {
+    pub(crate) fn note(&mut self, text: impl Into<String>, now: Instant) {
         let text = text.into();
         let again = self
             .noted
@@ -613,10 +720,14 @@ impl Autoplay {
         }
     }
 
-    fn say(&mut self, doing: Doing, status: impl Into<String>) {
+    pub(crate) fn say(&mut self, doing: Doing, status: impl Into<String>) {
         let status = status.into();
         if self.doing != doing || self.status != status {
             tracing::info!("autoplay: {status}");
+            self.announced.push(crate::Event::Autoplay {
+                doing: format!("{doing:?}").to_lowercase(),
+                text: status.clone(),
+            });
         }
         self.doing = doing;
         self.status = status;
@@ -714,7 +825,7 @@ impl Client {
     /// Keep mana and stamina up the way a caster does: stamina poured
     /// into mana when mana runs low, Revitalize when stamina does. True
     /// when a spell went out.
-    fn autoplay_vitals(&mut self, now: Instant) -> bool {
+    pub(crate) fn autoplay_vitals(&mut self, now: Instant) -> bool {
         use ac_world::vitals::vital;
         let cfg = self.autoplay.config.survive.clone();
         if !cfg.manage_mana {
@@ -908,16 +1019,27 @@ impl Client {
         if self.autoplay_survive(now) {
             return;
         }
+        // Dead, or on the way back from it: nothing else until the
+        // corpse is dealt with (see `crate::recovery`).
+        if self.autoplay_recover(now) {
+            return;
+        }
         // A weapon waiting for empty hands is taken up as soon as they
         // are.
         if let Some(g) = self.autoplay.pending_wield {
+            // A shield in the off hand counts as a full hand for a
+            // weapon that cannot be held with one.
+            let offhand_matters = self
+                .stats_of(g)
+                .is_some_and(|i| crate::weapons::needs_free_offhand(&i));
             let hands_full = self.world.wielded().any(|o| {
-                o.item_type
+                (o.item_type
                     & (ac_world::item_type::MELEE_WEAPON
                         | ac_world::item_type::MISSILE_WEAPON
                         | ac_world::item_type::CASTER)
                     != 0
-                    && o.valid_locations & ac_world::equip::MISSILE_AMMO == 0
+                    && o.valid_locations & ac_world::equip::MISSILE_AMMO == 0)
+                    || (offhand_matters && o.valid_locations & ac_world::equip::SHIELD != 0)
             });
             if !hands_full {
                 self.autoplay.pending_wield = None;
@@ -928,6 +1050,7 @@ impl Client {
                 self.autoplay.pending_wield = None;
             }
         }
+        self.autoplay_shield(now);
         // A buff about to run out goes back up before anything else is
         // done, fight or no fight.
         if self.autoplay_buff(now, true) {
@@ -961,6 +1084,10 @@ impl Client {
             return;
         }
         if self.autoplay_resume_journey() {
+            return;
+        }
+        // With nothing else to do: grow, find monsters, run to town.
+        if self.autoplay_grow(now) {
             return;
         }
         let doing = self.autoplay.doing;
@@ -1325,14 +1452,86 @@ impl Client {
             known.name,
             pick.why
         );
+        let picked_stats = carried.iter().find(|i| i.guid == pick.guid);
+        // A one-handed melee weapon leaves the off hand for a shield,
+        // which is put on once the weapon is in hand (see
+        // `autoplay_shield`); anything else wants that hand empty.
+        let free_offhand = picked_stats.is_some_and(crate::weapons::needs_free_offhand);
+        self.autoplay.wanted_shield = if free_offhand {
+            None
+        } else {
+            crate::weapons::best_shield(&carried, &wielder).map(|s| s.guid)
+        };
         // The server will not put a second weapon in full hands: the
-        // old one goes back in the pack first and the new one is
+        // old one goes back in the pack first, the shield too when the
+        // new weapon cannot be held with one, and the new one is
         // wielded once the hands are empty.
-        if self.put_weapons_away() {
+        let mut sent = self.put_weapons_away();
+        if free_offhand {
+            let me = self.world.player_guid;
+            let shield = self.wielded_shield();
+            if let (Some(me), Some(shield)) = (me, shield) {
+                sent |= self.put_in_container(shield, me);
+            }
+        }
+        if sent {
             self.autoplay.pending_wield = Some(pick.guid);
         } else {
             self.wield_guid(pick.guid);
         }
+    }
+
+    /// The shield on the off hand, if any.
+    fn wielded_shield(&self) -> Option<u32> {
+        self.world
+            .wielded()
+            .find(|o| o.valid_locations & ac_world::equip::SHIELD != 0)
+            .map(|o| o.guid)
+    }
+
+    /// Put the shield chosen with a one-handed weapon on, once that
+    /// weapon is in hand and the off hand is free.
+    fn autoplay_shield(&mut self, now: Instant) {
+        let Some(shield) = self.autoplay.wanted_shield else {
+            return;
+        };
+        if self.autoplay.pending_wield.is_some() {
+            return;
+        }
+        if !self.world.is_carried(shield) || self.wielded_shield().is_some() {
+            self.autoplay.wanted_shield = None;
+            return;
+        }
+        // Only with a one-handed melee weapon actually in hand: the
+        // weapon may still be on its way, or have turned out to be
+        // something a shield cannot go with.
+        let held: Vec<crate::items::ItemStats> = self
+            .world
+            .wielded()
+            .filter(|o| crate::weapons::stance_of(&crate::items::ItemStats::of(o, None)).is_some())
+            .map(|o| {
+                self.stats_of(o.guid)
+                    .unwrap_or_else(|| crate::items::ItemStats::of(o, None))
+            })
+            .collect();
+        let Some(weapon) = held.first() else {
+            return;
+        };
+        if crate::weapons::needs_free_offhand(weapon) {
+            self.autoplay.wanted_shield = None;
+            return;
+        }
+        if self
+            .autoplay
+            .last_rewield
+            .is_some_and(|t| now.duration_since(t) < REWIELD_EVERY)
+        {
+            return;
+        }
+        self.autoplay.last_rewield = Some(now);
+        self.autoplay.wanted_shield = None;
+        tracing::info!("autoplay: putting the shield on with the weapon");
+        self.wield_guid(shield);
     }
 
     /// A hard fight: the creature has at least the team's threshold of
@@ -1452,10 +1651,45 @@ impl Client {
     /// Make ammunition for the launcher in hand from a bundle of heads
     /// and a bundle of shafts carried, the recipe within Fletching, for
     /// the element the target is weakest to when there is a choice.
-    /// True when a bundle was used this tick.
+    /// True when this tick went on making some.
+    ///
+    /// The server's side of it (ACE `RecipeManager::UseObjectOnTarget`):
+    /// using the heads on the shafts is refused outright in any combat
+    /// stance, and by a character not trained in Fletching, so the
+    /// character drops to peace first and the bundles are used once the
+    /// stance change has had its moment. The server may then ask, as a
+    /// yes/no confirmation, whether the chance of success is good
+    /// enough; it is answered yes, and the arrows land in the pack a
+    /// clap of the hands later, where the bow's arming picks them up.
     fn autoplay_craft_ammo(&mut self, now: Instant) -> bool {
         if !self.autoplay.config.fight.craft_ammo {
             return false;
+        }
+        // The chance-of-success question, if the character has that
+        // option on: the answer is always yes, the bundles being for
+        // nothing else.
+        const CRAFT: u32 = 5;
+        let asked: Vec<u32> = self
+            .world
+            .confirmations
+            .iter()
+            .filter(|c| c.kind == CRAFT)
+            .map(|c| c.context)
+            .collect();
+        if !asked.is_empty() && self.autoplay.last_craft.is_some() {
+            for context in asked {
+                self.confirm(CRAFT, context, true);
+            }
+            return true;
+        }
+        // Waiting for peace mode before the bundles are used.
+        if let Some((source, target, since)) = self.autoplay.crafting {
+            if now.duration_since(since) < STANCE_CHANGE {
+                return true;
+            }
+            self.autoplay.crafting = None;
+            self.autoplay.last_craft = Some(now);
+            return self.use_on(source, target);
         }
         if self
             .autoplay
@@ -1474,13 +1708,15 @@ impl Client {
         if launcher.ammo_type == 0 {
             return false;
         }
-        // Fletching as it stands.
+        // Fletching as it stands, and only if trained: an untrained
+        // skill has a number too, but the server will not craft with it.
         let fletching = {
             let stats = &self.world.stats;
             let table = self.assets.skill_table().ok();
             stats
-                .skill(37)
-                .map(|sk| stats.skill_current(sk, table.as_ref().and_then(|t| t.get(37))))
+                .skill(FLETCHING)
+                .filter(|sk| sk.advancement >= ac_world::stats::sac::TRAINED)
+                .map(|sk| stats.skill_current(sk, table.as_ref().and_then(|t| t.get(FLETCHING))))
                 .unwrap_or(0)
         };
         let carried: Vec<(u32, u32)> = self
@@ -1490,19 +1726,15 @@ impl Client {
             .filter(|o| self.world.is_carried(o.guid))
             .map(|o| (o.weenie_class_id, o.guid))
             .collect();
-        let held = |wcid: u32| carried.iter().find(|(w, _)| *w == wcid).map(|(_, g)| *g);
         let weakest = self
             .autoplay
             .casting_at
             .or(self.attack_target)
             .and_then(|g| self.creature_known(g))
             .and_then(|c| c.weakest_to());
-        let mut options: Vec<(&ac_world::fletching::Recipe, u32, u32)> =
-            ac_world::fletching::making(launcher.ammo_type)
-                .filter(|r| r.difficulty <= fletching)
-                .filter_map(|r| Some((r, held(r.source)?, held(r.target)?)))
-                .collect();
-        if options.is_empty() {
+        let Some((recipe, source, target)) =
+            choose_recipe(launcher.ammo_type, fletching, &carried, weakest)
+        else {
             self.autoplay.note(
                 format!(
                     "out of {} and nothing to make more from",
@@ -1511,24 +1743,19 @@ impl Client {
                 now,
             );
             return false;
-        }
-        // The target's weakness first, then whatever is hardest to make,
-        // which is the better arrow.
-        options.sort_by(|a, b| {
-            let hits =
-                |r: &ac_world::fletching::Recipe| weakest.is_some_and(|w| r.element() == Some(w));
-            hits(b.0)
-                .cmp(&hits(a.0))
-                .then(b.0.difficulty.cmp(&a.0.difficulty))
-        });
-        let (recipe, source, target) = options[0];
-        self.use_on(source, target);
-        self.autoplay.last_craft = Some(now);
+        };
         self.autoplay.say(
             Doing::Looting,
             format!("making {} from {}", recipe.result_name, recipe.source_name),
         );
-        true
+        if self.combat || self.magic {
+            // Peace first; the use goes out once the stance has changed.
+            self.leave_combat();
+            self.autoplay.crafting = Some((source, target, now));
+            return true;
+        }
+        self.autoplay.last_craft = Some(now);
+        self.use_on(source, target)
     }
 
     /// The main pack has no room for another item.
@@ -1640,6 +1867,8 @@ impl Client {
                     && !o.is_player
             })
             .filter(|o| wanted_target(&o.name, &cfg))
+            // With the vitae high, the hard ones and the killer wait.
+            .filter(|o| !self.shy_of(o))
             .filter(|o| {
                 !self
                     .autoplay
@@ -1721,11 +1950,10 @@ impl Client {
             .map(|o| o.name.clone())
             .unwrap_or_default();
         self.autoplay.casting_at = Some(guid);
-        if self
-            .autoplay
-            .last_cast
-            .is_some_and(|t| now.duration_since(t) < CAST_EVERY)
-        {
+        // Paced to the casting, buffs included: the server queues one
+        // spell sent over another and drops the next, so an attack
+        // thrown on the heels of a buff would be the one dropped.
+        if self.autoplay.cast_in_flight(now) {
             self.autoplay
                 .say(Doing::Fighting, format!("fighting {name}"));
             return true;
@@ -2121,6 +2349,8 @@ impl Client {
                     && !o.is_player
             })
             .filter(|o| wanted_target(&o.name, cfg))
+            // With the vitae high, the hard ones and the killer wait.
+            .filter(|o| !self.shy_of(o))
             .filter_map(|o| {
                 let d = o.world_pos()?.distance(me);
                 (d <= cfg.radius).then_some((d, o.guid))
@@ -2425,7 +2655,7 @@ impl Client {
     /// runs last, in quiet moments, and tops up whatever is under the
     /// much wider `top_up_within`, a cast or two at a time, so the set
     /// is refreshed a little at every lull rather than all at once.
-    fn autoplay_buff(&mut self, now: Instant, urgent: bool) -> bool {
+    pub(crate) fn autoplay_buff(&mut self, now: Instant, urgent: bool) -> bool {
         let cfg = self.autoplay.config.buffs.clone();
         if cfg.spells.is_empty() && !cfg.auto {
             return false;
@@ -2446,6 +2676,11 @@ impl Client {
             .last_buff
             .is_some_and(|t| now.duration_since(t) < BUFF_EVERY)
         {
+            return false;
+        }
+        // Fighting with spells, the buffs take turns with the attack
+        // rather than starving it (see `buff_yields_to_attack`).
+        if urgent && self.autoplay.buff_yields_to_attack(now) {
             return false;
         }
         if urgent
@@ -2536,7 +2771,10 @@ impl Client {
                     .say(Doing::Buffing, format!("casting {name} on {on}"));
             }
         }
+        // A buff is a cast like any other as far as the pacing goes:
+        // an attack thrown over it would be dropped.
         self.autoplay.last_buff = Some(now);
+        self.autoplay.last_cast = Some(now);
         true
     }
 
@@ -2604,7 +2842,7 @@ impl Client {
     /// The buff with the least time left of those under `within`
     /// seconds, castable or not: the most pressing one is put back
     /// first. `(spell, target, category, name, seconds it lasts)`.
-    fn due_buff(
+    pub(crate) fn due_buff(
         &self,
         within: f32,
         now: Instant,
@@ -2668,6 +2906,38 @@ impl Client {
 mod tests {
     use super::*;
     use crate::items::ItemStats;
+
+    #[test]
+    fn ammunition_is_made_for_the_bow_and_the_targets_weakness() {
+        use ac_world::elements::Element;
+        use ac_world::fletching::ammo_type;
+        // Plain arrowheads (4586), fire arrowheads (5341), arrowshafts
+        // (4585) and quarrel shafts (5339), by guid.
+        let carried = [(4586, 1), (5341, 2), (4585, 3), (5339, 4)];
+        // Fletching enough for fire arrows, against something weak to fire.
+        let (r, heads, shafts) =
+            choose_recipe(ammo_type::ARROW, 100, &carried, Some(Element::Fire)).expect("fire");
+        assert_eq!(
+            (r.result_name.as_str(), heads, shafts),
+            ("Fire Arrow", 2, 3)
+        );
+        // Weak to cold and no cold heads carried: the hardest recipe
+        // that can be made, which is still the fire one.
+        let (r, _, _) =
+            choose_recipe(ammo_type::ARROW, 100, &carried, Some(Element::Cold)).expect("any");
+        assert_eq!(r.result_name, "Fire Arrow");
+        // Not skilled enough for fire arrows: plain ones.
+        let (r, heads, shafts) =
+            choose_recipe(ammo_type::ARROW, 10, &carried, Some(Element::Fire)).expect("plain");
+        assert_eq!((r.result_name.as_str(), heads, shafts), ("Arrow", 1, 3));
+        // A crossbow wants quarrels, made on the quarrel shafts.
+        let (r, _, shafts) = choose_recipe(ammo_type::BOLT, 100, &carried, None).expect("quarrels");
+        assert_eq!((r.result_name.as_str(), shafts), ("Fire Quarrel", 4));
+        // No dart shafts: nothing for an atlatl.
+        assert!(choose_recipe(ammo_type::ATLATL, 100, &carried, None).is_none());
+        // Untrained (0): nothing at all.
+        assert!(choose_recipe(ammo_type::ARROW, 0, &carried, None).is_none());
+    }
 
     #[test]
     fn target_rules_read_names() {

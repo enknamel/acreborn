@@ -28,7 +28,7 @@ pub mod team;
 pub use ac_bus::{self, BusClient, Incoming};
 pub use ac_client::{self, Client, Event};
 pub use egui;
-pub use host::{Host, Requests};
+pub use host::{Host, Requests, AUTOPLAY_TOPIC};
 pub mod keys;
 pub use icons::{IconCache, IconLayers, IconLoader};
 pub use serde_json::{self, Value};
