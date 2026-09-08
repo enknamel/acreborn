@@ -59,8 +59,9 @@ pub trait Api {
     /// "melee", "missile", "magic". Returns the style in force.
     fn fight_style(&mut self, style: &str) -> String;
 
-    /// The attack spells autoplay throws, best first. Returns the list
-    /// now in force.
+    /// The attack spells autoplay throws, best first; an empty list
+    /// clears them, leaving the whole spellbook on offer. Returns the
+    /// list now in force.
     fn attack_spells(&mut self, names: Array) -> Array;
 
     /// The buffs autoplay would keep up right now, worked out from the

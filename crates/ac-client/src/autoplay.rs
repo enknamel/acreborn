@@ -144,9 +144,10 @@ pub struct Fight {
     pub enabled: bool,
     /// How to fight: with a weapon in hand, at range, or with spells.
     pub style: Style,
-    /// Attack spells to throw, best first: of the ones that can be cast
-    /// right now, the one the target is weakest to is used. Only read
-    /// when fighting with magic.
+    /// Attack spells to throw, by name. Empty means every attack spell
+    /// in the spellbook: of the ones that can be cast right now, the one
+    /// the target is weakest to is used. Only read when fighting with
+    /// magic.
     pub spells: Vec<String>,
     /// Wield the best weapon carried for whatever is being fought: the
     /// one whose element it takes most damage from, rending and
@@ -1550,8 +1551,8 @@ impl Client {
     /// pace of a cast rather than of a frame. The target is selected
     /// first because that is what `try_cast` throws at.
     fn autoplay_fight_with_spells(&mut self, now: Instant, cfg: &Fight) -> bool {
-        if cfg.spells.is_empty() {
-            self.autoplay.say(Doing::Idle, "no attack spells chosen");
+        if cfg.spells.is_empty() && self.attack_spells_known().is_empty() {
+            self.autoplay.say(Doing::Idle, "no attack spells known");
             return false;
         }
         if self.wielded_caster().is_none() {
@@ -1610,10 +1611,29 @@ impl Client {
         // from cold and full damage from fire, so the difference between
         // choosing well and throwing the first spell on the list is the
         // difference between a fight and a stalemate.
-        let ready: Vec<(u32, String)> = cfg
-            .spells
-            .iter()
-            .filter_map(|n| self.spell_by_name(n).map(|id| (id, n.clone())))
+        // The spells on offer: the ones named, or, with none named,
+        // every attack spell in the book. The game is a closed system
+        // and the book says what can be thrown.
+        let table = self.assets.spell_table().ok();
+        let offered: Vec<(u32, String)> = if cfg.spells.is_empty() {
+            self.attack_spells_known()
+                .into_iter()
+                .map(|id| {
+                    let name = table
+                        .as_ref()
+                        .and_then(|t| t.get(id).map(|s| s.name.clone()))
+                        .unwrap_or_default();
+                    (id, name)
+                })
+                .collect()
+        } else {
+            cfg.spells
+                .iter()
+                .filter_map(|n| self.spell_by_name(n).map(|id| (id, n.clone())))
+                .collect()
+        };
+        let ready: Vec<(u32, String)> = offered
+            .into_iter()
             .filter(|(id, _)| matches!(self.can_cast(*id), crate::magic::CastCheck::Ok))
             .collect();
         let ids: Vec<u32> = ready.iter().map(|(id, _)| *id).collect();
@@ -1644,12 +1664,22 @@ impl Client {
         }
         // Nothing castable: out of mana, out of components, or the
         // spells are not learnt. Say which, for the first of them.
-        let why = cfg
-            .spells
-            .iter()
-            .filter_map(|n| self.spell_by_name(n).map(|id| (n.clone(), id)))
+        let first: Option<(String, u32)> = if cfg.spells.is_empty() {
+            self.attack_spells_known().first().map(|id| {
+                let name = table
+                    .as_ref()
+                    .and_then(|t| t.get(*id).map(|s| s.name.clone()))
+                    .unwrap_or_default();
+                (name, *id)
+            })
+        } else {
+            cfg.spells
+                .iter()
+                .filter_map(|n| self.spell_by_name(n).map(|id| (n.clone(), id)))
+                .next()
+        };
+        let why = first
             .map(|(n, id)| format!("{n}: {}", cast_problem(&self.can_cast(id))))
-            .next()
             .unwrap_or_else(|| "none of the attack spells is known".into());
         self.autoplay
             .say(Doing::Fighting, format!("cannot cast at {name} ({why})"));
@@ -1838,6 +1868,26 @@ impl Client {
         );
         self.autoplay.say(Doing::Debuffing, said);
         true
+    }
+
+    /// Every attack spell in the spellbook that is thrown at a target:
+    /// the ones the element table knows deal an element, strongest
+    /// first. Which of them to throw is decided against the target.
+    fn attack_spells_known(&self) -> Vec<u32> {
+        let Ok(table) = self.assets.spell_table() else {
+            return Vec::new();
+        };
+        let mut ids: Vec<u32> = self
+            .world
+            .stats
+            .spells
+            .iter()
+            .copied()
+            .filter(|id| ac_world::elements::spell_element(*id).is_some())
+            .filter(|id| table.get(*id).is_some_and(|s| s.needs_target()))
+            .collect();
+        ids.sort_by_key(|id| std::cmp::Reverse(table.get(*id).map(|s| s.power).unwrap_or(0)));
+        ids
     }
 
     /// The nearest creature the name rules allow, within the radius.

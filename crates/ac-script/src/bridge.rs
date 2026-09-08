@@ -301,11 +301,10 @@ impl Api for CtxApi<'_, '_> {
     }
 
     fn attack_spells(&mut self, names: Array) -> Array {
+        // An empty list clears the names, so the spellbook decides.
         let wanted: Vec<String> = names.iter().map(|v| v.to_string()).collect();
         let c = self.client();
-        if !wanted.is_empty() {
-            c.autoplay.config.fight.spells = wanted;
-        }
+        c.autoplay.config.fight.spells = wanted;
         c.autoplay
             .config
             .fight
