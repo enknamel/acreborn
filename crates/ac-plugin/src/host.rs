@@ -33,6 +33,8 @@ pub struct Requests {
     pub chat: Vec<(String, u32)>,
     pub activate: Option<usize>,
     pub consumed: bool,
+    /// A plugin asked the host to close the client.
+    pub quit: bool,
 }
 
 impl Host {
@@ -148,6 +150,7 @@ impl Host {
             now,
             chat: Vec::new(),
             activate: None,
+            quit: false,
         };
         for p in &mut self.plugins {
             for ev in events {
@@ -158,6 +161,7 @@ impl Host {
         Requests {
             chat: cx.chat,
             activate: cx.activate,
+            quit: cx.quit,
             consumed: false,
         }
     }
@@ -209,6 +213,7 @@ impl Host {
             now: Instant::now(),
             chat: Vec::new(),
             activate: None,
+            quit: false,
         };
         for p in &mut self.plugins {
             p.ui(&mut cx, egui);
@@ -216,6 +221,7 @@ impl Host {
         Requests {
             chat: cx.chat,
             activate: cx.activate,
+            quit: cx.quit,
             consumed: false,
         }
     }
@@ -237,6 +243,7 @@ impl Host {
             now: Instant::now(),
             chat: Vec::new(),
             activate: None,
+            quit: false,
         };
         let mut consumed = false;
         for p in &mut self.plugins {
@@ -248,6 +255,7 @@ impl Host {
         Requests {
             chat: cx.chat,
             activate: cx.activate,
+            quit: cx.quit,
             consumed,
         }
     }
@@ -267,6 +275,7 @@ impl Host {
             now: Instant::now(),
             chat: Vec::new(),
             activate: None,
+            quit: false,
         };
         let mut consumed = false;
         for p in &mut self.plugins {
@@ -278,6 +287,7 @@ impl Host {
         Requests {
             chat: cx.chat,
             activate: cx.activate,
+            quit: cx.quit,
             consumed,
         }
     }

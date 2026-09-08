@@ -29,6 +29,7 @@ pub use ac_bus::{self, BusClient, Incoming};
 pub use ac_client::{self, Client, Event};
 pub use egui;
 pub use host::{Host, Requests};
+pub mod keys;
 pub use icons::{IconCache, IconLayers, IconLoader};
 pub use serde_json::{self, Value};
 pub use settings::Settings;
@@ -171,6 +172,8 @@ pub struct Ctx<'a> {
     pub chat: Vec<(String, u32)>,
     /// Ask the host to switch the active session (drawn, steered by keys).
     pub activate: Option<usize>,
+    /// Ask the host to close the client (the menu's Quit).
+    pub quit: bool,
 }
 
 impl Ctx<'_> {

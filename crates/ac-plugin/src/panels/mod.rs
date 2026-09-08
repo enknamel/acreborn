@@ -278,6 +278,155 @@ pub fn title(ui: &mut egui::Ui, text: impl Into<String>) {
     );
 }
 
+thread_local! {
+    /// Windows whose close button was clicked (or that Escape closed)
+    /// and not yet picked up by their panel, by window id.
+    static CLOSED: std::cell::RefCell<std::collections::HashSet<String>> = Default::default();
+    /// Every window drawn with a title bar: when it was last drawn (the
+    /// egui frame) and the order it appeared in, so Escape can close the
+    /// one opened last.
+    static OPEN: std::cell::RefCell<std::collections::HashMap<String, (u64, u64)>> = Default::default();
+    static OPENED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// A window's title bar: the name on the left, its key (if it has one)
+/// beside it, and a close button on the right. `id` is the window's id
+/// (the name given to [`window`]) and, for a panel with a key, its
+/// action id in [`crate::keys`]. The panel that drew it asks
+/// [`closed`] afterwards whether the button was clicked.
+pub fn title_bar(ui: &mut egui::Ui, id: &str, text: impl Into<String>) {
+    let frame = ui.ctx().cumulative_frame_nr();
+    OPEN.with(|o| {
+        let mut o = o.borrow_mut();
+        let entry = o.entry(id.to_string()).or_insert_with(|| {
+            OPENED.with(|n| {
+                let seq = n.get() + 1;
+                n.set(seq);
+                (frame, seq)
+            })
+        });
+        // Not drawn last frame: it was closed and opened again, so it is
+        // the newest once more.
+        if entry.0 + 1 < frame {
+            entry.1 = OPENED.with(|n| {
+                let seq = n.get() + 1;
+                n.set(seq);
+                seq
+            });
+        }
+        entry.0 = frame;
+    });
+    ui.horizontal(|ui| {
+        title(ui, text);
+        if let Some(k) = crate::keys::binding(id) {
+            ui.label(
+                egui::RichText::new(format!("[{}]", k.symbol_or_name()))
+                    .color(egui::Color32::from_gray(150))
+                    .small(),
+            );
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let close = ui
+                .add(
+                    egui::Button::new(egui::RichText::new("✕").color(egui::Color32::from_gray(200)))
+                        .frame(false),
+                )
+                .on_hover_text("Close");
+            if close.clicked() {
+                CLOSED.with(|c| {
+                    c.borrow_mut().insert(id.to_string());
+                });
+            }
+        });
+    });
+}
+
+/// Whether the window `id` was closed since the panel last asked (its
+/// close button, or Escape): the panel then hides itself or closes what
+/// it shows.
+pub fn closed(id: &str) -> bool {
+    CLOSED.with(|c| c.borrow_mut().remove(id))
+}
+
+/// Close the window opened most recently (what Escape does); true when
+/// there was one. `frame` is the current egui frame.
+pub fn close_newest(frame: u64) -> bool {
+    let newest = OPEN.with(|o| {
+        o.borrow()
+            .iter()
+            .filter(|(_, (seen, _))| *seen + 1 >= frame)
+            .max_by_key(|(_, (_, seq))| *seq)
+            .map(|(id, _)| id.clone())
+    });
+    match newest {
+        Some(id) => {
+            CLOSED.with(|c| {
+                c.borrow_mut().insert(id);
+            });
+            true
+        }
+        None => false,
+    }
+}
+
+/// Whether any window with a title bar is open right now.
+pub fn any_open(frame: u64) -> bool {
+    OPEN.with(|o| o.borrow().values().any(|(seen, _)| *seen + 1 >= frame))
+}
+
+/// The blackboard key on which the menu (or a script) asks panel `name`
+/// to open, close or toggle.
+fn open_key(name: &str) -> String {
+    format!("ui.open.{name}")
+}
+
+/// What a panel was asked to do by [`request_open`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ask {
+    Toggle,
+    Open,
+    Close,
+}
+
+/// Ask panel `name` (its action id) to toggle, open or close; it picks
+/// the request up on its next frame with [`take_open`].
+pub fn request_open(board: &mut crate::Blackboard, name: &str, ask: Ask) {
+    let v = match ask {
+        Ask::Toggle => "toggle",
+        Ask::Open => "open",
+        Ask::Close => "close",
+    };
+    board.set(open_key(name), v);
+}
+
+/// The request made of panel `name` since it last looked, if any. A
+/// panel with a `show` flag applies it as
+/// `self.show = ask.apply(self.show)`.
+pub fn take_open(board: &mut crate::Blackboard, name: &str) -> Option<Ask> {
+    let key = open_key(name);
+    let ask = match board.get(&key).and_then(|v| v.as_str()) {
+        Some("toggle") => Some(Ask::Toggle),
+        Some("open") => Some(Ask::Open),
+        Some("close") => Some(Ask::Close),
+        _ => None,
+    };
+    if ask.is_some() {
+        board.set(key, serde_json::Value::Null);
+    }
+    ask
+}
+
+impl Ask {
+    /// The `show` flag after this request.
+    pub fn apply(self, show: bool) -> bool {
+        match self {
+            Ask::Toggle => !show,
+            Ask::Open => true,
+            Ask::Close => false,
+        }
+    }
+}
+
 /// Icon plus label on one line, both clickable as one; the pointer turns
 /// into a hand over it.
 pub fn item_row(
