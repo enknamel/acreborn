@@ -129,10 +129,19 @@ pub struct Player {
     /// character to its run rate; see [`run_rate`] for what it does hold
     /// them to.
     pub speed_boost: f32,
+    /// A client-side multiplier on the jump height the Jump skill gives;
+    /// the height is capped at [`MAX_JUMP_HEIGHT`] whatever this is.
+    pub jump_boost: f32,
     /// The jump charge was set by hand (the wheel) and no longer grows
     /// while the key is held; released when the key is.
     charge_pinned: bool,
 }
+
+/// The most a jump may rise (metres). The server calls a character
+/// found more than 10 m above the ground it last stood on, a second or
+/// more after a jump, a z-position hack (unless its Jump skill is 1000)
+/// and puts it back where it was; this stays under that.
+pub const MAX_JUMP_HEIGHT: f32 = 9.5;
 
 /// The server's run rate for a Run skill (ACE `MovementSystem.GetRunRate`
 /// with no burden): 1 at nothing, about 2.4 at 200, and 4.5 from 800 up.
@@ -199,6 +208,7 @@ impl Player {
             jump_skill: 100,
             run_rate: 1.0,
             speed_boost: 1.0,
+            jump_boost: 1.0,
             charge_pinned: false,
             last_jump: None,
             pending_commands: Vec::new(),
@@ -226,7 +236,9 @@ impl Player {
         }
         let power = power.clamp(0.0, self.max_jump_power);
         let skill = self.jump_skill as f32;
-        let height = ((skill / (skill + 1300.0) * 22.2 + 0.05) * power).max(0.35);
+        let height = (((skill / (skill + 1300.0) * 22.2 + 0.05) * power).max(0.35)
+            * self.jump_boost)
+            .min(MAX_JUMP_HEIGHT);
         self.vz = (2.0 * GRAVITY * height).sqrt();
         self.airborne = true;
         self.air_velocity = self.ground_velocity;

@@ -1293,6 +1293,10 @@ impl Api for CtxApi<'_, '_> {
         self.client().set_speed_boost(boost as f32);
     }
 
+    fn jump_boost(&mut self, boost: f64) {
+        self.client().set_jump_boost(boost as f32);
+    }
+
     fn select(&mut self, guid: i64) {
         let guid = u32::try_from(guid).ok().filter(|g| *g != 0);
         self.client().select(guid);

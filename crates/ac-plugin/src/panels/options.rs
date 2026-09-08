@@ -14,12 +14,15 @@ pub struct OptionsView {
     /// The client-side run speed multiplier, times 100 (so the view can
     /// stay `Eq`).
     pub speed_boost_pct: u32,
+    /// The jump height multiplier, times 100.
+    pub jump_boost_pct: u32,
 }
 
 pub fn view(c: &Client) -> OptionsView {
     OptionsView {
         rows: OPTIONS.iter().map(|o| (*o, c.option_enabled(o))).collect(),
         speed_boost_pct: (c.speed_boost * 100.0).round() as u32,
+        jump_boost_pct: (c.jump_boost * 100.0).round() as u32,
     }
 }
 
@@ -29,6 +32,8 @@ pub struct Changes {
     pub options: Vec<(CharacterOption, bool)>,
     /// A new run speed multiplier.
     pub speed_boost: Option<f32>,
+    /// A new jump height multiplier.
+    pub jump_boost: Option<f32>,
 }
 
 /// Returns the options toggled this frame with their new value. The
@@ -73,6 +78,19 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
                 {
                     changed.speed_boost = Some(boost);
                 }
+                // Likewise the jump; the client keeps the height under
+                // what the server calls a hack (10 m above the ground).
+                let mut jump = v.jump_boost_pct as f32 / 100.0;
+                if ui
+                    .add(
+                        egui::Slider::new(&mut jump, 0.5..=6.0)
+                            .text("jump height ×")
+                            .fixed_decimals(2),
+                    )
+                    .changed()
+                {
+                    changed.jump_boost = Some(jump);
+                }
             });
         ui.separator();
         if ui
@@ -100,6 +118,7 @@ pub struct Options {
     /// The run speed multiplier chosen here, kept between sessions and
     /// given to each client as it appears.
     speed_boost: Option<f32>,
+    jump_boost: Option<f32>,
 }
 
 impl Options {
@@ -111,10 +130,12 @@ impl Options {
                     .enumerate()
                     .map(|(i, o)| (*o, i % 2 == 0))
                     .collect(),
-                speed_boost_pct: 100,
+                speed_boost_pct: 200,
+                jump_boost_pct: 200,
             }),
             show: false,
             speed_boost: None,
+            jump_boost: None,
         }
     }
 }
@@ -131,6 +152,9 @@ impl Plugin for Options {
         if let Some(b) = settings.get::<f32>("options.speed_boost") {
             self.speed_boost = Some(b);
         }
+        if let Some(b) = settings.get::<f32>("options.jump_boost") {
+            self.jump_boost = Some(b);
+        }
     }
 
     fn save(&self, settings: &mut Settings) {
@@ -138,13 +162,23 @@ impl Plugin for Options {
         if let Some(b) = self.speed_boost {
             settings.set("options.speed_boost", b);
         }
+        if let Some(b) = self.jump_boost {
+            settings.set("options.jump_boost", b);
+        }
     }
 
     fn tick(&mut self, cx: &mut Ctx) {
         // A remembered boost applies to whatever client is here now.
-        if let (Some(b), Some(c)) = (self.speed_boost, cx.try_client()) {
-            if (c.speed_boost - b).abs() > 1e-3 {
-                c.set_speed_boost(b);
+        if let Some(c) = cx.try_client() {
+            if let Some(b) = self.speed_boost {
+                if (c.speed_boost - b).abs() > 1e-3 {
+                    c.set_speed_boost(b);
+                }
+            }
+            if let Some(b) = self.jump_boost {
+                if (c.jump_boost - b).abs() > 1e-3 {
+                    c.set_jump_boost(b);
+                }
             }
         }
     }
@@ -166,6 +200,10 @@ impl Plugin for Options {
             if let Some(b) = changed.speed_boost {
                 c.set_speed_boost(b);
                 self.speed_boost = Some(c.speed_boost);
+            }
+            if let Some(b) = changed.jump_boost {
+                c.set_jump_boost(b);
+                self.jump_boost = Some(c.jump_boost);
             }
         }
     }
