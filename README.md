@@ -58,7 +58,12 @@ Switch and Lead buttons. The leader's target is broadcast on the bus as
 Sessions in different processes coordinate the same way when each is
 started with `--bus`: the first process hosts a loopback hub, the others
 join it, and posts and blackboard values flow between them (see
-[docs/multi-session.md](docs/multi-session.md)).
+[docs/multi-session.md](docs/multi-session.md)). A fleet needs no
+command line at all: the Fleet panel (menu → Fleet → Sessions) takes
+follower accounts, starts them as extra sessions of the client you play,
+creates their characters when the account has none, puts them on your
+team as followers, and remembers them for the next launch ("Starting a
+fleet from the client" in the same document).
 
 Against a local ACE (`tools/ace/up.sh` starts one in Docker):
 
@@ -271,6 +276,7 @@ in [`scripts/examples/`](scripts/examples/README.md); the plugin is
 
 ## License
 
-Dual-licensed under MIT or Apache-2.0, at your option. Game data, the
-original executable and the ACE emulator sources (AGPL, used only as a
-reference) are not part of this repository.
+GNU General Public License, version 3 or (at your option) any later
+version; see LICENSE. Game data, the original executable and the ACE
+emulator sources (AGPL, used only as a reference) are not part of this
+repository.
