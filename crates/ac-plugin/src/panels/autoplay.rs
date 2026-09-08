@@ -458,6 +458,25 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                 });
                 ui.checkbox(&mut cfg.team.share_supplies, "hand over spare supplies")
                     .on_hover_text("Give a teammate beside us what they say they are short of");
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut cfg.team.hard_fight_health)
+                            .speed(10.0)
+                            .range(0..=50000),
+                    );
+                    ui.label("health makes a hard fight");
+                })
+                .response
+                .on_hover_text(
+                    "Against anything with this much health the teammate with the \
+                     highest Life Magic softens it first, with a vulnerability for \
+                     its weakest element and an imperil. 0 plans nothing.",
+                );
+                ui.checkbox(
+                    &mut cfg.team.wait_for_debuff,
+                    "the rest wait for the softening",
+                )
+                .on_hover_text("Safer against a boss, slower against a pack");
                 caption(ui, "debuffs a debuffer lands, in order");
                 string_list(
                     ui,

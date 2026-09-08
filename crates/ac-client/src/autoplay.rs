@@ -275,6 +275,14 @@ pub struct Team {
     pub share_supplies: bool,
     /// Ask for more when fewer than this many are carried (by name).
     pub keep_stocked: Vec<(String, u32)>,
+    /// A creature with at least this much health is a hard fight, and
+    /// hard fights are planned: the teammate with the highest Life
+    /// Magic softens it with a vulnerability and an imperil, and the
+    /// rest hold their fire until it has. 0 plans nothing.
+    pub hard_fight_health: u32,
+    /// Whether the rest wait for the softening before opening fire on
+    /// a hard target. Safer against a boss, slower against a pack.
+    pub wait_for_debuff: bool,
 }
 
 impl Default for Team {
@@ -288,6 +296,8 @@ impl Default for Team {
             debuffs: Vec::new(),
             share_supplies: true,
             keep_stocked: vec![("Healing Kit".into(), 1)],
+            hard_fight_health: 400,
+            wait_for_debuff: true,
         }
     }
 }
@@ -314,6 +324,11 @@ pub struct Mate {
     pub debuffed: Vec<u32>,
     /// True for the one that picks the targets.
     pub leader: bool,
+    /// Its Life Magic as it stands, buffs counted: what decides who
+    /// softens a hard target.
+    pub life_magic: u32,
+    /// It knows a vulnerability or an imperil it can cast right now.
+    pub can_soften: bool,
 }
 
 /// The team as the host last saw it.
@@ -466,6 +481,9 @@ pub struct Autoplay {
     armed_for: Option<u32>,
     /// Targets already made vulnerable this fight.
     vulned: Vec<u32>,
+    /// Hard targets being softened, and how far along: 0 the
+    /// vulnerability still to cast, 1 the imperil.
+    softening: Vec<(u32, u8)>,
     last_vuln: Option<Instant>,
     last_buff: Option<Instant>,
     /// Enchantments put on items: `(item, category, when, seconds it
@@ -1142,6 +1160,99 @@ impl Client {
         self.wield_guid(pick.guid);
     }
 
+    /// A hard fight: the creature has at least the team's threshold of
+    /// health. With no team, nothing is hard in this sense (the solo
+    /// rules soften by their own threshold).
+    fn is_hard_fight(&self, guid: u32) -> bool {
+        let team = &self.autoplay.config.team;
+        if !team.enabled || team.hard_fight_health == 0 {
+            return false;
+        }
+        self.creature_known(guid)
+            .is_some_and(|c| c.health >= team.hard_fight_health)
+    }
+
+    /// The name of whoever should soften a hard target: the one with
+    /// the highest Life Magic of those who can, this character
+    /// included. Every session works this out from the same roster,
+    /// so they agree without a word.
+    fn softener(&self) -> Option<String> {
+        let mine = (
+            self.world.stats.name.clone(),
+            self.life_magic(),
+            self.can_soften(),
+        );
+        let best = self
+            .autoplay
+            .team
+            .mates
+            .iter()
+            .map(|m| (m.name.clone(), m.life_magic, m.can_soften))
+            .chain(std::iter::once(mine))
+            .filter(|(_, _, can)| *can)
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)));
+        best.map(|(name, _, _)| name)
+    }
+
+    /// Whether anyone on the team, this character included, has
+    /// softened `guid`.
+    fn softened_by_anyone(&self, guid: u32) -> bool {
+        self.autoplay.debuffed.contains(&guid)
+            || self
+                .autoplay
+                .team
+                .mates
+                .iter()
+                .any(|m| m.debuffed.contains(&guid))
+    }
+
+    /// This character's Life Magic as it stands (skill 33).
+    pub fn life_magic(&self) -> u32 {
+        let stats = &self.world.stats;
+        let Some(sk) = stats.skill(33) else {
+            return 0;
+        };
+        let table = self.assets.skill_table().ok();
+        stats.skill_current(sk, table.as_ref().and_then(|t| t.get(33)))
+    }
+
+    /// Knows a vulnerability or an imperil it could cast right now (a
+    /// wand not in hand does not count against it).
+    pub fn can_soften(&self) -> bool {
+        let castable = |id: &u32| {
+            matches!(
+                self.can_cast(*id),
+                crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster
+            )
+        };
+        self.imperil_spells().iter().any(castable)
+            || ac_world::elements::ALL
+                .into_iter()
+                .flat_map(ac_world::elements::vulnerabilities)
+                .filter(|id| self.world.stats.spells.contains(id))
+                .any(|id| castable(&id))
+    }
+
+    /// The imperils known: spells cast on another that lower its
+    /// armour. Found by effect, so level eight's "Incantation of
+    /// Imperil Other" counts without its name being read.
+    pub fn imperil_spells(&self) -> Vec<u32> {
+        let Ok(table) = self.assets.spell_table() else {
+            return Vec::new();
+        };
+        self.world
+            .stats
+            .spells
+            .iter()
+            .copied()
+            .filter(|id| {
+                ac_world::buffs::effect(*id)
+                    .is_some_and(|e| e.kind() == ac_world::buffs::kind::BODY_ARMOR && e.value < 0.0)
+            })
+            .filter(|id| table.get(*id).is_some_and(|s| s.needs_target()))
+            .collect()
+    }
+
     /// What is known about the kind of creature `guid` is.
     fn creature_known(&self, guid: u32) -> Option<&'static ac_world::elements::Creature> {
         let o = self.world.objects.get(&guid)?;
@@ -1207,6 +1318,10 @@ impl Client {
                     .get(&guid)
                     .is_some_and(|o| o.health.unwrap_or(1.0) > 0.0);
                 if alive {
+                    if self.autoplay_plan_hard(guid, &name, now) {
+                        return true;
+                    }
+                    self.arm_for(guid, stance);
                     self.enter_combat();
                     self.attack(guid);
                     self.autoplay.last_attack = Some(now);
@@ -1237,6 +1352,9 @@ impl Client {
         let Some((_, guid, name)) = target else {
             return false;
         };
+        if self.autoplay_plan_hard(guid, &name, now) {
+            return true;
+        }
         self.arm_for(guid, stance);
         self.enter_combat();
         self.attack(guid);
@@ -1306,6 +1424,9 @@ impl Client {
         // goes out with the old one and the next with the new.
         self.arm_for(guid, Stance::Magic);
         self.select(Some(guid));
+        if self.autoplay_plan_hard(guid, &name, now) {
+            return true;
+        }
         // Something with a lot of health is worth softening first: one
         // vulnerability for the element it is weakest to, then throw
         // that element at it for the rest of the fight.
@@ -1363,12 +1484,141 @@ impl Client {
         true
     }
 
+    /// The team's plan for a hard target. True when this tick was spent
+    /// on it: either softening it, because that is this character's
+    /// job, or holding fire while a teammate does. False when the fight
+    /// may go ahead: an ordinary target, or a hard one already softened.
+    fn autoplay_plan_hard(&mut self, guid: u32, name: &str, now: Instant) -> bool {
+        if !self.is_hard_fight(guid) || self.softened_by_anyone(guid) {
+            return false;
+        }
+        let me = self.world.stats.name.clone();
+        match self.softener() {
+            Some(who) if who == me => {
+                // Ours to soften: a vulnerability for its weakest element
+                // and an imperil, then it is marked and the others go.
+                if self.autoplay_soften(guid, name, now) {
+                    return true;
+                }
+                // Nothing castable right now: do not hold everyone up.
+                if !self.autoplay.debuffed.contains(&guid) {
+                    self.autoplay.debuffed.push(guid);
+                }
+                false
+            }
+            Some(who) => {
+                if !self.autoplay.config.team.wait_for_debuff {
+                    return false;
+                }
+                self.autoplay.say(
+                    Doing::Helping,
+                    format!("waiting for {who} to soften {name}"),
+                );
+                true
+            }
+            // Nobody can: fight it as it is.
+            None => false,
+        }
+    }
+
+    /// Land the vulnerability and the imperil on `guid`, one cast a
+    /// tick, and mark it softened when both are on (or neither can be
+    /// cast). True while there is still one to cast.
+    fn autoplay_soften(&mut self, guid: u32, name: &str, now: Instant) -> bool {
+        if self
+            .autoplay
+            .last_cast
+            .is_some_and(|t| now.duration_since(t) < CAST_EVERY)
+        {
+            return true;
+        }
+        let stage = self
+            .autoplay
+            .softening
+            .iter()
+            .find(|(g, _)| *g == guid)
+            .map(|(_, s)| *s)
+            .unwrap_or(0);
+        // Stage 0: the vulnerability. Stage 1: the imperil.
+        let wcid = self
+            .world
+            .objects
+            .get(&guid)
+            .map(|o| o.weenie_class_id)
+            .unwrap_or(0);
+        let known = ac_world::elements::known(wcid, name);
+        let candidates: Vec<u32> = if stage == 0 {
+            known
+                .and_then(|c| c.weakest_to())
+                .map(ac_world::elements::vulnerabilities)
+                .unwrap_or_default()
+        } else {
+            self.imperil_spells()
+        };
+        let spell = self.strongest_castable(&candidates);
+        let advance = |this: &mut Self| {
+            this.autoplay.softening.retain(|(g, _)| *g != guid);
+            if stage == 0 {
+                this.autoplay.softening.push((guid, 1));
+            } else if !this.autoplay.debuffed.contains(&guid) {
+                this.autoplay.debuffed.push(guid);
+            }
+        };
+        match spell {
+            Some(spell) => {
+                if self.combat_stance() != Stance::Magic {
+                    // A wand for the casting; the arming code sorts the
+                    // hands out again when the fight proper begins.
+                    self.wield_for(Stance::Magic);
+                    return true;
+                }
+                self.select(Some(guid));
+                self.cast(spell);
+                self.autoplay.last_cast = Some(now);
+                let what = if stage == 0 {
+                    "vulnerability"
+                } else {
+                    "imperil"
+                };
+                self.autoplay
+                    .say(Doing::Debuffing, format!("softening {name}: {what}"));
+                if stage == 0 && !self.autoplay.vulned.contains(&guid) {
+                    self.autoplay.vulned.push(guid);
+                }
+                advance(self);
+                stage == 0
+            }
+            None => {
+                // Nothing for this stage: on to the next, or done.
+                advance(self);
+                stage == 0 && !self.imperil_spells().is_empty()
+            }
+        }
+    }
+
+    /// Of `ids`, the strongest this character knows, can cast, and
+    /// that takes a target. Levels come from power, never from names.
+    fn strongest_castable(&self, ids: &[u32]) -> Option<u32> {
+        let table = self.assets.spell_table().ok()?;
+        ids.iter()
+            .copied()
+            .filter(|id| self.world.stats.spells.contains(id))
+            .filter(|id| table.get(*id).is_some_and(|s| s.needs_target()))
+            .filter(|id| {
+                matches!(
+                    self.can_cast(*id),
+                    crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster
+                )
+            })
+            .max_by_key(|id| table.get(*id).map(|s| s.power).unwrap_or(0))
+    }
+
     /// Cast a vulnerability for the target's weakest element, once per
     /// target and only on something with health enough for the spell to
     /// pay for itself. True when a spell went out this tick.
     fn autoplay_make_vulnerable(&mut self, guid: u32, name: &str, now: Instant) -> bool {
         let least = self.autoplay.config.fight.vuln_above_health;
-        if least == 0 || self.autoplay.vulned.contains(&guid) {
+        if least == 0 || self.autoplay.vulned.contains(&guid) || self.softened_by_anyone(guid) {
             return false;
         }
         // Only the recent ones are worth remembering; a long session

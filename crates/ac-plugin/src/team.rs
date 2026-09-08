@@ -141,6 +141,8 @@ fn describe(client: &ac_client::Client, session: usize) -> Option<Mate> {
         wants: client.autoplay.wants.clone(),
         debuffed: client.autoplay.debuffed.clone(),
         leader: false,
+        life_magic: client.life_magic(),
+        can_soften: client.can_soften(),
     })
 }
 

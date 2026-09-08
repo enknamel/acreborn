@@ -16,7 +16,7 @@
 # Usage: reference/scripts/data/spell_effects.sh > crates/ac-world/data/spell_effects.csv
 set -e
 
-SQL='select id, stat_Mod_Type, stat_Mod_Key, round(stat_Mod_Val, 4), name
+SQL='select id, stat_Mod_Type, coalesce(stat_Mod_Key, 0), round(stat_Mod_Val, 4), name
 from spell where stat_Mod_Type is not null and stat_Mod_Type > 0
 order by id;'
 
