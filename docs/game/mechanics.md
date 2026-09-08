@@ -888,6 +888,22 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   `cargo run --release -p ac-client --example walksim BLOCK x y g
   GOAL_BLOCK gx gy` walks a character offline with the real steering
   and physics (no server) and reproduces these in under a minute.
+* **Never aim at a point behind the walker.** A leg that crosses a
+  landblock boundary is steered at the point where it leaves the block,
+  pulled 3 m back inside so the block's graph has somewhere to stand. A
+  walker standing a stride short of the edge (a character coming off a
+  portal or a save at the edge -- Rawr II outside Arwic) was aimed 2 m
+  behind itself and stepped back and forward for ever. The point has to
+  be a stride ahead, otherwise the goal itself is the aim.
+* **Run and Jump come from the sheet.** The run speed is the run
+  animation's pace times the server's run rate for the Run skill (ACE
+  `MovementSystem.GetRunRate`: 1 at nothing, 2.4 at 200, 4.5 from 800);
+  the jump height is `GetJumpHeight` with the Jump skill (id 22 -- not
+  4, which is Dagger, as the client once had it). The server refuses a
+  move only when it is both more than 50 m from the last it accepted and
+  more than a landblock away, so it does not hold a character to its
+  run rate; other players' clients animate the character at that rate.
+  The Options panel's "run speed ×" is the client's own boost on top.
 * **A building's door can open onto bare terrain** (a villa's grounds:
   cell 6F8B015F at Loredane Villas). Leaving the interior floor with
   nothing but terrain a step away must go outdoors; before this the
