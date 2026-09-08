@@ -250,3 +250,59 @@ fn a_previewed_jump_lands_where_the_real_one_does_and_leaves_no_trace() {
         preview.landing
     );
 }
+
+#[test]
+fn flying_ignores_the_ground_and_landing_finds_it_again() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(std::path::Path::new(&dir)).unwrap();
+    let block = 0xDA55_0000;
+    let start = Vec3::new(129.5, 175.0, 20.0);
+    let cell = ac_world::outdoor_cell(block, start);
+    let mut pl = Player::new(&assets, cell, start, Quat::from_rotation_z(0.7));
+    pl.set_motion_table(&assets, 0x0200_0001, 0x0900_0001);
+    for _ in 0..30 {
+        pl.update(&assets, &Input::default(), 1.0 / 30.0);
+    }
+    let ground = pl.world_position();
+    pl.set_noclip(true);
+    let up = Input {
+        run: true,
+        climb: 1.0,
+        ..Input::default()
+    };
+    for _ in 0..60 {
+        pl.update(&assets, &up, 1.0 / 30.0);
+    }
+    let high = pl.world_position();
+    assert!(
+        high.z > ground.z + 4.0,
+        "climbed to {high:?} from {ground:?}"
+    );
+    // Hovering: no gravity while flying.
+    for _ in 0..30 {
+        pl.update(&assets, &Input::default(), 1.0 / 30.0);
+    }
+    assert!(
+        (pl.world_position().z - high.z).abs() < 1e-3,
+        "drifted while hovering"
+    );
+    // Landing drops back onto the ground.
+    pl.set_noclip(false);
+    for _ in 0..300 {
+        pl.update(&assets, &Input::default(), 1.0 / 30.0);
+        if !pl.is_airborne() {
+            break;
+        }
+    }
+    assert!(!pl.is_airborne(), "never came down");
+    // Onto something: the ground, or the porch roof the climb passed.
+    let z = pl.world_position().z;
+    assert!(
+        z >= ground.z - 0.5 && z < high.z,
+        "landed at {z}, ground {}, from {}",
+        ground.z,
+        high.z
+    );
+}
