@@ -39,6 +39,8 @@ const LEVEL_MERGE: f32 = 0.3;
 const MAX_EDGE_RISE: f32 = 2.0;
 /// A snapped node may move at most this fraction of the spacing.
 const SNAP_FRACTION: f32 = 0.6;
+/// Extra clearance a smoothed route keeps from walls (metres).
+const SMOOTH_MARGIN: f32 = 0.3;
 
 /// Where the ground is: static collision plus, outdoors, a terrain
 /// height function over world `(x, y)`.
@@ -580,7 +582,28 @@ impl NavGraph {
     /// `line_clear`.
     fn smooth(&self, ground: &Ground, start: Vec3, points: Vec<Vec3>) -> Vec<Vec3> {
         const LOOKAHEAD: usize = 12;
-        let cap = &self.capsule;
+        // Pulled tight, a route brushes every corner it turns, and the
+        // walker (who does not follow it to the centimetre) catches on
+        // them. Shortcuts are taken with a little room to spare; where
+        // there is none, the lattice points stay, since they were placed
+        // with the true radius and still pass a doorway a body wide.
+        let cap = &Capsule {
+            radius: self.capsule.radius + SMOOTH_MARGIN,
+            ..self.capsule
+        };
+        // The lattice node nearest the goal and the goal itself can be
+        // all but the same point; keep the later of any such pair.
+        let mut points = points;
+        let mut k = 0;
+        while k + 1 < points.len() {
+            let near_next = points[k].distance(points[k + 1]) < 0.1;
+            let near_start = k == 0 && points[k].distance(start) < 0.1;
+            if near_next || near_start {
+                points.remove(k);
+            } else {
+                k += 1;
+            }
+        }
         let mut out = Vec::with_capacity(points.len());
         let mut from = start;
         let mut i = 0;

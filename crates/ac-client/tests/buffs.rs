@@ -18,6 +18,13 @@ const BLOOD_DRINKER_SELF_VI: u32 = 1616;
 const SPIRIT_DRINKER_SELF_VI: u32 = 3258;
 const HEAVY_WEAPONS: u32 = 44;
 const WAR_MAGIC: u32 = 34;
+// Two thirty-second quest spells that outrank the numbered buffs of
+// their categories in power, and the level-eight buff for one of them.
+const LICORICE_LEAP: u32 = 4211;
+const TUSKER_SPRINT: u32 = 2933;
+const PRODIGAL_JUMPING: u32 = 3715;
+const JUMP: u32 = 22;
+const RUN: u32 = 24;
 
 #[test]
 fn a_swordsman_gets_his_own_masteries_and_the_highest_level_he_can_land() {
@@ -101,4 +108,26 @@ fn a_swordsman_gets_his_own_masteries_and_the_highest_level_he_can_land() {
     };
     let spells: Vec<u32> = wanted(&table, &novice).iter().map(|w| w.spell).collect();
     assert!(spells.contains(&REJUVENATION_I) && !spells.contains(&REJUVENATION_VI));
+}
+
+#[test]
+fn short_lived_spells_are_not_buffs() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(dir).unwrap();
+    let table = assets.spell_table().unwrap();
+    let known = [LICORICE_LEAP, TUSKER_SPRINT, PRODIGAL_JUMPING];
+    let all = |_: u32| true;
+    let me = Character {
+        known: &known,
+        trained: &[JUMP, RUN],
+        stance: Stance::Melee,
+        guid: 0x5000_0001,
+        wears_armour: false,
+        usable: &all,
+        weapon_skill: None,
+    };
+    let spells: Vec<u32> = wanted(&table, &me).iter().map(|w| w.spell).collect();
+    assert_eq!(spells, vec![PRODIGAL_JUMPING], "{spells:?}");
 }

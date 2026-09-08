@@ -43,7 +43,13 @@ pub const STEP_GIVE_UP: Duration = Duration::from_secs(30);
 /// Coming this much closer to the step's target counts as progress.
 const STEP_PROGRESS: f32 = 5.0;
 /// No progress toward the current waypoint for this long: skip it.
-pub const STUCK_AFTER: Duration = Duration::from_secs(8);
+/// Progress is measured along the route the steering is following
+/// where there is one, since a detour around a wall walks away from the
+/// waypoint for a good while before it comes back.
+pub const STUCK_AFTER: Duration = Duration::from_secs(10);
+/// How many times a step whose end cannot be reached is planned again
+/// before the journey is given up.
+const REPLANS: u32 = 3;
 /// Getting closer to the waypoint by less than this is not progress.
 const PROGRESS: f32 = 1.0;
 /// The character stops this close to the end of a leg (the local move-to's
@@ -101,6 +107,12 @@ pub struct Travel {
     /// that last improved.
     best: f32,
     last_progress: Option<Instant>,
+    /// When the route that distance was last measured along was planned:
+    /// a new route is a new yardstick.
+    measured_on: Option<Instant>,
+    /// Times the end of a step could not be reached and the journey was
+    /// planned again from where the character stood.
+    replans: u32,
 }
 
 impl Travel {
@@ -108,6 +120,7 @@ impl Travel {
         self.leg = None;
         self.best = f32::INFINITY;
         self.last_progress = None;
+        self.measured_on = None;
     }
 }
 
@@ -154,6 +167,7 @@ impl Client {
         // last journey says nothing about this one.
         if self.travel.goal.is_none_or(|g| g.distance(goal) > 1.0) {
             self.travel.refused.clear();
+            self.travel.replans = 0;
         }
         let level = self.world.stats.level.max(1) as u32;
         let mut refused = self.travel.refused.clone();
@@ -398,6 +412,7 @@ impl Client {
     /// The step is done: move to the next one.
     fn travel_next_step(&mut self) -> bool {
         self.travel.step += 1;
+        self.travel.replans = 0;
         self.travel.step_since = None;
         self.travel.step_cell = None;
         self.travel.step_target = None;
@@ -541,6 +556,8 @@ impl Client {
             };
             if arrived {
                 tracing::info!("travel: through the portal");
+                // The jump was the portal's doing, not a stray one.
+                self.travel.last_seen = Some(me);
                 if let Some((_, mouth)) = self.travel_portal() {
                     self.travel.refused.retain(|r| r.distance(mouth) > 2.0);
                 }
@@ -632,6 +649,10 @@ impl Client {
             if next != self.travel.next {
                 self.travel.next = next;
                 self.travel.restart_waypoint();
+                // Reaching a waypoint is progress even when the detour
+                // it is on leads away from the step's target for a while
+                // (all the way round a town wall).
+                self.travel.step_since = Some(now);
             }
             if next >= n {
                 // The step's route is walked. A portal step is not done
@@ -702,10 +723,45 @@ impl Client {
                 continue;
             }
             let wp = waypoint(&self.travel, next)?;
-            let d = me.distance(wp);
+            // How far there is still to go: along the route being steered
+            // (and from its end on to the waypoint) while there is one,
+            // as the crow flies otherwise.
+            let (d, plan) = match self.steering.remaining(me3) {
+                Some((along, end, planned)) => {
+                    (along + Vec2::new(end.x, end.y).distance(wp), Some(planned))
+                }
+                None => (me.distance(wp), None),
+            };
+            // A different route is a different yardstick: progress is
+            // measured from here on, but the clock keeps running, so a
+            // character that is not moving is still caught.
+            if plan != self.travel.measured_on {
+                self.travel.measured_on = plan;
+                self.travel.best = d;
+                self.travel.last_progress.get_or_insert(now);
+            }
             match self.travel.last_progress {
                 Some(t) if d >= self.travel.best - PROGRESS => {
                     if now.duration_since(t) >= STUCK_AFTER {
+                        // The last waypoint is where the step ends; not
+                        // reaching it is not arriving. Plan the journey
+                        // again from here, a few times, before giving up.
+                        if next + 1 >= n && me.distance(wp) > 2.0 * ARRIVE {
+                            if self.travel.replans >= REPLANS {
+                                tracing::warn!("travel: cannot reach {wp:?} from here; giving up");
+                                self.cancel_travel();
+                                return None;
+                            }
+                            tracing::warn!(
+                                "travel: no way to the end of the step at {wp:?}; planning again from here"
+                            );
+                            let replans = self.travel.replans + 1;
+                            if let Some(goal) = self.travel.goal {
+                                self.travel_to(goal);
+                            }
+                            self.travel.replans = replans;
+                            return None;
+                        }
                         tracing::warn!(
                             "travel: no progress toward waypoint {next}/{n} at {wp:?} for {:?}, skipping it",
                             STUCK_AFTER
@@ -747,7 +803,7 @@ impl Client {
 /// and inside the landblock `me` is in (cut short of its edge) unless
 /// that would leave nothing to walk, in which case the leg crosses the
 /// edge straight and the next one is planned in the new block.
-fn leg_end(me: Vec2, wp: Vec2) -> Vec2 {
+pub fn leg_end(me: Vec2, wp: Vec2) -> Vec2 {
     let d = wp - me;
     let dist = d.length();
     if dist < 1e-3 {

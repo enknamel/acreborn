@@ -412,7 +412,17 @@ impl CollisionWorld {
                                 continue;
                             }
                         }
-                        t.normal * (r - sd)
+                        if sd > 0.0 && dist > sd + 1e-4 {
+                            // The nearest point is on the triangle's edge:
+                            // the capsule is beside the face, not in front
+                            // of it, and the way out is away from the edge.
+                            // Pushing along the normal here held a walker
+                            // still against the end of a wall they were
+                            // walking past (Arwic's gate posts).
+                            d / dist * (r - dist)
+                        } else {
+                            t.normal * (r - sd)
+                        }
                     };
                     push.z = 0.0;
                     if push.length_squared() > 1e-10 {

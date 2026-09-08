@@ -742,24 +742,42 @@ impl Player {
                     self.place(world, 0);
                 }
                 _ if indoors => {
-                    // Nothing within step range in the interior: fall if
-                    // there is a floor somewhere below, else stay put (bad
-                    // collision data).
-                    let deep = blocks
-                        .iter()
-                        .filter_map(|&blk| {
-                            self.collision(assets, blk)
-                                .and_then(|c| c.floor_at(world, cap.step_up, 200.0))
-                        })
-                        .next();
-                    if deep.is_some() {
-                        self.airborne = true;
-                        self.vz = 0.0;
-                        self.air_velocity = self.ground_velocity;
+                    // Nothing within step range in the interior. Where
+                    // the ground outside is a step away, this is the way
+                    // out of a building whose door opens onto bare
+                    // terrain (a villa's grounds): go outdoors. Without
+                    // this the character kept the cell and walked a
+                    // kilometre "inside" it, and the server, sent a cell
+                    // and a position that no longer matched, refused
+                    // every move from then on.
+                    let ground = if dungeon {
+                        None
                     } else {
-                        world.z = old.z;
+                        self.terrain_at(assets, world)
+                            .filter(|&t| t <= old.z + cap.step_up && t >= old.z - cap.step_down)
+                    };
+                    if let Some(t) = ground {
+                        world.z = t;
+                        self.place(world, 0);
+                    } else {
+                        // Fall if there is a floor somewhere below, else
+                        // stay put (bad collision data).
+                        let deep = blocks
+                            .iter()
+                            .filter_map(|&blk| {
+                                self.collision(assets, blk)
+                                    .and_then(|c| c.floor_at(world, cap.step_up, 200.0))
+                            })
+                            .next();
+                        if deep.is_some() {
+                            self.airborne = true;
+                            self.vz = 0.0;
+                            self.air_velocity = self.ground_velocity;
+                        } else {
+                            world.z = old.z;
+                        }
+                        self.local = world - ac_world::landblock_origin(self.landblock());
                     }
-                    self.local = world - ac_world::landblock_origin(self.landblock());
                 }
                 _ => {
                     // Outdoors on bare terrain: follow it, unless it drops

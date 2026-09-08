@@ -95,6 +95,11 @@ mod aura {
 
 /// The buffs `me` should be wearing, one per category, the highest level
 /// known of each.
+/// A spell that runs out sooner than this (seconds) is not a buff worth
+/// keeping up; the numbered ones last half an hour or more and the
+/// level-eight ones a quarter.
+pub const LASTS_AT_LEAST: f64 = 600.0;
+
 pub fn wanted(table: &SpellTable, me: &Character) -> Vec<Want> {
     // Best known spell per (category, target).
     let mut best: BTreeMap<(u32, Target), (u32, u32)> = BTreeMap::new();
@@ -109,6 +114,13 @@ pub fn wanted(table: &SpellTable, me: &Character) -> Vec<Want> {
     for &id in me.known {
         let Some(sp) = table.get(id) else { continue };
         if !sp.is_beneficial() {
+            continue;
+        }
+        // A buff is something worn for a good while. The quest and gem
+        // spells that outrank the numbered ones in power run out in a
+        // minute or less (Licorice Leap, Tusker Sprint), and a character
+        // keeping those up did nothing else.
+        if !sp.duration().is_some_and(|d| d >= LASTS_AT_LEAST) {
             continue;
         }
         let Some(fx) = effect(id) else { continue };

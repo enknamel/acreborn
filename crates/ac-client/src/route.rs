@@ -12,6 +12,8 @@ use crate::player::Player;
 
 /// A waypoint counts as reached within this distance (metres, flat).
 pub const ARRIVE: f32 = 0.7;
+/// Standing this close to a waypoint, it is passed whatever lies beyond.
+const ON_THE_SPOT: f32 = 0.25;
 /// Re-plan when the goal has moved this far from the planned one.
 pub const REPLAN_DISTANCE: f32 = 2.0;
 /// Re-plan (or re-check the straight line) at least this often.
@@ -54,15 +56,36 @@ impl Route {
     /// The point to steer at from `me`: the next waypoint, advancing past
     /// the ones already within [`ARRIVE`]. The last waypoint (the goal)
     /// is never consumed; the caller decides when it has arrived.
-    pub fn target(&mut self, me: Vec3) -> Vec3 {
+    ///
+    /// A waypoint sits where the route turns a corner, and turning early
+    /// cuts that corner: `clear(from, to)` says whether the straight walk
+    /// is open, and a waypoint whose successor cannot be walked to from
+    /// here is kept until we are right on it.
+    pub fn target(&mut self, me: Vec3, mut clear: impl FnMut(Vec3, Vec3) -> bool) -> Vec3 {
         while self.next + 1 < self.waypoints.len() {
             let w = self.waypoints[self.next];
-            if glam::Vec2::new(w.x - me.x, w.y - me.y).length() > ARRIVE {
+            let d = glam::Vec2::new(w.x - me.x, w.y - me.y).length();
+            if d > ARRIVE {
+                break;
+            }
+            if d > ON_THE_SPOT && !clear(me, self.waypoints[self.next + 1]) {
                 break;
             }
             self.next += 1;
         }
         self.waypoints.get(self.next).copied().unwrap_or(self.goal)
+    }
+
+    /// How far the route still runs from `me`: to the next waypoint and
+    /// on through the rest.
+    pub fn remaining(&self, me: Vec3) -> f32 {
+        let mut from = me;
+        let mut total = 0.0;
+        for w in &self.waypoints[self.next.min(self.waypoints.len())..] {
+            total += glam::Vec2::new(w.x - from.x, w.y - from.y).length();
+            from = *w;
+        }
+        total
     }
 }
 
@@ -250,9 +273,18 @@ impl Steering {
             }
         }
         match &mut self.route {
-            Some(r) => r.target(me),
+            Some(r) => r.target(me, |from, to| !player.line_blocked(assets, block, from, to)),
             None => goal,
         }
+    }
+
+    /// How far the route being followed still runs from `me`, where it
+    /// ends, and when it was planned (a new plan measures afresh);
+    /// `None` while heading straight for the goal.
+    pub fn remaining(&self, me: Vec3) -> Option<(f32, Vec3, Instant)> {
+        self.route
+            .as_ref()
+            .map(|r| (r.remaining(me), r.goal, r.planned))
     }
 }
 
@@ -323,14 +355,34 @@ mod tests {
             vec![Vec3::new(2.0, 0.0, 0.0), Vec3::new(5.0, 3.0, 0.0), goal],
             now,
         );
-        assert_eq!(r.target(Vec3::ZERO), Vec3::new(2.0, 0.0, 0.0));
+        let open = |_: Vec3, _: Vec3| true;
+        assert_eq!(r.target(Vec3::ZERO, open), Vec3::new(2.0, 0.0, 0.0));
+        assert!((r.remaining(Vec3::ZERO) - (2.0 + 18f32.sqrt() + 34f32.sqrt())).abs() < 1e-4);
         // Within 0.7 m of the first: on to the second.
-        assert_eq!(r.target(Vec3::new(1.5, 0.2, 0.0)), Vec3::new(5.0, 3.0, 0.0));
+        assert_eq!(
+            r.target(Vec3::new(1.5, 0.2, 0.0), open),
+            Vec3::new(5.0, 3.0, 0.0)
+        );
         // Skipping two at once when both are close.
-        assert_eq!(r.target(Vec3::new(5.0, 2.8, 0.0)), goal);
+        assert_eq!(r.target(Vec3::new(5.0, 2.8, 0.0), open), goal);
         // Standing on the goal still aims at it.
-        assert_eq!(r.target(goal), goal);
+        assert_eq!(r.target(goal, open), goal);
         assert_eq!(r.next, 2);
+        assert_eq!(r.remaining(goal), 0.0);
+    }
+
+    #[test]
+    fn a_corner_is_not_cut_when_the_wall_is_in_the_way() {
+        let now = Instant::now();
+        let goal = Vec3::new(10.0, 10.0, 0.0);
+        let corner = Vec3::new(10.0, 0.0, 0.0);
+        let mut r = Route::new(goal, vec![corner, goal], now);
+        let walled = |_: Vec3, _: Vec3| false;
+        // Near the corner but the way on is not open from here: keep
+        // aiming at the corner.
+        assert_eq!(r.target(Vec3::new(9.5, -0.3, 0.0), walled), corner);
+        // Right on it: pass it whatever the wall says.
+        assert_eq!(r.target(Vec3::new(9.9, -0.1, 0.0), walled), goal);
     }
 
     #[test]
