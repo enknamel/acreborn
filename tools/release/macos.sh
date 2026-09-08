@@ -15,14 +15,17 @@ cd "$(dirname "$0")/../.."
 export PATH="$HOME/.cargo/bin:$PATH"
 
 VERSION=${1:-$(git describe --tags --always --dirty 2>/dev/null || echo 0.0.0)}
-NOTARIZE=0; UNIVERSAL=0
+NOTARIZE=0; UNIVERSAL=0; UNSIGNED=0
 for a in "$@"; do
   [[ $a == --notarize ]] && NOTARIZE=1
   [[ $a == --universal ]] && UNIVERSAL=1
+  [[ $a == --unsigned ]] && UNSIGNED=1
 done
 SIGN_ID=${SIGN_ID:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)}
-[[ -n $SIGN_ID ]] || { echo "no Developer ID Application identity in the keychain"; exit 1; }
-echo "version $VERSION, signing as: $SIGN_ID"
+if (( ! UNSIGNED )); then
+  [[ -n $SIGN_ID ]] || { echo "no Developer ID Application identity in the keychain (or pass --unsigned)"; exit 1; }
+fi
+echo "version $VERSION, signing as: ${SIGN_ID:-(unsigned)}"
 
 BINS=(acviewer acbot acclient aclauncher)
 if (( UNIVERSAL )); then
@@ -53,13 +56,17 @@ cp LICENSE README.md "$DIST/"
 
 # Sign: every Mach-O, inside out, with the hardened runtime and a
 # secure timestamp (both needed by notarization).
-sign() { codesign --force --options runtime --timestamp \
-           --entitlements tools/release/entitlements.plist --sign "$SIGN_ID" "$1"; }
-sign "$APP/Contents/MacOS/acviewer"
-sign "$APP"
-for b in acbot acclient aclauncher; do sign "$DIST/$b"; done
-codesign --verify --deep --strict --verbose=2 "$APP"
-spctl --assess --type execute --verbose=2 "$APP" || echo "(spctl needs notarization to pass; see --notarize)"
+if (( UNSIGNED )); then
+  echo "unsigned build (Gatekeeper will need a right-click Open on other Macs)"
+else
+  sign() { codesign --force --options runtime --timestamp \
+             --entitlements tools/release/entitlements.plist --sign "$SIGN_ID" "$1"; }
+  sign "$APP/Contents/MacOS/acviewer"
+  sign "$APP"
+  for b in acbot acclient aclauncher; do sign "$DIST/$b"; done
+  codesign --verify --deep --strict --verbose=2 "$APP"
+  spctl --assess --type execute --verbose=2 "$APP" || echo "(spctl needs notarization to pass; see --notarize)"
+fi
 
 ZIP=dist/acswarm-$VERSION-macos.zip
 rm -f "$ZIP"

@@ -1,0 +1,160 @@
+name: Release
+
+# Builds release archives for macOS, Windows and Linux. Runs on a version
+# tag (v0.1.0) and publishes a GitHub release with the archives attached,
+# or by hand from the Actions tab to try the builds without a release.
+#
+# Signing is optional and driven by secrets: on macOS a Developer ID
+# certificate (MACOS_CERT_P12_BASE64, MACOS_CERT_PASSWORD) and, to
+# notarize, APPLE_ID / APPLE_TEAM_ID / APPLE_APP_PASSWORD; on Windows an
+# Authenticode certificate (WINDOWS_CERT_PFX_BASE64,
+# WINDOWS_CERT_PASSWORD). Without them the archives are unsigned.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version label for the archives
+        default: dev
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  BINS: -p acviewer -p acbot -p acclient -p aclauncher
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  linux:
+    needs: version
+    # The oldest runner, so the binaries run on older glibc.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libasound2-dev libxkbcommon-dev libwayland-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release $BINS
+      - name: Archive
+        run: |
+          V=${{ needs.version.outputs.version }}
+          D=acswarm-$V-linux-x86_64
+          mkdir -p dist/$D
+          cp target/release/{acviewer,acbot,acclient,aclauncher} dist/$D/
+          cp -R scripts LICENSE README.md dist/$D/
+          tar -C dist -czf dist/$D.tar.gz $D
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.tar.gz
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release $env:BINS.Split(' ')
+      - name: Sign (when a certificate is provided)
+        if: env.PFX != ''
+        env:
+          PFX: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
+          foreach ($b in "acviewer","acbot","acclient","aclauncher") {
+            & $signtool.FullName sign /f cert.pfx /p $env:PFX_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 "target\release\$b.exe"
+          }
+          Remove-Item cert.pfx
+      - name: Archive
+        shell: pwsh
+        run: |
+          $V = "${{ needs.version.outputs.version }}"
+          $D = "acswarm-$V-windows-x86_64"
+          New-Item -ItemType Directory -Force -Path "dist\$D" | Out-Null
+          foreach ($b in "acviewer","acbot","acclient","aclauncher") { Copy-Item "target\release\$b.exe" "dist\$D\" }
+          Copy-Item -Recurse scripts "dist\$D\scripts"
+          Copy-Item LICENSE, README.md "dist\$D\"
+          Compress-Archive -Path "dist\$D" -DestinationPath "dist\$D.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Import the signing certificate (when provided)
+        if: env.P12 != ''
+        env:
+          P12: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          echo "$P12" | base64 --decode > cert.p12
+          security create-keychain -p ci build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p ci build.keychain
+          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+          rm cert.p12
+          echo "SIGNED=1" >> "$GITHUB_ENV"
+      - name: Store notarization credentials (when provided)
+        if: env.APPLE_ID != '' && env.SIGNED == '1'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials acswarm --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          echo "NOTARIZE=--notarize" >> "$GITHUB_ENV"
+      - name: Build, bundle, sign
+        run: |
+          if [[ "${SIGNED:-0}" == "1" ]]; then
+            tools/release/macos.sh ${{ needs.version.outputs.version }} $NOTARIZE
+          else
+            tools/release/macos.sh ${{ needs.version.outputs.version }} --unsigned
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.zip
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, linux, windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

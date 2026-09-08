@@ -274,7 +274,21 @@ to the chat log and never stop the client. Examples and the full API are
 in [`scripts/examples/`](scripts/examples/README.md); the plugin is
 `crates/ac-script`.
 
-## Releasing on macOS
+## Releases
+
+Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: archives for
+macOS (`acswarm.app` plus the tools), Windows (x86_64 zip) and Linux
+(x86_64 tar.gz, built on Ubuntu 22.04 for glibc compatibility) are
+attached to a GitHub release with generated notes. Run it by hand from
+the Actions tab to try the builds without tagging. Signing happens when
+the secrets exist: `MACOS_CERT_P12_BASE64` / `MACOS_CERT_PASSWORD` (and
+`APPLE_ID` / `APPLE_TEAM_ID` / `APPLE_APP_PASSWORD` to notarize) for
+macOS, `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` for an
+Authenticode signature on Windows; without them the archives are
+unsigned (Gatekeeper wants a right-click Open, SmartScreen a "run
+anyway"). Linux binaries are not signed.
+
+## Releasing on macOS by hand
 
 `tools/release/macos.sh VERSION` builds the binaries, wraps the viewer
 in `acswarm.app` (with `acbot`, `acclient`, `aclauncher` and the example
