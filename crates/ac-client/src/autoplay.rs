@@ -819,7 +819,9 @@ pub struct Autoplay {
     /// character's own are, so the cast is remembered instead.
     item_buffs: Vec<(u32, u32, Instant, f32)>,
     /// The last note logged and when (see `note`).
-    noted: Option<(String, Instant)>,
+    /// Notes said lately and when, so that two alternating notes are
+    /// each said once per `NOTE_EVERY` rather than every frame.
+    noted: Vec<(String, Instant)>,
     /// When the buffs were last gone through. The urgent pass runs
     /// every tick, and working out what is due walks the whole
     /// spellbook, so it is only done once a second.
@@ -977,13 +979,11 @@ impl Autoplay {
     /// and flip the status back and forth with whatever else is going on.
     pub(crate) fn note(&mut self, text: impl Into<String>, now: Instant) {
         let text = text.into();
-        let again = self
-            .noted
-            .as_ref()
-            .is_some_and(|(t, when)| *t == text && now.duration_since(*when) < NOTE_EVERY);
-        if !again {
+        self.noted
+            .retain(|(_, when)| now.duration_since(*when) < NOTE_EVERY);
+        if !self.noted.iter().any(|(t, _)| *t == text) {
             tracing::info!("autoplay: {text}");
-            self.noted = Some((text, now));
+            self.noted.push((text, now));
         }
     }
 
