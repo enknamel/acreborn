@@ -87,6 +87,20 @@ pub fn skill_name(id: u32) -> &'static str {
 }
 
 /// Skill advancement classes (`SKILL_ADVANCEMENT_CLASS`).
+/// Skill ids (the `SkillTable` keys and the sheet's), the few the client
+/// asks for by name.
+pub mod skill {
+    pub const MELEE_DEFENSE: u32 = 6;
+    pub const MISSILE_DEFENSE: u32 = 7;
+    pub const MANA_CONVERSION: u32 = 16;
+    pub const HEALING: u32 = 21;
+    pub const JUMP: u32 = 22;
+    pub const RUN: u32 = 24;
+    pub const LIFE_MAGIC: u32 = 33;
+    pub const WAR_MAGIC: u32 = 34;
+    pub const FLETCHING: u32 = 37;
+}
+
 pub mod sac {
     pub const INACTIVE: u32 = 0;
     pub const UNTRAINED: u32 = 1;

@@ -16,6 +16,52 @@ use ac_client::Client;
 use ac_scene::particles::{Quad, SpriteImage};
 use glam::{Vec2, Vec3};
 
+/// The colour of a jump being charged: its arc, and its landing spot
+/// (or, for a flight that never comes down, the last point known).
+const ARC: [f32; 3] = [0.6, 0.95, 1.0];
+const LANDING: [f32; 3] = [1.0, 0.82, 0.35];
+const NO_LANDING: [f32; 3] = [1.0, 0.35, 0.3];
+/// Every so many frames of the flight get a dot.
+const ARC_EVERY: usize = 2;
+
+/// The arc and landing spot of the jump being charged (the jump key
+/// held), so the player can see where it goes and adjust it before
+/// letting go. Nothing while no jump is being charged.
+pub fn jump_quads(client: &mut Client) -> Vec<Quad> {
+    let Some(preview) = client.jump_preview() else {
+        return Vec::new();
+    };
+    let mut out: Vec<Quad> = Vec::with_capacity(preview.path.len() / ARC_EVERY + 1);
+    for (i, p) in preview.path.iter().enumerate() {
+        if i % ARC_EVERY != 0 || i + 1 == preview.path.len() {
+            continue;
+        }
+        // Small and brighter with the power, hovering a little above the
+        // feet line so the dots are not lost in the ground on take-off.
+        let dot = 0.18 + 0.12 * preview.power;
+        out.push(Quad {
+            position: *p + Vec3::new(0.0, 0.0, 0.25),
+            size: Vec2::splat(dot),
+            color: [ARC[0], ARC[1], ARC[2], 0.9],
+            image: SpriteImage::Solid(0x00FF_FFFF),
+            additive: true,
+            flat: false,
+            angle: 0.0,
+        });
+    }
+    let rgb = if preview.landed { LANDING } else { NO_LANDING };
+    out.push(Quad {
+        position: preview.landing + Vec3::new(0.0, 0.0, LIFT),
+        size: Vec2::splat(1.0),
+        color: [rgb[0], rgb[1], rgb[2], 0.95],
+        image: SpriteImage::Solid(0x00FF_FFFF),
+        additive: true,
+        flat: true,
+        angle: 0.0,
+    });
+    out
+}
+
 /// Marks this far apart along the path (metres).
 const SPACING: f32 = 1.8;
 /// How much of the route ahead is drawn. Beyond this it is off in the

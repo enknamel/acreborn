@@ -30,7 +30,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use glam::Vec3;
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
@@ -985,6 +985,8 @@ impl App {
                 let now = self.started.elapsed().as_secs_f32();
                 quads.extend(route_marks::quads(&mut net.client, now));
             }
+            // The jump being charged, if any: where it lands.
+            quads.extend(route_marks::jump_quads(&mut net.client));
             if !quads.is_empty() || self.drew_particles {
                 self.drew_particles = !quads.is_empty();
                 let assets = net.client.assets.clone();
@@ -1387,6 +1389,20 @@ impl ApplicationHandler for App {
                     (self.cursor, self.gpu.as_ref().map(|g| g.size()))
                 {
                     self.click(x, y, size);
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                // With the jump key held, the wheel sets the charge, so
+                // the landing spot shown on the ground can be placed by
+                // hand; a notch is a twentieth of full power.
+                if self.keys.contains(&KeyCode::Space) {
+                    let notches = match delta {
+                        MouseScrollDelta::LineDelta(_, y) => y,
+                        MouseScrollDelta::PixelDelta(p) => (p.y / 40.0) as f32,
+                    };
+                    if let Some(net) = self.nets.get_mut(self.active) {
+                        net.client.adjust_jump_charge(notches * 0.05);
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {

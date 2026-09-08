@@ -121,6 +121,47 @@ pub struct Player {
     /// The most power the character can put into a jump right now
     /// (stamina); the main loop keeps it current.
     pub max_jump_power: f32,
+    /// How much faster than the run animation's own pace the Run skill
+    /// lets this character run (the server's run rate, see [`run_rate`]).
+    pub run_rate: f32,
+    /// A client-side multiplier on top of that, for whoever wants to get
+    /// about faster than the game meant. The server does not hold a
+    /// character to its run rate; see [`run_rate`] for what it does hold
+    /// them to.
+    pub speed_boost: f32,
+    /// The jump charge was set by hand (the wheel) and no longer grows
+    /// while the key is held; released when the key is.
+    charge_pinned: bool,
+}
+
+/// The server's run rate for a Run skill (ACE `MovementSystem.GetRunRate`
+/// with no burden): 1 at nothing, about 2.4 at 200, and 4.5 from 800 up.
+/// It multiplies the run animation's pace. The server never refuses a
+/// move for speed alone -- it drops a position more than 50 m from the
+/// last it accepted only when that is also more than a landblock away
+/// -- so the practical ceiling is what looks right to everyone else,
+/// whose clients run this character at this rate.
+pub fn run_rate(run_skill: u32) -> f32 {
+    if run_skill >= 800 {
+        return 18.0 / 4.0;
+    }
+    let s = run_skill as f32;
+    (s / (s + 200.0) * 11.0 + 4.0) / 4.0
+}
+
+/// A jump worked out before it is made: where the character would fly
+/// and where it would come down.
+#[derive(Debug, Clone)]
+pub struct JumpPreview {
+    /// The power previewed (0..=1).
+    pub power: f32,
+    /// Feet positions along the flight, world space, a frame apart.
+    pub path: Vec<Vec3>,
+    /// Where the character comes to rest.
+    pub landing: Vec3,
+    /// False when the flight was cut off still in the air (a very long
+    /// fall): `landing` is then the last point followed.
+    pub landed: bool,
 }
 
 impl Player {
@@ -156,6 +197,9 @@ impl Player {
             air_velocity: Vec3::ZERO,
             ground_velocity: Vec3::ZERO,
             jump_skill: 100,
+            run_rate: 1.0,
+            speed_boost: 1.0,
+            charge_pinned: false,
             last_jump: None,
             pending_commands: Vec::new(),
             jump_charge: None,
@@ -206,6 +250,79 @@ impl Player {
     pub fn jump_charge(&self) -> Option<f32> {
         self.jump_charge
             .map(|c| (c / JUMP_CHARGE_SECS).min(self.max_jump_power))
+    }
+
+    /// Nudge the charge by `delta` (a fraction of full power) while the
+    /// key is held, to place the landing spot by hand. From then until
+    /// the key is released the charge stays where it is put.
+    pub fn adjust_charge(&mut self, delta: f32) {
+        let Some(c) = self.jump_charge else {
+            return;
+        };
+        let power = (c / JUMP_CHARGE_SECS + delta).clamp(0.05, 1.0);
+        self.jump_charge = Some(power * JUMP_CHARGE_SECS);
+        self.charge_pinned = true;
+    }
+
+    /// Where a jump at `power` from where the character stands, facing
+    /// the way it faces, would go: the flight is run through the same
+    /// physics as a real one, on a copy of the character's motion state,
+    /// and the character is put back as it was. `None` when a jump is
+    /// not possible now (in the air, or out of stamina).
+    pub fn preview_jump(&mut self, assets: &Assets, power: f32) -> Option<JumpPreview> {
+        if self.airborne || self.max_jump_power <= 0.0 {
+            return None;
+        }
+        let saved = (
+            self.cell,
+            self.local,
+            self.vz,
+            self.airborne,
+            self.air_velocity,
+            self.ground_velocity,
+            self.moving,
+            self.dirty,
+            self.last_jump,
+            self.jump_charge,
+            self.charge_pinned,
+        );
+        let power = power.clamp(0.0, 1.0);
+        let mut path = Vec::new();
+        let mut landed = false;
+        if self.jump(power) {
+            // Frames of a thirtieth: fine enough for a smooth arc, and a
+            // ten-second cap so a fall off the world ends.
+            let dt = 1.0 / 30.0;
+            let still = Input::default();
+            for _ in 0..300 {
+                self.update(assets, &still, dt);
+                path.push(self.world_position());
+                if !self.airborne {
+                    landed = true;
+                    break;
+                }
+            }
+        }
+        (
+            self.cell,
+            self.local,
+            self.vz,
+            self.airborne,
+            self.air_velocity,
+            self.ground_velocity,
+            self.moving,
+            self.dirty,
+            self.last_jump,
+            self.jump_charge,
+            self.charge_pinned,
+        ) = saved;
+        let landing = path.last().copied()?;
+        Some(JumpPreview {
+            power,
+            path,
+            landing,
+            landed,
+        })
     }
 
     /// Attach the character's motion table and start idling. Walk and run
@@ -629,7 +746,7 @@ impl Player {
     /// Apply one frame of input. Returns true if the position changed.
     pub fn update(&mut self, assets: &Assets, input: &Input, dt: f32) -> bool {
         let speed = if input.run {
-            self.run_speed
+            self.run_speed * self.run_rate * self.speed_boost
         } else {
             self.walk_speed
         };
@@ -646,10 +763,14 @@ impl Player {
             if input.jump {
                 self.jump(1.0);
             } else if input.jump_held {
-                // Charging: the longer the key is held, the higher the leap.
-                let c = self.jump_charge.unwrap_or(0.0) + dt;
-                self.jump_charge = Some(c.min(JUMP_CHARGE_SECS));
+                // Charging: the longer the key is held, the higher the
+                // leap -- unless the charge was set by hand, which holds.
+                if !self.charge_pinned {
+                    let c = self.jump_charge.unwrap_or(0.0) + dt;
+                    self.jump_charge = Some(c.min(JUMP_CHARGE_SECS));
+                }
             } else if let Some(c) = self.jump_charge.take() {
+                self.charge_pinned = false;
                 self.jump(c / JUMP_CHARGE_SECS);
             }
         } else {
@@ -1014,5 +1135,19 @@ mod jump_tests {
         assert!((max_jump_power(4, 0.0) - 0.5).abs() < 1e-6);
         assert_eq!(max_jump_power(1, 0.0), 0.0);
         assert_eq!(max_jump_power(100, 0.0), 1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_run_rate_follows_the_run_skill() {
+        assert!((run_rate(0) - 1.0).abs() < 1e-6);
+        assert!((run_rate(200) - 2.375).abs() < 1e-6);
+        assert!((run_rate(800) - 4.5).abs() < 1e-6);
+        assert!((run_rate(2000) - 4.5).abs() < 1e-6);
+        assert!(run_rate(100) > run_rate(50));
     }
 }

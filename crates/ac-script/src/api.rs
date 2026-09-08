@@ -248,6 +248,9 @@ pub trait Api {
     fn combat(&mut self, on: bool);
     /// Jump with power 0..=1 (1 = a fully charged jump); stamina caps it.
     fn jump(&mut self, power: f64);
+    /// Run this many times faster than the Run skill allows (1 = the
+    /// game's own pace; the client clamps it to 0.25..=4).
+    fn speed_boost(&mut self, boost: f64);
     fn select(&mut self, guid: i64);
     fn log(&mut self, text: &str);
     fn post(&mut self, topic: &str, value: Value);
@@ -498,6 +501,10 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("buy", |n: &str| with_api(|a| a.buy(n)));
     engine.register_fn("sell", |n: &str| with_api(|a| a.sell(n)));
     engine.register_fn("combat", |on: bool| with_api(|a| a.combat(on)));
+    engine.register_fn("speed_boost", |b: f64| with_api(|a| a.speed_boost(b)));
+    engine.register_fn("speed_boost", |b: i64| {
+        with_api(|a| a.speed_boost(b as f64))
+    });
     engine.register_fn("jump", |p: f64| with_api(|a| a.jump(p)));
     engine.register_fn("jump", |p: i64| with_api(|a| a.jump(p as f64)));
     engine.register_fn("select", |g: i64| with_api(|a| a.select(g)));

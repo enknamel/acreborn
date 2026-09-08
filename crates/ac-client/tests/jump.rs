@@ -199,3 +199,50 @@ fn jumps_on_holtburg_hills_land_on_the_ground() {
     }
     assert!(bad.is_empty(), "ended under the ground: {bad:?}");
 }
+
+#[test]
+fn a_previewed_jump_lands_where_the_real_one_does_and_leaves_no_trace() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(std::path::Path::new(&dir)).unwrap();
+    let block = 0xDA55_0000;
+    let start = Vec3::new(129.5, 175.0, 20.0);
+    let cell = ac_world::outdoor_cell(block, start);
+    let mut pl = Player::new(&assets, cell, start, Quat::from_rotation_z(0.7));
+    pl.set_motion_table(&assets, 0x0200_0001, 0x0900_0001);
+    pl.max_jump_power = 1.0;
+    // Settle on the ground first.
+    for _ in 0..30 {
+        pl.update(&assets, &Input::default(), 1.0 / 30.0);
+    }
+    let before = (pl.cell, pl.local, pl.world_position());
+    let preview = pl.preview_jump(&assets, 0.8).expect("a standing jump");
+    assert!(preview.landed, "{preview:?}");
+    assert!(preview.path.len() > 5, "{} points", preview.path.len());
+    assert_eq!(
+        (pl.cell, pl.local, pl.world_position()),
+        before,
+        "the preview moved the character"
+    );
+    assert!(pl.last_jump.is_none(), "the preview left a jump to report");
+    // The real thing, frame for frame the same.
+    assert!(pl.jump(0.8));
+    let mut landing = pl.world_position();
+    for _ in 0..300 {
+        pl.update(&assets, &Input::default(), 1.0 / 30.0);
+        landing = pl.world_position();
+        if pl.last_jump.take().is_some() {
+            // Only the take-off is reported; keep going.
+        }
+        if !pl.is_airborne() {
+            break;
+        }
+    }
+    assert!(!pl.is_airborne(), "never landed");
+    assert!(
+        landing.distance(preview.landing) < 0.05,
+        "{landing:?} vs {:?}",
+        preview.landing
+    );
+}

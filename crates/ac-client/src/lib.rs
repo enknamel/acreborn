@@ -174,6 +174,10 @@ pub struct Client {
     pub salvage_open: bool,
     /// A jump asked for by a script or the bot, done on the next tick.
     pub pending_jump: Option<f32>,
+    /// Client-side multiplier on the run speed (see
+    /// [`player::run_rate`] for the game's own rate and the server's
+    /// tolerance). 1 is the game as it was.
+    pub speed_boost: f32,
     /// Appraisals received, by object guid (the last one is the panel's).
     pub appraisals: std::collections::HashMap<u32, ac_net::messages::Appraisal>,
     /// The guid of the latest appraisal and a counter bumped with each.
@@ -280,6 +284,7 @@ impl Client {
             previous_selected: None,
             salvage_open: false,
             pending_jump: None,
+            speed_boost: 1.0,
             appraisals: std::collections::HashMap::new(),
             last_appraisal: None,
             appraisal_seq: 0,
@@ -721,17 +726,21 @@ impl Client {
             // Stamina caps the jump (ACE refuses nothing but retail
             // greyed the charge bar; we cap the power at what is left).
             pl.max_jump_power = player::max_jump_power(self.world.stats.vitals[1].current, 0.0);
-            // The Jump skill (id 4) from the sheet drives the height.
-            if let Some(sk) = self.world.stats.skill(4) {
-                let table = self.assets.skill_table().ok();
-                let value = self
-                    .world
-                    .stats
-                    .skill_value(sk, table.as_ref().and_then(|t| t.get(4)));
-                if value > 0 {
-                    pl.jump_skill = value;
-                }
+            // The Jump skill drives the height and the Run skill the
+            // pace, both from the sheet at their current (buffed) value.
+            let table = self.assets.skill_table().ok();
+            let current = |stats: &ac_world::stats::PlayerStats, id: u32| {
+                stats
+                    .skill(id)
+                    .map(|sk| stats.skill_value(sk, table.as_ref().and_then(|t| t.get(id))))
+                    .unwrap_or(0)
+            };
+            let jump = current(&self.world.stats, ac_world::stats::skill::JUMP);
+            if jump > 0 {
+                pl.jump_skill = jump;
             }
+            pl.run_rate = player::run_rate(current(&self.world.stats, ac_world::stats::skill::RUN));
+            pl.speed_boost = self.speed_boost;
             if let Some(p) = self.pending_jump.take() {
                 pl.jump(p);
             }
@@ -2136,6 +2145,34 @@ impl Client {
     /// Jump on the next tick with `power` 0..=1 (a script's or bot's
     /// jump; the window charges one by holding the key). Capped by the
     /// stamina left; nothing happens in the air.
+    /// Run this many times faster than the Run skill allows. Anything
+    /// over 1 is the client's own doing; the server accepts it (it
+    /// refuses a move only when it is both more than 50 m from the last
+    /// and more than a landblock away), but other players' clients still
+    /// animate this character at its proper rate, so past about 2 it
+    /// looks like skating to them.
+    pub fn set_speed_boost(&mut self, boost: f32) {
+        self.speed_boost = boost.clamp(0.25, 4.0);
+        if let Some(pl) = self.player.as_mut() {
+            pl.speed_boost = self.speed_boost;
+        }
+    }
+
+    /// The jump being charged right now (the jump key held), worked out
+    /// to its landing spot; `None` when no jump is being charged.
+    pub fn jump_preview(&mut self) -> Option<player::JumpPreview> {
+        let pl = self.player.as_mut()?;
+        let power = pl.jump_charge()?;
+        pl.preview_jump(&self.assets, power)
+    }
+
+    /// Nudge the jump being charged (see [`player::Player::adjust_charge`]).
+    pub fn adjust_jump_charge(&mut self, delta: f32) {
+        if let Some(pl) = self.player.as_mut() {
+            pl.adjust_charge(delta);
+        }
+    }
+
     pub fn jump(&mut self, power: f32) {
         self.pending_jump = Some(power.clamp(0.0, 1.0));
     }

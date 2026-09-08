@@ -645,6 +645,9 @@ mod tests {
         fn jump(&mut self, p: f64) {
             self.record(format!("jump {p}"));
         }
+        fn speed_boost(&mut self, b: f64) {
+            self.record(format!("speed_boost {b}"));
+        }
         fn select(&mut self, guid: i64) {
             self.record(format!("select #{guid}"));
         }
