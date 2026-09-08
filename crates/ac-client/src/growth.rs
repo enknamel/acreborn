@@ -39,7 +39,9 @@ use std::time::{Duration, Instant};
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
 
-use crate::autoplay::{name_matches, Doing};
+use std::collections::BTreeMap;
+
+use crate::autoplay::{name_matches, Doing, LootAction};
 use crate::items::{ItemStats, Query};
 use crate::Client;
 use ac_world::{equip, item_type, object_desc_flags};
@@ -436,6 +438,10 @@ pub struct SellRules<'a> {
     /// weapon: `None` when that is not known (not appraised), in which
     /// case a weapon is kept.
     pub can_wield: Option<bool>,
+    /// What the loot rules tagged items with when they were taken: a
+    /// `Sell` tag sells whatever the searches say, a `Salvage` tag keeps
+    /// the item for the salvager.
+    pub tags: &'a BTreeMap<u32, LootAction>,
 }
 
 /// Whether an item is loot to sell. `ammo` says whether it goes in the
@@ -462,6 +468,11 @@ pub fn sellable(stats: &ItemStats, ammo: bool, rules: &SellRules) -> bool {
     }
     if name_matches(&stats.name, rules.keep) {
         return false;
+    }
+    match rules.tags.get(&stats.guid) {
+        Some(LootAction::Sell) => return true,
+        Some(LootAction::Salvage) => return false,
+        _ => {}
     }
     let weapon = stats.item_type
         & (item_type::MELEE_WEAPON | item_type::MISSILE_WEAPON | item_type::CASTER)
@@ -1042,10 +1053,12 @@ impl Client {
                 .map(|(n, _)| n.clone()),
         );
         keep.extend(self.autoplay.config.loot.always.iter().cloned());
+        let tags = self.autoplay.tags().clone();
         let rules_for = |stats: &ItemStats| SellRules {
             sell: &cfg.sell,
             keep: &keep,
             can_wield: stats.appraised.then(|| wielder.can_wield(stats)),
+            tags: &tags,
         };
         let unsellable = &self.autoplay.growth.unsellable;
         let vendor = v.vendor;
@@ -1592,6 +1605,7 @@ mod tests {
             sell: &cfg.sell,
             keep: &keep,
             can_wield: None,
+            tags: &BTreeMap::new(),
         };
         assert!(sellable(
             &item("Leather Cap", item_type::ARMOR, 120),
@@ -1666,16 +1680,19 @@ mod tests {
             sell: &cfg.sell,
             keep: &keep,
             can_wield: None,
+            tags: &BTreeMap::new(),
         };
         let usable = SellRules {
             sell: &cfg.sell,
             keep: &keep,
             can_wield: Some(true),
+            tags: &BTreeMap::new(),
         };
         let beyond = SellRules {
             sell: &cfg.sell,
             keep: &keep,
             can_wield: Some(false),
+            tags: &BTreeMap::new(),
         };
         assert!(!sellable(&sword, false, &unknown), "not appraised: kept");
         assert!(!sellable(&sword, false, &usable));
@@ -1689,8 +1706,38 @@ mod tests {
             sell: &armour_only,
             keep: &keep,
             can_wield: Some(false),
+            tags: &BTreeMap::new(),
         };
         assert!(!sellable(&sword, false, &rules));
+    }
+
+    #[test]
+    fn loot_tags_decide_selling() {
+        let cfg = Growth::default();
+        let keep: Vec<String> = Vec::new();
+        let cheap = item("Trinket", item_type::JEWELRY, 5);
+        let mut tags = BTreeMap::new();
+        tags.insert(cheap.guid, LootAction::Sell);
+        let rules = SellRules {
+            sell: &cfg.sell,
+            keep: &keep,
+            can_wield: None,
+            tags: &tags,
+        };
+        assert!(sellable(&cheap, false, &rules), "a Sell tag sells");
+        let rich = item("Ornate Ring", item_type::JEWELRY, 900);
+        let mut tags = BTreeMap::new();
+        tags.insert(rich.guid, LootAction::Salvage);
+        let rules = SellRules {
+            sell: &cfg.sell,
+            keep: &keep,
+            can_wield: None,
+            tags: &tags,
+        };
+        assert!(
+            !sellable(&rich, false, &rules),
+            "a Salvage tag keeps it for the salvager"
+        );
     }
 
     fn need(kind: NeedKind, want: u32) -> Need {

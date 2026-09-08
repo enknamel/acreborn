@@ -184,7 +184,7 @@ with it and handed to every session of the process as it appears.
 |---|---|
 | keep | picked up and kept |
 | salvage | picked up, tagged, then salvaged by the team's salvager |
-| sell | picked up and tagged for the next run to town |
+| sell | picked up and tagged; the next run to town sells it whatever the growth sell searches say (a salvage tag keeps it from the vendor) |
 | skip | left where it is |
 
 The search language, in full (the fold under the rule list shows the
