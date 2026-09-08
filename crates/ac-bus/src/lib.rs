@@ -916,16 +916,20 @@ mod tests {
         let got = wait_for(&a, |i| matches!(i, Incoming::State { .. }));
         assert_eq!(got[0], Incoming::Connected { hosting: true });
         a.set("leader", "a");
+        // The value travels to the hub on its own thread: a snapshot
+        // may carry it, or it arrives on its own as a Set.
+        let has_leader = |i: &Incoming| match i {
+            Incoming::State { values } => values.get("leader") == Some(&json!("a")),
+            Incoming::Set { key, value } => key == "leader" && *value == json!("a"),
+            _ => false,
+        };
 
         let b = BusClient::connect_or_host(&addr, "b").unwrap();
         assert!(!b.is_hosting());
         // The value a set travels to the hub on its own thread, so b's
         // first snapshot may predate it; the one that carries it comes
         // right after.
-        wait_for(
-            &b,
-            |i| matches!(i, Incoming::State { values } if values.get("leader") == Some(&json!("a"))),
-        );
+        wait_for(&b, has_leader);
         b.post("hi", "b");
         wait_for(
             &a,
@@ -943,12 +947,8 @@ mod tests {
             "got {got:?}"
         );
         assert!(b.is_hosting());
-        if !got.iter().any(|i| {
-            matches!(i, Incoming::State { values } if values.get("leader") == Some(&json!("a")))
-        }) {
-            wait_for(&b, |i| {
-                matches!(i, Incoming::State { values } if values.get("leader") == Some(&json!("a")))
-            });
+        if !got.iter().any(has_leader) {
+            wait_for(&b, has_leader);
         }
 
         let c = BusClient::connect_or_host(&addr, "c").unwrap();
