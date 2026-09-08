@@ -314,12 +314,16 @@ pub fn clip_to_block(me: Vec3, goal: Vec3, block: u32) -> Option<Vec3> {
         return None;
     }
     let at = me + d * t;
-    let back = (goal - me).normalize_or_zero() * INSIDE;
-    let edge = at - back;
-    // Standing at the edge already, the clipped point is under our
-    // own feet or behind them, and steering at it goes nowhere: the
-    // goal itself is the only thing worth walking to.
-    (me.distance(edge) > 2.0).then_some(edge)
+    let dir = (goal - me).normalize_or_zero();
+    let edge = at - dir * INSIDE;
+    // Standing at the edge already, the clipped point is under our own
+    // feet or behind them, and steering at it goes nowhere -- worse, a
+    // walker a stride short of the edge stepped back to it, turned for
+    // the goal, reached the edge again and stepped back again, for
+    // ever. Only a point a stride ahead is worth walking to; otherwise
+    // the goal itself is.
+    let ahead = (edge - me).dot(dir);
+    (ahead > 1.0).then_some(edge)
 }
 
 #[cfg(test)]
@@ -344,6 +348,17 @@ mod tests {
         // Standing outside the block it claims: nothing to say.
         let elsewhere = origin + Vec3::new(500.0, 0.0, 0.0);
         assert_eq!(clip_to_block(elsewhere, goal, block), None);
+        // A stride short of the edge with the goal beyond it: the
+        // clipped point would be behind us, so head for the goal.
+        let at_edge = origin + Vec3::new(96.0, 191.25, 0.0);
+        let beyond = at_edge + Vec3::new(3.0, 60.0, 0.0);
+        assert_eq!(clip_to_block(at_edge, beyond, block), None);
+        let near_edge = origin + Vec3::new(96.0, 189.5, 0.0);
+        assert_eq!(clip_to_block(near_edge, beyond, block), None);
+        // Five metres short, the clipped point is two ahead: fine.
+        let short = origin + Vec3::new(96.0, 187.0, 0.0);
+        let e = clip_to_block(short, short + Vec3::new(0.0, 60.0, 0.0), block).expect("ahead");
+        assert!((e.y - (origin.y + 189.0)).abs() < 1e-3, "{e:?}");
     }
 
     #[test]
