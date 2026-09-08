@@ -13,3 +13,4 @@
 
 # agent worktrees
 .claude/worktrees/
+dist/

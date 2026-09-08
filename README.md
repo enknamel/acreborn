@@ -274,6 +274,19 @@ to the chat log and never stop the client. Examples and the full API are
 in [`scripts/examples/`](scripts/examples/README.md); the plugin is
 `crates/ac-script`.
 
+## Releasing on macOS
+
+`tools/release/macos.sh VERSION` builds the binaries, wraps the viewer
+in `acswarm.app` (with `acbot`, `acclient`, `aclauncher` and the example
+scripts beside it), signs everything with the "Developer ID Application"
+identity in the login keychain (hardened runtime, timestamp) and zips
+`dist/acswarm-VERSION-macos.zip`. Add `--notarize` to submit the zip to
+Apple, staple the ticket and re-zip -- needed once so Gatekeeper opens
+it on other Macs; store the credentials first with
+`xcrun notarytool store-credentials acswarm --apple-id ... --team-id ...
+--password <app-specific password>`. `--universal` builds for Apple
+silicon and Intel in one binary.
+
 ## License
 
 GNU General Public License, version 3 or (at your option) any later
