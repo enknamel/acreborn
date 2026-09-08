@@ -12,6 +12,7 @@ pub mod daytime;
 pub mod dodge;
 pub mod emotes;
 pub mod growth;
+pub mod holdings;
 pub mod items;
 pub mod magic;
 pub mod options;
