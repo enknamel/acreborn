@@ -281,7 +281,9 @@ pub struct Team {
     /// rest hold their fire until it has. 0 plans nothing.
     pub hard_fight_health: u32,
     /// Whether the rest wait for the softening before opening fire on
-    /// a hard target. Safer against a boss, slower against a pack.
+    /// a hard target. Off by default: the shots and spells spent before
+    /// the vulnerability lands cost next to nothing, and every second
+    /// the target is not being hit is a second it is hitting someone.
     pub wait_for_debuff: bool,
 }
 
@@ -297,7 +299,7 @@ impl Default for Team {
             share_supplies: true,
             keep_stocked: vec![("Healing Kit".into(), 1)],
             hard_fight_health: 400,
-            wait_for_debuff: true,
+            wait_for_debuff: false,
         }
     }
 }

@@ -476,7 +476,10 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     &mut cfg.team.wait_for_debuff,
                     "the rest wait for the softening",
                 )
-                .on_hover_text("Safer against a boss, slower against a pack");
+                .on_hover_text(
+                    "Off, everyone opens fire at once and the softening lands \
+                         over the top; the shots spent first cost next to nothing",
+                );
                 caption(ui, "debuffs a debuffer lands, in order");
                 string_list(
                     ui,
