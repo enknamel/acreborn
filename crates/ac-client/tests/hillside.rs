@@ -41,7 +41,17 @@ fn walking_up_the_villas_hillside_stays_on_the_hill() {
         block,
     )
     .unwrap();
+    // Outdoors to outdoors: the planner keeps out of the buildings,
+    // which is what keeps it out of the halls beneath the hill.
+    area.outdoors_only = true;
     let mut route = area.path(origin + start, goal).expect("a way up the hill");
+    for w in &route {
+        let t = area.terrain_at(w.x, w.y).expect("on the map");
+        assert!(
+            (w.z - t).abs() < 2.5,
+            "the route goes indoors at {w:?} (terrain {t:.1})"
+        );
+    }
     route.push(goal);
     let mut next = 0;
     let mut lowest_under_turf = 0.0f32;

@@ -82,6 +82,10 @@ pub struct Area {
     /// it, so a walk that brushes the wrong one ends somewhere else.
     pub avoid: Vec<Vec2>,
     pub berth: f32,
+    /// Keep out of buildings (see `nav::Ground::outdoors_only`). Set
+    /// for a walk between two outdoor spots; a walk that finds no way
+    /// outdoors is tried again with it off.
+    pub outdoors_only: bool,
     /// Which of the region's terrain types are open sea, by index. A
     /// character cannot walk into the ocean -- the server refuses the
     /// move and it stops dead against nothing, which is what an
@@ -167,6 +171,7 @@ impl Area {
             dungeon,
             avoid: Vec::new(),
             berth: 0.0,
+            outdoors_only: false,
             sea_types,
         })
     }
@@ -197,6 +202,7 @@ impl Area {
             sea_types,
             avoid,
             berth,
+            outdoors_only,
             ..
         } = self;
         let terrain = |x: f32, y: f32| -> Option<f32> {
@@ -225,6 +231,7 @@ impl Area {
             terrain: (!*dungeon).then_some(&terrain),
             sea: (!*dungeon).then_some(&sea),
             no_go: keep_off.then_some(&no_go),
+            outdoors_only: *outdoors_only && !*dungeon,
         };
         f(&ground, nav)
     }
@@ -266,7 +273,22 @@ impl Area {
         // ends on the ground first.
         let from = self.grounded(from);
         let to = self.grounded(to);
-        self.with_ground(|ground, nav| nav.find_path(ground, from, to))
+        let path = self.with_ground(|ground, nav| nav.find_path(ground, from, to));
+        if path.is_some() || !self.outdoors_only {
+            return path;
+        }
+        // No way outdoors: through the buildings then, on a graph of
+        // its own, since the nodes built so far left the interiors out.
+        let (lo, hi, spacing, cap) = {
+            let n = &self.nav;
+            (n.min(), n.max(), n.spacing, n.capsule)
+        };
+        self.nav = NavGraph::new(lo, hi, spacing, &cap);
+        self.outdoors_only = false;
+        let path = self.with_ground(|ground, nav| nav.find_path(ground, from, to));
+        self.outdoors_only = true;
+        self.nav = NavGraph::new(lo, hi, spacing, &cap);
+        path
     }
 
     /// `p` with its height taken from the terrain under it, outdoors,

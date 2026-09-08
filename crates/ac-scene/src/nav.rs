@@ -54,6 +54,10 @@ pub struct Ground<'a> {
     /// Where nothing may stand at all, floor or no floor: the berth
     /// around a portal that must not be touched.
     pub no_go: Option<&'a dyn Fn(f32, f32) -> bool>,
+    /// Keep out of buildings: interior floors are not walkable. For a
+    /// walk from one outdoor spot to another, which should go over the
+    /// hill rather than through the halls beneath it.
+    pub outdoors_only: bool,
 }
 
 impl Ground<'_> {
@@ -73,7 +77,9 @@ impl Ground<'_> {
                 let buried = self
                     .terrain_under(p.x, p.y)
                     .is_some_and(|t| t > z + 0.5 && p.z >= t - cap.step_down);
-                if !buried {
+                if self.outdoors_only {
+                    // Not ours to stand on: only what is outside counts.
+                } else if !buried {
                     return Some((z, cell));
                 }
             }
@@ -305,6 +311,9 @@ impl NavGraph {
                     continue;
                 }
                 let mut levels = ground.collision.floors_at_xy(x, y);
+                if ground.outdoors_only {
+                    levels.retain(|(_, cell)| *cell == 0);
+                }
                 if let Some(t) = ground.terrain_under(x, y) {
                     levels.push((t, 0));
                 }
@@ -426,6 +435,15 @@ impl NavGraph {
 
     pub fn len(&self) -> usize {
         self.nodes.len()
+    }
+
+    /// The rectangle the graph covers (world x, y).
+    pub fn min(&self) -> Vec2 {
+        Vec2::new(self.gx.0 as f32, self.gy.0 as f32) * self.spacing
+    }
+
+    pub fn max(&self) -> Vec2 {
+        Vec2::new(self.gx.1 as f32, self.gy.1 as f32) * self.spacing
     }
 
     pub fn is_empty(&self) -> bool {
@@ -685,6 +703,7 @@ mod tests {
             terrain: None,
             sea: None,
             no_go: None,
+            outdoors_only: false,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -729,6 +748,7 @@ mod tests {
             terrain: None,
             sea: None,
             no_go: None,
+            outdoors_only: false,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -750,6 +770,7 @@ mod tests {
             terrain: None,
             sea: None,
             no_go: None,
+            outdoors_only: false,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -774,6 +795,7 @@ mod tests {
             terrain: None,
             sea: None,
             no_go: None,
+            outdoors_only: false,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -3.0), Vec2::new(12.0, 3.0), 1.0, &cap);
@@ -811,6 +833,7 @@ mod tests {
             terrain: Some(&terrain),
             sea: None,
             no_go: None,
+            outdoors_only: false,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, 0.0), Vec2::new(20.0, 8.0), 2.0, &cap);

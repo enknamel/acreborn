@@ -202,7 +202,14 @@ impl Steering {
             // block, is worth a neighbourhood route: the way around it
             // may leave the block entirely.
             if !straight_ok || leaves_block {
-                wide.ask(me, far_goal, player.capsule(), block, now);
+                wide.ask(
+                    me,
+                    far_goal,
+                    player.capsule(),
+                    block,
+                    player.cell & 0xFFFF < 0x100 && goal_block & 0xFFFF < 0x100,
+                    now,
+                );
             }
             if straight_ok {
                 if self.route.take().is_some() {

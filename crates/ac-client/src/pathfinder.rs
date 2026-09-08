@@ -42,6 +42,8 @@ struct Ask {
     /// outside its landblock's square on the map, so the block cannot
     /// be read off the position; the character knows it.
     block: u32,
+    /// Both ends are outdoors: the walk should stay out of buildings.
+    outdoors: bool,
 }
 
 /// What the planner found.
@@ -82,7 +84,15 @@ impl Pathfinder {
 
     /// Ask for a route from `from` to `to`, unless one is already on its
     /// way. Cheap to call every frame.
-    pub fn ask(&mut self, from: Vec3, to: Vec3, capsule: Capsule, block: u32, now: Instant) {
+    pub fn ask(
+        &mut self,
+        from: Vec3,
+        to: Vec3,
+        capsule: Capsule,
+        block: u32,
+        outdoors: bool,
+        now: Instant,
+    ) {
         if self.dead {
             return;
         }
@@ -117,6 +127,7 @@ impl Pathfinder {
                 to,
                 capsule,
                 block: block & 0xFFFF_0000,
+                outdoors,
             })
             .is_err()
         {
@@ -238,6 +249,13 @@ fn plan_forever(data_dir: std::path::PathBuf, jobs: Receiver<Ask>, answers: Send
                 // touches it.
                 a.avoid = portal_mouths_to_avoid(ask.from, ask.to);
                 a.berth = PORTAL_BERTH;
+                if a.outdoors_only != ask.outdoors {
+                    // The graph built so far was for the other rule.
+                    a.outdoors_only = ask.outdoors;
+                    let (lo, hi, spacing, cap) =
+                        (a.nav.min(), a.nav.max(), a.nav.spacing, a.nav.capsule);
+                    a.nav = ac_scene::nav::NavGraph::new(lo, hi, spacing, &cap);
+                }
                 a.path(ask.from, ask.to)
             }
             None => None,

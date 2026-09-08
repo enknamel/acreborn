@@ -404,6 +404,7 @@ impl Player {
             terrain: (!b.dungeon).then_some(&terrain),
             sea: None,
             no_go: None,
+            outdoors_only: false,
         };
         // Look from a little above the height we expect, so a floor
         // overhead is not mistaken for the one we are on.
@@ -493,6 +494,7 @@ impl Player {
             terrain: (!b.dungeon).then_some(&terrain),
             sea: (!b.dungeon).then_some(&sea),
             no_go: None,
+            outdoors_only: false,
         };
         Some(ground.walkable(from, to, &cap).0)
     }
@@ -548,6 +550,7 @@ impl Player {
             terrain: (!b.dungeon).then_some(&terrain),
             sea: (!b.dungeon).then_some(&sea),
             no_go: (!avoid.is_empty()).then_some(&no_go),
+            outdoors_only: false,
         };
         let nav = b.nav.as_mut()?;
         let (nodes, chunks) = (nav.len(), nav.chunk_count());
