@@ -51,6 +51,9 @@ pub struct Ground<'a> {
     /// the terrain is ruled out, not the static geometry over it, so
     /// piers and bridges over water are still walked.
     pub sea: Option<&'a dyn Fn(f32, f32) -> bool>,
+    /// Where nothing may stand at all, floor or no floor: the berth
+    /// around a portal that must not be touched.
+    pub no_go: Option<&'a dyn Fn(f32, f32) -> bool>,
 }
 
 impl Ground<'_> {
@@ -58,6 +61,9 @@ impl Ground<'_> {
     /// interior floor within step range, else the higher of an outdoor
     /// floor and the terrain (the rule `Player::update` walks by).
     pub fn surface_at(&self, p: Vec3, cap: &Capsule) -> Option<(f32, u32)> {
+        if self.no_go.is_some_and(|f| f(p.x, p.y)) {
+            return None;
+        }
         let floor = self.collision.floor_at(p, cap.step_up, cap.step_down);
         // Inside something: its floor is what we stand on.
         if let Some((z, cell)) = floor {
@@ -288,6 +294,9 @@ impl NavGraph {
             {
                 let x = gx as f32 * self.spacing;
                 let y = gy as f32 * self.spacing;
+                if ground.no_go.is_some_and(|f| f(x, y)) {
+                    continue;
+                }
                 let mut levels = ground.collision.floors_at_xy(x, y);
                 if let Some(t) = ground.terrain_under(x, y) {
                     levels.push((t, 0));
@@ -668,6 +677,7 @@ mod tests {
             collision: &w,
             terrain: None,
             sea: None,
+            no_go: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -711,6 +721,7 @@ mod tests {
             collision: &w,
             terrain: None,
             sea: None,
+            no_go: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -731,6 +742,7 @@ mod tests {
             collision: &w,
             terrain: None,
             sea: None,
+            no_go: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -754,6 +766,7 @@ mod tests {
             collision: &w,
             terrain: None,
             sea: None,
+            no_go: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -3.0), Vec2::new(12.0, 3.0), 1.0, &cap);
@@ -790,6 +803,7 @@ mod tests {
             collision: &w,
             terrain: Some(&terrain),
             sea: None,
+            no_go: None,
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, 0.0), Vec2::new(20.0, 8.0), 2.0, &cap);

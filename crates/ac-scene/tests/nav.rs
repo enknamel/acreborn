@@ -22,6 +22,7 @@ fn academy_start_room_to_the_far_end() {
         collision: &collision,
         terrain: None,
         sea: None,
+        no_go: None,
     };
     let cap = Capsule::default();
     let origin = lbid::world_origin(block);

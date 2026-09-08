@@ -403,6 +403,7 @@ impl Player {
             collision,
             terrain: (!b.dungeon).then_some(&terrain),
             sea: None,
+            no_go: None,
         };
         // Look from a little above the height we expect, so a floor
         // overhead is not mistaken for the one we are on.
@@ -491,6 +492,7 @@ impl Player {
             collision,
             terrain: (!b.dungeon).then_some(&terrain),
             sea: (!b.dungeon).then_some(&sea),
+            no_go: None,
         };
         Some(ground.walkable(from, to, &cap).0)
     }
@@ -533,14 +535,29 @@ impl Player {
         let terrain =
             |x: f32, y: f32| sampler.height_at(Vec3::new(x - origin.x, y - origin.y, 0.0));
         let sea = |x: f32, y: f32| sea_at(&b.lb, &sea_types, x - origin.x, y - origin.y);
+        // A berth from the portals we are not walking to.
+        let avoid = crate::pathfinder::portal_mouths_to_avoid(from, to);
+        let no_go = |x: f32, y: f32| {
+            let here = glam::Vec2::new(x, y);
+            avoid
+                .iter()
+                .any(|a| a.distance(here) < crate::pathfinder::PORTAL_BERTH)
+        };
         let ground = Ground {
             collision,
             terrain: (!b.dungeon).then_some(&terrain),
             sea: (!b.dungeon).then_some(&sea),
+            no_go: (!avoid.is_empty()).then_some(&no_go),
         };
         let nav = b.nav.as_mut()?;
         let (nodes, chunks) = (nav.len(), nav.chunk_count());
         let started = Instant::now();
+        // A goal from the overland grid may float a storey off the
+        // hillside; the graph only finds nodes near the height asked.
+        let to = match (b.dungeon, terrain(to.x, to.y)) {
+            (false, Some(z)) if (z - to.z).abs() > 2.0 => Vec3::new(to.x, to.y, z),
+            _ => to,
+        };
         let path = nav.find_path(&ground, from, to);
         if nav.chunk_count() != chunks {
             tracing::debug!(

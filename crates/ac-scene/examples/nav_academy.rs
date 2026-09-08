@@ -71,6 +71,7 @@ fn main() {
         collision: &collision,
         terrain: (!scene.is_dungeon).then_some(&terrain),
         sea: None,
+        no_go: None,
     };
     // The whole block at once, for the numbers...
     let mut whole = NavGraph::for_scene(&scene, &collision, &cap);

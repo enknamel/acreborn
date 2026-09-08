@@ -93,6 +93,7 @@ fn a_walk_into_sanamar_goes_round_the_walls_not_into_them() {
         collision: &collision,
         terrain: Some(&sampler),
         sea: None,
+        no_go: None,
     };
     assert!(
         one.find_path(&ground, from, square).is_none(),

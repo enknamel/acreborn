@@ -202,7 +202,7 @@ impl Steering {
             // block, is worth a neighbourhood route: the way around it
             // may leave the block entirely.
             if !straight_ok || leaves_block {
-                wide.ask(me, far_goal, player.capsule(), now);
+                wide.ask(me, far_goal, player.capsule(), block, now);
             }
             if straight_ok {
                 if self.route.take().is_some() {
@@ -277,8 +277,10 @@ pub fn clip_to_block(me: Vec3, goal: Vec3, block: u32) -> Option<Vec3> {
     let at = me + d * t;
     let back = (goal - me).normalize_or_zero() * INSIDE;
     let edge = at - back;
-    // A goal right on the edge leaves nothing worth walking to.
-    (me.distance(edge) > 1.0).then_some(edge)
+    // Standing at the edge already, the clipped point is under our
+    // own feet or behind them, and steering at it goes nowhere: the
+    // goal itself is the only thing worth walking to.
+    (me.distance(edge) > 2.0).then_some(edge)
 }
 
 #[cfg(test)]

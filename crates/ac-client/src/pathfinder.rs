@@ -38,6 +38,10 @@ struct Ask {
     from: Vec3,
     to: Vec3,
     capsule: Capsule,
+    /// The landblock the character stands in. A dungeon's cells lie
+    /// outside its landblock's square on the map, so the block cannot
+    /// be read off the position; the character knows it.
+    block: u32,
 }
 
 /// What the planner found.
@@ -78,7 +82,7 @@ impl Pathfinder {
 
     /// Ask for a route from `from` to `to`, unless one is already on its
     /// way. Cheap to call every frame.
-    pub fn ask(&mut self, from: Vec3, to: Vec3, capsule: Capsule, now: Instant) {
+    pub fn ask(&mut self, from: Vec3, to: Vec3, capsule: Capsule, block: u32, now: Instant) {
         if self.dead {
             return;
         }
@@ -107,7 +111,15 @@ impl Pathfinder {
         let Some((jobs, _)) = &self.thread else {
             return;
         };
-        if jobs.send(Ask { from, to, capsule }).is_err() {
+        if jobs
+            .send(Ask {
+                from,
+                to,
+                capsule,
+                block: block & 0xFFFF_0000,
+            })
+            .is_err()
+        {
             tracing::warn!("pathfinder: the planner stopped");
             self.dead = true;
             self.thread = None;
@@ -192,11 +204,11 @@ fn plan_forever(data_dir: std::path::PathBuf, jobs: Receiver<Ask>, answers: Send
             ask = next;
         }
         let started = Instant::now();
-        let here = navarea::block_at(ask.from);
+        let here = ask.block;
         let reusable = area.as_ref().is_some_and(|a| {
             same_capsule(&a.capsule(), &ask.capsule)
                 && a.blocks.contains(&here)
-                && (a.holds(ask.from, ask.to) || a.dungeon)
+                && a.holds(ask.from, ask.to)
         });
         if !reusable {
             let want = navarea::blocks_for(ask.from, ask.to);
@@ -220,7 +232,14 @@ fn plan_forever(data_dir: std::path::PathBuf, jobs: Receiver<Ask>, answers: Send
             // A dungeon is planned on its own block: a goal outside it
             // is reached through a portal, not by walking there.
             Some(a) if a.dungeon && !a.blocks.contains(&navarea::block_at(ask.to)) => None,
-            Some(a) => a.path(ask.from, ask.to),
+            Some(a) => {
+                // Keep a berth from every portal mouth about, save the
+                // one the walk is going to: a portal takes whoever
+                // touches it.
+                a.avoid = portal_mouths_to_avoid(ask.from, ask.to);
+                a.berth = PORTAL_BERTH;
+                a.path(ask.from, ask.to)
+            }
             None => None,
         };
         let answer = Answer {
@@ -233,6 +252,22 @@ fn plan_forever(data_dir: std::path::PathBuf, jobs: Receiver<Ask>, answers: Send
             return;
         }
     }
+}
+
+/// How close a walk may come to a portal it is not going to.
+pub const PORTAL_BERTH: f32 = 3.0;
+
+/// The mouths of the portals within reach of a walk from `from` to
+/// `to`, except any the walk is going to (within a stride of `to`).
+pub fn portal_mouths_to_avoid(from: Vec3, to: Vec3) -> Vec<glam::Vec2> {
+    let (f, t) = (glam::Vec2::new(from.x, from.y), glam::Vec2::new(to.x, to.y));
+    let mid = (f + t) * 0.5;
+    let reach = f.distance(t) * 0.5 + 200.0;
+    ac_world::portals::near(mid, reach)
+        .into_iter()
+        .map(|p| p.from_xy())
+        .filter(|m| m.distance(t) > PORTAL_BERTH + 1.5)
+        .collect()
 }
 
 fn same_capsule(a: &Capsule, b: &Capsule) -> bool {

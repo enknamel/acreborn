@@ -77,6 +77,11 @@ pub struct Area {
     pub nav: NavGraph,
     /// A dungeon area: no terrain under it, fine lattice.
     pub dungeon: bool,
+    /// Spots to keep away from, and how far: the mouths of portals that
+    /// are not the one being walked to. A portal takes whoever touches
+    /// it, so a walk that brushes the wrong one ends somewhere else.
+    pub avoid: Vec<Vec2>,
+    pub berth: f32,
     /// Which of the region's terrain types are open sea, by index. A
     /// character cannot walk into the ocean -- the server refuses the
     /// move and it stops dead against nothing, which is what an
@@ -160,6 +165,8 @@ impl Area {
             scenes,
             nav,
             dungeon,
+            avoid: Vec::new(),
+            berth: 0.0,
             sea_types,
         })
     }
@@ -188,6 +195,8 @@ impl Area {
             nav,
             dungeon,
             sea_types,
+            avoid,
+            berth,
             ..
         } = self;
         let terrain = |x: f32, y: f32| -> Option<f32> {
@@ -204,16 +213,29 @@ impl Area {
                 None => false,
             }
         };
+        // The berth around the portals we are not walking to: nowhere
+        // to stand, floor or no floor, indoors or out.
+        let no_go = |x: f32, y: f32| -> bool {
+            let here = Vec2::new(x, y);
+            avoid.iter().any(|a| a.distance(here) < *berth)
+        };
+        let keep_off = *berth > 0.0 && !avoid.is_empty();
         let ground = Ground {
             collision,
             terrain: (!*dungeon).then_some(&terrain),
             sea: (!*dungeon).then_some(&sea),
+            no_go: keep_off.then_some(&no_go),
         };
         f(&ground, nav)
     }
 
-    /// This area can plan a walk from `from` to `to`.
+    /// This area can plan a walk from `from` to `to`. A dungeon holds
+    /// whatever is inside it: its cells do not keep to the landblock's
+    /// square on the map, so positions in it are not judged by block.
     pub fn holds(&self, from: Vec3, to: Vec3) -> bool {
+        if self.dungeon {
+            return true;
+        }
         self.blocks.contains(&block_at(from)) && self.blocks.contains(&block_at(to))
     }
 
@@ -237,7 +259,27 @@ impl Area {
     /// with `to` and not including `from`. `None` when the two are not
     /// connected by anything the capsule can walk.
     pub fn path(&mut self, from: Vec3, to: Vec3) -> Option<Vec<Vec3>> {
+        // A goal handed down from a coarser map floats above or below
+        // the ground it stands on -- the overland grid is 24 m wide and
+        // misses a hillside by a storey -- and a node is only found
+        // within a couple of metres of the height asked for. Put both
+        // ends on the ground first.
+        let from = self.grounded(from);
+        let to = self.grounded(to);
         self.with_ground(|ground, nav| nav.find_path(ground, from, to))
+    }
+
+    /// `p` with its height taken from the terrain under it, outdoors,
+    /// when the height given is far from it. Indoors, and where there
+    /// is no terrain, the height given stands.
+    pub fn grounded(&self, p: Vec3) -> Vec3 {
+        if self.dungeon {
+            return p;
+        }
+        match self.terrain_at(p.x, p.y) {
+            Some(z) if (z - p.z).abs() > 2.0 => Vec3::new(p.x, p.y, z),
+            _ => p,
+        }
     }
 
     /// Build every chunk of the graph now. For tools and tests: paths
