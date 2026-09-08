@@ -282,8 +282,10 @@ plaque), `appraisal` (shows the last thing assessed, and never opens by
 itself), `salvage`
 (opens when the Ust is used), `confirm` (the
 server's Yes/No questions), `options`, `combat` (the height/power bar),
-`autoplay` (see below), `menu` (Escape: every panel with its key, the
-keys themselves, and Quit). Only the inventory (I), map (M), skills (K),
+`autoplay` (see below), `fleet` (every character being played, in this
+process and on the bus, with autoplay/follow/regroup/stop controls; see
+`docs/multi-session.md`, "Fleet view"), `menu` (Escape: every panel
+with its key, the keys themselves, and Quit). Only the inventory (I), map (M), skills (K),
 spellbook (P) and spell bar (B) have a key out of the box; the menu opens
 the rest, and any key can be changed there -- the bindings live in the
 settings file, so every client on the machine shares them (`crate::keys`).

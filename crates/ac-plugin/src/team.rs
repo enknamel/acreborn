@@ -28,6 +28,11 @@ use crate::{Ctx, Plugin};
 
 /// The topic a session's word about itself goes out on.
 pub const MATE_TOPIC: &str = "autoplay.mate";
+/// The topic the fleet view asks another process's session to do
+/// something on: `{"process", "session", "name", "action"}`, where
+/// `action` is a [`Request`] word. The team plugin in the process named
+/// applies it to the session named (see [`Request::apply`]).
+pub const REQUEST_TOPIC: &str = "fleet.request";
 /// How often each session speaks.
 const SAY_EVERY: Duration = Duration::from_millis(500);
 /// A mate not heard from for this long has gone.
@@ -71,22 +76,19 @@ impl Roster {
             .map(|h| h.mate.clone())
             .filter(|m| !(m.name == me.name && m.guid == me.guid))
             .collect();
-        let named = |lead_only: bool| {
-            mates
-                .iter()
-                .chain(std::iter::once(me))
-                .filter(|m| !lead_only || m.leads)
-                .map(|m| m.name.as_str())
-                .filter(|n| !n.is_empty())
-                .min()
-                .map(str::to_string)
-        };
-        let first = named(true).or_else(|| named(false));
+        let first = leader_name(mates.iter().chain(std::iter::once(me)));
         let leader = first.as_deref() == Some(me.name.as_str());
         for m in &mut mates {
             m.leader = first.as_deref() == Some(m.name.as_str());
         }
         TeamView { mates, leader }
+    }
+
+    /// Everyone heard, with where each spoke from (process, session).
+    pub fn iter(&self) -> impl Iterator<Item = (&str, usize, &Mate)> {
+        self.heard
+            .iter()
+            .map(|((p, s), h)| (p.as_str(), *s, &h.mate))
     }
 
     pub fn len(&self) -> usize {
@@ -98,6 +100,120 @@ impl Roster {
     }
 }
 
+/// Who leads among `mates`: the first by name of those that asked to,
+/// else the first by name of all. `None` when nobody has a name.
+pub fn leader_name<'a>(mates: impl Iterator<Item = &'a Mate> + Clone) -> Option<String> {
+    let named = |lead_only: bool| {
+        mates
+            .clone()
+            .filter(|m| !lead_only || m.leads)
+            .map(|m| m.name.as_str())
+            .filter(|n| !n.is_empty())
+            .min()
+            .map(str::to_string)
+    };
+    named(true).or_else(|| named(false))
+}
+
+/// What the fleet view can ask of a session, its own or another
+/// process's (over [`REQUEST_TOPIC`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Request {
+    /// Play on its own.
+    AutoplayOn,
+    AutoplayOff,
+    /// Follow the leader about (turns the team rules on too).
+    FollowOn,
+    FollowOff,
+    /// Come to the leader now: follow on, and whatever was being
+    /// fought is let go.
+    Regroup,
+    /// Autoplay off, the journey and the fight cancelled.
+    Stop,
+}
+
+impl Request {
+    pub const ALL: [Request; 6] = [
+        Request::AutoplayOn,
+        Request::AutoplayOff,
+        Request::FollowOn,
+        Request::FollowOff,
+        Request::Regroup,
+        Request::Stop,
+    ];
+
+    /// The word on the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Request::AutoplayOn => "autoplay_on",
+            Request::AutoplayOff => "autoplay_off",
+            Request::FollowOn => "follow_on",
+            Request::FollowOff => "follow_off",
+            Request::Regroup => "regroup",
+            Request::Stop => "stop",
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<Request> {
+        Request::ALL.into_iter().find(|r| r.as_str() == word)
+    }
+
+    /// Do it to `client`.
+    pub fn apply(self, client: &mut ac_client::Client) {
+        let cfg = &mut client.autoplay.config;
+        match self {
+            Request::AutoplayOn => cfg.enabled = true,
+            Request::AutoplayOff => cfg.enabled = false,
+            Request::FollowOn => {
+                cfg.team.enabled = true;
+                cfg.team.follow = true;
+            }
+            Request::FollowOff => cfg.team.follow = false,
+            Request::Regroup => {
+                cfg.enabled = true;
+                cfg.team.enabled = true;
+                cfg.team.follow = true;
+                client.autoplay.drop_target();
+                client.attack_target = None;
+            }
+            Request::Stop => {
+                cfg.enabled = false;
+                client.autoplay.drop_target();
+                client.attack_target = None;
+                client.follow = None;
+                if client.traveling() {
+                    client.cancel_travel();
+                }
+            }
+        }
+    }
+
+    /// The message asking `process`'s session `session` (whose
+    /// character is `name`) to do this.
+    pub fn message(self, process: &str, session: usize, name: &str) -> Value {
+        serde_json::json!({
+            "process": process,
+            "session": session,
+            "name": name,
+            "action": self.as_str(),
+        })
+    }
+
+    /// Read a [`REQUEST_TOPIC`] message: what it asks and of whom, as
+    /// `(process, session, name, request)`.
+    pub fn from_message(value: &Value) -> Option<(String, usize, String, Request)> {
+        let process = value.get("process")?.as_str()?.to_string();
+        let session = value.get("session")?.as_u64()? as usize;
+        let name = value
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let request = Request::parse(value.get("action")?.as_str()?)?;
+        Some((process, session, name, request))
+    }
+}
+
 /// The plugin: one roster shared by every session in this process, and
 /// when each session last spoke.
 #[derive(Default)]
@@ -106,14 +222,27 @@ pub struct Team {
     last_said: BTreeMap<usize, Instant>,
 }
 
-/// What a session says about itself.
-fn describe(client: &ac_client::Client, session: usize) -> Option<Mate> {
+/// A vital (0 health, 1 stamina, 2 mana) as a fraction of its maximum,
+/// 1.0 when the sheet has not arrived.
+pub fn vital_fraction(stats: &ac_world::stats::PlayerStats, i: usize) -> f32 {
+    let max = stats.vital_max(i);
+    if max == 0 {
+        return 1.0;
+    }
+    (stats.vitals[i].current as f32 / max as f32).clamp(0.0, 1.0)
+}
+
+/// What a session says about itself; `None` before it is in the world
+/// with a name. The fleet view builds its rows for this process's
+/// sessions from the same word.
+pub fn describe(client: &ac_client::Client, session: usize) -> Option<Mate> {
     let player = client.player.as_ref()?;
     let cfg = &client.autoplay.config.team;
     let name = client.world.stats.name.clone();
     if name.is_empty() {
         return None;
     }
+    let stats = &client.world.stats;
     let guid = client.world.player_guid.unwrap_or(0);
     let target = client
         .attack_target
@@ -151,6 +280,13 @@ fn describe(client: &ac_client::Client, session: usize) -> Option<Mate> {
         leads: cfg.lead,
         flying: client.noclip(),
         cell: player.cell,
+        level: stats.level,
+        total_xp: stats.total_xp,
+        available_xp: stats.available_xp,
+        stamina: vital_fraction(stats, 1),
+        mana: vital_fraction(stats, 2),
+        autoplay: client.autoplay.config.enabled,
+        following: cfg.enabled && cfg.follow && !cfg.lead,
     })
 }
 
@@ -186,10 +322,24 @@ impl Plugin for Team {
             self.roster.hear(&process, from, mate, now);
         }
         self.roster.forget_quiet(now);
+        // What another process's fleet view asked of this session. (The
+        // fleet view here applies its own asks directly.)
+        let asked: Vec<Request> = cx
+            .board
+            .messages_on(REQUEST_TOPIC)
+            .filter(|m| m.is_remote())
+            .filter_map(|m| Request::from_message(&m.value))
+            .filter(|(process, s, _, _)| process == &me_name && *s == session)
+            .map(|(_, _, _, r)| r)
+            .collect();
 
         let Some(client) = cx.try_client() else {
             return;
         };
+        for r in asked {
+            r.apply(client);
+            tracing::info!(request = r.as_str(), session, "fleet request applied");
+        }
         if !client.autoplay.config.team.enabled {
             // Off the team: the rules see nobody.
             if !client.autoplay.team.mates.is_empty() || client.autoplay.team.leader {
@@ -266,6 +416,33 @@ mod tests {
         r.forget_quiet(now + FORGET_AFTER + Duration::from_secs(2));
         assert!(r.is_empty());
         assert!(r.view_for(&me).leader, "alone again, so leading again");
+    }
+
+    #[test]
+    fn requests_round_trip_through_their_messages() {
+        for r in Request::ALL {
+            assert_eq!(Request::parse(r.as_str()), Some(r));
+            let m = r.message("bob", 2, "Brannoc");
+            assert_eq!(
+                Request::from_message(&m),
+                Some(("bob".to_string(), 2, "Brannoc".to_string(), r))
+            );
+        }
+        assert_eq!(Request::parse("dance"), None);
+        assert_eq!(
+            Request::from_message(&serde_json::json!({"process": "bob", "action": "stop"})),
+            None,
+            "a request names its session"
+        );
+        // The word comes from the roster, whichever process spoke.
+        let mut r = Roster::default();
+        r.hear("bob", 1, mate("Brannoc", 5), Instant::now());
+        let heard: Vec<_> = r.iter().collect();
+        assert_eq!(heard.len(), 1);
+        assert_eq!(
+            (heard[0].0, heard[0].1, heard[0].2.name.as_str()),
+            ("bob", 1, "Brannoc")
+        );
     }
 
     #[test]

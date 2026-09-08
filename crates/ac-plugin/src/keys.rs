@@ -70,6 +70,11 @@ pub const ACTIONS: &[Action] = &[
         default: None,
     },
     Action {
+        id: "fleet",
+        label: "Fleet",
+        default: None,
+    },
+    Action {
         id: "fellowship",
         label: "Fellowship",
         default: None,

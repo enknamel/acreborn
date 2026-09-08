@@ -238,6 +238,21 @@ pub struct WorldObject {
     pub display: Option<Position>,
     /// Server-issued move-to target, predicted locally until an update.
     pub target: Option<MoveTarget>,
+    /// The velocity the server last sent, in metres a second (world
+    /// axes). A spell projectile is created with the one it flies at
+    /// and gets no position updates on the way: `position` and this
+    /// are its whole path.
+    pub velocity: Vec3,
+    /// `PhysicsState` bits as last sent (see `object::PHYSICS_STATE_*`).
+    pub physics_state: u32,
+}
+
+impl WorldObject {
+    /// Something the server is flying at a target: a spell projectile,
+    /// an arrow (`PhysicsState::Missile`).
+    pub fn is_missile(&self) -> bool {
+        self.physics_state & object::PHYSICS_STATE_MISSILE != 0
+    }
 }
 
 impl WorldObject {
@@ -509,6 +524,8 @@ impl World {
                         commands: previous.map(|o| o.commands).unwrap_or_default(),
                         display: oc.position,
                         target: None,
+                        velocity: oc.velocity,
+                        physics_state: oc.physics_state,
                     };
                     self.objects.insert(obj.guid, obj);
                     self.generation += 1;
@@ -572,6 +589,9 @@ impl World {
                         if o.display.is_none() {
                             o.display = Some(up.position);
                         }
+                        if up.flags & 0x01 != 0 {
+                            o.velocity = up.velocity;
+                        }
                         // The server's own position supersedes local prediction.
                         o.target = None;
                         self.generation += 1;
@@ -602,6 +622,7 @@ impl World {
                         let hidden = state
                             & (object::PHYSICS_STATE_NO_DRAW | object::PHYSICS_STATE_HIDDEN)
                             != 0;
+                        o.physics_state = state;
                         if o.no_draw != hidden {
                             o.no_draw = hidden;
                             self.generation += 1;

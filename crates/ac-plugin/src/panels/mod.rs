@@ -31,6 +31,7 @@ pub mod combat;
 pub mod components;
 pub mod confirm;
 pub mod fellowship;
+pub mod fleet;
 pub mod housing;
 pub mod inventory;
 pub mod loot;
@@ -487,6 +488,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(components::Components::default()),
         Box::new(buffs::Buffs::default()),
         Box::new(autoplay::Autoplay::default()),
+        Box::new(fleet::Fleet::default()),
         Box::new(menu::Menu::default()),
     ]
 }
@@ -526,6 +528,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         )),
         Box::new(buffs::Buffs::demo(tables.as_ref().map(|(t, _)| &**t))),
         Box::new(autoplay::Autoplay::demo()),
+        Box::new(fleet::Fleet::demo()),
         Box::new(menu::Menu::demo()),
     ]
 }

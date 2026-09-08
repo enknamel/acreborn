@@ -82,6 +82,12 @@ pub mod physics_flags {
 pub const PHYSICS_STATE_NO_DRAW: u32 = 0x20;
 /// `PhysicsState` bit for hidden (admin-invisible) objects.
 pub const PHYSICS_STATE_HIDDEN: u32 = 0x4000;
+/// `PhysicsState` bit the server sets on things it flies at a target:
+/// spell projectiles, arrows, thrown weapons.
+pub const PHYSICS_STATE_MISSILE: u32 = 0x40;
+/// `PhysicsState` bit for things that fall: a lobbed spell (an arc)
+/// or an arrow flies a ballistic path, a bolt a straight one.
+pub const PHYSICS_STATE_GRAVITY: u32 = 0x400;
 
 pub mod weenie_flags {
     pub const PLURAL_NAME: u32 = 0x1;

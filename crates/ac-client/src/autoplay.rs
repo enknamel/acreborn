@@ -97,6 +97,9 @@ pub struct Survive {
     /// The vitae penalty, as a fraction, from which the fights are
     /// picked with care: 0.25 is five deaths' worth.
     pub vitae_above: f32,
+    /// Step out of the way of spells flying at us instead of standing
+    /// in them (see `crate::dodge`).
+    pub dodge: bool,
 }
 
 impl Default for Survive {
@@ -113,6 +116,7 @@ impl Default for Survive {
             corpse_minutes: 10.0,
             vitae_wait: true,
             vitae_above: 0.25,
+            dodge: true,
         }
     }
 }
@@ -395,6 +399,19 @@ pub struct Mate {
     /// The cell it stands in: indoors (a hub, a dungeon) is somewhere
     /// a journey cannot be planned to from outside.
     pub cell: u32,
+    /// Level and experience, total and unspent, as the sheet has them
+    /// (0 before it arrives). The fleet view works XP an hour out of
+    /// the total over time.
+    pub level: i32,
+    pub total_xp: i64,
+    pub available_xp: i64,
+    /// Stamina and mana as fractions of their maximum, like `health`.
+    pub stamina: f32,
+    pub mana: f32,
+    /// Its rules are on: it plays on its own.
+    pub autoplay: bool,
+    /// It follows the leader about (`Team::follow`, and not leading).
+    pub following: bool,
 }
 
 /// The team as the host last saw it.
@@ -550,6 +567,8 @@ pub enum Doing {
     Traveling,
     /// On a run to town.
     Shopping,
+    /// Stepping out of a spell's way (see `crate::dodge`).
+    Dodging,
 }
 
 impl Doing {
@@ -568,6 +587,7 @@ impl Doing {
             Doing::Growing => "spending experience",
             Doing::Traveling => "travelling",
             Doing::Shopping => "in town",
+            Doing::Dodging => "dodging",
         }
     }
 }
@@ -670,6 +690,14 @@ impl Autoplay {
     /// fighter's counterpart to `Client::attack_target`.
     pub fn casting_at(&self) -> Option<u32> {
         self.casting_at
+    }
+
+    /// Let go of whatever is being fought: the spells' target and the
+    /// engagement (the fleet view's "regroup" and "stop"; the caller
+    /// clears `Client::attack_target` itself).
+    pub fn drop_target(&mut self) {
+        self.casting_at = None;
+        self.engaged = None;
     }
 
     /// A spell of any kind went out less than a cast ago, so another
@@ -1014,6 +1042,11 @@ impl Client {
                 self.autoplay.doing = Doing::Idle;
                 self.autoplay.status.clear();
             }
+            return;
+        }
+        // A spell on its way to us is stepped out of before anything
+        // else, healing included (see `crate::dodge`).
+        if self.autoplay_dodge(now) {
             return;
         }
         if self.autoplay_survive(now) {
@@ -1846,6 +1879,12 @@ impl Client {
                     }
                     self.remember_journey();
                     self.arm_for(guid, stance);
+                    if missile {
+                        let range = self.attack_range(crate::dodge::How::Missile);
+                        if self.autoplay_approach(guid, &name, range) {
+                            return true;
+                        }
+                    }
                     self.enter_combat();
                     self.attack(guid);
                     self.autoplay.last_attack = Some(now);
@@ -1890,6 +1929,15 @@ impl Client {
         }
         self.remember_journey();
         self.arm_for(guid, stance);
+        // A bow refused for range shoots nothing: close in first (see
+        // `crate::dodge`). A swing from too far the server walks us
+        // in for.
+        if missile {
+            let range = self.attack_range(crate::dodge::How::Missile);
+            if self.autoplay_approach(guid, &name, range) {
+                return true;
+            }
+        }
         self.enter_combat();
         self.attack(guid);
         self.autoplay.last_attack = Some(now);
@@ -2015,6 +2063,12 @@ impl Client {
                 .find(|(id, _)| *id == spell)
                 .map(|(_, n)| n.clone())
                 .unwrap_or_default();
+            // From too far off the server refuses the cast outright:
+            // close in first (see `crate::dodge`).
+            let range = self.attack_range(crate::dodge::How::Spell(spell));
+            if self.autoplay_approach(guid, &name, range) {
+                return true;
+            }
             self.cast(spell);
             self.autoplay.last_cast = Some(now);
             let element = ac_world::elements::spell_element(spell)

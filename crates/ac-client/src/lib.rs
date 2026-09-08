@@ -8,6 +8,7 @@ pub mod autoplay;
 pub mod buffs;
 pub mod creation;
 pub mod daytime;
+pub mod dodge;
 pub mod emotes;
 pub mod growth;
 pub mod items;
@@ -203,6 +204,11 @@ pub struct Client {
     /// Someone being kept up with (a team's leader): where they are and
     /// how close to stop. Walked or flown to like a journey's leg.
     pub follow: Option<Follow>,
+    /// A sidestep out of a spell's way (see `dodge`): where to, and
+    /// until when. Outranks every other movement goal while it lasts.
+    pub dodge_to: Option<(glam::Vec3, Instant)>,
+    /// The projectiles being watched for it.
+    pub dodge: dodge::State,
     /// Client-side multiplier on the run speed (see
     /// [`player::run_rate`] for the game's own rate and the server's
     /// tolerance). 1 is the game as it was.
@@ -318,6 +324,8 @@ impl Client {
             salvage_open: false,
             pending_jump: None,
             follow: None,
+            dodge_to: None,
+            dodge: dodge::State::default(),
             speed_boost: DEFAULT_SPEED_BOOST,
             jump_height: DEFAULT_JUMP_HEIGHT,
             appraisals: std::collections::HashMap::new(),
@@ -723,24 +731,53 @@ impl Client {
             {
                 self.steering.reset();
             }
-            {
-                let goal = match self.move_to {
-                    Some(ac_world::object::MoveTarget::Object(g)) => self
-                        .world
-                        .objects
-                        .get(&g)
-                        .and_then(|o| o.display.or(o.position))
-                        .map(|p| (ac_world::landblock_origin(p.cell) + p.local, 1.0, p.cell)),
-                    Some(ac_world::object::MoveTarget::Position { cell, local }) => {
-                        Some((ac_world::landblock_origin(cell) + local, 0.3, cell))
+            // A sidestep out of a spell's way comes before every other
+            // goal, for the moment it lasts; it ends when its time is
+            // up, when it is reached, or when the user takes over.
+            let dodging = match self.dodge_to {
+                Some((target, until)) => {
+                    let d = target - pl.world_position();
+                    let reached = glam::Vec2::new(d.x, d.y).length() < dodge::STOP;
+                    if manual || now >= until || reached {
+                        self.dodge_to = None;
+                        None
+                    } else {
+                        Some(target)
                     }
-                    None => travel_goal.or_else(|| {
-                        self.follow.map(|f| {
-                            let bx = (f.target.x / 192.0).floor().clamp(0.0, 255.0) as u32;
-                            let by = (f.target.y / 192.0).floor().clamp(0.0, 255.0) as u32;
-                            (f.target, f.stop, (bx << 24) | (by << 16))
-                        })
-                    }),
+                }
+                None => None,
+            };
+            {
+                let goal = if let Some(target) = dodging {
+                    // Straight there: the step was checked for room
+                    // when it was chosen, and there is no time to plan.
+                    let d = target - pl.world_position();
+                    let flat = glam::Vec2::new(d.x, d.y);
+                    if flat.length() > 1e-3 {
+                        pl.heading = (-flat.x).atan2(flat.y);
+                    }
+                    input.forward = 1.0;
+                    input.run = true;
+                    None
+                } else {
+                    match self.move_to {
+                        Some(ac_world::object::MoveTarget::Object(g)) => self
+                            .world
+                            .objects
+                            .get(&g)
+                            .and_then(|o| o.display.or(o.position))
+                            .map(|p| (ac_world::landblock_origin(p.cell) + p.local, 1.0, p.cell)),
+                        Some(ac_world::object::MoveTarget::Position { cell, local }) => {
+                            Some((ac_world::landblock_origin(cell) + local, 0.3, cell))
+                        }
+                        None => travel_goal.or_else(|| {
+                            self.follow.map(|f| {
+                                let bx = (f.target.x / 192.0).floor().clamp(0.0, 255.0) as u32;
+                                let by = (f.target.y / 192.0).floor().clamp(0.0, 255.0) as u32;
+                                (f.target, f.stop, (bx << 24) | (by << 16))
+                            })
+                        }),
+                    }
                 };
                 tracing::trace!(
                     "move: goal {goal:?} manual {manual} move_to {:?} travelling {}",

@@ -162,6 +162,56 @@ what turns up, and:
 Every process has to be on the bus (`--bus`) for the sessions to hear
 each other; sessions in one process hear each other anyway.
 
+## Fleet view
+
+The Fleet panel (menu → Fleet; no key out of the box, bindable there;
+`crates/ac-plugin/src/panels/fleet.rs`) is the leader's overview: one
+row per character being played, in this process and in every other
+process on the bus, with the controls a leader needs.
+
+Each row shows the name (a gold star marks the leader, "me" the
+session the window shows, "here" or the process name says where it is
+played), level, health, stamina and mana bars, XP an hour, where it is
+(the nearest town, the distance to it when out of town, and the
+landmark stood at), how far it is from the leader, what its rules are
+doing ("fighting Drudge Skulker"), and flags: following, flying, in a
+fellowship, dead. The leader sorts first, the rest by name. A row of
+this process is clickable and switches the window to that session
+(what Tab does, chosen by name). The header sums it up: sessions,
+alive, mean health, XP an hour over everyone. **Compact** (a checkbox
+in the header, kept in the settings as `fleet.compact`) draws one line
+per character instead of the table, small enough to leave open on the
+leader's screen.
+
+Controls, per row and for everyone at once: **autoplay** on or off,
+**follow** on or off (turns the team rules on too), **regroup**
+(everyone: autoplay and follow on, and whatever they were fighting let
+go, so they come to the leader now) and **stop** (autoplay off, the
+journey and the fight cancelled). On a session of this process they act
+at once. On another process's session the panel posts
+`{"process", "session", "name", "action"}` on the bus topic
+`fleet.request`, and the team plugin in that process applies it to the
+session named (`ac_plugin::team::Request`: `autoplay_on`,
+`autoplay_off`, `follow_on`, `follow_off`, `regroup`, `stop`). A script
+or anything else on the bus can post the same.
+
+Where the rows come from: this process's sessions are read directly
+(`team::describe`, the same word the team plugin speaks), whether or
+not their team rules are on. Other processes' sessions are heard on
+`autoplay.mate`, which a session only speaks with its team rules on
+(Autoplay panel → Team, or `team_enabled(true)` from a script), so a
+bot that is not on the team does not appear; what each is doing comes
+from `autoplay.event`. The mate word carries, besides what the rules
+need, the level, total and unspent XP, stamina and mana fractions, and
+whether autoplay and follow are on (all `#[serde(default)]`, so older
+speakers still parse). XP an hour is not on the wire: every process
+works it out itself from the totals it has seen, a sample every 5 s
+kept for 15 minutes, and quotes nothing for a character it has watched
+less than 30 s. A process that goes quiet for 6 s drops off the panel.
+
+`acviewer --demo-ui` opens the panel on four sample characters (two
+here, two in a process called `bob`, one of them dead).
+
 ## Resources
 
 What one process shares between its sessions, and what the Nth session
