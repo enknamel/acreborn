@@ -1,6 +1,6 @@
 [package]
 name = "plugin-template"
-description = "A minimal acreborn plugin (a panel, a key, a setting, a command) and an offline runner to try it without a server"
+description = "A minimal acswarm plugin (a panel, a key, a setting, a command) and an offline runner to try it without a server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

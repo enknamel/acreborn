@@ -29,7 +29,7 @@ Binaries:
 | bin | role |
 |---|---|
 | `acviewer` | The client: wgpu renderer, egui overlay (`ui.rs`: the status line and the chat box; every other panel is a plugin), multi-session host (`Net` per session), landblock streaming, third-person camera, and the built-in plugins in `plugins/`. Also a standalone viewer for landblocks, models, particle emitters and chargen looks, and a headless `--screenshot` runner. |
-| `aclauncher` | Desktop launch manager: servers and accounts in `~/.acreborn/launcher.json`, one `acviewer --connect` process per launch, logs in `~/.acreborn/logs/`. |
+| `aclauncher` | Desktop launch manager: servers and accounts in `~/.acswarm/launcher.json`, one `acviewer --connect` process per launch, logs in `~/.acswarm/logs/`. |
 | `acclient` | The older headless CLI built directly on `ac-net`/`ac-world`: log in, optionally `--create` a character, enter the world, print messages. Still the quickest way to create a character. |
 | `acdat` | DAT CLI: `info`, `ls`, `cat`, `extract`, `decode` (asset as JSON), `wav`, `manifest` and `diff` (against an ACE-generated manifest). |
 

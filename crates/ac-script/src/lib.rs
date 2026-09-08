@@ -1,6 +1,6 @@
 //! Scripting plugin: extend the client without recompiling. Every
-//! `*.rhai` file in a directory (`~/.acreborn/scripts`, or
-//! `$ACREBORN_SCRIPTS`) is loaded by a [Rhai](https://rhai.rs) engine and
+//! `*.rhai` file in a directory (`~/.acswarm/scripts`, or
+//! `$ACSWARM_SCRIPTS`) is loaded by a [Rhai](https://rhai.rs) engine and
 //! reloaded when it changes (checked at most once a second). A script
 //! defines any of these functions:
 //!
@@ -43,15 +43,15 @@ pub use bridge::CtxApi;
 pub use scripts::Scripts;
 pub use testing::{Recorder, ScriptHarness};
 
-/// `$ACREBORN_SCRIPTS`, else `~/.acreborn/scripts`.
+/// `$ACSWARM_SCRIPTS`, else `~/.acswarm/scripts`.
 pub fn default_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("ACREBORN_SCRIPTS") {
+    if let Some(dir) = std::env::var_os("ACSWARM_SCRIPTS") {
         return PathBuf::from(dir);
     }
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    home.join(".acreborn").join("scripts")
+    home.join(".acswarm").join("scripts")
 }
 
 /// The event map handed to `on_event(ev)`.
@@ -238,6 +238,6 @@ mod tests {
     fn default_dir_honours_override() {
         // Only checks the shape: the env var is process-global.
         let d = default_dir();
-        assert!(d.ends_with("scripts") || std::env::var_os("ACREBORN_SCRIPTS").is_some());
+        assert!(d.ends_with("scripts") || std::env::var_os("ACSWARM_SCRIPTS").is_some());
     }
 }

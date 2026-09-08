@@ -1,4 +1,4 @@
-//! The persistent launcher config, `~/.acreborn/launcher.json`.
+//! The persistent launcher config, `~/.acswarm/launcher.json`.
 //!
 //! Passwords are stored in plain text: the file is only as private as the
 //! user's home directory.
@@ -96,19 +96,19 @@ pub fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// `~/.acreborn`.
-pub fn acreborn_dir() -> PathBuf {
-    home_dir().join(".acreborn")
+/// `~/.acswarm`.
+pub fn acswarm_dir() -> PathBuf {
+    home_dir().join(".acswarm")
 }
 
-/// `~/.acreborn/launcher.json`.
+/// `~/.acswarm/launcher.json`.
 pub fn default_path() -> PathBuf {
-    acreborn_dir().join("launcher.json")
+    acswarm_dir().join("launcher.json")
 }
 
-/// `~/.acreborn/logs`.
+/// `~/.acswarm/logs`.
 pub fn logs_dir() -> PathBuf {
-    acreborn_dir().join("logs")
+    acswarm_dir().join("logs")
 }
 
 fn default_data_dir() -> PathBuf {

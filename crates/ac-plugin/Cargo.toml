@@ -1,6 +1,6 @@
 [package]
 name = "ac-plugin"
-description = "The plugin interface of the acreborn client: read the game, act in it, draw UI"
+description = "The plugin interface of the acswarm client: read the game, act in it, draw UI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

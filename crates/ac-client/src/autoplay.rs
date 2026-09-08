@@ -352,7 +352,7 @@ impl Default for Team {
             role: Role::Fighter,
             focus_fire: true,
             fellowship: true,
-            fellowship_name: "acreborn".into(),
+            fellowship_name: "acswarm".into(),
             debuffs: Vec::new(),
             share_supplies: true,
             keep_stocked: vec![("Healing Kit".into(), 1)],

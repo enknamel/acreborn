@@ -21,7 +21,7 @@
 //!
 //! `post` and `set` flow both ways: a client sends them, the hub forwards
 //! them to the other clients (`set` also updates the hub's map). The
-//! default address is `127.0.0.1:9500`; the `ACREBORN_BUS` environment
+//! default address is `127.0.0.1:9500`; the `ACSWARM_BUS` environment
 //! variable overrides it ([`default_addr`]).
 //!
 //! # Hosting
@@ -57,12 +57,12 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 pub use serde_json::{self, Value};
 
-/// The address used when neither the caller nor `ACREBORN_BUS` names one.
+/// The address used when neither the caller nor `ACSWARM_BUS` names one.
 pub const DEFAULT_ADDR: &str = "127.0.0.1:9500";
 /// Environment variable overriding [`DEFAULT_ADDR`].
-pub const ADDR_ENV: &str = "ACREBORN_BUS";
+pub const ADDR_ENV: &str = "ACSWARM_BUS";
 
-/// The address to use: `ACREBORN_BUS` if set, else [`DEFAULT_ADDR`].
+/// The address to use: `ACSWARM_BUS` if set, else [`DEFAULT_ADDR`].
 pub fn default_addr() -> String {
     std::env::var(ADDR_ENV)
         .ok()

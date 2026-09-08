@@ -48,7 +48,7 @@ fn main() {
 
     let mut host = Host::new();
     host.register(Box::new(Template::new()));
-    // The settings file: `$ACREBORN_CONFIG_DIR/ui.json`, shared with the
+    // The settings file: `$ACSWARM_CONFIG_DIR/ui.json`, shared with the
     // real client, so what this run saves the viewer will load.
     host.load_settings(ac_plugin::Settings::default_path());
     println!("plugins: {:?}", host.names());

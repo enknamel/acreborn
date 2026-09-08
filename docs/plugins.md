@@ -239,8 +239,8 @@ can host plugins the same way: `Host::new()`, `register`, then
 
 ## Settings
 
-What the UI remembers between runs lives in `~/.config/acreborn/ui.json`
-(`$ACREBORN_CONFIG_DIR` overrides the directory): where every panel was
+What the UI remembers between runs lives in `~/.config/acswarm/ui.json`
+(`$ACSWARM_CONFIG_DIR` overrides the directory): where every panel was
 dragged, which panels are open, and each panel's own state (the
 inventory's search, chips, sort and folded packs; the map's tab, follow
 and zoom). The host reads it at startup, writes it when the window

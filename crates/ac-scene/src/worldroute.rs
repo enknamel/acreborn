@@ -651,7 +651,7 @@ mod tests {
         };
         let assets = crate::Assets::open(dir).unwrap();
         let region = assets.region().unwrap();
-        let cache = std::env::temp_dir().join("acreborn-test-cache");
+        let cache = std::env::temp_dir().join("acswarm-test-cache");
         let grid = WorldGrid::load_cached(&assets, &cache).unwrap();
         let map = |ns: f32, ew: f32| Vec2::new((ew + 102.0) * 240.0, (ns + 102.0) * 240.0);
         let holtburg = map(42.1, 33.6);

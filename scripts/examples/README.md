@@ -1,7 +1,7 @@
 # Example scripts
 
-Copy any of these into `~/.acreborn/scripts` (or the directory named by
-`$ACREBORN_SCRIPTS`) while the client runs: it picks them up within a
+Copy any of these into `~/.acswarm/scripts` (or the directory named by
+`$ACSWARM_SCRIPTS`) while the client runs: it picks them up within a
 second, and reloads a file whenever it changes. `/scripts` lists what is
 loaded; `/scripts reload` reloads everything. Errors show in the chat log.
 

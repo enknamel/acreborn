@@ -53,7 +53,7 @@ fn cached_round_trips_through_the_file() {
         return;
     };
     let assets = Assets::open(dir).unwrap();
-    let tmp = std::env::temp_dir().join(format!("acreborn-worldmap-{}", std::process::id()));
+    let tmp = std::env::temp_dir().join(format!("acswarm-worldmap-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
     // Reuse the grid cache when there is one so the test does not read

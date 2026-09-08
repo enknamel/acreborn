@@ -309,7 +309,7 @@ fn world_grid_matches_the_terrain_mesh() {
         return;
     };
     let assets = Assets::open(dir).unwrap();
-    let cache = std::env::temp_dir().join("acreborn-test-cache");
+    let cache = std::env::temp_dir().join("acswarm-test-cache");
     let grid = ac_scene::worldgrid::WorldGrid::load_cached(&assets, &cache).unwrap();
     assert!(grid.has_block(0xA9, 0xB4), "Holtburg missing");
     // Holtburg's block: every lattice vertex agrees with the mesh vertex.

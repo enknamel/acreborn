@@ -1,13 +1,13 @@
 # plugin-template
 
-The smallest useful acreborn plugin, to copy and rename. It has:
+The smallest useful acswarm plugin, to copy and rename. It has:
 
 * a **panel** (`ui`): a window drawn with `ac_plugin::panels::window`,
   so it is movable and its position is saved with the client's other
   windows; a text field, a checkbox and a button in it;
 * a **key** (`key`): F7 opens and closes the panel;
 * a **setting** (`load` / `save`): whether the panel is open and its
-  options (`template.show`, `template.options` in `~/.config/acreborn/ui.json`);
+  options (`template.show`, `template.options` in `~/.config/acswarm/ui.json`);
 * a **command** (`command`): `/hello [name]` says hello in local chat,
   `/template` toggles the panel;
 * an **event** hook (`on_event`): counts chat lines and remembers what
@@ -39,10 +39,10 @@ plugins: ["template"]
 [1] bus autoplay.event: {"doing":"fighting","name":"","session":0,"text":"fighting Drudge Skulker"} (from None)
 [2] panel drawn at Some([[300.0 120.0] - [560.0 300.0]])
 [2] bus template.hello: {"line":"Hello, Asheron!","who":"Asheron"} (from None)
-settings written at /Users/you/.config/acreborn/ui.json
+settings written at /Users/you/.config/acswarm/ui.json
 ```
 
-Set `ACREBORN_CONFIG_DIR` to write the settings somewhere else. With
+Set `ACSWARM_CONFIG_DIR` to write the settings somewhere else. With
 `--bus` and an `acbot --bus` or `acviewer --bus` running, the runner
 also prints what their characters are doing (the `autoplay.event`
 topic) and they hear the greeting.

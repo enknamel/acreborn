@@ -1,5 +1,5 @@
 //! Settings that survive a restart: a flat JSON object on disk
-//! (`~/.config/acreborn/ui.json` by default) that the host loads at
+//! (`~/.config/acswarm/ui.json` by default) that the host loads at
 //! startup, hands to every plugin ([`crate::Plugin::load`]) and writes
 //! back on exit and every 30 s when something changed
 //! ([`crate::Plugin::save`]). Plugins read and write it through
@@ -29,16 +29,16 @@ impl Settings {
         Self::default()
     }
 
-    /// The config directory: `$ACREBORN_CONFIG_DIR`, else
-    /// `~/.config/acreborn`.
+    /// The config directory: `$ACSWARM_CONFIG_DIR`, else
+    /// `~/.config/acswarm`.
     pub fn config_dir() -> PathBuf {
-        if let Some(d) = std::env::var_os("ACREBORN_CONFIG_DIR") {
+        if let Some(d) = std::env::var_os("ACSWARM_CONFIG_DIR") {
             return PathBuf::from(d);
         }
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_default();
-        home.join(".config").join("acreborn")
+        home.join(".config").join("acswarm")
     }
 
     /// Where the UI settings live: [`Settings::config_dir`]`/ui.json`.
@@ -149,7 +149,7 @@ mod tests {
 
     fn temp_path(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("acreborn-settings-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("acswarm-settings-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir.join("nested").join(FILE_NAME)
     }
@@ -226,11 +226,11 @@ mod tests {
     }
 
     #[test]
-    fn default_path_is_ui_json_under_acreborn() {
+    fn default_path_is_ui_json_under_acswarm() {
         // `config_dir` reads the process environment; only check the
         // shape without touching it, as tests run in parallel.
         let p = Settings::default_path();
         assert_eq!(p.file_name().unwrap(), FILE_NAME);
-        assert!(p.parent().unwrap().ends_with("acreborn"));
+        assert!(p.parent().unwrap().ends_with("acswarm"));
     }
 }

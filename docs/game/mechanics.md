@@ -4,7 +4,7 @@ What the game actually does, gathered from the Asheron's Call community
 wiki (asheron.fandom.com, September 2026 snapshot), the ACE server source
 (read as a specification, never copied) and the client's own DAT tables.
 This is the reference for "does the client behave correctly", independent
-of how the original UI looked: acreborn's UI may be laid out and improved
+of how the original UI looked: acswarm's UI may be laid out and improved
 freely as long as these rules hold.
 
 Wire opcodes are the GameAction (client to server, `0xF7B1` sub-opcode)
@@ -451,7 +451,7 @@ setting a create answers Pending (2) and an enter answers CharacterError
 **Names.** ACE checks only the taboo table (NameBanned, 4), the creature
 name list when `creature_name_check` is on (also 4) and uniqueness
 (NameInUse, 3); it has no length or character rule. The retail client
-allowed letters, spaces, hyphens and apostrophes; acreborn's
+allowed letters, spaces, hyphens and apostrophes; acswarm's
 `creation::valid_name` requires 3..=32 of those with single separators
 between letters. Lists show a "+" before the names of admin accounts.
 
@@ -494,7 +494,7 @@ between letters. Lists show a "+" before the names of admin accounts.
   CouldntPlaceCharacter, 0x15 LogonServerFull (world closed, or shutting
   down), 0x17 CharacterLocked, 0x18 SubscriptionExpired.
 
-In acreborn: `ac_client::creation` (`rules`, `Rules`, `CharacterBuild`,
+In acswarm: `ac_client::creation` (`rules`, `Rules`, `CharacterBuild`,
 `valid_name`, `create_failure_message`), `Client::{create_character,
 enter_world, delete_character, restore_character}`, the events
 `Characters`, `CharacterCreated` and `CharacterCreateFailed`, and
@@ -814,7 +814,7 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   RecallAllegianceHometown 0x02AB, `/marketplace` 0x028D, `/pklite`
   EnterPkLite 0x028F, `/afk [message]` SetAfkMessage 0x0010 + SetAfkMode
   0x000F, `/tell Name, text` Tell 0x005D (text, name), `/emote text`
-  Emote 0x01DF. acreborn's chat box tries plugin commands first, then
+  Emote 0x01DF. acswarm's chat box tries plugin commands first, then
   these (`Client::slash_command`), then sends the rest as `@command`.
 * **Character options**: two bitfields in PlayerDescription
   (CharacterOptions1/2), changed with SetSingleCharacterOption (0x0005:
@@ -997,7 +997,7 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
 * **The map (M)** is drawn from the game data, not a stored picture: the
   world map colours every landblock's 9x9 terrain vertices by the
   region's terrain type with hill shading (`ac-scene` `worldgrid` and
-  `worldmap`, cached under `~/.cache/acreborn`), a local map or a
+  `worldmap`, cached under `~/.cache/acswarm`), a local map or a
   dungeon floor plan comes from the landblock's terrain and collision
   floors (`localmap`; storeys are shown one at a time, the character's
   z ± 6 m), and everything the server has sent for the landblock is a
@@ -1286,7 +1286,7 @@ are opened; the library key is used on its door. Finished means the
 character is in another landblock; the other rules then take over
 (following, growing).
 
-## What this means for acreborn
+## What this means for acswarm
 
 * **Spell bar ≠ components.** The spell bar panel shows the 8 bars from
   `Options::spell_bars`, lets the user add spells from the book (drag or

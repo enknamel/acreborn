@@ -83,16 +83,16 @@ impl WorldGrid {
         Ok(g)
     }
 
-    /// The default cache directory: `$ACREBORN_CACHE_DIR`, else
-    /// `~/.cache/acreborn`.
+    /// The default cache directory: `$ACSWARM_CACHE_DIR`, else
+    /// `~/.cache/acswarm`.
     pub fn cache_dir() -> PathBuf {
-        if let Some(d) = std::env::var_os("ACREBORN_CACHE_DIR") {
+        if let Some(d) = std::env::var_os("ACSWARM_CACHE_DIR") {
             return PathBuf::from(d);
         }
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_default();
-        home.join(".cache").join("acreborn")
+        home.join(".cache").join("acswarm")
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {

@@ -6,7 +6,7 @@ over:
 
 | Surface | Lives in | Runs | Hot reload | UI | Language |
 | --- | --- | --- | --- | --- | --- |
-| **Rhai script** | `~/.acreborn/scripts/*.rhai` | inside every `acviewer`/`acbot` process, once per session per frame | yes, within a second of saving | no panels; chat log lines and `/commands` | Rhai |
+| **Rhai script** | `~/.acswarm/scripts/*.rhai` | inside every `acviewer`/`acbot` process, once per session per frame | yes, within a second of saving | no panels; chat log lines and `/commands` | Rhai |
 | **Rust plugin** | a crate depending on `ac-plugin`, registered with the `Host` | inside the process, with the full `ac_client::Client` in hand | no (rebuild) | egui panels, keys, `/commands`, settings | Rust |
 | **Separate process** | anything that speaks JSON lines over loopback TCP | on its own, next to the game processes | its own affair | its own affair | any |
 
@@ -324,7 +324,7 @@ fn tick(dt) {
 ```
 
 **From another process, in any language.** The hub speaks one JSON
-object per line on `127.0.0.1:9500` (`$ACREBORN_BUS`). Start a game
+object per line on `127.0.0.1:9500` (`$ACSWARM_BUS`). Start a game
 process with `--bus` (the first one hosts), then:
 
 ```sh
@@ -374,7 +374,7 @@ impl Plugin for Toggle {
     }
 
     // Settings: one JSON file shared by every client on the machine
-    // (`~/.config/acreborn/ui.json`), written every 30 s and on exit.
+    // (`~/.config/acswarm/ui.json`), written every 30 s and on exit.
     fn load(&mut self, s: &Settings) { self.on = s.get("toggle.on").unwrap_or(false); }
     fn save(&self, s: &mut Settings) { s.set("toggle.on", self.on); }
 }
@@ -391,8 +391,8 @@ its own file with Rhai's standard library.
 
 ## Ship it
 
-**As a script.** Copy the `.rhai` file into `~/.acreborn/scripts` (or
-`$ACREBORN_SCRIPTS`) on any machine running the stock binaries; it
+**As a script.** Copy the `.rhai` file into `~/.acswarm/scripts` (or
+`$ACSWARM_SCRIPTS`) on any machine running the stock binaries; it
 loads within a second, and `/scripts` lists it. Keep state in `this`;
 top-level `let`s are not visible inside functions. Test it with the
 harness below.

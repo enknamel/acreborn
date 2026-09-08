@@ -740,7 +740,7 @@ impl ApplicationHandler for App {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("acreborn launcher")
+            .with_title("acswarm launcher")
             .with_inner_size(winit::dpi::LogicalSize::new(960, 640));
         let window = Arc::new(event_loop.create_window(attrs).expect("window"));
         let gpu = match Gpu::new(window.clone()) {

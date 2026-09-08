@@ -78,7 +78,7 @@ struct Cli {
     show_rules: bool,
     /// Join the local cross-process bus so plugins here and in other
     /// acbot/acviewer processes share posts and values: HOST:PORT or PORT
-    /// (default 127.0.0.1:9500, or $ACREBORN_BUS). The first process up
+    /// (default 127.0.0.1:9500, or $ACSWARM_BUS). The first process up
     /// hosts it.
     #[arg(long, num_args = 0..=1, default_missing_value = "")]
     bus: Option<String>,

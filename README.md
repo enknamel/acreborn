@@ -1,6 +1,6 @@
-# acreborn
+# acswarm
 
-[![CI](https://github.com/enknamel/acreborn/actions/workflows/ci.yml/badge.svg)](https://github.com/enknamel/acreborn/actions/workflows/ci.yml)
+[![CI](https://github.com/enknamel/acswarm/actions/workflows/ci.yml/badge.svg)](https://github.com/enknamel/acswarm/actions/workflows/ci.yml)
 
 A from-scratch Rust reimplementation of the Asheron's Call client, built to
 play against the [ACE](https://github.com/ACEmulator/ACE) server emulator.
@@ -98,7 +98,7 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # unassigned XP on attributes, vitals and skills and Train buttons that
 # spend skill credits; panels can be dragged anywhere and where you put
 # them, which ones are open and what you searched for are remembered in
-# ~/.config/acreborn/ui.json (X has "Reset window layout"); drag an item from the inventory onto a side pack or the
+# ~/.config/acswarm/ui.json (X has "Reset window layout"); drag an item from the inventory onto a side pack or the
 # Pack header to move it (a stack onto another of its kind merges them;
 # right-click a stack for the split slider), onto the target bar or an NPC/player in the world
 # Double-click picks a loose item up and uses anything else; with an
@@ -183,12 +183,12 @@ Each launch spawns a separate client process:
 <client_binary> --data-dir <data_dir> --connect <host:port> -a <account> -v <password> [--character <name>] [--mute]
 ```
 
-with its output appended to `~/.acreborn/logs/<account>.log`. Nothing is
+with its output appended to `~/.acswarm/logs/<account>.log`. Nothing is
 killed when an account is removed or the launcher exits. "Launch headless"
 adds `--mute` (and will add `--headless` once acviewer has it). "Add /
 create" is just adding an account: ACE creates it on the first login.
 
-The config lives in `~/.acreborn/launcher.json`:
+The config lives in `~/.acswarm/launcher.json`:
 
 ```json
 {
@@ -261,8 +261,8 @@ repository and are gitignored.
 
 ## Scripting
 
-The viewer runs every `*.rhai` file in `~/.acreborn/scripts` (or
-`$ACREBORN_SCRIPTS`) through an embedded [Rhai](https://rhai.rs) engine
+The viewer runs every `*.rhai` file in `~/.acswarm/scripts` (or
+`$ACSWARM_SCRIPTS`) through an embedded [Rhai](https://rhai.rs) engine
 and reloads a file when it changes, so the client can be extended without
 recompiling. A script defines `on_event(ev)`, `tick(dt)`,
 `command(name, args)` and/or `key(name, pressed)`, and calls into the game

@@ -22,7 +22,7 @@
 //!
 //! The world map is rendered once from the terrain grid on a background
 //! thread (the first time takes a few seconds while the grid is read
-//! from the cell archive; both are cached under `~/.cache/acreborn`).
+//! from the cell archive; both are cached under `~/.cache/acswarm`).
 //! The local map covers the landblocks around the character, seven
 //! across by default and up to eleven, and is drawn on a background
 //! thread when the character moves to another landblock (or, in a

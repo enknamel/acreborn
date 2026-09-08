@@ -1928,7 +1928,7 @@ mod tests {
             "absent choices are left out: {text}"
         );
         // Through a file and back into a fresh panel.
-        let dir = std::env::temp_dir().join(format!("acreborn-fleet-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("acswarm-fleet-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("ui.json");
         settings.save(&path).unwrap();

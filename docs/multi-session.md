@@ -69,12 +69,12 @@ between clients** adds `--bus` (the first client hosts the loopback hub,
 the rest join it, see below) and **Frame cap** adds `--fps N`. Both are
 saved in `launcher.json` (`share_bus`, `fps`).
 
-with stdout/stderr appended to `~/.acreborn/logs/<account>.log`.
+with stdout/stderr appended to `~/.acswarm/logs/<account>.log`.
 "Launch headless" adds `--mute` (and will add `--headless` once acviewer
 has it). The launcher never kills children on its own: removing an account
 or closing the window leaves them running; Kill all is explicit.
 
-Config, `~/.acreborn/launcher.json` (`config::Config`), written atomically
+Config, `~/.acswarm/launcher.json` (`config::Config`), written atomically
 on every change:
 
 ```json
@@ -106,10 +106,10 @@ processes could not coordinate. `--bus [ADDR]` links them through
 ```
 cargo run -p acbot -- --connect HOST --client alice:pw1 --bus
 cargo run -p acviewer -- --connect HOST -a bob -v pw2 --bus          # joins alice's hub
-ACREBORN_BUS=127.0.0.1:9600 cargo run -p acbot -- ... --bus          # another bus
+ACSWARM_BUS=127.0.0.1:9600 cargo run -p acbot -- ... --bus          # another bus
 ```
 
-* `ADDR` is `HOST:PORT` or a bare port; empty means `$ACREBORN_BUS` or
+* `ADDR` is `HOST:PORT` or a bare port; empty means `$ACSWARM_BUS` or
   `127.0.0.1:9500`. The flag is off by default and processes without it
   are unaffected.
 * **Auto-hosting.** `BusClient::connect_or_host` connects to the hub at
@@ -254,7 +254,7 @@ click:
    account to switch the window to it, **Stop** to disconnect and drop
    it, **Remove** to forget it.
 
-The roster is kept in the settings file (`~/.config/acreborn/ui.json`,
+The roster is kept in the settings file (`~/.config/acswarm/ui.json`,
 `fleet.roster`, one entry per account: `account`, `password`,
 `character`, `create` `{name, template, town, heritage, sex}`, `role`)
 and the leading account under `fleet.lead_account`, so on the next
@@ -332,7 +332,7 @@ file-backed archive pages.
   hold on blocks is bounded (it was not before: a character that
   crossed the map kept every block's collision it had built).
 * **World grid.** `Assets::world_grid()` reads the cached
-  `~/.cache/acreborn/worldgrid.bin` (about 16 MB in memory) once per
+  `~/.cache/acswarm/worldgrid.bin` (about 16 MB in memory) once per
   process; journeys share it.
 * **Scene caches are per process.** The viewer keeps one `mesh_cache`,
   `gpu_meshes`, `palettes`, motion `tables`, particle `fx` and
