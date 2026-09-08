@@ -304,6 +304,9 @@ pub fn map_coord_str(p: &object::Position) -> String {
 pub struct World {
     pub objects: HashMap<u32, WorldObject>,
     pub player_guid: Option<u32>,
+    /// The teleport and forced-position sequences last seen on our own
+    /// position updates: a change means the server moved us itself.
+    pub player_move_seqs: Option<(u16, u16)>,
     /// Bumped whenever the set of drawable objects or a position changes.
     pub generation: u64,
     /// The player's character sheet.
@@ -534,17 +537,29 @@ impl World {
                     let is_player = self.player_guid == Some(up.guid);
                     if let Some(o) = self.objects.get_mut(&up.guid) {
                         if is_player {
-                            // Our own echoes come back; only accept a server
-                            // correction that moves us more than a few metres.
+                            // Our own positions come back as echoes, a
+                            // quarter of a second old: at a run that is
+                            // metres behind where we are, and taking them
+                            // dragged a fast character back every echo.
+                            // The server counts its teleport and forced
+                            // position sequences up when it moves us
+                            // itself; only those moves are taken, plus
+                            // anything so far off that something is wrong.
+                            let seqs = (up.teleport_seq, up.force_seq);
+                            let moved_by_server = match self.player_move_seqs {
+                                Some(seen) => seen != seqs,
+                                None => true,
+                            };
+                            self.player_move_seqs = Some(seqs);
                             let far = match o.position {
                                 Some(cur) => {
                                     let a = landblock_origin(cur.cell) + cur.local;
                                     let b = landblock_origin(up.position.cell) + up.position.local;
-                                    (a - b).length() > 4.0
+                                    (a - b).length() > 60.0
                                 }
                                 None => true,
                             };
-                            if !far {
+                            if !moved_by_server && !far {
                                 return Applied::Ignored;
                             }
                             tracing::info!(

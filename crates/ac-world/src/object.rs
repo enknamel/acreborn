@@ -751,6 +751,12 @@ pub struct UpdatePosition {
     pub position: Position,
     pub velocity: Vec3,
     pub placement: Option<u32>,
+    /// The object's teleport sequence: the server counts it up when it
+    /// moves the object itself (a portal, a recall, a forced position).
+    pub teleport_seq: u16,
+    /// The forced-position sequence, counted up when the server puts the
+    /// object somewhere against its own reported movement.
+    pub force_seq: u16,
 }
 
 impl UpdatePosition {
@@ -775,7 +781,10 @@ impl UpdatePosition {
             None
         };
         // instance, position, teleport, force-position sequences (u16 each)
-        r.bytes(8)?;
+        let _instance = r.u16()?;
+        let _position_seq = r.u16()?;
+        let teleport_seq = r.u16()?;
+        let force_seq = r.u16()?;
         Ok(UpdatePosition {
             guid,
             flags,
@@ -786,6 +795,8 @@ impl UpdatePosition {
             },
             velocity,
             placement,
+            teleport_seq,
+            force_seq,
         })
     }
 }
