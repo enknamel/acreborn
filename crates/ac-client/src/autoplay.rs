@@ -368,6 +368,9 @@ pub struct Mate {
     pub leads: bool,
     /// It is flying (no-clip); followers fly too.
     pub flying: bool,
+    /// The cell it stands in: indoors (a hub, a dungeon) is somewhere
+    /// a journey cannot be planned to from outside.
+    pub cell: u32,
 }
 
 /// The team as the host last saw it.
@@ -581,6 +584,10 @@ pub struct Autoplay {
     /// Where the journey after a far-off leader was bound, to plan
     /// again once it has moved on.
     follow_trip: Option<glam::Vec2>,
+    /// No journey after the leader is planned before this: planning
+    /// costs a search, and one that found no way is not tried again for
+    /// a while.
+    next_follow_plan: Option<Instant>,
 }
 
 impl Autoplay {
@@ -2265,20 +2272,34 @@ impl Client {
             });
         } else {
             // Out of sight (through a portal, say): a journey there,
-            // planned again once it has moved on.
+            // planned again once it has moved on. Not while it stands
+            // somewhere a journey cannot end -- inside the Town Network
+            // hub, or a dungeon -- in another landblock: it will come
+            // out, and its last position outside is followed meanwhile.
             self.follow = None;
+            let indoors = leader.cell & 0xFFFF >= 0x100;
+            let my_block = self.player.as_ref().map(|p| p.landblock());
+            if indoors && my_block != Some(leader.cell & 0xFFFF_0000) {
+                self.autoplay
+                    .say(Doing::Following, "waiting for the leader to come out");
+                return false;
+            }
             let goal = glam::Vec2::new(leader.world.x, leader.world.y);
             let stale = self
                 .autoplay
                 .follow_trip
                 .is_none_or(|g| g.distance(goal) > 30.0);
-            if stale || !self.traveling() {
+            let due = self.autoplay.next_follow_plan.is_none_or(|t| now >= t);
+            if (stale || !self.traveling()) && due {
                 if self.travel_to(goal) {
                     self.autoplay.follow_trip = Some(goal);
+                    self.autoplay.next_follow_plan = Some(now + Duration::from_secs(3));
+                } else {
+                    self.autoplay.follow_trip = None;
+                    self.autoplay.next_follow_plan = Some(now + Duration::from_secs(10));
                 }
             }
         }
-        let _ = now;
         self.autoplay
             .say(Doing::Following, format!("following {}", leader.name));
         true

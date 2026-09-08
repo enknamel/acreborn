@@ -150,6 +150,7 @@ fn describe(client: &ac_client::Client, session: usize) -> Option<Mate> {
         can_soften: client.can_soften(),
         leads: cfg.lead,
         flying: client.noclip(),
+        cell: player.cell,
     })
 }
 
