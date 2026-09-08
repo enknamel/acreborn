@@ -16,13 +16,21 @@ pub struct OptionsView {
     pub speed_boost_pct: u32,
     /// The height of a full jump, in centimetres.
     pub jump_height_cm: u32,
+    /// How far from the camera objects are drawn, metres (0 = no limit).
+    /// The viewer's, not the client's: see [`DRAW_DISTANCE_KEY`].
+    pub draw_distance_m: u32,
 }
+
+/// Blackboard key the draw distance is published on, metres as a number
+/// (0 = no limit); the viewer reads it each frame.
+pub const DRAW_DISTANCE_KEY: &str = "render.draw_distance";
 
 pub fn view(c: &Client) -> OptionsView {
     OptionsView {
         rows: OPTIONS.iter().map(|o| (*o, c.option_enabled(o))).collect(),
         speed_boost_pct: (c.speed_boost * 100.0).round() as u32,
         jump_height_cm: (c.jump_height * 100.0).round() as u32,
+        draw_distance_m: 0,
     }
 }
 
@@ -34,6 +42,8 @@ pub struct Changes {
     pub speed_boost: Option<f32>,
     /// A new full-jump height, metres.
     pub jump_height: Option<f32>,
+    /// A new draw distance, metres (0 = no limit).
+    pub draw_distance: Option<f32>,
 }
 
 /// Returns the options toggled this frame with their new value. The
@@ -93,6 +103,21 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
                 {
                     changed.jump_height = Some(jump);
                 }
+                // Objects (creatures, items, other players) farther than
+                // this are not drawn; the land and buildings always are.
+                // Lower it on a slow machine or with many sessions up.
+                let mut dd = v.draw_distance_m as f32;
+                if ui
+                    .add(
+                        egui::Slider::new(&mut dd, 0.0..=1000.0)
+                            .text("draw distance, m (0 = no limit)")
+                            .step_by(10.0)
+                            .fixed_decimals(0),
+                    )
+                    .changed()
+                {
+                    changed.draw_distance = Some(dd);
+                }
             });
         ui.separator();
         if ui
@@ -121,6 +146,9 @@ pub struct Options {
     /// given to each client as it appears.
     speed_boost: Option<f32>,
     jump_height: Option<f32>,
+    /// The draw distance chosen here, metres (0 = no limit), kept between
+    /// runs and published on the blackboard for the viewer.
+    draw_distance: Option<f32>,
 }
 
 impl Options {
@@ -134,10 +162,12 @@ impl Options {
                     .collect(),
                 speed_boost_pct: 200,
                 jump_height_cm: 900,
+                draw_distance_m: 300,
             }),
             show: false,
             speed_boost: None,
             jump_height: None,
+            draw_distance: None,
         }
     }
 }
@@ -157,6 +187,9 @@ impl Plugin for Options {
         if let Some(b) = settings.get::<f32>("options.jump_height") {
             self.jump_height = Some(b);
         }
+        if let Some(d) = settings.get::<f32>("options.draw_distance") {
+            self.draw_distance = Some(d);
+        }
     }
 
     fn save(&self, settings: &mut Settings) {
@@ -167,9 +200,19 @@ impl Plugin for Options {
         if let Some(b) = self.jump_height {
             settings.set("options.jump_height", b);
         }
+        if let Some(d) = self.draw_distance {
+            settings.set("options.draw_distance", d);
+        }
     }
 
     fn tick(&mut self, cx: &mut Ctx) {
+        // The remembered draw distance goes on the board once, for the
+        // viewer; after that a script may set the key itself.
+        if let Some(d) = self.draw_distance {
+            if cx.board.get(DRAW_DISTANCE_KEY).is_none() {
+                cx.board.set_local(DRAW_DISTANCE_KEY, d as f64);
+            }
+        }
         // A remembered boost applies to whatever client is here now.
         if let Some(c) = cx.try_client() {
             if let Some(b) = self.speed_boost {
@@ -196,10 +239,23 @@ impl Plugin for Options {
             Source::Demo(d) => Some(d.clone()),
             Source::Live => cx.try_client().map(|c| view(c)),
         };
-        let Some(v) = v else { return };
+        let Some(mut v) = v else { return };
+        if matches!(self.source, Source::Live) {
+            // The board's value wins: a script may have set it.
+            let on_board = cx
+                .board
+                .get(DRAW_DISTANCE_KEY)
+                .and_then(|x| x.as_f64())
+                .map(|x| x as f32);
+            v.draw_distance_m = on_board.or(self.draw_distance).unwrap_or(0.0).round() as u32;
+        }
         let changed = draw(egui, &v);
         if super::closed("options") {
             self.show = false;
+        }
+        if let Some(d) = changed.draw_distance {
+            self.draw_distance = Some(d);
+            cx.board.set_local(DRAW_DISTANCE_KEY, d as f64);
         }
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             for (o, on) in changed.options {
@@ -222,5 +278,57 @@ impl Plugin for Options {
             return true;
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Blackboard, IconCache};
+    use std::time::Instant;
+
+    #[test]
+    fn draw_distance_is_kept_and_published_for_the_viewer() {
+        let mut o = Options::default();
+        o.draw_distance = Some(250.0);
+        let mut settings = Settings::new();
+        o.save(&mut settings);
+        let mut back = Options::default();
+        back.load(&settings);
+        assert_eq!(back.draw_distance, Some(250.0));
+        // The first tick puts it on the board, where the viewer reads it;
+        // a value already there (a script's) is left alone.
+        let mut board = Blackboard::default();
+        let mut icons = IconCache::default();
+        let mut cx = Ctx {
+            clients: Vec::new(),
+            index: 0,
+            board: &mut board,
+            settings: &mut settings,
+            icons: &mut icons,
+            dt: 0.05,
+            now: Instant::now(),
+            chat: Vec::new(),
+            activate: None,
+            quit: false,
+            start_sessions: Vec::new(),
+            stop_sessions: Vec::new(),
+        };
+        back.tick(&mut cx);
+        assert_eq!(
+            cx.board.get(DRAW_DISTANCE_KEY).and_then(|v| v.as_f64()),
+            Some(250.0)
+        );
+        cx.board.set_local(DRAW_DISTANCE_KEY, 80.0);
+        back.tick(&mut cx);
+        assert_eq!(
+            cx.board.get(DRAW_DISTANCE_KEY).and_then(|v| v.as_f64()),
+            Some(80.0)
+        );
+        // Nothing chosen: nothing published, the viewer draws everything.
+        let mut board = Blackboard::default();
+        cx.board = &mut board;
+        Options::default().tick(&mut cx);
+        assert!(cx.board.get(DRAW_DISTANCE_KEY).is_none());
     }
 }

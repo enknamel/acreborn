@@ -11,6 +11,7 @@
 mod camera;
 mod gpu;
 mod particles;
+mod perf;
 mod scene;
 use ac_client::player;
 mod chat;
@@ -99,9 +100,28 @@ struct Cli {
     #[arg(long)]
     mute: bool,
     /// Frame rate cap for the window (0 = uncapped). Lower it when running
-    /// many clients on one machine.
+    /// many clients on one machine. An unfocused window draws at 10 fps
+    /// at most, a hidden one not at all, and a frame nothing changed in
+    /// is skipped.
     #[arg(long, default_value_t = 60)]
     fps: u32,
+    /// What the window draws of the world: `active` (the session shown)
+    /// or `none` (a follower: no landblocks, objects or particles reach
+    /// the GPU; the overlay and panels still work).
+    #[arg(long, default_value = "active", value_parser = ["active", "none"])]
+    render: String,
+    /// Report frame cost: the status line shows the last frame's time
+    /// and draw counts, and a summary (average and percentile frame
+    /// times, draw calls, culling, GPU memory) is printed at exit. A
+    /// headless `--connect --screenshot` run renders offscreen at the
+    /// `--fps` rate meanwhile, so it measures what a window would.
+    #[arg(long)]
+    perf: bool,
+    /// Upload textures no larger than this on a side (0 = as they are,
+    /// mostly 256): 128 quarters the texture memory, 64 sixteenths it,
+    /// for a blurrier world.
+    #[arg(long, default_value_t = 0)]
+    max_texture: u32,
     /// Connected headless mode: open the skills panel in the screenshot.
     #[arg(long)]
     show_skills: bool,
@@ -305,7 +325,38 @@ struct App {
     /// Sessions plugins asked to start and stop this frame, applied
     /// once no session is being ticked (`apply_pending_sessions`).
     pending_sessions: Vec<(Vec<ac_plugin::SessionSpec>, Vec<usize>)>,
+    /// Frame pacing, culling settings and cost accounting.
+    render: RenderState,
 }
+
+/// Rendering-side state the frame loop keeps between frames.
+#[derive(Default)]
+struct RenderState {
+    perf: perf::Perf,
+    /// `--render none`: the world never reaches the GPU.
+    none: bool,
+    /// The window has focus; without it frames are drawn at 10 fps at most.
+    unfocused: bool,
+    /// The window is hidden (minimised or covered): tick, but draw nothing.
+    occluded: bool,
+    /// The camera and window size the last frame was drawn with; the same
+    /// again with nothing else changed means the frame can be skipped.
+    last_view: Option<(glam::Mat4, (u32, u32))>,
+    /// When unused GPU meshes and materials were last swept.
+    last_prune: Option<Instant>,
+    /// The blackboard's `render.draw_distance` last applied.
+    draw_distance: f32,
+}
+
+/// Blackboard key the options panel sets: how far from the eye objects are
+/// drawn, metres (0 = no limit).
+use plugins::panels::options::DRAW_DISTANCE_KEY;
+
+/// Frame rate of a window without focus.
+const UNFOCUSED_FPS: u32 = 10;
+
+/// How often meshes and materials nothing references are dropped.
+const PRUNE_EVERY: Duration = Duration::from_secs(30);
 
 /// The character model drawn beside the creation screen: the look it was
 /// built for, its appearance, and the turntable angle.
@@ -853,6 +904,9 @@ impl App {
     fn refresh_status(&mut self) {
         let Some(ui) = &mut self.ui else { return };
         let mut s = format!("{:.0} fps", self.fps);
+        if self.cli.perf {
+            s += &self.render.perf.status();
+        }
         if let Some(net) = self.nets.get(self.active) {
             match net.client.world.player().and_then(|o| o.position) {
                 Some(p) => {
@@ -1037,6 +1091,7 @@ impl App {
                 ac_client::Event::Connected
                 | ac_client::Event::Terminated(_)
                 | ac_client::Event::Refused(_)
+                | ac_client::Event::Effect { .. }
                 | ac_client::Event::SpellLearned(_)
                 | ac_client::Event::SpellForgotten(_)
                 | ac_client::Event::Autoplay { .. } => {}
@@ -1053,9 +1108,17 @@ impl App {
     }
 
     /// Make session `i` the one the window shows; the scene follows it.
+    /// The session left behind keeps no GPU state: its pickables (which
+    /// hold meshes) and animation players go, and the new one is
+    /// re-instanced on the next frame.
     fn switch_to(&mut self, i: usize) {
         if i < self.nets.len() && i != self.active {
             tracing::info!("switching to session {}", i + 1);
+            if let Some(old) = self.nets.get_mut(self.active) {
+                old.pickables = Vec::new();
+                old.anims.clear();
+            }
+            self.nets[i].last_generation = 0;
             self.active = i;
             self.camera.pitch = -0.15;
             if let Some(ui) = &mut self.ui {
@@ -1111,6 +1174,34 @@ impl App {
         // Sessions come and go only here, between frames: no session is
         // being ticked and no plugin holds them.
         self.apply_pending_sessions();
+        // A follower window draws no world at all.
+        if self.render.none {
+            return;
+        }
+        // The options panel's draw distance, and a periodic sweep of the
+        // GPU meshes and materials nothing draws any more.
+        let dd = self
+            .plugins
+            .board
+            .get(DRAW_DISTANCE_KEY)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as f32;
+        if dd != self.render.draw_distance {
+            self.render.draw_distance = dd;
+            gpu.set_draw_distance(dd);
+        }
+        if self
+            .render
+            .last_prune
+            .is_none_or(|t| t.elapsed() > PRUNE_EVERY)
+        {
+            self.render.last_prune = Some(now);
+            let meshes = scene::prune_gpu_meshes(&mut self.gpu_meshes);
+            let materials = gpu.prune_materials();
+            if meshes + materials > 0 {
+                tracing::debug!("dropped {meshes} unused gpu meshes, {materials} materials");
+            }
+        }
         let Some(net) = self.nets.get_mut(self.active) else {
             return;
         };
@@ -1175,11 +1266,18 @@ impl App {
                 .copied()
                 .filter(|id| !wanted.contains(id))
                 .collect();
+            let unloaded = !stale.is_empty();
             for id in stale {
                 gpu.remove_block(id);
                 self.fx.unload_block(id);
                 self.loaded_blocks.remove(&id);
                 tracing::info!("landblock {id:#010x} unloaded");
+            }
+            if unloaded {
+                // Their textures go with them, unless a block still
+                // loaded shares one.
+                let n = gpu.prune_materials();
+                tracing::debug!("{n} materials dropped with the unloaded blocks");
             }
         }
         {
@@ -1260,6 +1358,8 @@ impl App {
     }
 
     fn load_scene(&mut self, gpu: &mut gpu::Gpu) -> Result<()> {
+        self.render.none = self.cli.render == "none";
+        gpu.set_max_texture(self.cli.max_texture);
         if self.cli.connect.is_some() {
             self.start_connect()?;
             // Daylight behind the lobby until the first landblock streams in.
@@ -1482,6 +1582,16 @@ impl ApplicationHandler for App {
                     g.resize(size.width, size.height);
                 }
             }
+            WindowEvent::Focused(focused) => {
+                self.render.unfocused = !focused;
+                if focused {
+                    self.next_frame = Instant::now();
+                }
+            }
+            WindowEvent::Occluded(occluded) => {
+                self.render.occluded = occluded;
+                self.render.last_view = None;
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     if typing {
@@ -1684,24 +1794,54 @@ impl ApplicationHandler for App {
                 if let Some(mut g) = self.gpu.take() {
                     let vp = self.camera.view_proj(g.aspect());
                     let (w, h) = g.size();
+                    let t_overlay = Instant::now();
                     self.run_overlay(g.device(), g.queue(), w, h);
-                    let mut ui = self.ui.as_mut();
-                    let mut paint = |d: &wgpu::Device,
-                                     q: &wgpu::Queue,
-                                     e: &mut wgpu::CommandEncoder,
-                                     v: &wgpu::TextureView| {
-                        if let Some(ui) = ui.as_deref_mut() {
-                            ui.paint(d, q, e, v);
+                    let overlay_ms = t_overlay.elapsed().as_secs_f32() * 1e3;
+                    // Draw only when something can look different: the
+                    // world or camera changed, the overlay wants a
+                    // repaint, or the window is new. A hidden window
+                    // draws nothing at all.
+                    let overlay_changed = self.ui.as_ref().is_some_and(|u| u.repaint_wanted());
+                    let view = (vp, (w, h));
+                    let unchanged =
+                        self.render.last_view == Some(view) && !g.is_dirty() && !overlay_changed;
+                    if self.render.occluded || unchanged {
+                        self.render.perf.idle_frames += 1;
+                    } else {
+                        let cpu_ms = now.elapsed().as_secs_f32() * 1e3;
+                        let mut ui = self.ui.as_mut();
+                        let mut paint =
+                            |d: &wgpu::Device,
+                             q: &wgpu::Queue,
+                             e: &mut wgpu::CommandEncoder,
+                             v: &wgpu::TextureView| {
+                                if let Some(ui) = ui.as_deref_mut() {
+                                    ui.paint(d, q, e, v);
+                                }
+                            };
+                        if let Err(e) = g.render(vp, Vec3::new(0.4, 0.3, 1.0), Some(&mut paint)) {
+                            tracing::error!("render: {e:#}");
                         }
-                    };
-                    if let Err(e) = g.render(vp, Vec3::new(0.4, 0.3, 1.0), Some(&mut paint)) {
-                        tracing::error!("render: {e:#}");
+                        self.render.last_view = Some(view);
+                        let ms = now.elapsed().as_secs_f32() * 1e3;
+                        self.render.perf.frame(ms, cpu_ms, overlay_ms, g.stats());
                     }
                     self.gpu = Some(g);
                 }
-                // Pace frames: wake up again when the next one is due.
-                if self.cli.fps > 0 {
-                    self.next_frame = now + Duration::from_secs_f32(1.0 / self.cli.fps as f32);
+                // Pace frames: wake up again when the next one is due. A
+                // window without focus ticks slowly; the sessions keep up
+                // (the client catches up on the network each tick).
+                let fps = if self.render.unfocused || self.render.occluded {
+                    if self.cli.fps == 0 {
+                        UNFOCUSED_FPS
+                    } else {
+                        self.cli.fps.min(UNFOCUSED_FPS)
+                    }
+                } else {
+                    self.cli.fps
+                };
+                if fps > 0 {
+                    self.next_frame = now + Duration::from_secs_f32(1.0 / fps as f32);
                     event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_frame));
                 } else if let Some(w) = &self.window {
                     w.request_redraw();
@@ -1810,11 +1950,13 @@ fn main() -> Result<()> {
             preview: None,
             assets: None,
             pending_sessions: Vec::new(),
+            render: Default::default(),
         };
         if let Some(bus) = app.cli.bus.clone() {
             plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
         }
         app.load_scene(&mut gpu)?;
+        let perf_started = Instant::now();
         let (w, h) = gpu.size();
         let mut ui = ui::Ui::new(gpu.device(), gpu.format(), None, w, h);
         let icons = icon_loader(app.cli.data_dir.clone());
@@ -1876,8 +2018,41 @@ fn main() -> Result<()> {
             let mut loot_at = Instant::now();
             let mut listed = false;
             let mut last_flush = Instant::now();
+            let mut next_perf_frame = Instant::now();
             loop {
+                let frame_start = Instant::now();
                 app.tick_net(&mut gpu);
+                // With --perf, draw offscreen at the frame cap: the frame
+                // then costs what a window's would, and is measured.
+                if app.cli.perf && frame_start >= next_perf_frame {
+                    let fps = app.cli.fps.max(1);
+                    next_perf_frame = frame_start + Duration::from_secs_f32(1.0 / fps as f32);
+                    app.refresh_status();
+                    let (w, h) = gpu.size();
+                    let t_overlay = Instant::now();
+                    app.run_overlay(gpu.device(), gpu.queue(), w, h);
+                    let overlay_ms = t_overlay.elapsed().as_secs_f32() * 1e3;
+                    let vp = app.camera.view_proj(gpu.aspect());
+                    let cpu_ms = frame_start.elapsed().as_secs_f32() * 1e3;
+                    let mut ui = app.ui.take();
+                    let mut paint = |d: &wgpu::Device,
+                                     q: &wgpu::Queue,
+                                     e: &mut wgpu::CommandEncoder,
+                                     v: &wgpu::TextureView| {
+                        if let Some(ui) = ui.as_mut() {
+                            ui.paint(d, q, e, v);
+                        }
+                    };
+                    match gpu.render_offscreen(vp, Vec3::new(0.4, 0.3, 1.0), Some(&mut paint)) {
+                        Ok(_) => {
+                            let ms = frame_start.elapsed().as_secs_f32() * 1e3;
+                            app.render.perf.frame(ms, cpu_ms, overlay_ms, gpu.stats());
+                        }
+                        Err(e) => tracing::warn!("perf frame: {e:#}"),
+                    }
+                    app.ui = ui;
+                    last_flush = Instant::now();
+                }
                 // No frames are presented headlessly, so flush uploads and
                 // recycle dropped buffers here (a poll alone frees nothing:
                 // uploads wait for a submit) or they pile up until the
@@ -2316,8 +2491,25 @@ fn main() -> Result<()> {
                          q: &wgpu::Queue,
                          e: &mut wgpu::CommandEncoder,
                          v: &wgpu::TextureView| ui.paint(d, q, e, v);
+        if app.cli.perf && app.cli.connect.is_none() {
+            // Offline there is no loop to measure in: draw the still
+            // scene a hundred times from the screenshot's viewpoint.
+            for _ in 0..100 {
+                let ms = gpu.render_offscreen(vp, Vec3::new(0.4, 0.3, 1.0), Some(&mut paint))?;
+                let stats = gpu.stats();
+                app.render.perf.frame(ms, stats.encode_ms, 0.0, stats);
+            }
+        }
         gpu.render_to_png(vp, Vec3::new(0.4, 0.3, 1.0), &path, Some(&mut paint))?;
         tracing::info!("wrote {}", path.display());
+        if app.cli.perf {
+            let report = app
+                .render
+                .perf
+                .summary(&gpu, app.gpu_meshes.len(), perf_started);
+            tracing::info!("{report}");
+            println!("{report}");
+        }
         app.plugins.save_settings();
         if let Some(net) = app.nets.get_mut(app.active) {
             net.client.disconnect(Instant::now());
@@ -2370,11 +2562,23 @@ fn main() -> Result<()> {
         preview: None,
         assets: None,
         pending_sessions: Vec::new(),
+        render: Default::default(),
     };
     if let Some(bus) = app.cli.bus.clone() {
         plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
     }
+    let perf_started = Instant::now();
     event_loop.run_app(&mut app)?;
+    if app.cli.perf {
+        if let Some(gpu) = &app.gpu {
+            let report = app
+                .render
+                .perf
+                .summary(gpu, app.gpu_meshes.len(), perf_started);
+            tracing::info!("{report}");
+            println!("{report}");
+        }
+    }
     Ok(())
 }
 

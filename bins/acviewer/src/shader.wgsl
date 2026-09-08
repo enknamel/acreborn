@@ -22,7 +22,9 @@ struct Model {
     // rgb: interior light on this instance, w: 1 to use it instead of the sun.
     light: vec4<f32>,
 };
-@group(2) @binding(0) var<uniform> model: Model;
+// One record per drawn instance, indexed by the instance index; record 0
+// is the identity for static geometry baked in world space.
+@group(2) @binding(0) var<storage, read> models: array<Model>;
 
 // Vertex colour alpha at or above this marks a pre-lit vertex: its rgb is
 // the whole lighting term (interior geometry baked from its cell's lights)
@@ -30,6 +32,7 @@ struct Model {
 const PRELIT: f32 = 2.0;
 
 struct VsIn {
+    @builtin(instance_index) instance: u32,
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
@@ -47,6 +50,7 @@ struct VsOut {
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
     var out: VsOut;
+    let model = models[in.instance];
     let world = model.m * vec4<f32>(in.position, 1.0);
     out.clip = globals.view_proj * world;
     out.normal = (model.m * vec4<f32>(in.normal, 0.0)).xyz;
@@ -180,6 +184,7 @@ fn fs_water(in: VsOut) -> @location(0) vec4<f32> {
 @group(1) @binding(5) var s_alphas: sampler;
 
 struct TerrainIn {
+    @builtin(instance_index) instance: u32,
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
@@ -201,6 +206,7 @@ struct TerrainOut {
 @vertex
 fn vs_terrain(in: TerrainIn) -> TerrainOut {
     var out: TerrainOut;
+    let model = models[in.instance];
     let world = model.m * vec4<f32>(in.position, 1.0);
     out.clip = globals.view_proj * world;
     out.normal = (model.m * vec4<f32>(in.normal, 0.0)).xyz;

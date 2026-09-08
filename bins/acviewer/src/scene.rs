@@ -921,6 +921,15 @@ pub fn any_animated(anims: &HashMap<u32, ObjectAnim>) -> bool {
 /// GPU meshes cached by (GfxObj id, appearance key).
 pub type GpuMeshCache = HashMap<(u32, u64), std::rc::Rc<crate::gpu::GpuMesh>>;
 
+/// Drop the cached meshes no instance or pickable refers to any more
+/// (objects that left, looks no longer worn); their buffers go with
+/// them. Returns how many were dropped.
+pub fn prune_gpu_meshes(meshes: &mut GpuMeshCache) -> usize {
+    let before = meshes.len();
+    meshes.retain(|_, m| std::rc::Rc::strong_count(m) > 1);
+    before - meshes.len()
+}
+
 /// Instances for one model placed at `transform` (with appearance and an
 /// optional animated pose), lit by the sun; meshes are uploaded once per
 /// (GfxObj, look).

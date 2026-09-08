@@ -36,6 +36,12 @@ pub struct Ui {
     icons: IconCache,
     /// Events queued by `inject` for the next frame (tests, automation).
     injected: Vec<egui::Event>,
+    /// What the last pass drew, to tell whether this pass drew anything
+    /// different.
+    last_shapes: Vec<egui::epaint::ClippedShape>,
+    /// This pass drew something different from the last, or egui asked
+    /// for another pass (an animation, a blinking caret, input).
+    changed: bool,
 }
 
 impl Ui {
@@ -83,7 +89,15 @@ impl Ui {
                 pixels_per_point: 1.0,
             },
             icons: IconCache::default(),
+            last_shapes: Vec::new(),
+            changed: true,
         }
+    }
+
+    /// The overlay needs drawing again: the last `begin` produced
+    /// different shapes from the one before, or egui wants another pass.
+    pub fn repaint_wanted(&self) -> bool {
+        self.changed
     }
 
     /// Install the callback that decodes icon RenderSurfaces to RGBA for
@@ -352,6 +366,15 @@ impl Ui {
         self.free = full.textures_delta.free.iter().copied().collect();
         full.textures_delta.clear();
         let n_shapes = full.shapes.len();
+        // Shapes compare by value (galleys included), which is cheap
+        // next to tessellating them; an unchanged overlay lets the host
+        // skip the frame when the world is still too.
+        self.changed = self.ctx.has_requested_repaint()
+            || !self.free.is_empty()
+            || full.shapes != self.last_shapes;
+        if self.changed {
+            self.last_shapes = full.shapes.clone();
+        }
         self.frames = self.ctx.tessellate(full.shapes, full.pixels_per_point);
         tracing::trace!("ui: {n_shapes} shapes, {} primitives", self.frames.len());
     }

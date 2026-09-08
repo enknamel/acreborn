@@ -258,7 +258,77 @@ struct DrawBatch {
     /// Second vertex buffer of [`TerrainBlend`]; drawn with the terrain pipeline.
     blend_buf: Option<wgpu::Buffer>,
     kind: DrawKind,
+    /// World-space box around the batch, for frustum culling.
+    bounds: (Vec3, Vec3),
 }
+
+/// What one frame cost: draw calls issued, geometry drawn, what the
+/// culling skipped, and the CPU time spent encoding it. Read it back
+/// with [`Gpu::stats`] after a frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FrameStats {
+    pub draw_calls: u32,
+    pub triangles: u64,
+    /// Static batches (per material per landblock) drawn and culled.
+    pub batches: u32,
+    pub batches_culled: u32,
+    /// Object instances (one per Setup part) drawn and culled.
+    pub instances: u32,
+    pub instances_culled: u32,
+    pub particles: u32,
+    /// Milliseconds spent in `draw`: encoding and submitting.
+    pub encode_ms: f32,
+}
+
+/// The view frustum as six inward-facing planes (`xyz` normal, `w`
+/// offset; a point is inside when `n . p + w >= 0` for all six).
+struct Frustum {
+    planes: [Vec4; 6],
+}
+
+impl Frustum {
+    /// Gribb/Hartmann extraction from a column-major view-projection.
+    fn from_view_proj(m: Mat4) -> Self {
+        let r = |i: usize| Vec4::new(m.x_axis[i], m.y_axis[i], m.z_axis[i], m.w_axis[i]);
+        let (r0, r1, r2, r3) = (r(0), r(1), r(2), r(3));
+        let planes = [r3 + r0, r3 - r0, r3 + r1, r3 - r1, r2, r3 - r2];
+        Frustum {
+            planes: planes.map(|p| {
+                let n = p.truncate().length();
+                if n > 0.0 {
+                    p / n
+                } else {
+                    p
+                }
+            }),
+        }
+    }
+
+    /// The box has some part inside the frustum (conservative).
+    fn sees_aabb(&self, lo: Vec3, hi: Vec3) -> bool {
+        self.planes.iter().all(|p| {
+            let n = p.truncate();
+            // The box corner farthest along the plane normal.
+            let far = Vec3::new(
+                if n.x >= 0.0 { hi.x } else { lo.x },
+                if n.y >= 0.0 { hi.y } else { lo.y },
+                if n.z >= 0.0 { hi.z } else { lo.z },
+            );
+            n.dot(far) + p.w >= 0.0
+        })
+    }
+
+    fn sees_sphere(&self, center: Vec3, radius: f32) -> bool {
+        self.planes
+            .iter()
+            .all(|p| p.truncate().dot(center) + p.w >= -radius)
+    }
+}
+
+/// Objects whose bounding sphere spans less than this fraction of the
+/// view are not drawn: at 60 degrees on an 800-pixel-tall view that is
+/// under a pixel and a half of radius, so nothing visible goes missing.
+const MIN_PROJECTED_RADIUS: f32 = 0.002;
 
 /// Callback that draws an overlay onto the frame after the 3D pass.
 pub type UiPaint<'a> =
@@ -298,13 +368,27 @@ pub struct Gpu {
     /// Streamed landblocks, keyed by block id.
     blocks: HashMap<u32, Vec<DrawBatch>>,
     /// Uploaded materials by key: decoded and mip-mapped once, shared by
-    /// every batch that uses them.
-    materials: std::cell::RefCell<HashMap<MaterialKey, std::rc::Rc<wgpu::BindGroup>>>,
+    /// every batch that uses them, with the texture bytes each holds.
+    materials: std::cell::RefCell<HashMap<MaterialKey, (std::rc::Rc<wgpu::BindGroup>, u64)>>,
     /// Per-draw model matrices (dynamic uniform offsets); slot 0 is identity.
     models_buf: wgpu::Buffer,
     models_bg: wgpu::BindGroup,
     dynamic_instances: Vec<Instance>,
     player_instances: Vec<Instance>,
+    /// The instance lists changed since their matrices were last uploaded.
+    models_dirty: bool,
+    /// Anything drawn changed since the last `draw` (instances, blocks,
+    /// particles, environment): a frame with the same camera can be skipped.
+    dirty: bool,
+    /// Instances farther than this from the eye are not drawn (metres;
+    /// `f32::INFINITY` draws everything the fog does not hide).
+    draw_distance: f32,
+    /// Textures wider or taller than this are uploaded from a smaller
+    /// mip level (`u32::MAX`: never).
+    max_texture: u32,
+    stats: FrameStats,
+    /// Persistent offscreen target for `render_offscreen`.
+    offscreen: Option<wgpu::TextureView>,
 }
 
 /// One submesh uploaded in model space with its material.
@@ -336,9 +420,11 @@ pub struct Instance {
     pub light: Option<Vec3>,
 }
 
-const MODEL_STRIDE: u64 = 256;
-/// Bytes of the per-instance uniform: the model matrix and a light vec4.
+/// Bytes of one instance record in the models storage buffer: the model
+/// matrix and a light vec4.
 const MODEL_SIZE: u64 = 80;
+/// Records in the models buffer (the identity in slot 0, then the
+/// instances drawn this frame).
 const MAX_INSTANCES: u64 = 8192;
 
 impl Gpu {
@@ -467,14 +553,17 @@ impl Gpu {
                 sampler_entry(5),
             ],
         });
+        // Instance records live in one storage buffer the vertex shader
+        // indexes by instance index, so instances of a mesh draw in one
+        // call and static geometry reads slot 0.
         let models_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("model"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
                 ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
                     min_binding_size: wgpu::BufferSize::new(MODEL_SIZE),
                 },
                 count: None,
@@ -713,8 +802,8 @@ impl Gpu {
         });
         let models_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("models"),
-            size: MODEL_STRIDE * MAX_INSTANCES,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            size: MODEL_SIZE * MAX_INSTANCES,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         // Slot 0: identity, lit by the sun (static geometry).
@@ -724,11 +813,7 @@ impl Gpu {
             layout: &models_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &models_buf,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(MODEL_SIZE),
-                }),
+                resource: models_buf.as_entire_binding(),
             }],
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -780,6 +865,12 @@ impl Gpu {
             models_bg,
             dynamic_instances: Vec::new(),
             player_instances: Vec::new(),
+            models_dirty: false,
+            dirty: true,
+            draw_distance: f32::INFINITY,
+            max_texture: u32::MAX,
+            stats: FrameStats::default(),
+            offscreen: None,
         })
     }
 
@@ -828,6 +919,35 @@ impl Gpu {
             s.configure(&self.device, &self.config);
         }
         self.depth = Self::make_depth(&self.device, &self.config);
+        self.offscreen = None;
+        self.dirty = true;
+    }
+
+    /// What the last `draw` cost.
+    pub fn stats(&self) -> FrameStats {
+        self.stats
+    }
+
+    /// Something drawn changed since the last frame (the caller adds its
+    /// own camera and overlay changes to decide whether to draw at all).
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// How far from the eye object instances are still drawn, metres;
+    /// 0 or less means no limit.
+    pub fn set_draw_distance(&mut self, metres: f32) {
+        let d = if metres > 0.0 { metres } else { f32::INFINITY };
+        if d != self.draw_distance {
+            self.draw_distance = d;
+            self.dirty = true;
+        }
+    }
+
+    /// Cap the size of the textures uploaded from now on (0 = no cap);
+    /// materials already uploaded keep their size.
+    pub fn set_max_texture(&mut self, size: u32) {
+        self.max_texture = if size == 0 { u32::MAX } else { size };
     }
 
     pub fn aspect(&self) -> f32 {
@@ -838,6 +958,7 @@ impl Gpu {
     /// is the Region's sunny midday.
     pub fn set_environment(&mut self, env: Environment) {
         self.environment = env;
+        self.dirty = true;
     }
 
     /// Upload a material's texture (with a full mip chain) and return its bind group.
@@ -862,9 +983,27 @@ impl Gpu {
             })
     }
 
+    /// Bytes a mip-mapped RGBA8 texture of this size takes.
+    fn texture_size(width: u32, height: u32, layers: u32) -> u64 {
+        width as u64 * height as u64 * layers as u64 * 4 * 4 / 3
+    }
+
     fn make_material(&self, img: &Rgba) -> wgpu::BindGroup {
+        // Over the size cap, upload from a smaller mip: a quarter of the
+        // memory per halving, at the cost of sharpness up close.
+        let mut capped;
+        let mut img = img;
+        while img.width.max(img.height) > self.max_texture && img.width.max(img.height) > 1 {
+            let (w, h, px) = downsample(&img.pixels, img.width, img.height);
+            capped = Rgba {
+                width: w,
+                height: h,
+                pixels: px,
+            };
+            img = &capped;
+        }
         self.texture_bytes
-            .set(self.texture_bytes.get() + (img.width as u64 * img.height as u64 * 4 * 4 / 3));
+            .set(self.texture_bytes.get() + Self::texture_size(img.width, img.height, 1));
         let texture = self.make_texture(img.width, img.height, 1);
         self.upload_layer(&texture, 0, img);
         let view = texture.create_view(&Default::default());
@@ -900,6 +1039,8 @@ impl Gpu {
                 imgs
             };
             let (w, h) = (imgs[0].width, imgs[0].height);
+            self.texture_bytes
+                .set(self.texture_bytes.get() + Self::texture_size(w, h, imgs.len() as u32));
             let texture = self.make_texture(w, h, imgs.len() as u32);
             for (i, img) in imgs.iter().enumerate() {
                 if img.width == w && img.height == h {
@@ -1005,6 +1146,7 @@ impl Gpu {
         materials: impl FnMut(MaterialKey) -> Option<Rgba>,
     ) {
         self.batches = self.upload(batches, materials);
+        self.dirty = true;
     }
 
     /// Add (or replace) one streamed landblock's geometry.
@@ -1016,6 +1158,7 @@ impl Gpu {
     ) {
         let uploaded = self.upload(batches, materials);
         self.blocks.insert(id, uploaded);
+        self.dirty = true;
     }
 
     pub fn material_count(&self) -> usize {
@@ -1026,18 +1169,49 @@ impl Gpu {
         self.dynamic_instances.len() + self.player_instances.len()
     }
 
+    /// Static batches held (the scene's plus every streamed block's).
+    pub fn batch_count(&self) -> usize {
+        self.batches.len() + self.blocks.values().map(Vec::len).sum::<usize>()
+    }
+
     pub fn remove_block(&mut self, id: u32) {
-        self.blocks.remove(&id);
+        if self.blocks.remove(&id).is_some() {
+            self.dirty = true;
+        }
+    }
+
+    /// Drop the materials nothing draws any more (their last batch or
+    /// mesh went with an unloaded landblock or an evicted mesh) and give
+    /// their texture memory back. The terrain array stays: every outdoor
+    /// block wants it. Returns how many were dropped.
+    pub fn prune_materials(&mut self) -> usize {
+        let mut freed = 0u64;
+        let mut n = 0usize;
+        self.materials.borrow_mut().retain(|k, (bg, bytes)| {
+            let keep = matches!(k, MaterialKey::Terrain) || std::rc::Rc::strong_count(bg) > 1;
+            if !keep {
+                freed += *bytes;
+                n += 1;
+            }
+            keep
+        });
+        self.texture_bytes
+            .set(self.texture_bytes.get().saturating_sub(freed));
+        n
     }
 
     /// Replace the server-object instances drawn each frame.
     pub fn set_dynamic_instances(&mut self, instances: Vec<Instance>) {
         self.dynamic_instances = instances;
+        self.models_dirty = true;
+        self.dirty = true;
     }
 
     /// Replace the player's own instances.
     pub fn set_player_instances(&mut self, instances: Vec<Instance>) {
         self.player_instances = instances;
+        self.models_dirty = true;
+        self.dirty = true;
     }
 
     /// Replace the particle billboards drawn each frame (grouped by sprite
@@ -1048,6 +1222,7 @@ impl Gpu {
         draws: Vec<ParticleDraw>,
         mut materials: impl FnMut(MaterialKey) -> Option<Rgba>,
     ) {
+        self.dirty = true;
         self.particles = draws
             .into_iter()
             .filter(|d| !d.instances.is_empty())
@@ -1150,9 +1325,10 @@ impl Gpu {
         key: MaterialKey,
         materials: &mut impl FnMut(MaterialKey) -> Option<Rgba>,
     ) -> std::rc::Rc<wgpu::BindGroup> {
-        if let Some(bg) = self.materials.borrow().get(&key).cloned() {
-            return bg;
+        if let Some((bg, _)) = self.materials.borrow().get(&key) {
+            return bg.clone();
         }
+        let before = self.texture_bytes.get();
         let bg = match key {
             MaterialKey::Solid(argb) => self.make_material(&Rgba {
                 width: 1,
@@ -1205,7 +1381,8 @@ impl Gpu {
             ),
         };
         let bg = std::rc::Rc::new(bg);
-        self.materials.borrow_mut().insert(key, bg.clone());
+        let bytes = self.texture_bytes.get() - before;
+        self.materials.borrow_mut().insert(key, (bg.clone(), bytes));
         bg
     }
 
@@ -1248,6 +1425,13 @@ impl Gpu {
                 _ if b.vertices.first().is_some_and(|v| v.opacity() < 1.0) => DrawKind::Translucent,
                 _ => DrawKind::Opaque,
             };
+            let mut lo = Vec3::splat(f32::INFINITY);
+            let mut hi = Vec3::splat(f32::NEG_INFINITY);
+            for v in &b.vertices {
+                let p = Vec3::from(v.position);
+                lo = lo.min(p);
+                hi = hi.max(p);
+            }
             out.push(DrawBatch {
                 vertex_buf,
                 index_buf,
@@ -1255,6 +1439,7 @@ impl Gpu {
                 bind_group,
                 blend_buf,
                 kind,
+                bounds: (lo, hi),
             });
         }
         tracing::debug!(
@@ -1442,22 +1627,68 @@ impl Gpu {
             self.queue
                 .write_buffer(&self.particle_globals_buf, 0, bytemuck::bytes_of(&pg));
         }
-        // Model matrices for this frame's instances (slot 0 stays identity).
-        let count = self.dynamic_instances.len() + self.player_instances.len();
-        let mut mats = Vec::with_capacity(MODEL_STRIDE as usize * count);
-        for inst in self
+        // Visibility: static batches by their box, instances by their
+        // sphere, plus the draw distance and a minimum size on screen.
+        // `ACV_NO_CULL` draws everything, for before/after measurements.
+        let cull = std::env::var_os("ACV_NO_CULL").is_none();
+        let frustum = Frustum::from_view_proj(view_proj);
+        let draw_distance = self.draw_distance;
+        let visible_instance = |inst: &Instance| -> bool {
+            if !cull {
+                return true;
+            }
+            let (c, r) = inst.mesh.bounds;
+            let m = inst.model;
+            let scale = m
+                .x_axis
+                .truncate()
+                .length()
+                .max(m.y_axis.truncate().length())
+                .max(m.z_axis.truncate().length());
+            let (center, radius) = (m.transform_point3(c), r * scale);
+            let dist = center.distance(near);
+            if dist - radius > draw_distance {
+                return false;
+            }
+            if dist > 1.0 && radius / dist < MIN_PROJECTED_RADIUS {
+                return false;
+            }
+            frustum.sees_sphere(center, radius)
+        };
+        let mut stats = FrameStats::default();
+        let t0 = Instant::now();
+        // The instances drawn this frame, grouped by mesh so that every
+        // copy of a mesh is one draw call: sort by mesh pointer, then
+        // hand out consecutive record slots (from 1; 0 is the identity).
+        let total = (self.dynamic_instances.len() + self.player_instances.len()) as u32;
+        let mut visible: Vec<&Instance> = self
             .dynamic_instances
             .iter()
             .chain(self.player_instances.iter())
             .take(MAX_INSTANCES as usize - 1)
-        {
-            mats.extend_from_slice(&model_bytes(inst.model, inst.light));
-            mats.resize(mats.len() + (MODEL_STRIDE - MODEL_SIZE) as usize, 0);
+            .filter(|inst| visible_instance(inst))
+            .collect();
+        visible.sort_by_key(|inst| std::rc::Rc::as_ptr(&inst.mesh) as usize);
+        stats.instances = visible.len() as u32;
+        stats.instances_culled = total - stats.instances;
+        // (mesh, first slot, count) runs of the sorted list.
+        let mut groups: Vec<(&GpuMesh, u32, u32)> = Vec::new();
+        for (i, inst) in visible.iter().enumerate() {
+            let slot = i as u32 + 1;
+            match groups.last_mut() {
+                Some((m, _, n)) if std::ptr::eq(*m, &*inst.mesh) => *n += 1,
+                _ => groups.push((&inst.mesh, slot, 1)),
+            }
         }
-        if !mats.is_empty() {
+        let records: Vec<u8> = visible
+            .iter()
+            .flat_map(|inst| model_bytes(inst.model, inst.light))
+            .collect();
+        if !records.is_empty() {
             self.queue
-                .write_buffer(&self.models_buf, MODEL_STRIDE, &mats);
+                .write_buffer(&self.models_buf, MODEL_SIZE, &records);
         }
+        self.models_dirty = false;
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1487,13 +1718,9 @@ impl Gpu {
             // Sky first: a full-screen triangle, no vertex buffer, no depth.
             pass.set_pipeline(&self.sky_pipeline);
             pass.draw(0..3, 0..1);
+            stats.draw_calls += 1;
             let hide_static = std::env::var_os("ACV_HIDE_STATIC").is_some();
-            let instances = || {
-                self.dynamic_instances
-                    .iter()
-                    .chain(self.player_instances.iter())
-                    .enumerate()
-            };
+            pass.set_bind_group(2, &self.models_bg, &[]);
             // Opaque geometry and the layered terrain write depth, then
             // translucent surfaces (glass, water) blend over them.
             for (pipeline, kind) in [
@@ -1503,44 +1730,55 @@ impl Gpu {
                 (&self.water_pipeline, DrawKind::Water),
             ] {
                 pass.set_pipeline(pipeline);
-                // Static geometry is baked in world space: identity model (slot 0).
-                pass.set_bind_group(2, &self.models_bg, &[0]);
+                // Static geometry is baked in world space: identity model
+                // (slot 0, instance 0).
                 let streamed = self.blocks.values().flat_map(|v| v.iter());
+                let mut last_bg: *const wgpu::BindGroup = std::ptr::null();
                 for b in self
                     .batches
                     .iter()
                     .chain(streamed)
                     .filter(|b| !hide_static && b.kind == kind)
                 {
-                    pass.set_bind_group(1, &*b.bind_group, &[]);
+                    if cull && !frustum.sees_aabb(b.bounds.0, b.bounds.1) {
+                        stats.batches_culled += 1;
+                        continue;
+                    }
+                    stats.batches += 1;
+                    // Batches are sorted by material at upload, so a
+                    // repeated bind group can be skipped.
+                    let bg: *const wgpu::BindGroup = &*b.bind_group;
+                    if bg != last_bg {
+                        pass.set_bind_group(1, &*b.bind_group, &[]);
+                        last_bg = bg;
+                    }
                     pass.set_vertex_buffer(0, b.vertex_buf.slice(..));
                     if let Some(blend) = &b.blend_buf {
                         pass.set_vertex_buffer(1, blend.slice(..));
                     }
                     pass.set_index_buffer(b.index_buf.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..b.index_count, 0, 0..1);
+                    stats.draw_calls += 1;
+                    stats.triangles += b.index_count as u64 / 3;
                 }
                 if matches!(kind, DrawKind::Water | DrawKind::Terrain) {
                     continue;
                 }
-                // Instances: one model matrix each, via dynamic offset.
-                for (i, inst) in instances() {
-                    let slot = (i as u64 + 1).min(MAX_INSTANCES - 1) as u32;
-                    let subs = inst
-                        .mesh
-                        .subs
-                        .iter()
-                        .filter(|s| s.translucent == (kind == DrawKind::Translucent));
-                    let mut bound = false;
-                    for sub in subs {
-                        if !bound {
-                            pass.set_bind_group(2, &self.models_bg, &[slot * MODEL_STRIDE as u32]);
-                            bound = true;
+                // Instances: every copy of a mesh in one call, its
+                // records at consecutive slots.
+                let translucent = kind == DrawKind::Translucent;
+                for &(mesh, first, count) in &groups {
+                    for sub in mesh.subs.iter().filter(|s| s.translucent == translucent) {
+                        let bg: *const wgpu::BindGroup = &*sub.bind_group;
+                        if bg != last_bg {
+                            pass.set_bind_group(1, &*sub.bind_group, &[]);
+                            last_bg = bg;
                         }
-                        pass.set_bind_group(1, &*sub.bind_group, &[]);
                         pass.set_vertex_buffer(0, sub.vertex_buf.slice(..));
                         pass.set_index_buffer(sub.index_buf.slice(..), wgpu::IndexFormat::Uint32);
-                        pass.draw_indexed(0..sub.index_count, 0, 0..1);
+                        pass.draw_indexed(0..sub.index_count, 0, first..first + count);
+                        stats.draw_calls += 1;
+                        stats.triangles += sub.index_count as u64 / 3 * count as u64;
                     }
                 }
             }
@@ -1556,11 +1794,56 @@ impl Gpu {
                         pass.set_bind_group(1, &*b.bind_group, &[]);
                         pass.set_vertex_buffer(0, b.instance_buf.slice(..));
                         pass.draw(0..6, 0..b.count);
+                        stats.draw_calls += 1;
+                        stats.particles += b.count;
+                        stats.triangles += b.count as u64 * 2;
                     }
                 }
             }
         }
         self.queue.submit([encoder.finish()]);
+        stats.encode_ms = t0.elapsed().as_secs_f32() * 1e3;
+        self.stats = stats;
+        self.dirty = false;
+    }
+
+    /// Draw one frame to a persistent offscreen target and wait for the
+    /// GPU to finish it: what a windowed frame costs, without a window
+    /// (for `--perf` in headless runs). Returns the wall time in ms.
+    pub fn render_offscreen(
+        &mut self,
+        view_proj: Mat4,
+        light_dir: Vec3,
+        ui: Option<UiPaint<'_>>,
+    ) -> Result<f32> {
+        let t0 = Instant::now();
+        if self.offscreen.is_none() {
+            let (w, h) = (self.config.width, self.config.height);
+            let target = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("offscreen"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.config.format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+            self.offscreen = Some(target.create_view(&Default::default()));
+        }
+        let view = self.offscreen.clone().unwrap();
+        self.draw(&view, view_proj, light_dir);
+        if let Some(ui) = ui {
+            let mut enc = self.device.create_command_encoder(&Default::default());
+            ui(&self.device, &self.queue, &mut enc, &view);
+            self.queue.submit([enc.finish()]);
+        }
+        self.device.poll(wgpu::PollType::wait_indefinitely())?;
+        Ok(t0.elapsed().as_secs_f32() * 1e3)
     }
 }
 

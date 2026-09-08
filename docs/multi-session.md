@@ -38,6 +38,12 @@ acks), apply the server's messages, finish a server move-to, keep
 swinging at their `attack_target`, drain their loot queue, and run every
 plugin's `on_event` and `tick`. Their chat lines still go to the log at
 `info` level, prefixed with the account.
+They keep nothing on the GPU: no landblocks, meshes, particles or
+animation state are built for them (a switch clears what the session
+left behind and re-instances the new one). A process whose window is
+only a follower's can pass `--render none` and draw no world at all, and
+`--fps` caps the frame rate of any window; see "Rendering cost" in
+[architecture.md](architecture.md).
 
 ## Several processes: the launcher
 
