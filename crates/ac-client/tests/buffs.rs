@@ -45,6 +45,7 @@ fn a_swordsman_gets_his_own_masteries_and_the_highest_level_he_can_land() {
         stance: Stance::Melee,
         armour: &armour,
         usable: &all,
+        weapon_skill: Some(HEAVY_WEAPONS),
     };
     let wants = wanted(&table, &me);
     let spells: Vec<u32> = wants.iter().map(|w| w.spell).collect();
@@ -75,6 +76,7 @@ fn a_swordsman_gets_his_own_masteries_and_the_highest_level_he_can_land() {
     let mage = Character {
         trained: &[WAR_MAGIC],
         stance: Stance::Magic,
+        weapon_skill: Some(0),
         ..me
     };
     let spells: Vec<u32> = wanted(&table, &mage).iter().map(|w| w.spell).collect();

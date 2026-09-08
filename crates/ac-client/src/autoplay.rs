@@ -515,6 +515,8 @@ pub struct Autoplay {
     wanted_ammo: Option<u32>,
     /// When the hands were last asked to change weapon.
     last_rewield: Option<Instant>,
+    /// A weapon to wield as soon as the hands are empty.
+    pending_wield: Option<u32>,
     /// When ammunition was last made.
     last_craft: Option<Instant>,
     /// When stamina was last poured into mana or Revitalize cast.
@@ -791,9 +793,8 @@ impl Client {
         let armour: Vec<u32> = self
             .world
             .wielded()
-            .filter(|o| {
-                o.item_type & (ac_world::item_type::ARMOR | ac_world::item_type::CLOTHING) != 0
-            })
+            // Armour, not clothing: a bane on a shirt hardens nothing.
+            .filter(|o| o.item_type & ac_world::item_type::ARMOR != 0)
             .map(|o| o.guid)
             .collect();
         let least = self.autoplay.config.buffs.least_chance;
@@ -807,12 +808,28 @@ impl Client {
                     crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster
                 )
         };
+        // The weapon in hand decides which weapon skill is worth a buff.
+        let weapon_skill = match self.combat_stance() {
+            Stance::Magic => Some(0),
+            _ => self
+                .world
+                .wielded()
+                .find(|o| {
+                    o.item_type
+                        & (ac_world::item_type::MELEE_WEAPON | ac_world::item_type::MISSILE_WEAPON)
+                        != 0
+                })
+                .and_then(|o| self.stats_of(o.guid))
+                .map(|i| i.weapon_skill_id)
+                .filter(|id| *id != 0),
+        };
         let me = crate::buffs::Character {
             known: &self.world.stats.spells,
             trained: &trained,
             stance: self.combat_stance(),
             armour: &armour,
             usable: &usable,
+            weapon_skill,
         };
         crate::buffs::wanted(&table, &me)
     }
@@ -829,6 +846,26 @@ impl Client {
         }
         if self.autoplay_survive(now) {
             return;
+        }
+        // A weapon waiting for empty hands is taken up as soon as they
+        // are.
+        if let Some(g) = self.autoplay.pending_wield {
+            let hands_full = self.world.wielded().any(|o| {
+                o.item_type
+                    & (ac_world::item_type::MELEE_WEAPON
+                        | ac_world::item_type::MISSILE_WEAPON
+                        | ac_world::item_type::CASTER)
+                    != 0
+                    && o.valid_locations & ac_world::equip::MISSILE_AMMO == 0
+            });
+            if !hands_full {
+                self.autoplay.pending_wield = None;
+                if self.world.is_carried(g) {
+                    self.wield_guid(g);
+                }
+            } else if !self.world.is_carried(g) && !self.world.objects.contains_key(&g) {
+                self.autoplay.pending_wield = None;
+            }
         }
         // A buff about to run out goes back up before anything else is
         // done, fight or no fight.
@@ -1212,7 +1249,14 @@ impl Client {
             known.name,
             pick.why
         );
-        self.wield_guid(pick.guid);
+        // The server will not put a second weapon in full hands: the
+        // old one goes back in the pack first and the new one is
+        // wielded once the hands are empty.
+        if self.put_weapons_away() {
+            self.autoplay.pending_wield = Some(pick.guid);
+        } else {
+            self.wield_guid(pick.guid);
+        }
     }
 
     /// A hard fight: the creature has at least the team's threshold of
@@ -2132,7 +2176,7 @@ impl Client {
             .assets
             .spell_table()
             .ok()
-            .and_then(|t| t.get(spell).map(|s| s.base_mana))
+            .and_then(|t| t.get(spell).map(|s| self.mana_cost(s)))
             .unwrap_or(0) as f32;
         let have = self.world.stats.vitals[2].current as f32;
         if have - cost < reserve {

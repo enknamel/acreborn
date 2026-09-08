@@ -9,8 +9,9 @@
 //! * every Life self-enchantment it knows: the protections, the
 //!   regenerations, Armor Self;
 //! * every Creature self-enchantment it knows that raises an attribute,
-//!   a defence, or a skill it has actually trained, so a swordsman
-//!   carries Heavy Weapon Mastery and not War Magic Mastery;
+//!   a defence, or a skill it has trained or specialised, so a swordsman
+//!   carries Heavy Weapon Mastery and not War Magic Mastery; of the
+//!   weapon skills, only the one for the weapon in hand;
 //! * the Item auras that suit the way it fights: damage, speed and
 //!   accuracy for a weapon in hand, the caster's own for a wand;
 //! * and, on each piece of armour it wears, the Item spells that
@@ -62,10 +63,19 @@ pub struct Character<'a> {
     pub stance: Stance,
     /// Guids of the armour it wears.
     pub armour: &'a [u32],
+    /// The skill of the weapon in hand, when one is: only that weapon
+    /// skill is buffed. `Some(0)` for a caster, which uses none; `None`
+    /// for empty hands, when every trained weapon skill is fair.
+    pub weapon_skill: Option<u32>,
     /// Whether a spell can be cast well enough to be worth casting at
     /// all, by its id: the school's skill against the spell's power.
     pub usable: &'a dyn Fn(u32) -> bool,
 }
+
+/// The skills a weapon is used with: one of these is buffed only when
+/// the weapon in hand uses it. A character that has trained three ways
+/// of fighting still fights one way at a time.
+const WEAPON_SKILLS: [u32; 8] = [41, 44, 45, 46, 47, 48, 49, 50];
 
 /// The float properties of the weapon auras, by what they are for. A
 /// caster gains nothing from a faster swing and a swordsman nothing
@@ -103,8 +113,13 @@ pub fn wanted(table: &SpellTable, me: &Character) -> Vec<Want> {
             let keep = match sp.school {
                 school::LIFE => true,
                 school::CREATURE => match fx.skill() {
-                    // A skill buff is worth it only for a trained skill.
-                    Some(skill) => me.trained.contains(&skill),
+                    // A skill buff is worth it for a trained skill, and
+                    // a weapon skill only for the weapon in hand.
+                    Some(skill) => {
+                        me.trained.contains(&skill)
+                            && (!WEAPON_SKILLS.contains(&skill)
+                                || me.weapon_skill.is_none_or(|w| w == skill))
+                    }
                     // Attributes, and anything else on the body.
                     None => true,
                 },

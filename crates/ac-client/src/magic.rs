@@ -268,6 +268,28 @@ impl Client {
     /// order: known, caster wielded, components of the current formula,
     /// mana against the spell's base cost (no Mana Conversion estimate,
     /// so the real cost may be lower).
+    /// What a cast of `sp` is likely to cost. The base is the spell's
+    /// own, but a caster with Mana Conversion trained pays less: the
+    /// server rolls against that skill and takes off a share, and a
+    /// mage with it high pays about a quarter. A character that refuses
+    /// to cast by the base cost sits on mana it could spend.
+    pub fn mana_cost(&self, sp: &ac_formats::spell_table::Spell) -> u32 {
+        use ac_formats::spell_table::flags;
+        let stats = &self.world.stats;
+        let trained = stats
+            .skill(16)
+            .is_some_and(|s| s.advancement >= ac_world::stats::sac::TRAINED);
+        if !trained || sp.bitfield & flags::IGNORES_MANA_CONVERSION != 0 {
+            return sp.base_mana;
+        }
+        let table = self.assets.skill_table().ok();
+        let conversion = stats
+            .skill(16)
+            .map(|s| stats.skill_current(s, table.as_ref().and_then(|t| t.get(16))))
+            .unwrap_or(0);
+        expected_mana_cost(sp.base_mana, sp.power, conversion)
+    }
+
     /// The skill a school is cast with: War Magic 34, Life 33, Item 32,
     /// Creature 31, Void 43.
     pub fn school_skill(school: u32) -> Option<u32> {
@@ -349,11 +371,9 @@ impl Client {
         }
         if let Some(sp) = self.spell(spell) {
             let have = self.world.stats.vitals[2].current;
-            if have < sp.base_mana {
-                return CastCheck::NotEnoughMana {
-                    need: sp.base_mana,
-                    have,
-                };
+            let need = self.mana_cost(&sp);
+            if have < need {
+                return CastCheck::NotEnoughMana { need, have };
             }
         }
         CastCheck::Ok
@@ -441,6 +461,22 @@ impl Client {
     }
 }
 
+/// The mana a cast is expected to take with Mana Conversion at
+/// `conversion`. The server rolls the skill against half the spell's
+/// power (the ordinary curve, factor 0.03); on a success it takes off
+/// the chance less the roll scaled by a second "luck" roll. Averaged
+/// over the rolls that is a cut of three quarters of the chance
+/// squared, so a sure conversion pays about a quarter of the base.
+pub fn expected_mana_cost(base: u32, power: u32, conversion: u32) -> u32 {
+    if conversion == 0 {
+        return base;
+    }
+    let x = 0.03 * (conversion as f32 - (power / 2) as f32);
+    let chance = (1.0 - 1.0 / (1.0 + x.exp())).clamp(0.0, 1.0);
+    let cut = 0.75 * chance * chance;
+    ((base as f32 * (1.0 - cut)).round() as u32).max(1)
+}
+
 /// The chance a cast at `skill` of a spell of `power` succeeds: the
 /// server's curve, and zero outright when the skill is more than fifty
 /// under the power, since the server does not roll at all then.
@@ -519,6 +555,16 @@ pub fn missing_components(need: &[u32], have: impl Fn(u32) -> u32) -> Vec<(u32, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mana_conversion_cuts_the_cost() {
+        // No skill: the base. A sure conversion: about a quarter.
+        assert_eq!(expected_mana_cost(100, 300, 0), 100);
+        assert!(expected_mana_cost(100, 300, 600) <= 27);
+        // Even odds (skill at half the power): a cut of three sixteenths.
+        assert_eq!(expected_mana_cost(160, 300, 150), 130);
+        assert!(expected_mana_cost(1, 300, 600) >= 1);
+    }
 
     #[test]
     fn the_cast_chance_is_the_servers_curve() {
