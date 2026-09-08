@@ -31,7 +31,7 @@ env:
   # A step's own `env` is not visible to its `if`, so whether a secret is
   # set is decided here, at the workflow level.
   HAS_MACOS_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
-  HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' }}
+  HAS_APPLE_ID: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
   HAS_WINDOWS_CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
 
 jobs:
