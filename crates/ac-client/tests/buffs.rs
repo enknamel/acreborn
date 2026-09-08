@@ -24,6 +24,10 @@ const LICORICE_LEAP: u32 = 4211;
 const TUSKER_SPRINT: u32 = 2933;
 const PRODIGAL_JUMPING: u32 = 3715;
 const JUMP: u32 = 22;
+// The same bane as a level-seven spell and as two item cantrips.
+const INCANTATION_FLAME_BANE: u32 = 4401;
+const MINOR_FLAME_BANE: u32 = 2601;
+const EPIC_FLAME_BANE: u32 = 4664;
 const RUN: u32 = 24;
 
 #[test]
@@ -130,4 +134,26 @@ fn short_lived_spells_are_not_buffs() {
     };
     let spells: Vec<u32> = wanted(&table, &me).iter().map(|w| w.spell).collect();
     assert_eq!(spells, vec![PRODIGAL_JUMPING], "{spells:?}");
+}
+
+#[test]
+fn one_spell_per_effect_the_one_that_does_most() {
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(dir).unwrap();
+    let table = assets.spell_table().unwrap();
+    let known = [MINOR_FLAME_BANE, INCANTATION_FLAME_BANE, EPIC_FLAME_BANE];
+    let all = |_: u32| true;
+    let me = Character {
+        known: &known,
+        trained: &[],
+        stance: Stance::Melee,
+        guid: 0x5000_0001,
+        wears_armour: true,
+        usable: &all,
+        weapon_skill: None,
+    };
+    let spells: Vec<u32> = wanted(&table, &me).iter().map(|w| w.spell).collect();
+    assert_eq!(spells, vec![INCANTATION_FLAME_BANE], "{spells:?}");
 }

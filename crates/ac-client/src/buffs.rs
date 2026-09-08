@@ -31,7 +31,7 @@
 use std::collections::BTreeMap;
 
 use ac_formats::spell_table::{school, Spell, SpellTable};
-use ac_world::buffs::{effect, kind};
+use ac_world::buffs::{effect, kind, Effect};
 use ac_world::stats::sac;
 
 use crate::Stance;
@@ -101,14 +101,19 @@ mod aura {
 pub const LASTS_AT_LEAST: f64 = 600.0;
 
 pub fn wanted(table: &SpellTable, me: &Character) -> Vec<Want> {
-    // Best known spell per (category, target).
-    let mut best: BTreeMap<(u32, Target), (u32, u32)> = BTreeMap::new();
-    let mut offer = |spell_id: u32, sp: &Spell, target: Target| {
-        let entry = best
-            .entry((sp.category, target))
-            .or_insert((spell_id, sp.power));
-        if sp.power > entry.1 {
-            *entry = (spell_id, sp.power);
+    // Best known spell per (effect, target): what it changes and by how
+    // much, then its level. The item cantrips (Minor Flame Bane) sit in
+    // categories of their own, so per category they would all be
+    // wanted too, for a tenth of what the numbered spell does.
+    let mut best: BTreeMap<(u32, u32, Target), (u32, u32, f32)> = BTreeMap::new();
+    let mut offer = |spell_id: u32, sp: &Spell, fx: &Effect, target: Target| {
+        let entry =
+            best.entry((fx.mod_type, fx.key, target))
+                .or_insert((spell_id, sp.category, 0.0));
+        let better = |a: (f32, u32), b: (f32, u32)| a.0 > b.0 || (a.0 == b.0 && a.1 > b.1);
+        let have = table.get(entry.0).map(|s| s.power).unwrap_or(0);
+        if entry.2 == 0.0 || better((fx.value.abs(), sp.power), (entry.2, have)) {
+            *entry = (spell_id, sp.category, fx.value.abs());
         }
     };
     for &id in me.known {
@@ -156,19 +161,19 @@ pub fn wanted(table: &SpellTable, me: &Character) -> Vec<Want> {
                 _ => false,
             };
             if keep {
-                offer(id, sp, Target::Me);
+                offer(id, sp, &fx, Target::Me);
             }
         } else if sp.school == school::ITEM && fx.is_armor() && me.wears_armour {
             // Impenetrability and the banes, cast at ourselves: the
             // server puts them on every piece worn.
-            offer(id, sp, Target::Item(me.guid));
+            offer(id, sp, &fx, Target::Item(me.guid));
         }
     }
     best.into_iter()
-        .map(|((category, target), (spell, power))| Want {
+        .map(|((_, _, target), (spell, category, _))| Want {
             spell,
             category,
-            power,
+            power: table.get(spell).map(|s| s.power).unwrap_or(0),
             target,
         })
         .collect()
