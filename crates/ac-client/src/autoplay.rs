@@ -2443,6 +2443,17 @@ impl Client {
     /// the leader sends them, and the leader is trusted.
     fn autoplay_accept_invites(&mut self) {
         const FELLOWSHIP: u32 = 4;
+        // The server asks the character before recruiting it only when
+        // its options allow: with "accept fellowship requests" off the
+        // leader's invitation is refused outright, and with "automatically
+        // accept" on it never has to be answered. A teammate keeps both on.
+        for name in ["accept fellowship", "automatically accept fellowship"] {
+            if let Some(o) = crate::options::option_by_name(name) {
+                if !self.option_enabled(o) {
+                    self.set_option(o, true);
+                }
+            }
+        }
         let invites: Vec<(u32, u32)> = self
             .world
             .confirmations
