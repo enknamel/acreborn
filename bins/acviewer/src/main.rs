@@ -1548,6 +1548,23 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        // Enter with no text field in use goes to the chat box, whatever
+        // else egui has focused (a slider, a checkbox): it would swallow
+        // the key otherwise.
+        if let WindowEvent::KeyboardInput { event: key, .. } = &event {
+            if key.physical_key == PhysicalKey::Code(KeyCode::Enter)
+                && key.state == ElementState::Pressed
+                && !self.nets.is_empty()
+                && self.ui.as_ref().is_some_and(|u| !u.text_field_focused())
+            {
+                if let Some(ui) = &mut self.ui {
+                    ui.chat_focus = true;
+                    ui.drop_focus();
+                }
+                self.keys.clear();
+                return;
+            }
+        }
         if let (Some(ui), Some(w)) = (&mut self.ui, &self.window) {
             if !matches!(event, WindowEvent::RedrawRequested) && ui.on_event(w, &event) {
                 // egui took it (typing in the chat box, clicking the overlay).

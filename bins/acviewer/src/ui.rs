@@ -115,6 +115,16 @@ impl Ui {
         }
     }
 
+    /// Take egui's focus off whatever widget holds it, so the chat box
+    /// can have it next frame.
+    pub fn drop_focus(&self) {
+        self.ctx.memory_mut(|m| {
+            if let Some(id) = m.focused() {
+                m.surrender_focus(id);
+            }
+        });
+    }
+
     /// Queue synthetic input for the next frame (headless tests and
     /// automation): key presses and typed text as egui events.
     pub fn inject(&mut self, events: impl IntoIterator<Item = egui::Event>) {
@@ -416,6 +426,22 @@ impl Ui {
 
     pub fn wants_keyboard(&self) -> bool {
         self.chat_focus || self.ctx.egui_wants_keyboard_input()
+    }
+
+    /// Whether a text field (the chat box, a panel's search or name
+    /// box) has the keyboard right now. Any widget can hold egui's
+    /// focus -- a slider just dragged, a checkbox just clicked -- and
+    /// egui then swallows Enter, which is how pressing Enter to chat
+    /// stopped working after touching a panel. Only a text field keeps
+    /// text-edit state, so that is the test.
+    pub fn text_field_focused(&self) -> bool {
+        if self.chat_focus {
+            return true;
+        }
+        let Some(id) = self.ctx.memory(|m| m.focused()) else {
+            return false;
+        };
+        egui::text_edit::TextEditState::load(&self.ctx, id).is_some()
     }
 }
 
