@@ -179,7 +179,12 @@ Casting rules (ACE `Player_Magic`, matching retail):
   stack multiply (65% and 15% give 72%).
 * The UI shows beneficial and harmful spells with remaining time; item
   spells have no timer. Vitae is an enchantment too (spell id `Vitae`).
-* Level VIII spells last 90 minutes.
+* Level VIII spells last 90 minutes. Some quest and gem spells outrank
+  them in power and last 30-60 s (Licorice Leap, Tusker Sprint, Night
+  Runner): autoplay wants a buff only if it lasts ten minutes, and one
+  spell per effect (stat mod type and key), the one that does most --
+  per category the item cantrips (Minor Flame Bane) would all be wanted
+  beside the numbered spell for a tenth of its value.
 
 ## 2. Combat (melee and missile)
 
@@ -857,6 +862,43 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   `jump_trace CELL x y z heading` follows one frame by frame, and
   `ac-scene --example tris_near BLOCK x y z r` lists the collision
   triangles around a point with the pushes they apply.
+* **A wall's edge pushes away from the edge.** Passing the end of a
+  wall (Arwic's gate posts), the nearest point of a one-sided triangle
+  to the capsule is its edge; pushing along the face normal there held
+  the walker still against the post every frame. When the nearest point
+  is an edge and the capsule is in front of the plane, the push goes
+  away from the edge instead.
+* **Routes keep a margin, and corners are not cut.** String-pulling a
+  lattice route pulls it tight round every corner it turns, and the
+  walker (0.7 m arrival radius) cut those corners into the wall. The
+  smoothing now walks its shortcuts with the radius plus 0.3 m (the
+  lattice points stay where there is no room, so a body-wide doorway
+  still passes), and a waypoint is passed early only when the line to
+  the next one is open.
+* **"No progress" is measured along the route.** The travel layer
+  skipped a waypoint after 8 s without coming closer to it as the crow
+  flies, so a legitimate detour round a town wall looked stuck, the
+  waypoint was skipped and the next one aimed back at the wall: that
+  was the run-at-the-wall-and-back oscillation. Progress is now the
+  remaining length of the route being steered (re-based when the route
+  changes; the clock keeps running, so a character that does not move
+  is still caught), reaching a waypoint counts as progress for the
+  step, and a step whose last waypoint cannot be reached is planned
+  again from where the character stands rather than called arrived.
+  `cargo run --release -p ac-client --example walksim BLOCK x y g
+  GOAL_BLOCK gx gy` walks a character offline with the real steering
+  and physics (no server) and reproduces these in under a minute.
+* **A building's door can open onto bare terrain** (a villa's grounds:
+  cell 6F8B015F at Loredane Villas). Leaving the interior floor with
+  nothing but terrain a step away must go outdoors; before this the
+  character kept the cell and walked a kilometre "inside" it, reporting
+  a cell and a position that no longer matched. ACE then refuses every
+  move whose distance from its own idea of the position is more than a
+  block and faster than a run (`MOVEMENT SPEED` in the server log) and
+  never tells the client, so a portal the client walks into "would not
+  take us" and the trip planner, told the character was indoors, found
+  no way anywhere. When a portal refuses for no reason, read the server
+  log.
 * **Collision comes from physics polygons only.** A cell structure's
   drawn polygons include its portals (the openings to the next cell);
   the two cell structures in the data without physics polygons are air
