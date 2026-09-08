@@ -1,0 +1,84 @@
+# The Training Academy tutorial (landblock 0x8602), as the steps a
+# character walks through to earn the exit portal. Taken from the ACE
+# world database: the NPCs' emote scripts (weenie_properties_emote and
+# _emote_action), the creatures' drops (weenie_properties_create_list),
+# the portals' quest restrictions and the landblock_instance rows placed
+# in the block. See docs/game/mechanics.md, "Training Academy".
+#
+# quest,kind,target,x,y,z,wcid,lx,ly,lz,open,done
+#
+# quest   groups the steps: when an NPC's `done` line is heard, the rest
+#         of its quest is skipped (a character coming back after a death
+#         or a restart still has its quest stamps).
+# kind    talk    walk to the NPC `target` and use it; `open` is the line
+#                 that means the task is still to do, `done` the line
+#                 that means it was done already
+#         give    hand the carried item `wcid` to the NPC; skipped when
+#                 none is carried; `done` is the NPC's thanks
+#         pickup  pick the item `wcid` (named `target`) up off the floor
+#         wear    wield the carried item `wcid`
+#         hunt    around (x,y,z), fight creatures whose name contains
+#                 `target` and loot their corpses until `wcid` is carried
+#         unlock  use the carried key `wcid` on the door `target`, then
+#                 open the door
+#         portal  walk into the portal `target`; (lx,ly,lz) is where it
+#                 drops the character (empty: it leaves the landblock)
+#         walk    go to (x,y,z)
+# x,y,z   landblock-local coordinates of the target (the DB's origin_*)
+# wcid    the weenie class of the item concerned
+#
+# The skip route (the default): Jonathan hands out an Exit Token and,
+# given it back, sends the character off with every reward the tutorial
+# would give. The full route below is the fallback.
+skip,talk,Jonathan,22.1,-19.1,0,0,,,,"If you want to skip your training",""
+skip,give,Jonathan,22.1,-19.1,0,29335,,,,"",""
+#
+# The full route.
+# Room 1: the Society Greeter takes the Calling Stone (CallingStoneGiven).
+start,give,Society Greeter,9.8,-31.7,0,5084,,,,"","Why don't you go talk to the Agent"
+# Room 2: Samuel wants the three pieces of leather armour found
+# (LeggingsAcademyPickUp / CapAcademyPickUp / GauntletsAcademyPickUp).
+armor,talk,Samuel,21.9,-30.6,0,0,,,,"Looks like you need some armor","You may now proceed to the Training Area"
+armor,pickup,Leather Gauntlets,18.4,-21.1,0,13240,,,,"",""
+armor,pickup,Leather Cap,22.2,-40.2,0.7,13239,,,,"",""
+armor,pickup,Leather Leggings,17.8,-41.7,0,13241,,,,"",""
+armor,wear,Leather Gauntlets,,,,13240,,,,"",""
+armor,wear,Leather Cap,,,,13239,,,,"",""
+armor,wear,Leather Leggings,,,,13241,,,,"",""
+armor,talk,Samuel,21.9,-30.6,0,0,,,,"","You may now proceed to the Training Area"
+# The Training Area: the Training Master wants an Academy Token, which
+# every Sparring Golem drops (AcademyTokenGiven opens the Central
+# Courtyard portal).
+token,talk,Training Master,56.1,-20.1,0,0,,,,"retrieve the Academy Token",""
+token,hunt,Sparring Golem,78,-20,0,12709,,,,"",""
+token,give,Training Master,56.1,-20.1,0,12709,,,,"","Excellent work"
+token,portal,Central Courtyard,70,-40,-0.1,0,50,-54,1,"",""
+# The Central Courtyard: the Foreman wants a Carpenter Wasp Wing (a 30%
+# drop) from the wasps behind the door beside him (WaspWingDone).
+wasp,talk,Academy Foreman,36.8,-73.7,0,0,,,,"Carpenter Wasps have infested","You should go visit the Academy Blacksmith"
+wasp,hunt,Carpenter Wasp,5,-68,0,13089,,,,"",""
+wasp,give,Academy Foreman,36.8,-73.7,0,13089,,,,"","Thank you! You are certainly doing your part"
+# The Blacksmith wants his Bellows back (a 30% drop) from the Thieving
+# Thrungus in the vegetable gardens; he pays with the library key
+# (BellowsNewbieTurnedIn).
+bellows,talk,Academy Blacksmith,37.9,-89.2,0,0,,,,"stolen my bellows","You should visit the Academy Researcher"
+bellows,hunt,Thieving Thrungus,38,-125,0,12710,,,,"",""
+bellows,give,Academy Blacksmith,37.9,-89.2,0,12710,,,,"","My bellows! Thank you"
+# The library key opens the way upstairs; the Senior Guard sends the
+# character through the Outer Courtyard portal to the Sentry, who wants a
+# Protection Orb from the Adolescent Olthoi at the bottom of the hive
+# (SentryTaskComplete, the exit portal's requirement).
+sentry,unlock,Academy Library,64.7,-90,0,30999,,,,"",""
+sentry,talk,Senior Guard,82.4,-57.6,12,0,,,,"talk to the Sentry",""
+sentry,portal,Outer Courtyard,90,-60,11.9,0,119,-141,0,"",""
+sentry,talk,Sentry,123.7,-133,0,0,,,,"Find the Adolescent Olthoi","You have done the Dereth Exploration Society a great service"
+sentry,hunt,Olthoi,153.4,-234.6,-12,29336,,,,"",""
+# The way back up to the Sentry is a ramp too steep for the navigation
+# graph (it sees a 0.6 m rise per step) but not for the character: walk
+# to its foot, then straight up it.
+sentry,walk,ramp foot,132,-136,-6,0,,,,"",""
+sentry,walk,ramp top,124,-129,0,0,,,,"",""
+sentry,give,Sentry,123.7,-133,0,29336,,,,"","You have done the Dereth Exploration Society a great service"
+# Out: the portal to Holtburg (every town's academy exit lands there on
+# ACE; see the docs).
+exit,portal,Exit to Holtburg,158.6,-149.5,-6.1,0,,,,"",""

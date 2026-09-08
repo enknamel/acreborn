@@ -1136,6 +1136,156 @@ bars, desired components, spellbook filters, gameplay options blob
 SetCharacterOptions (0x01A1) write them back. Titles: TitleSet (0x002C),
 CharacterTitle / UpdateTitle events. AFK mode and message (0x000F/0x0010).
 
+## 11. Training Academy
+
+Every character ACE creates starts in the Training Academy, dungeon
+landblock 0x8602 (`PlayerFactory.cs`: `Location` is the CharGen table's
+`StarterAreas[town].Locations[0]`, which is the academy for every town;
+the town only sets `Instantiation`, a fallback position). The academy
+is a chain of small quests told through NPC emote scripts, and its exit
+portal wants one of them stamped. A character that walks out of it
+cannot come back. Sources: the ACE world database, tables
+`landblock_instance` (what stands in 0x8602), `weenie_properties_emote`
+and `_emote_action` (what the NPCs say and stamp), `weenie_properties_
+create_list` (what the creatures drop) and `weenie_properties_string`
+type 37 (a portal's QuestRestriction). The client's copy of the steps is
+`crates/ac-world/data/academy.csv`; the rule that walks them is
+`crates/ac-client/src/academy.rs`.
+
+Coordinates below are landblock-local (the DB's `origin_x/y/z`); world
+= `landblock_origin(0x8602) + local`. Cells 0x0100 and up are indoors.
+
+**Recalls are off** for a character that has not left: `RecallsDisabled`
+(PropertyBool 107) is set at creation and cleared by the exit portal.
+Dying in the academy puts the character back at its spawn spot in the
+first room (the Sanctuary is set to `Location` at creation, not to the
+Life Stone standing in the outer courtyard), with nothing lost at level
+1.
+
+**The rooms and their tasks, in order:**
+
+1. *First room* (cell 0x01AD, spawn at 12.3, -28.5). **Society Greeter**
+   (wcid 30991). Use: "Hail and welcome to Dereth! ... drag the Calling
+   Stone to me" while `CallingStoneGiven` is not stamped; give the
+   Calling Stone (5084, in every new pack) → "Why don't you go talk to
+   the Agent in the next room?" and the stamp. Nothing later needs it.
+2. *Second room* (0x01B0/0x01B1), through a plain door (12705).
+   **Jonathan** (29324): Use hands out an Exit Token (29335, stamps
+   `AcademeyExitTokenGiven`, sic) and says "If you want to skip your
+   training and leave the Academy early, give this token back to me."
+   Giving it back runs `pick_coat_color` (one of the coats 13210..13219)
+   then `finalize_exit`: the Sanctuary is set to Holtburg, the Exit
+   Token quest erased, 11 000 XP awarded (`AwardNoShareXP`), a
+   Pathwarden-style gift (49563) given and spell 3815 "Free Ride to
+   Holtburg" cast, which teleports the character out. This is the
+   short way out: the same rewards as the whole tutorial.
+   **Samuel** (29322): Use asks `LeggingsAcademyPickUp`, then
+   `CapAcademyPickUp`, then `GauntletsAcademyPickUp`; any one stamped
+   → "You found some armor! ... You may now proceed to the Training
+   Area"; none → "Looks like you need some armor! There are 3 different
+   pieces of armor here." The pieces lie on the floor: Leather Gauntlets
+   13240 at (18.4, -21.1), Leather Cap 13239 at (22.2, -40.2, 0.7),
+   Leather Leggings 13241 at (17.8, -41.7); picking one up stamps its
+   quest (a 10 s item generator puts them back). The "Training Area"
+   door (29329, at 24.8, -30) is not locked.
+3. *Training Area* (0x023A and the sparring rooms east of it, x 56..90,
+   y -5..-35). **Training Master** (29320) at (56.1, -20.1). Use: "The
+   signs will tell you how to retrieve the Academy Token. Bring that
+   token back to me." (no quest check). Ten **Sparring Golems** (12698,
+   level 1, 30 health, 10 s respawn) each drop an **Academy Token**
+   (12709, 100%). Give it → "Excellent work! You have completed your
+   combat training! You may now take the portal to the Central
+   Courtyard", 1000 XP, stamp `AcademyTokenGiven`. The **Central
+   Courtyard** portal (31061, at 70, -40) requires that stamp
+   (refusal: WeenieError 0x0474 "You must complete quest to use
+   portal") and drops the character at its linkspot (50, -54, 1).
+4. *Central Courtyard*. **Academy Foreman** (30995) at (36.8, -73.7).
+   Use: not `WaspWingDone` → "Carpenter Wasps have infested my
+   woodpile! ... They are here through this door beside me. If you
+   bring me one of their wings ..."; done → "You should go visit the
+   Academy Blacksmith now". The door (4453) is at (34.5, -70); fourteen
+   **Carpenter Wasps** (12704, level 2, 20 health) at x -3..13, y
+   -60..-81 drop a **Carpenter Wasp Wing** (13089) 30% of the time. Give
+   it → "Thank you! You are certainly doing your part ...", 2000 XP,
+   stamp `WaspWingDone`.
+   **Academy Blacksmith** (30996) at (37.9, -89.2). Use: not
+   `BellowsNewbieTurnedIn` → "Perhaps you could help me with these
+   thieving Thrungum ... stolen my bellows! ... running towards the
+   vegetable gardens"; done → "You should visit the Academy
+   Researcher". Fourteen **Thieving Thrungus** (29333, level 2, 10
+   health) at x 26..52, y -115..-134 drop the **Bellows** (12710) 30% of
+   the time. Give it → "My bellows! Thank you", 3000 XP, an **Academy
+   Library Key** (30999) and the stamp.
+   The **Academy Library** door (30998, at 64.7, -90) is locked to that
+   key (`keydooracademya`, 9999 uses); behind it the **Academy
+   Researcher** (30997) sells the Oil of Rendering (optional) and the
+   stairs lead up (z 12) to the **Wordsmith** (a chat book), **Academy
+   Crier** (tips), **Academy Shopkeep** and the **Senior Guard** (29318,
+   at 82.4, -57.6, 12): "A hive of Olthoi just breached the walls of the
+   Outer Courtyard ... Go through this portal, then talk to the Sentry."
+   The **Outer Courtyard** portal (29334, at 90, -60, 11.9) has no
+   restriction and lands at (119, -141).
+5. *Outer Courtyard* (the hive, z 0 down to -12). **Sentry** (30994) at
+   (123.7, -133). Use: "Find the Adolescent Olthoi and kill it. Bring
+   back one of those orbs!" (no quest check on Use). A ramp at (124,
+   -129) → (132, -135) drops from z 0 to -6 (too steep for the client's
+   navigation graph but not for the character, which walks straight up
+   it); eight **Young Olthoi** (29332, level 2, 35 health, 1 min
+   respawn) guard the way down to z -12 through doors (4451) at
+   (110, -165), (160, -195), (190, -225); the **Adolescent Olthoi**
+   (29331, 35 health) stands at (153.4, -234.6, -12) and drops a
+   **Protection Orb** (29336, 100%). Give it to the Sentry → "Thank
+   you! You have done the Dereth Exploration Society a great service
+   ... Use the portal to Holtburg. When you get there, seek out Flinrala
+   Ryndmad.", a coat, 49563, 5000 XP and the stamp
+   `SentryTaskComplete`. Tutorial chests (30989, potions) and a Life
+   Stone (120, -160, -6) stand about.
+6. **Exit to Holtburg** (29338, at 158.6, -149.5, -6.1) requires
+   `SentryTaskComplete`. Its Portal emote erases every academy stamp
+   (`AcademyTokenGiven`, `SentryTaskComplete`, the armour, wing, bellows
+   and orb quests), sets the Sanctuary to Holtburg (0xA9B40019: 84, 7.1,
+   94), clears `RecallsDisabled` and pops up "Congratulations! You have
+   completed your training! Make sure you talk to Alcott to continue
+   your journey." The portal's destination is the same Holtburg spot.
+   On ACE the exit lands every character in Holtburg whatever town was
+   chosen: the "Free Ride to <town>" spells (3813 Shoushi, 3814 Yaraq,
+   3535 Sanamar, 3815 Holtburg) only set `Instantiation`, which the
+   server uses when a character has no position at all, and the four
+   exit portals (29337..29340) are placed nowhere but the Holtburg one.
+
+**How the client does it** (`ac_client::academy`): a step machine over
+the table, run by autoplay whenever the character stands in 0x8602 and
+`Config::academy.enabled` (default on). By default
+(`Config::academy.skip`) it takes Jonathan's way out: walk to his room,
+use him, wait for the Academy Exit Token to land in the pack and for
+him to finish speaking (a gift during his emote is refused with
+WeenieError 0x4ce "AI refuse item during emote"), give it back, and
+wait for the Free Ride. Seen live with a fresh Bow Hunter, 25 s from
+placement to Holtburg:
+
+    Jonathan tells you, "If you want to skip your training and leave the Academy early, give this token back to me."
+    Jonathan gives you Academy Exit Token.
+    Jonathan tells you, "But beware, once you leave the Training Academy, you cannot come back!"
+    You give Jonathan Academy Exit Token.
+    Jonathan gives you Oil of Rendering.  (twice)
+    Jonathan gives you Academy Coat.
+    Jonathan gives you Facility Hub Portal Gem.
+    Jonathan teleports you with Free Ride to Holtburg.
+    Make sure you talk to Alcott to continue your journey.
+    You are now level 5!  You've earned 11,000 experience.
+
+The character lands at 0xA9B30017 (Holtburg, 84 7.1 94) with the
+skills raised by the level. With `skip` off, or when Jonathan is not
+to be found, the tasks are done one by one. Talk steps use the NPC and
+listen: the "done" line skips the rest of the quest, so a character
+back from a death (or a restarted client) re-asks its way to where it
+was; a portal that works proves the quest before it. Hunts put the
+weapon the character was made for in hand and point the ordinary fight
+rule at the named creatures, then empty their corpses. Doors on the way
+are opened; the library key is used on its door. Finished means the
+character is in another landblock; the other rules then take over
+(following, growing).
+
 ## What this means for acreborn
 
 * **Spell bar ≠ components.** The spell bar panel shows the 8 bars from

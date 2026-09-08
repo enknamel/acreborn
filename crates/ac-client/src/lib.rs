@@ -2,6 +2,7 @@
 //! our character, and the gameplay commands a UI or a script can issue.
 //! Nothing here renders; several `Client`s can live in one process.
 
+pub mod academy;
 pub mod advance;
 pub mod augmentations;
 pub mod autoplay;
@@ -788,9 +789,20 @@ impl Client {
                         }
                         None => travel_goal.or_else(|| {
                             self.follow.map(|f| {
-                                let bx = (f.target.x / 192.0).floor().clamp(0.0, 255.0) as u32;
-                                let by = (f.target.y / 192.0).floor().clamp(0.0, 255.0) as u32;
-                                (f.target, f.stop, (bx << 24) | (by << 16))
+                                // Indoors the goal is in the block we
+                                // stand in: a dungeon's cells run past
+                                // its outdoor square (the academy's lie
+                                // at negative local y), so the world
+                                // coordinates would name the wrong one
+                                // and the steering would never plan.
+                                let block = if pl.is_indoors() {
+                                    pl.landblock()
+                                } else {
+                                    let bx = (f.target.x / 192.0).floor().clamp(0.0, 255.0) as u32;
+                                    let by = (f.target.y / 192.0).floor().clamp(0.0, 255.0) as u32;
+                                    (bx << 24) | (by << 16)
+                                };
+                                (f.target, f.stop, block)
                             })
                         }),
                     }
@@ -1197,6 +1209,10 @@ impl Client {
                 return;
             }
         };
+        // The academy rule listens to what the agents say.
+        self.autoplay
+            .academy
+            .hear(&line.sender, &line.text, Instant::now());
         let text = match (op, line.sender.is_empty()) {
             _ if line.kind == ac_net::messages::turbine::KIND => {
                 let room = ac_net::messages::turbine::name(line.sender_id);
@@ -1719,6 +1735,9 @@ impl Client {
             .values()
             .filter(|o| self.world.is_carried(o.guid))
             .filter(|o| o.item_type & mask != 0)
+            // A stack of arrows is a missile weapon by type and worth
+            // more than a training bow; the launcher is wanted here.
+            .filter(|o| o.valid_locations & ac_world::equip::MISSILE_AMMO == 0)
             // The dearest one is usually the best one, and it is the
             // only ordering the client has before appraising.
             .max_by_key(|o| o.value)
@@ -1779,9 +1798,14 @@ impl Client {
 
     /// The wielded bow, crossbow or thrown weapon, if any.
     pub fn wielded_missile_weapon(&self) -> Option<u32> {
+        // Arrows are missile weapons by type too; the launcher is what
+        // is wanted here.
         self.world
             .wielded()
-            .find(|o| o.item_type & ac_world::item_type::MISSILE_WEAPON != 0)
+            .find(|o| {
+                o.item_type & ac_world::item_type::MISSILE_WEAPON != 0
+                    && o.valid_locations & ac_world::equip::MISSILE_AMMO == 0
+            })
             .map(|o| o.guid)
     }
 

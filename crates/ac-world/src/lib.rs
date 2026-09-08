@@ -3,6 +3,7 @@
 //! `DeleteObject`) and keeps a table of objects with their model ids and
 //! positions.
 
+pub mod academy;
 pub mod allegiance;
 pub mod buffs;
 pub mod elements;

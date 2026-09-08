@@ -114,6 +114,7 @@ pub mod skill {
     pub const LIFE_MAGIC: u32 = 33;
     pub const WAR_MAGIC: u32 = 34;
     pub const FLETCHING: u32 = 37;
+    pub const MISSILE_WEAPONS: u32 = 47;
 }
 
 pub mod sac {

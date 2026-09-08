@@ -478,6 +478,9 @@ pub struct Config {
     pub team: Team,
     /// Growing and keeping supplied over the hours (see `crate::growth`).
     pub growth: crate::growth::Growth,
+    /// Getting a new character through the Training Academy (see
+    /// `crate::academy`).
+    pub academy: crate::academy::Academy,
 }
 
 /// Why a cast is refused, in a few words for a status line.
@@ -569,6 +572,8 @@ pub enum Doing {
     Shopping,
     /// Stepping out of a spell's way (see `crate::dodge`).
     Dodging,
+    /// Doing the Training Academy tutorial (see `crate::academy`).
+    Training,
 }
 
 impl Doing {
@@ -588,6 +593,7 @@ impl Doing {
             Doing::Traveling => "travelling",
             Doing::Shopping => "in town",
             Doing::Dodging => "dodging",
+            Doing::Training => "in the Training Academy",
         }
     }
 }
@@ -683,6 +689,14 @@ pub struct Autoplay {
     next_follow_plan: Option<Instant>,
     /// The growth rules' own state (see `crate::growth`).
     pub growth: crate::growth::State,
+    /// The academy rule's own state (see `crate::academy`).
+    pub academy: crate::academy::State,
+    /// The corpse the academy rule is emptying, and since when.
+    pub(crate) academy_corpse: Option<(u32, Instant)>,
+    /// Doors the academy rule opened lately, and when.
+    pub(crate) academy_doors: Vec<(u32, Instant)>,
+    /// When the academy rule last asked for a weapon to be wielded.
+    pub(crate) academy_armed: Option<Instant>,
 }
 
 impl Autoplay {
@@ -1057,6 +1071,11 @@ impl Client {
         if self.autoplay_recover(now) {
             return;
         }
+        // A new character in the Training Academy does the tutorial
+        // before anything else (see `crate::academy`).
+        if self.autoplay_academy(now) {
+            return;
+        }
         // A weapon waiting for empty hands is taken up as soon as they
         // are.
         if let Some(g) = self.autoplay.pending_wield {
@@ -1382,8 +1401,8 @@ impl Client {
     /// three ask for a weapon of that kind to be wielded, and if none is
     /// carried the character fights with what it has and the rules say
     /// so rather than pretending.
-    fn fighting_stance(&mut self) -> Stance {
-        let want = match self.autoplay.config.fight.style {
+    fn fighting_stance_as(&mut self, style: Style) -> Stance {
+        let want = match style {
             Style::Auto => return self.combat_stance(),
             Style::Melee => Stance::Melee,
             Style::Missile => Stance::Missile,
@@ -1415,8 +1434,8 @@ impl Client {
     /// kinds of weapon at once, so a character skilled with a wand and
     /// poor with a sword reaches for the wand. Changing weapon changes
     /// the stance, which the next tick reads back out of its hands.
-    fn arm_for(&mut self, target: u32, stance: Stance) {
-        if !self.autoplay.config.fight.pick_weapon {
+    fn arm_for(&mut self, target: u32, stance: Stance, cfg: &Fight) {
+        if !cfg.pick_weapon {
             return;
         }
         if self.autoplay.armed_for == Some(target) {
@@ -1443,7 +1462,7 @@ impl Client {
             self.autoplay.armed_for = None;
         }
         let wielder = self.wielder();
-        let free_choice = self.autoplay.config.fight.style == Style::Auto;
+        let free_choice = cfg.style == Style::Auto;
         let picked = if free_choice {
             crate::weapons::best_any(&carried, Some(known), &wielder).map(|(_, c)| c)
         } else {
@@ -1820,10 +1839,17 @@ impl Client {
     /// Pick something to fight and attack it. True when fighting.
     fn autoplay_fight(&mut self, now: Instant) -> bool {
         let cfg = self.autoplay.config.fight.clone();
+        self.autoplay_fight_as(now, &cfg)
+    }
+
+    /// The fight rule with the rules given (the academy points it at the
+    /// creatures a task names).
+    pub(crate) fn autoplay_fight_as(&mut self, now: Instant, cfg: &Fight) -> bool {
+        let cfg = cfg.clone();
         if !cfg.enabled {
             return false;
         }
-        let stance = self.fighting_stance();
+        let stance = self.fighting_stance_as(cfg.style);
         if stance == Stance::Magic {
             return self.autoplay_fight_with_spells(now, &cfg);
         }
@@ -1878,7 +1904,7 @@ impl Client {
                         return true;
                     }
                     self.remember_journey();
-                    self.arm_for(guid, stance);
+                    self.arm_for(guid, stance, &cfg);
                     if missile {
                         let range = self.attack_range(crate::dodge::How::Missile);
                         if self.autoplay_approach(guid, &name, range) {
@@ -1928,7 +1954,7 @@ impl Client {
             return true;
         }
         self.remember_journey();
-        self.arm_for(guid, stance);
+        self.arm_for(guid, stance, &cfg);
         // A bow refused for range shoots nothing: close in first (see
         // `crate::dodge`). A swing from too far the server walks us
         // in for.
@@ -2009,7 +2035,7 @@ impl Client {
         // Behind the throttle, so choosing a wand costs no more than one
         // look per cast. Wielding takes a moment, so this cast still
         // goes out with the old one and the next with the new.
-        self.arm_for(guid, Stance::Magic);
+        self.arm_for(guid, Stance::Magic, cfg);
         self.select(Some(guid));
         if self.autoplay_plan_hard(guid, &name, now) {
             return true;
@@ -2293,7 +2319,7 @@ impl Client {
     /// Every attack spell in the spellbook that is thrown at a target:
     /// the ones the element table knows deal an element, strongest
     /// first. Which of them to throw is decided against the target.
-    fn attack_spells_known(&self) -> Vec<u32> {
+    pub(crate) fn attack_spells_known(&self) -> Vec<u32> {
         let Ok(table) = self.assets.spell_table() else {
             return Vec::new();
         };

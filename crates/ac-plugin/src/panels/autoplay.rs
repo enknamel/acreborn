@@ -604,6 +604,7 @@ impl Autoplay {
                 ..Default::default()
             },
             growth: Default::default(),
+            academy: Default::default(),
         };
         // What the two searches would take out of the demo pack.
         let counts = vec![3, 1];
