@@ -738,6 +738,7 @@ pub fn create_failure_message(code: u32) -> &'static str {
         5 => "the server rejected the character (attributes or skills out of bounds, or a corrupt build)",
         6 => "the character database is down; try again later",
         7 => "admin privilege denied",
+        SPEC_REJECTED => "the character could not be built from its options (see the log)",
         _ => "unknown creation response",
     }
 }
@@ -749,7 +750,155 @@ pub enum Pending {
     Restore(u32),
 }
 
+/// What to make when an account lacks the character it should enter with
+/// ([`Client::create_when_missing`]): the name, and the command-line
+/// style choices [`CharacterBuild::from_options`] takes (heritage by
+/// name or id, sex `m`/`f`, template and town by name or index; missing
+/// ones fall back to Aluvian, male, the first template and the home
+/// town). Serialized as the fleet roster keeps it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CreateSpec {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heritage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sex: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub town: Option<String>,
+}
+
+impl CreateSpec {
+    /// A spec with only the name: Aluvian male Adventurer in Holtburg.
+    pub fn named(name: impl Into<String>) -> Self {
+        CreateSpec {
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    /// The build this spec describes, with the heritage's rules.
+    pub fn build(&self, assets: &Assets) -> Result<(CharacterBuild, Rules), String> {
+        CharacterBuild::from_options(
+            assets,
+            &self.name,
+            self.heritage.as_deref(),
+            self.sex.as_deref(),
+            self.template.as_deref(),
+            self.town.as_deref(),
+        )
+    }
+
+    /// One line for a log or a panel: "Bow Hunter, Holtburg".
+    pub fn summary(&self) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        if let Some(t) = &self.template {
+            parts.push(t);
+        }
+        if let Some(t) = &self.town {
+            parts.push(t);
+        }
+        if let Some(h) = &self.heritage {
+            parts.push(h);
+        }
+        if let Some(s) = &self.sex {
+            parts.push(s);
+        }
+        parts.join(", ")
+    }
+}
+
+/// The [`crate::Event::CharacterCreateFailed`] code the client reports
+/// when a [`CreateSpec`] could not be turned into a build (an unknown
+/// template or town): nothing was sent to the server, and
+/// [`Client::create_error`] has the reason.
+pub const SPEC_REJECTED: u32 = u32::MAX;
+
 impl Client {
+    /// Enter the world with `spec.name`, creating the character from the
+    /// spec first when the account has no character of that name (what
+    /// `acbot --create` and the fleet panel's "create if missing" do).
+    /// The create goes out once, when the character list arrives without
+    /// the name; the server's answer comes back as
+    /// [`crate::Event::CharacterCreated`] (and the client enters) or
+    /// [`crate::Event::CharacterCreateFailed`]. Call it right after
+    /// [`Client::connect`], before the list arrives.
+    pub fn create_when_missing(&mut self, spec: CreateSpec) {
+        self.config.character = Some(spec.name.trim().to_string());
+        self.config.auto_enter = true;
+        self.create_if_missing = Some(spec);
+        self.create_error = None;
+    }
+
+    /// The name a [`Client::create_when_missing`] is creating right now:
+    /// the create was sent and the server has not answered.
+    pub fn creating(&self) -> Option<&str> {
+        match (&self.pending_create, &self.create_if_missing) {
+            (Some(Pending::Create), Some(spec)) => Some(spec.name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Why the last [`Client::create_when_missing`] did not produce a
+    /// character: the spec could not be built, or the server refused.
+    pub fn create_error(&self) -> Option<&str> {
+        self.create_error.as_deref()
+    }
+
+    /// The character list came without the wanted character: create it
+    /// from the spec given to [`Client::create_when_missing`], once.
+    /// True when a create was sent.
+    pub(crate) fn create_missing(&mut self) -> bool {
+        let Some(spec) = self.create_if_missing.clone() else {
+            return false;
+        };
+        if self.create_attempted {
+            return false;
+        }
+        self.create_attempted = true;
+        match spec.build(&self.assets) {
+            Ok((build, rules)) => {
+                tracing::info!(
+                    "no character named {:?} on {}: creating it ({} {}, template {}, start area {})",
+                    spec.name,
+                    self.config.account,
+                    rules.heritage_name,
+                    if build.look.gender == 2 { "female" } else { "male" },
+                    rules
+                        .templates
+                        .get(build.template)
+                        .map(String::as_str)
+                        .unwrap_or("?"),
+                    rules
+                        .start_areas
+                        .iter()
+                        .position(|a| *a == build.start_area)
+                        .and_then(|p| rules.start_area_names.get(p))
+                        .map(String::as_str)
+                        .unwrap_or("?")
+                );
+                match self.create_character(&build) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::error!("cannot create {:?}: {e}", spec.name);
+                        self.create_error = Some(e.to_string());
+                        self.events
+                            .push(crate::Event::CharacterCreateFailed(SPEC_REJECTED));
+                        false
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("cannot create {:?}: {e}", spec.name);
+                self.create_error = Some(e);
+                self.events
+                    .push(crate::Event::CharacterCreateFailed(SPEC_REJECTED));
+                false
+            }
+        }
+    }
+
     /// Send the character to the server; on success the server answers
     /// with [`crate::Event::CharacterCreated`] and the client enters the
     /// world with it, on failure with
@@ -892,6 +1041,9 @@ impl Client {
                     },
                     create_failure_message(code)
                 );
+                if matches!(pending, Some(Pending::Create)) && self.create_if_missing.is_some() {
+                    self.create_error = Some(create_failure_message(code).to_string());
+                }
                 self.events.push(crate::Event::CharacterCreateFailed(code));
             }
         }
@@ -1192,6 +1344,44 @@ mod tests {
             4 + 8 + 12 + 56 + 48 + 4 + 24 + 8 + 4 + 220 + 8 + 12
         );
         assert_eq!(bytes, expect);
+    }
+
+    #[test]
+    fn create_specs_round_trip_and_build() {
+        let spec = CreateSpec {
+            name: "Fleetbot One".into(),
+            template: Some("bow".into()),
+            town: Some("holtburg".into()),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&spec).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"name": "Fleetbot One", "template": "bow", "town": "holtburg"}),
+            "absent choices are left out"
+        );
+        assert_eq!(serde_json::from_value::<CreateSpec>(json).unwrap(), spec);
+        assert_eq!(spec.summary(), "bow, holtburg");
+        assert_eq!(CreateSpec::named("Bob").summary(), "");
+        assert_eq!(
+            create_failure_message(SPEC_REJECTED),
+            "the character could not be built from its options (see the log)"
+        );
+        let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+            eprintln!("AC_DATA_DIR unset; skipping the build");
+            return;
+        };
+        let assets = ac_scene::Assets::open(dir).unwrap();
+        let (build, rules) = spec.build(&assets).unwrap();
+        assert_eq!(build.name, "Fleetbot One");
+        assert_eq!(rules.templates[build.template], "Bow Hunter");
+        assert_eq!(build.start_area, 0, "Holtburg");
+        assert!(build.validate(&rules).is_ok());
+        let bad = CreateSpec {
+            template: Some("ninja".into()),
+            ..spec
+        };
+        assert!(bad.build(&assets).unwrap_err().contains("unknown template"));
     }
 
     #[test]

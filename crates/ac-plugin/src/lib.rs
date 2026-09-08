@@ -26,6 +26,7 @@ pub mod settings;
 pub mod team;
 
 pub use ac_bus::{self, BusClient, Incoming};
+pub use ac_client::creation::CreateSpec;
 pub use ac_client::{self, Client, Event};
 pub use egui;
 pub use host::{Host, Requests, AUTOPLAY_TOPIC};
@@ -56,6 +57,65 @@ impl Message {
     }
 }
 
+/// What a session started from a plugin is for: the team rules it gets
+/// once its character stands in the world (see `panels::fleet`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    /// Team on and leading: the one played by hand.
+    Leader,
+    /// Team, follow and autoplay on: tags along and fights.
+    #[default]
+    Follower,
+    /// Nothing is switched on.
+    Manual,
+}
+
+impl Role {
+    pub const ALL: [Role; 3] = [Role::Leader, Role::Follower, Role::Manual];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Role::Leader => "leader",
+            Role::Follower => "follower",
+            Role::Manual => "manual",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Role> {
+        Role::ALL
+            .into_iter()
+            .find(|r| r.label().eq_ignore_ascii_case(s.trim()))
+    }
+}
+
+/// A session a plugin asks the host to start (`Ctx::start_session`):
+/// the account, the character to enter with (the first on the account
+/// when `None` and nothing is created), what to create when the account
+/// lacks it, and the role it plays once in the world. The host connects
+/// to the server it was started against.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SessionSpec {
+    pub account: String,
+    pub password: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create: Option<CreateSpec>,
+    #[serde(default)]
+    pub role: Role,
+}
+
+impl SessionSpec {
+    /// The character the session enters with: the one named, else the
+    /// one it would create.
+    pub fn character_name(&self) -> Option<&str> {
+        self.character
+            .as_deref()
+            .or(self.create.as_ref().map(|c| c.name.as_str()))
+    }
+}
+
 /// Shared state for coordination: named values that persist, and messages
 /// that stay readable for one full frame after they were posted.
 #[derive(Debug, Default)]
@@ -70,6 +130,13 @@ pub struct Blackboard {
 impl Blackboard {
     pub fn get(&self, key: &str) -> Option<&Value> {
         self.values.get(key)
+    }
+
+    /// Set a value in this process only: a bus, if attached, does not
+    /// hear it (for what must not be repeated elsewhere, such as a
+    /// request to start a session here).
+    pub fn set_local(&mut self, key: impl Into<String>, value: impl Into<Value>) {
+        self.values.insert(key.into(), value.into());
     }
 
     /// Set a value; with a bus attached every other process gets it too.
@@ -174,6 +241,11 @@ pub struct Ctx<'a> {
     pub activate: Option<usize>,
     /// Ask the host to close the client (the menu's Quit).
     pub quit: bool,
+    /// Sessions to start in this process (see [`Ctx::start_session`]).
+    pub start_sessions: Vec<SessionSpec>,
+    /// Sessions to disconnect and drop, by index (see
+    /// [`Ctx::stop_session`]).
+    pub stop_sessions: Vec<usize>,
 }
 
 impl Ctx<'_> {
@@ -208,6 +280,21 @@ impl Ctx<'_> {
         let from = self.index;
         self.board.post(from, topic, value);
     }
+
+    /// Ask the host to start another session in this process, against
+    /// the server it is connected to. It appears in `clients` (at the
+    /// end) from the next callback on; a host without sessions of its
+    /// own (the offline overlay) ignores it with a warning.
+    pub fn start_session(&mut self, spec: SessionSpec) {
+        self.start_sessions.push(spec);
+    }
+
+    /// Ask the host to disconnect session `index` and drop it. The
+    /// sessions after it move down one index and every plugin hears
+    /// [`Plugin::session_removed`].
+    pub fn stop_session(&mut self, index: usize) {
+        self.stop_sessions.push(index);
+    }
 }
 
 pub trait Plugin {
@@ -241,6 +328,29 @@ pub trait Plugin {
     /// Before the host writes the settings file (on exit and every 30 s):
     /// store what should survive a restart (`settings.set(key, value)`).
     fn save(&self, _settings: &mut Settings) {}
+
+    /// Session `index` was disconnected and dropped; the sessions after
+    /// it now have one index less. A plugin keeping state by session
+    /// index drops the entry and shifts the rest.
+    fn session_removed(&mut self, _index: usize) {}
+}
+
+/// Shift a map keyed by session index after session `removed` went:
+/// its entry goes, the ones above it move down one.
+pub fn shift_removed<V>(map: &mut std::collections::BTreeMap<usize, V>, removed: usize) {
+    let mut shifted = std::collections::BTreeMap::new();
+    for (i, v) in std::mem::take(map) {
+        match i.cmp(&removed) {
+            std::cmp::Ordering::Less => {
+                shifted.insert(i, v);
+            }
+            std::cmp::Ordering::Equal => {}
+            std::cmp::Ordering::Greater => {
+                shifted.insert(i - 1, v);
+            }
+        }
+    }
+    *map = shifted;
 }
 
 /// Split `/attack Drudge Skulker` into `("attack", "Drudge Skulker")`.
@@ -267,6 +377,53 @@ mod tests {
         assert_eq!(parse_command("/loot"), Some(("loot", "")));
         assert_eq!(parse_command("hello"), None);
         assert_eq!(parse_command("/"), None);
+    }
+
+    #[test]
+    fn roles_and_specs_round_trip() {
+        for r in Role::ALL {
+            assert_eq!(Role::parse(r.label()), Some(r));
+        }
+        assert_eq!(Role::parse("LEADER"), Some(Role::Leader));
+        assert_eq!(Role::parse("boss"), None);
+        let spec = SessionSpec {
+            account: "fleetbot1".into(),
+            password: "testpass".into(),
+            character: None,
+            create: Some(CreateSpec {
+                name: "Fleetbot One".into(),
+                template: Some("bow".into()),
+                town: Some("holtburg".into()),
+                ..Default::default()
+            }),
+            role: Role::Follower,
+        };
+        assert_eq!(spec.character_name(), Some("Fleetbot One"));
+        let json = serde_json::to_value(&spec).unwrap();
+        assert_eq!(json["role"], "follower");
+        assert!(json.get("character").is_none());
+        assert_eq!(serde_json::from_value::<SessionSpec>(json).unwrap(), spec);
+        // An older roster entry without a role is a follower.
+        let old: SessionSpec =
+            serde_json::from_value(serde_json::json!({"account": "a", "password": "p"})).unwrap();
+        assert_eq!(old.role, Role::Follower);
+        assert_eq!(old.character_name(), None);
+    }
+
+    #[test]
+    fn shifting_drops_the_removed_index() {
+        let mut m: std::collections::BTreeMap<usize, &str> =
+            [(0, "a"), (1, "b"), (2, "c"), (3, "d")]
+                .into_iter()
+                .collect();
+        shift_removed(&mut m, 1);
+        assert_eq!(
+            m.into_iter().collect::<Vec<_>>(),
+            vec![(0, "a"), (1, "c"), (2, "d")]
+        );
+        let mut m: std::collections::BTreeMap<usize, &str> = [(2, "c")].into_iter().collect();
+        shift_removed(&mut m, 5);
+        assert_eq!(m.get(&2), Some(&"c"));
     }
 
     #[test]

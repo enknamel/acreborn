@@ -210,7 +210,76 @@ kept for 15 minutes, and quotes nothing for a character it has watched
 less than 30 s. A process that goes quiet for 6 s drops off the panel.
 
 `acviewer --demo-ui` opens the panel on four sample characters (two
-here, two in a process called `bob`, one of them dead).
+here, two in a process called `bob`, one of them dead), with a roster
+of three accounts under them.
+
+### Starting a fleet from the client
+
+Everything above assumes the followers were started on the command
+line. The Fleet panel's **Sessions** section starts them from the
+client being played, and remembers them, so the next launch is one
+click:
+
+1. Play as usual (`acviewer --connect HOST -a ACCOUNT -v PASSWORD`, or
+   from the launcher). Open the menu, click **Fleet**, unfold
+   **Sessions**.
+2. **Add an account.** Type the follower's account and password, the
+   character's name, pick its role (follower, leader, manual) and, with
+   **create if missing** ticked, the template, heritage, sex and town
+   to make it with when the account has no character of that name (the
+   choices `acbot --create` accepts: Adventurer, Bow Hunter,
+   Swashbuckler, Life Caster, War Mage, Wayfarer, Soldier; Holtburg,
+   Shoushi, Yaraq, Sanamar). Click **Add**. ACE creates the account
+   itself on its first login, so a new name is fine. Without **create
+   if missing** the name is the character to enter with, or, left
+   blank, the account's first.
+3. **Start** the row (or **Start all followers**). The client logs the
+   account in as another session of this process, against the same
+   server. The status column follows it: *starting*, *connecting*,
+   *character missing: creating NAME*, *in world as NAME*, or *failed:
+   why* (the server's answer, or what went wrong before it).
+4. Tick **I lead**. The session being played gets the team rules on
+   with lead (what `team_lead(true)` does); each follower, the moment
+   its character stands in the world, gets team, follow and autoplay
+   on (what `scripts/examples/follow.rhai` does) and comes to you. A
+   leader row does the same as **I lead**; a manual row gets nothing.
+   Rows for sessions in the world are the same characters as the table
+   above (their role is captioned next to the name); click a running
+   account to switch the window to it, **Stop** to disconnect and drop
+   it, **Remove** to forget it.
+
+The roster is kept in the settings file (`~/.config/acreborn/ui.json`,
+`fleet.roster`, one entry per account: `account`, `password`,
+`character`, `create` `{name, template, town, heritage, sex}`, `role`)
+and the leading account under `fleet.lead_account`, so on the next
+launch the rows are there and **Start all followers** brings the fleet
+back with the roles applied. **Passwords are stored in plain text**, as
+the launcher stores them: a convenience for a private server, not a
+place for a password that matters.
+
+Under the hood a plugin asks the host for sessions through
+`Ctx::start_session(SessionSpec)` / `Ctx::stop_session(index)`
+(`ac_plugin::Requests::{start_sessions, stop_sessions}`); the viewer
+connects (`ac_client::Client::connect` with the `--connect` host and
+`Client::create_when_missing` for the creation) and appends a session,
+or disconnects and removes one, between frames. A removed session's
+successors move down one index and every plugin hears
+`Plugin::session_removed(index)` (the team, party, autoplay, fleet and
+script plugins shift what they keep by session). `acbot` applies starts
+the same way and ignores stops with a warning. A script or the command
+line drives the same path through two blackboard keys: `fleet.start`
+(a session spec or a list of them, each added to the roster and
+started) and `fleet.stop` (an account or a list); with `--bus`, add
+`"process": NAME` so only that process acts. `acviewer --fleet-start
+ACCOUNT:PASSWORD:CHARACTER[:TEMPLATE[:TOWN[:HERITAGE[:SEX]]]]` (headless,
+with `--screenshot`) sets `fleet.start` once session 1 is placed and
+`fleet.stop` `--fleet-stop-after` seconds later, which is how the flow
+is tested:
+
+```
+acviewer --connect 127.0.0.1:9000 -a LEADER -v PASSWORD --mute --screenshot out.png \
+    --fleet-start fleetbot1:testpass:"Fleetbot One":bow:holtburg --fleet-stop-after 45
+```
 
 ## Resources
 
@@ -321,6 +390,8 @@ file-backed archive pages.
   `player::Input` to an inactive one (it can set `client.move_to`).
 * The headless `--screenshot` script (`--use`, `--attack`, ...) acts on
   session 1; extra `--client`s connect and tick but are not scripted.
+* A session stopped from the Fleet panel leaves what it streamed on the
+  GPU like a switch does, and `acbot` cannot stop sessions at all.
 * All sessions in one process must be on the same host (`--connect`); use
   the launcher for several servers.
 * GPU-side caches are duplicated per session (above); memory grows with

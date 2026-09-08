@@ -157,6 +157,10 @@ impl Plugin for ScriptPlugin {
         self.scripts.key(session, &format!("{key:?}"), pressed)
     }
 
+    fn session_removed(&mut self, index: usize) {
+        self.scripts.session_removed(index);
+    }
+
     fn command(&mut self, cx: &mut Ctx, name: &str, args: &str) -> bool {
         if name == "scripts" {
             let mut api = CtxApi { cx };

@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use ac_client::creation::{self, CharacterBuild};
+use ac_client::creation::{self, CreateSpec};
 use ac_client::{Client, Config, Event};
 use ac_plugin::console::Console;
 use ac_plugin::Host;
@@ -176,8 +176,41 @@ struct Session {
     placed_at: Option<Instant>,
     /// Terminated or refused: the connection is gone.
     ended: bool,
-    /// A --create was sent for this session.
-    created: bool,
+}
+
+/// Log `account` in: enter with `character` (else the account's first,
+/// or the `create` name), and with `create` make the character when
+/// the account lacks it (`Client::create_when_missing`).
+fn connect_session(
+    connect: &str,
+    assets: &Rc<ac_scene::Assets>,
+    account: &str,
+    password: &str,
+    character: Option<&str>,
+    create: Option<&CreateSpec>,
+) -> Result<Client> {
+    let mut client = Client::connect(
+        Config {
+            host: connect.to_string(),
+            account: account.to_string(),
+            password: password.to_string(),
+            character: character
+                .map(str::to_string)
+                .or_else(|| create.map(|c| c.name.clone())),
+            auto_enter: true,
+        },
+        assets.clone(),
+    )
+    .with_context(|| format!("connecting {account} to {connect}"))?;
+    if let Some(c) = create {
+        client.create_when_missing(c.clone());
+        // A named character is still the one to enter with; the create
+        // only fills in for it when it is missing.
+        if let Some(name) = character {
+            client.config.character = Some(name.to_string());
+        }
+    }
+    Ok(client)
 }
 
 impl Session {
@@ -252,28 +285,29 @@ fn main() -> Result<()> {
     }
 
     let assets = Rc::new(ac_scene::Assets::open(&cli.data_dir).context("opening DAT archives")?);
+    // What --create makes on a session whose account lacks the character.
+    let create: Option<CreateSpec> = cli.create.as_ref().map(|name| CreateSpec {
+        name: name.clone(),
+        heritage: cli.heritage.clone(),
+        sex: cli.gender.clone(),
+        template: cli.template.clone(),
+        town: cli.start_area.clone(),
+    });
     let mut sessions: Vec<Session> = Vec::with_capacity(specs.len());
     for spec in specs {
-        let client = Client::connect(
-            Config {
-                host: connect.clone(),
-                account: spec.account.clone(),
-                password: spec.password,
-                // A --create name is the character to enter with; when
-                // the account lacks it the list comes back as an event
-                // and we create it.
-                character: spec.character.or_else(|| cli.create.clone()),
-                auto_enter: true,
-            },
-            assets.clone(),
-        )
-        .with_context(|| format!("connecting {} to {}", spec.account, connect))?;
+        let client = connect_session(
+            &connect,
+            &assets,
+            &spec.account,
+            &spec.password,
+            spec.character.as_deref(),
+            create.as_ref(),
+        )?;
         sessions.push(Session {
             client,
             schedule: Schedule::new(lines.clone(), 1.0),
             placed_at: None,
             ended: false,
-            created: false,
         });
     }
 
@@ -359,50 +393,31 @@ fn main() -> Result<()> {
                     Event::Characters(list) => {
                         let names: Vec<&str> = list.iter().map(|c| c.name.as_str()).collect();
                         println!("[{account}] characters: {names:?}");
-                        let wanted = cli
-                            .create
-                            .as_deref()
-                            .filter(|n| !list.iter().any(|c| c.name.eq_ignore_ascii_case(n)));
-                        match wanted {
-                            Some(name) if !sessions[i].created => {
-                                sessions[i].created = true;
-                                let built = CharacterBuild::from_options(
-                                    &assets,
-                                    name,
-                                    cli.heritage.as_deref(),
-                                    cli.gender.as_deref(),
-                                    cli.template.as_deref(),
-                                    cli.start_area.as_deref(),
-                                );
-                                match built {
-                                    Ok((build, rules)) => {
-                                        println!(
-                                            "[{account}] creating {name}: {} {}, template {}, {} attribute points, {} of {} credits, start area {}",
-                                            rules.heritage_name,
-                                            if build.look.gender == 2 { "female" } else { "male" },
-                                            rules.templates.get(build.template).map(String::as_str).unwrap_or("?"),
-                                            build.attribute_points_used(),
-                                            build.credits_used(&rules),
-                                            rules.skill_credits,
-                                            build.start_area
-                                        );
-                                        if let Err(e) = sessions[i].client.create_character(&build)
-                                        {
-                                            println!("[{account}] cannot create {name}: {e}");
-                                            sessions[i].ended = true;
+                        // The client creates a missing --create character
+                        // itself (`create_when_missing`); the list comes
+                        // here for the record.
+                        let c = &sessions[i].client;
+                        if let Some(name) = c.creating() {
+                            println!(
+                                "[{account}] creating {name}{}",
+                                create
+                                    .as_ref()
+                                    .map(|c| {
+                                        let s = c.summary();
+                                        if s.is_empty() {
+                                            s
+                                        } else {
+                                            format!(" ({s})")
                                         }
-                                    }
-                                    Err(e) => {
-                                        println!("[{account}] cannot create {name}: {e}");
-                                        sessions[i].ended = true;
-                                    }
-                                }
-                            }
-                            Some(_) => {}
-                            None => {
-                                println!("[{account}] no character to enter the world with (use --create NAME)");
-                                sessions[i].ended = true;
-                            }
+                                    })
+                                    .unwrap_or_default()
+                            );
+                        } else if let Some(why) = c.create_error() {
+                            println!("[{account}] cannot create: {why}");
+                            sessions[i].ended = true;
+                        } else if c.entering.is_none() {
+                            println!("[{account}] no character to enter the world with (use --create NAME)");
+                            sessions[i].ended = true;
                         }
                     }
                     Event::CharacterCreated { id, name } => {
@@ -424,6 +439,50 @@ fn main() -> Result<()> {
             let r = host.frame(clients_of(&mut sessions), i, &events, dt, now);
             for (text, _) in r.chat {
                 println!("[{}] {text}", sessions[i].account());
+            }
+            // A plugin (the fleet panel's roster, a script through
+            // `fleet.start`) asked for sessions: start them here too.
+            // Stopping is not supported headless; every session runs
+            // until the end.
+            for spec in r.start_sessions {
+                if sessions
+                    .iter()
+                    .any(|s| s.client.config.account.eq_ignore_ascii_case(&spec.account))
+                {
+                    println!("[{}] already running", spec.account);
+                    continue;
+                }
+                match connect_session(
+                    &connect,
+                    &assets,
+                    &spec.account,
+                    &spec.password,
+                    spec.character.as_deref(),
+                    spec.create.as_ref(),
+                ) {
+                    Ok(client) => {
+                        println!("[{}] session {} started", spec.account, sessions.len() + 1);
+                        sessions.push(Session {
+                            client,
+                            schedule: Schedule::new(lines.clone(), 1.0),
+                            placed_at: None,
+                            ended: false,
+                        });
+                    }
+                    Err(e) => {
+                        println!("[{}] cannot start: {e:#}", spec.account);
+                        host.board.set_local(
+                            ac_plugin::panels::fleet::error_key(&spec.account),
+                            e.to_string(),
+                        );
+                    }
+                }
+            }
+            if !r.stop_sessions.is_empty() {
+                tracing::warn!(
+                    "acbot: a plugin asked to stop sessions {:?}; not supported headless (Ctrl-C ends the run)",
+                    r.stop_sessions
+                );
             }
 
             let due = match sessions[i].placed_at {

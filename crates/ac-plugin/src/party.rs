@@ -431,6 +431,15 @@ impl Plugin for Party {
         "party"
     }
 
+    /// The per-session rows move down with the sessions; the leader's
+    /// index on the board is only fixed by whoever next asks
+    /// (`/leader N`), since the board is not in reach here.
+    fn session_removed(&mut self, index: usize) {
+        if index < self.sessions.len() {
+            self.sessions.remove(index);
+        }
+    }
+
     fn tick(&mut self, cx: &mut Ctx) {
         // Everyone reads the leader's target off the bus.
         if let Some(m) = cx.board.messages_on(TARGET_TOPIC).last() {

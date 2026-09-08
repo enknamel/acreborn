@@ -295,6 +295,10 @@ impl Plugin for Team {
         "team"
     }
 
+    fn session_removed(&mut self, index: usize) {
+        crate::shift_removed(&mut self.last_said, index);
+    }
+
     fn tick(&mut self, cx: &mut Ctx) {
         let now = Instant::now();
         let session = cx.index;

@@ -135,6 +135,12 @@ pub struct Client {
     pub entering: Option<u32>,
     /// A create or restore whose CharacterCreateResponse is still to come.
     pub pending_create: Option<creation::Pending>,
+    /// What to create when the account lacks `config.character` (see
+    /// `Client::create_when_missing`), and whether it was tried.
+    create_if_missing: Option<creation::CreateSpec>,
+    create_attempted: bool,
+    /// Why the last `create_when_missing` failed, for a panel.
+    create_error: Option<String>,
     /// Landblock the static scene is built around, once the player is placed.
     pub scene_block: Option<u32>,
     /// Server-requested MoveTo for our own character, until the server
@@ -293,6 +299,9 @@ impl Client {
             enter_requested: false,
             entering: None,
             pending_create: None,
+            create_if_missing: None,
+            create_attempted: false,
+            create_error: None,
             scene_block: None,
             move_to: None,
             move_to_since: Instant::now(),
@@ -694,6 +703,13 @@ impl Client {
         match pick {
             Some(id) => self.enter_world(id),
             None => {
+                if auto && self.create_missing() {
+                    // Being created from its spec; the answer enters. The
+                    // list still goes out so a driver can show it.
+                    self.events
+                        .push(self::Event::Characters(self.characters.clone()));
+                    return;
+                }
                 if auto {
                     match &self.config.character {
                         Some(name) => tracing::error!(

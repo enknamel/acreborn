@@ -177,6 +177,31 @@ another process (with `--bus`) reads it with `messages_on("autoplay.event")`
 / `messages("autoplay.event")`; a message from another process carries
 `origin`.
 
+## I want to start or stop sessions
+
+A plugin can add sessions to the process it runs in and drop them
+(what the Fleet panel's Sessions section does):
+
+```rust
+cx.start_session(ac_plugin::SessionSpec {
+    account: "fleetbot1".into(),
+    password: "testpass".into(),
+    character: None,
+    create: Some(ac_plugin::CreateSpec { name: "Fleetbot One".into(), template: Some("bow".into()), ..Default::default() }),
+    role: ac_plugin::Role::Follower,
+});
+cx.stop_session(2);
+```
+
+The host applies both between frames: a start connects to the server
+the process was started against (creating the character first when the
+account lacks it) and appends the session; a stop disconnects and
+removes it, the sessions after it move down one index, and every plugin
+hears `session_removed(index)`, so keep per-session state in a map by
+index and shift it there (`ac_plugin::shift_removed`). A script gets
+the same by setting the blackboard keys `fleet.start` and `fleet.stop`
+(`docs/multi-session.md`, "Starting a fleet from the client").
+
 ## I want to drive the character
 
 Every action a player can take is a method on `ac_client::Client`, and

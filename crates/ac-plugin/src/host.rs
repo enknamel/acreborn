@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::icons::{IconCache, IconLoader};
-use crate::{panels, Blackboard, BusClient, Client, Ctx, Event, Plugin, Settings};
+use crate::{panels, Blackboard, BusClient, Client, Ctx, Event, Plugin, SessionSpec, Settings};
 
 /// How often [`Host::autosave`] writes the settings file when something
 /// changed.
@@ -41,6 +41,24 @@ pub struct Requests {
     pub consumed: bool,
     /// A plugin asked the host to close the client.
     pub quit: bool,
+    /// Sessions to start (see [`Ctx::start_session`]); the host
+    /// connects each and appends it to its sessions, in this order.
+    pub start_sessions: Vec<SessionSpec>,
+    /// Sessions to disconnect and drop, by index (see
+    /// [`Ctx::stop_session`]); the host removes each and calls
+    /// [`Host::session_removed`].
+    pub stop_sessions: Vec<usize>,
+}
+
+impl Requests {
+    /// Nothing was asked.
+    pub fn is_empty(&self) -> bool {
+        self.chat.is_empty()
+            && self.activate.is_none()
+            && !self.quit
+            && self.start_sessions.is_empty()
+            && self.stop_sessions.is_empty()
+    }
 }
 
 impl Host {
@@ -178,6 +196,8 @@ impl Host {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            start_sessions: Vec::new(),
+            stop_sessions: Vec::new(),
         };
         for p in &mut self.plugins {
             for ev in events {
@@ -190,12 +210,24 @@ impl Host {
             activate: cx.activate,
             quit: cx.quit,
             consumed: false,
+            start_sessions: cx.start_sessions,
+            stop_sessions: cx.stop_sessions,
         }
     }
 
     /// Once all sessions ran this frame: rotate the bus.
     pub fn end_frame(&mut self) {
         self.board.end_frame();
+    }
+
+    /// The host dropped session `index` (a [`Requests::stop_sessions`]
+    /// it applied, or a connection that ended): every plugin hears
+    /// [`Plugin::session_removed`] so state kept by session index moves
+    /// down with the sessions.
+    pub fn session_removed(&mut self, index: usize) {
+        for p in &mut self.plugins {
+            p.session_removed(index);
+        }
     }
 
     /// Link the blackboard to the cross-process bus: this frame's posts
@@ -241,6 +273,8 @@ impl Host {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            start_sessions: Vec::new(),
+            stop_sessions: Vec::new(),
         };
         for p in &mut self.plugins {
             p.ui(&mut cx, egui);
@@ -250,6 +284,8 @@ impl Host {
             activate: cx.activate,
             quit: cx.quit,
             consumed: false,
+            start_sessions: cx.start_sessions,
+            stop_sessions: cx.stop_sessions,
         }
     }
 
@@ -271,6 +307,8 @@ impl Host {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            start_sessions: Vec::new(),
+            stop_sessions: Vec::new(),
         };
         let mut consumed = false;
         for p in &mut self.plugins {
@@ -284,6 +322,8 @@ impl Host {
             activate: cx.activate,
             quit: cx.quit,
             consumed,
+            start_sessions: cx.start_sessions,
+            stop_sessions: cx.stop_sessions,
         }
     }
 
@@ -303,6 +343,8 @@ impl Host {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            start_sessions: Vec::new(),
+            stop_sessions: Vec::new(),
         };
         let mut consumed = false;
         for p in &mut self.plugins {
@@ -316,6 +358,8 @@ impl Host {
             activate: cx.activate,
             quit: cx.quit,
             consumed,
+            start_sessions: cx.start_sessions,
+            stop_sessions: cx.stop_sessions,
         }
     }
 }
@@ -347,6 +391,112 @@ mod tests {
                 cx.log(format!("autoplay: {text}"));
             }
         }
+    }
+
+    /// What the [`Starter`] plugin is told to ask for and what it keeps.
+    #[derive(Default)]
+    struct StarterState {
+        ask_start: Vec<SessionSpec>,
+        ask_stop: Vec<usize>,
+        /// Session index -> a label, shifted on removal (the way the
+        /// team plugin keeps when each session last spoke).
+        seen: std::collections::BTreeMap<usize, String>,
+        removed: Vec<usize>,
+    }
+
+    /// A plugin that asks for sessions the way the fleet panel does.
+    #[derive(Default)]
+    struct Starter(std::rc::Rc<std::cell::RefCell<StarterState>>);
+
+    impl Plugin for Starter {
+        fn name(&self) -> &str {
+            "starter"
+        }
+        fn tick(&mut self, cx: &mut Ctx) {
+            let mut st = self.0.borrow_mut();
+            for s in st.ask_start.drain(..) {
+                cx.start_session(s);
+            }
+            for i in st.ask_stop.drain(..) {
+                cx.stop_session(i);
+            }
+        }
+        fn session_removed(&mut self, index: usize) {
+            let mut st = self.0.borrow_mut();
+            st.removed.push(index);
+            crate::shift_removed(&mut st.seen, index);
+        }
+    }
+
+    /// What a viewer does with the requests: its sessions are a list
+    /// of accounts here. Stops are applied highest index first so each
+    /// index still means what the plugin meant.
+    fn apply(host: &mut Host, sessions: &mut Vec<String>, r: Requests) {
+        for spec in r.start_sessions {
+            sessions.push(spec.account);
+        }
+        let mut stops = r.stop_sessions;
+        stops.sort_unstable();
+        stops.dedup();
+        for i in stops.into_iter().rev() {
+            if i < sessions.len() {
+                sessions.remove(i);
+                host.session_removed(i);
+            }
+        }
+    }
+
+    #[test]
+    fn plugins_start_and_stop_sessions_through_requests() {
+        let mut host = Host::new();
+        let starter = Starter::default();
+        let state = starter.0.clone();
+        {
+            let mut st = state.borrow_mut();
+            for a in ["bot1", "bot2"] {
+                st.ask_start.push(SessionSpec {
+                    account: a.into(),
+                    password: "pw".into(),
+                    ..Default::default()
+                });
+            }
+            st.seen.insert(0, "lead".into());
+        }
+        host.register(Box::new(starter));
+        let mut sessions = vec!["lead".to_string()];
+        let r = host.frame(Vec::new(), 0, &[], 0.05, Instant::now());
+        assert!(!r.is_empty());
+        assert_eq!(r.start_sessions.len(), 2);
+        assert!(r.stop_sessions.is_empty());
+        apply(&mut host, &mut sessions, r);
+        assert_eq!(sessions, ["lead", "bot1", "bot2"]);
+        // Nothing asked: an empty request.
+        let r = host.frame(Vec::new(), 0, &[], 0.05, Instant::now());
+        assert!(r.is_empty());
+        apply(&mut host, &mut sessions, r);
+        assert_eq!(sessions.len(), 3);
+        // Stop the middle one (asked twice, applied once); the index
+        // above it moves down and the plugins hear it.
+        {
+            let mut st = state.borrow_mut();
+            st.seen.insert(2, "bot2".into());
+            st.ask_stop = vec![1, 1];
+        }
+        let r = host.ui(Vec::new(), 0, &egui::Context::default());
+        assert!(r.is_empty(), "ui does not tick");
+        let r = host.frame(Vec::new(), 0, &[], 0.05, Instant::now());
+        assert_eq!(r.stop_sessions, [1, 1]);
+        apply(&mut host, &mut sessions, r);
+        assert_eq!(sessions, ["lead", "bot2"]);
+        let st = state.borrow();
+        assert_eq!(st.removed, [1]);
+        assert_eq!(
+            st.seen
+                .iter()
+                .map(|(i, s)| (*i, s.as_str()))
+                .collect::<Vec<_>>(),
+            [(0, "lead"), (1, "bot2")]
+        );
     }
 
     #[test]

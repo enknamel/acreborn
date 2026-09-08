@@ -154,6 +154,48 @@ struct Cli {
     /// hosts it.
     #[arg(long, num_args = 0..=1, default_missing_value = "")]
     bus: Option<String>,
+    /// Connected headless mode: once session 1 is placed, start this
+    /// follower through the fleet panel (what its Start button does):
+    /// ACCOUNT:PASSWORD:CHARACTER[:TEMPLATE[:TOWN[:HERITAGE[:SEX]]]]. With
+    /// a template the character is created when the account lacks it.
+    /// Repeatable; the run ends `--fleet-stop-after` seconds later.
+    #[arg(long)]
+    fleet_start: Vec<String>,
+    /// Connected headless mode: stop every `--fleet-start` session this
+    /// many seconds after session 1 was placed, then finish.
+    #[arg(long, default_value_t = 45.0)]
+    fleet_stop_after: f32,
+}
+
+/// Parse a `--fleet-start` spec into the session the fleet panel starts
+/// (a follower). Fields after the character are creation choices; a
+/// blank one keeps the default.
+fn parse_fleet_start(spec: &str) -> Result<ac_plugin::SessionSpec> {
+    let parts: Vec<&str> = spec.split(':').collect();
+    anyhow::ensure!(
+        parts.len() >= 3 && !parts[0].is_empty() && !parts[1].is_empty() && !parts[2].is_empty(),
+        "--fleet-start wants ACCOUNT:PASSWORD:CHARACTER[:TEMPLATE[:TOWN[:HERITAGE[:SEX]]]], got {spec:?}"
+    );
+    let field = |i: usize| {
+        parts
+            .get(i)
+            .filter(|p| !p.is_empty())
+            .map(|p| p.to_string())
+    };
+    let create = (parts.len() > 3).then(|| ac_plugin::CreateSpec {
+        name: parts[2].to_string(),
+        template: field(3),
+        town: field(4),
+        heritage: field(5),
+        sex: field(6),
+    });
+    Ok(ac_plugin::SessionSpec {
+        account: parts[0].to_string(),
+        password: parts[1].to_string(),
+        character: create.is_none().then(|| parts[2].to_string()),
+        create,
+        role: ac_plugin::Role::Follower,
+    })
 }
 
 /// An icon loader for the egui overlay: decodes RenderSurfaces (0x06) from
@@ -258,6 +300,11 @@ struct App {
     lobby: ac_plugin::lobby::Lobby,
     /// The creation screen's 3D preview, while it is up.
     preview: Option<Preview>,
+    /// The archives every session shares, once the first connected.
+    assets: Option<std::rc::Rc<ac_scene::Assets>>,
+    /// Sessions plugins asked to start and stop this frame, applied
+    /// once no session is being ticked (`apply_pending_sessions`).
+    pending_sessions: Vec<(Vec<ac_plugin::SessionSpec>, Vec<usize>)>,
 }
 
 /// The character model drawn beside the creation screen: the look it was
@@ -359,7 +406,8 @@ impl App {
     }
 
     /// Apply what plugins asked for (chat lines to the active log, a
-    /// session switch).
+    /// session switch, the client's end); sessions to start or stop
+    /// wait for `apply_pending_sessions`.
     fn apply_requests(&mut self, r: plugins::Requests) {
         if let Some(ui) = &mut self.ui {
             for (text, kind) in r.chat {
@@ -371,6 +419,137 @@ impl App {
         }
         if r.quit {
             self.quit_requested = true;
+        }
+        self.defer_sessions(r.start_sessions, r.stop_sessions);
+    }
+
+    fn defer_sessions(&mut self, start: Vec<ac_plugin::SessionSpec>, stop: Vec<usize>) {
+        if !start.is_empty() || !stop.is_empty() {
+            self.pending_sessions.push((start, stop));
+        }
+    }
+
+    /// Start and stop the sessions plugins asked for. Stops go first,
+    /// highest index first, so each index still means the session the
+    /// plugin saw; then the starts are appended in order.
+    fn apply_pending_sessions(&mut self) {
+        for (start, stop) in std::mem::take(&mut self.pending_sessions) {
+            let mut stop = stop;
+            stop.sort_unstable();
+            stop.dedup();
+            for i in stop.into_iter().rev() {
+                self.remove_session(i);
+            }
+            for spec in start {
+                self.start_session(spec);
+            }
+        }
+    }
+
+    /// Log `spec` in as another session of this process, against the
+    /// server of `--connect`. What went wrong is left on the blackboard
+    /// (`fleet.error.<account>`) for the fleet panel.
+    fn start_session(&mut self, spec: ac_plugin::SessionSpec) {
+        let account = spec.account.clone();
+        let err_key = plugins::panels::fleet::error_key(&account);
+        let fail = |app: &mut App, why: String| {
+            tracing::warn!("cannot start a session for {account}: {why}");
+            if let Some(ui) = &mut app.ui {
+                ui.push_chat(format!("Cannot start {account}: {why}"), 0);
+            }
+            app.plugins.board.set_local(err_key.clone(), why);
+        };
+        let Some(host) = self.cli.connect.clone() else {
+            fail(self, "not connected to a server (--connect)".into());
+            return;
+        };
+        if self
+            .nets
+            .iter()
+            .any(|n| n.client.config.account.eq_ignore_ascii_case(&account))
+        {
+            fail(self, "already running".into());
+            return;
+        }
+        let assets = match &self.assets {
+            Some(a) => a.clone(),
+            None => match ac_scene::Assets::open(&self.cli.data_dir) {
+                Ok(a) => {
+                    let a = std::rc::Rc::new(a);
+                    self.assets = Some(a.clone());
+                    a
+                }
+                Err(e) => {
+                    fail(self, format!("opening the DAT archives: {e}"));
+                    return;
+                }
+            },
+        };
+        let cfg = ac_client::Config {
+            host,
+            account: account.clone(),
+            password: spec.password.clone(),
+            character: spec.character_name().map(str::to_string),
+            auto_enter: true,
+        };
+        let mut client = match ac_client::Client::connect(cfg, assets) {
+            Ok(c) => c,
+            Err(e) => {
+                fail(self, e.to_string());
+                return;
+            }
+        };
+        if let Some(create) = spec.create.clone() {
+            client.create_when_missing(create);
+        }
+        self.nets.push(Net {
+            client,
+            last_generation: 0,
+            pickables: Vec::new(),
+            anims: Default::default(),
+            last_anim_refresh: Instant::now(),
+        });
+        self.plugins
+            .board
+            .set_local(err_key, ac_plugin::Value::Null);
+        let n = self.nets.len();
+        tracing::info!("session {n} started for {account} ({})", spec.role.label());
+        if let Some(ui) = &mut self.ui {
+            ui.push_chat(format!("Session {n} started ({account})"), 0);
+        }
+    }
+
+    /// Disconnect session `i` and drop it; the sessions after it move
+    /// down one and every plugin hears `session_removed`. The window
+    /// keeps showing the same session when it was not the one dropped,
+    /// else the nearest one left.
+    fn remove_session(&mut self, i: usize) {
+        if i >= self.nets.len() {
+            return;
+        }
+        let mut net = self.nets.remove(i);
+        net.client.disconnect(Instant::now());
+        let account = net.client.config.account.clone();
+        drop(net);
+        self.plugins.session_removed(i);
+        tracing::info!("session {} stopped ({account})", i + 1);
+        if let Some(ui) = &mut self.ui {
+            ui.push_chat(format!("Session {} stopped ({account})", i + 1), 0);
+        }
+        if let Some(p) = self.pending_switch.take() {
+            if p != i {
+                self.pending_switch = Some(if p > i { p - 1 } else { p });
+            }
+        }
+        if self.nets.is_empty() {
+            self.active = 0;
+        } else if i < self.active {
+            self.active -= 1;
+        } else if i == self.active {
+            let next = self.active.min(self.nets.len() - 1);
+            self.active = usize::MAX;
+            self.lobby = Default::default();
+            self.switch_to(next);
         }
     }
 
@@ -497,6 +676,7 @@ impl App {
             if r.quit {
                 self.quit_requested = true;
             }
+            self.defer_sessions(r.start_sessions, r.stop_sessions);
         }
         if let Some((item, px, py)) = world_drop {
             self.world_drop(item, px, py, (w, h));
@@ -760,6 +940,7 @@ impl App {
             });
         }
         self.audio = audio;
+        self.assets = Some(assets.clone());
         for cfg in configs {
             let client = ac_client::Client::connect(cfg, assets.clone())?;
             self.nets.push(Net {
@@ -919,11 +1100,17 @@ impl App {
             let r = self.plugins.frame(clients, i, events, dt, now);
             if i == self.active {
                 self.apply_requests(r);
-            } else if let Some(a) = r.activate {
-                self.switch_to(a);
+            } else {
+                if let Some(a) = r.activate {
+                    self.switch_to(a);
+                }
+                self.defer_sessions(r.start_sessions, r.stop_sessions);
             }
         }
         self.plugins.end_frame();
+        // Sessions come and go only here, between frames: no session is
+        // being ticked and no plugin holds them.
+        self.apply_pending_sessions();
         let Some(net) = self.nets.get_mut(self.active) else {
             return;
         };
@@ -1621,6 +1808,8 @@ fn main() -> Result<()> {
             audio: None,
             lobby: Default::default(),
             preview: None,
+            assets: None,
+            pending_sessions: Vec::new(),
         };
         if let Some(bus) = app.cli.bus.clone() {
             plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
@@ -1639,6 +1828,23 @@ fn main() -> Result<()> {
         app.plugins
             .load_settings(ac_plugin::Settings::default_path());
         if app.cli.connect.is_some() {
+            // `--fleet-start`: hand the specs to the fleet panel the way a
+            // script would, on the blackboard; it puts them on its roster
+            // and asks the host for the sessions once it ticks.
+            let fleet: Vec<ac_plugin::SessionSpec> = app
+                .cli
+                .fleet_start
+                .iter()
+                .map(|s| parse_fleet_start(s))
+                .collect::<Result<_>>()?;
+            let fleet_accounts: Vec<String> = fleet.iter().map(|s| s.account.clone()).collect();
+            if !fleet.is_empty() {
+                app.plugins.board.set_local(
+                    plugins::panels::fleet::START_KEY,
+                    ac_plugin::serde_json::to_value(&fleet)?,
+                );
+            }
+            let mut fleet_stopped_at: Option<Instant> = None;
             // Pump the connection until the player is placed and the world
             // has settled, then render from the character's viewpoint.
             let deadline = Instant::now()
@@ -1648,6 +1854,11 @@ fn main() -> Result<()> {
                     Duration::from_secs(120)
                 } else {
                     Duration::ZERO
+                }
+                + if fleet_accounts.is_empty() {
+                    Duration::ZERO
+                } else {
+                    Duration::from_secs_f32(app.cli.fleet_stop_after + 20.0)
                 };
             let mut settled_at: Option<Instant> = None;
             let mut last_tick = Instant::now();
@@ -1819,6 +2030,17 @@ fn main() -> Result<()> {
                     if app.cli.jump && t > 1.5 {
                         app.cli.jump = false;
                         app.jump_requested = true;
+                    }
+                    if !fleet_accounts.is_empty()
+                        && fleet_stopped_at.is_none()
+                        && t > app.cli.fleet_stop_after
+                    {
+                        tracing::info!("stopping the --fleet-start sessions");
+                        app.plugins.board.set_local(
+                            plugins::panels::fleet::STOP_KEY,
+                            ac_plugin::serde_json::json!(fleet_accounts),
+                        );
+                        fleet_stopped_at = Some(Instant::now());
                     }
                     if t > 1.0 + app.cli.walk + say_delay
                         && retry_at.elapsed() > Duration::from_secs(1)
@@ -2000,7 +2222,9 @@ fn main() -> Result<()> {
                     let looting = app.nets.get(app.active).is_some_and(|n| {
                         !n.client.loot_queue.is_empty() || n.client.loot_inflight.is_some()
                     });
-                    let done = if pending
+                    let done = if !fleet_accounts.is_empty() {
+                        fleet_stopped_at.is_some_and(|s| s.elapsed() > Duration::from_secs(3))
+                    } else if pending
                         || looting
                         || (app.cli.buy.is_some()
                             || app.cli.sell.is_some()
@@ -2144,10 +2368,46 @@ fn main() -> Result<()> {
         audio: None,
         lobby: Default::default(),
         preview: None,
+        assets: None,
+        pending_sessions: Vec::new(),
     };
     if let Some(bus) = app.cli.bus.clone() {
         plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
     }
     event_loop.run_app(&mut app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fleet_start_specs_parse() {
+        let s = parse_fleet_start("fleetbot1:testpass:Fleetbot One:bow:holtburg").unwrap();
+        assert_eq!(
+            (s.account.as_str(), s.password.as_str()),
+            ("fleetbot1", "testpass")
+        );
+        assert_eq!(s.character, None, "created, so named once");
+        let c = s.create.unwrap();
+        assert_eq!(c.name, "Fleetbot One");
+        assert_eq!(c.template.as_deref(), Some("bow"));
+        assert_eq!(c.town.as_deref(), Some("holtburg"));
+        assert_eq!(c.heritage, None);
+        assert_eq!(s.role, ac_plugin::Role::Follower);
+        // Without a template: enter with the character, create nothing.
+        let s = parse_fleet_start("bob:pw:Bob").unwrap();
+        assert_eq!(s.character.as_deref(), Some("Bob"));
+        assert!(s.create.is_none());
+        // Blank middle fields keep the defaults.
+        let s = parse_fleet_start("bob:pw:Bob::yaraq:sho:f").unwrap();
+        let c = s.create.unwrap();
+        assert_eq!(c.template, None);
+        assert_eq!(c.town.as_deref(), Some("yaraq"));
+        assert_eq!(c.heritage.as_deref(), Some("sho"));
+        assert_eq!(c.sex.as_deref(), Some("f"));
+        assert!(parse_fleet_start("bob:pw").is_err());
+        assert!(parse_fleet_start("bob::Bob").is_err());
+    }
 }

@@ -641,6 +641,17 @@ impl Plugin for Autoplay {
         settings.set("autoplay.config", &self.saved);
     }
 
+    /// The sessions above the one dropped move down: what was applied
+    /// to them stays applied.
+    fn session_removed(&mut self, index: usize) {
+        self.applied = self
+            .applied
+            .iter()
+            .filter(|&&i| i != index)
+            .map(|&i| if i > index { i - 1 } else { i })
+            .collect();
+    }
+
     /// Give a session the saved rules the first time it is seen.
     fn tick(&mut self, cx: &mut Ctx) {
         if !matches!(self.source, Source::Live) {

@@ -245,6 +245,16 @@ impl Scripts {
         }
     }
 
+    /// Session `session` is gone: every script's `this` for it goes,
+    /// and the ones after it move down with their sessions.
+    pub fn session_removed(&mut self, session: usize) {
+        for s in &mut self.scripts {
+            if session < s.state.len() {
+                let _ = s.state.remove(session);
+            }
+        }
+    }
+
     pub fn on_event(&mut self, session: usize, ev: Map) {
         for i in 0..self.scripts.len() {
             if self.scripts[i].hooks.on_event {
