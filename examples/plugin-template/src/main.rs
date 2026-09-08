@@ -91,9 +91,11 @@ fn main() {
             }
             2 => {
                 let mut requests = None;
-                let _ = egui.run_ui(egui::RawInput::default(), |ctx| {
+                let mut out = egui.run_ui(egui::RawInput::default(), |ctx| {
                     requests = Some(host.ui(Vec::new(), 0, ctx));
                 });
+                // No GPU here to take the font atlas: drop it on purpose.
+                out.textures_delta.clear();
                 let rect = egui.memory(|m| m.area_rect(egui::Id::new("template")));
                 println!("[{frame}] panel drawn at {rect:?}");
             }

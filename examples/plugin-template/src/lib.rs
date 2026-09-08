@@ -258,9 +258,12 @@ mod tests {
         assert!(host.key(Vec::new(), 0, egui::Key::F7, true).consumed);
         assert!(!host.key(Vec::new(), 0, egui::Key::F7, false).consumed);
         let egui = egui::Context::default();
-        let _ = egui.run_ui(egui::RawInput::default(), |ctx| {
+        let mut out = egui.run_ui(egui::RawInput::default(), |ctx| {
             host.ui(Vec::new(), 0, ctx);
         });
+        // Headless: nothing uploads the font atlas, so drop its deltas on
+        // purpose (epaint asserts in debug builds otherwise).
+        out.textures_delta.clear();
         let drawn = egui.memory(|m| m.area_rect(egui::Id::new("template")));
         assert!(drawn.is_some(), "the panel window was laid out");
 
