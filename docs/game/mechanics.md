@@ -904,11 +904,12 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   more than a landblock away, so it does not hold a character to its
   run rate; other players' clients animate the character at that rate.
   This client does not hold its character to either: out of the box it
-  runs at twice the run rate and jumps twice the height ("run speed ×"
-  and "jump height ×" in the Options panel, `speed_boost`/`jump_boost`
-  in scripts). The jump is capped at 9.5 m of rise: the server calls a
-  character found more than 10 m above the ground it last stood on, a
-  second after a jump, a z-position hack and puts it back.
+  runs at twice the run rate and a full jump rises 9 m ("run speed ×"
+  and "full jump, m" in the Options panel, `speed_boost`/`jump_height`
+  in scripts; the skill's own height wins when it is more). The rise is
+  capped at 9.5 m: the server calls a character found more than 10 m
+  above the ground it last stood on, a second after a jump, a
+  z-position hack and puts it back.
 * **A building's door can open onto bare terrain** (a villa's grounds:
   cell 6F8B015F at Loredane Villas). Leaving the interior floor with
   nothing but terrain a step away must go outdoors; before this the

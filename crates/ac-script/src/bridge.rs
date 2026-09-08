@@ -1293,8 +1293,8 @@ impl Api for CtxApi<'_, '_> {
         self.client().set_speed_boost(boost as f32);
     }
 
-    fn jump_boost(&mut self, boost: f64) {
-        self.client().set_jump_boost(boost as f32);
+    fn jump_height(&mut self, metres: f64) {
+        self.client().set_jump_height(metres as f32);
     }
 
     fn select(&mut self, guid: i64) {

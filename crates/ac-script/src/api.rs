@@ -251,9 +251,9 @@ pub trait Api {
     /// Run this many times faster than the Run skill allows (1 = the
     /// game's own pace; the client clamps it to 0.25..=4).
     fn speed_boost(&mut self, boost: f64);
-    /// Jump this many times higher than the Jump skill allows (the
-    /// client caps the height at the server's tolerance).
-    fn jump_boost(&mut self, boost: f64);
+    /// A full jump rises this many metres whatever the Jump skill allows
+    /// (0 = by skill; the client caps it at the server's tolerance, 9.5).
+    fn jump_height(&mut self, metres: f64);
     fn select(&mut self, guid: i64);
     fn log(&mut self, text: &str);
     fn post(&mut self, topic: &str, value: Value);
@@ -508,8 +508,10 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("speed_boost", |b: i64| {
         with_api(|a| a.speed_boost(b as f64))
     });
-    engine.register_fn("jump_boost", |b: f64| with_api(|a| a.jump_boost(b)));
-    engine.register_fn("jump_boost", |b: i64| with_api(|a| a.jump_boost(b as f64)));
+    engine.register_fn("jump_height", |m: f64| with_api(|a| a.jump_height(m)));
+    engine.register_fn("jump_height", |m: i64| {
+        with_api(|a| a.jump_height(m as f64))
+    });
     engine.register_fn("jump", |p: f64| with_api(|a| a.jump(p)));
     engine.register_fn("jump", |p: i64| with_api(|a| a.jump(p as f64)));
     engine.register_fn("select", |g: i64| with_api(|a| a.select(g)));

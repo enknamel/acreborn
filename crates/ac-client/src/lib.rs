@@ -67,11 +67,11 @@ pub enum Event {
 
 /// How to reach the server and who to be.
 /// This client does not hold its character to the game's formulas: out
-/// of the box it runs twice as fast as the Run skill says and jumps
-/// twice as high as the Jump skill says (within the server's tolerance).
-/// The Options panel and the script API change both.
+/// of the box it runs twice as fast as the Run skill says, and a full
+/// jump rises nine metres whatever the Jump skill says (the server's
+/// tolerance is ten). The Options panel and the script API change both.
 pub const DEFAULT_SPEED_BOOST: f32 = 2.0;
-pub const DEFAULT_JUMP_BOOST: f32 = 2.0;
+pub const DEFAULT_JUMP_HEIGHT: f32 = 9.0;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -185,9 +185,10 @@ pub struct Client {
     /// [`player::run_rate`] for the game's own rate and the server's
     /// tolerance). 1 is the game as it was.
     pub speed_boost: f32,
-    /// Client-side multiplier on the jump height (capped at
-    /// [`player::MAX_JUMP_HEIGHT`], the server's tolerance).
-    pub jump_boost: f32,
+    /// Height of a full jump in metres, whatever the Jump skill says
+    /// (0 = the skill's own; capped at [`player::MAX_JUMP_HEIGHT`], the
+    /// server's tolerance).
+    pub jump_height: f32,
     /// Appraisals received, by object guid (the last one is the panel's).
     pub appraisals: std::collections::HashMap<u32, ac_net::messages::Appraisal>,
     /// The guid of the latest appraisal and a counter bumped with each.
@@ -295,7 +296,7 @@ impl Client {
             salvage_open: false,
             pending_jump: None,
             speed_boost: DEFAULT_SPEED_BOOST,
-            jump_boost: DEFAULT_JUMP_BOOST,
+            jump_height: DEFAULT_JUMP_HEIGHT,
             appraisals: std::collections::HashMap::new(),
             last_appraisal: None,
             appraisal_seq: 0,
@@ -752,7 +753,7 @@ impl Client {
             }
             pl.run_rate = player::run_rate(current(&self.world.stats, ac_world::stats::skill::RUN));
             pl.speed_boost = self.speed_boost;
-            pl.jump_boost = self.jump_boost;
+            pl.jump_height = self.jump_height;
             if let Some(p) = self.pending_jump.take() {
                 pl.jump(p);
             }
@@ -2170,12 +2171,13 @@ impl Client {
         }
     }
 
-    /// Jump this many times higher than the Jump skill allows, up to the
-    /// server's tolerance ([`player::MAX_JUMP_HEIGHT`]).
-    pub fn set_jump_boost(&mut self, boost: f32) {
-        self.jump_boost = boost.clamp(0.25, 6.0);
+    /// A full jump rises this many metres whatever the Jump skill
+    /// allows (0 leaves it to the skill), up to the server's tolerance
+    /// ([`player::MAX_JUMP_HEIGHT`]).
+    pub fn set_jump_height(&mut self, metres: f32) {
+        self.jump_height = metres.clamp(0.0, player::MAX_JUMP_HEIGHT);
         if let Some(pl) = self.player.as_mut() {
-            pl.jump_boost = self.jump_boost;
+            pl.jump_height = self.jump_height;
         }
     }
 

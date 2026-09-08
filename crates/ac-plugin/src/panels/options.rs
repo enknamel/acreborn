@@ -14,15 +14,15 @@ pub struct OptionsView {
     /// The client-side run speed multiplier, times 100 (so the view can
     /// stay `Eq`).
     pub speed_boost_pct: u32,
-    /// The jump height multiplier, times 100.
-    pub jump_boost_pct: u32,
+    /// The height of a full jump, in centimetres.
+    pub jump_height_cm: u32,
 }
 
 pub fn view(c: &Client) -> OptionsView {
     OptionsView {
         rows: OPTIONS.iter().map(|o| (*o, c.option_enabled(o))).collect(),
         speed_boost_pct: (c.speed_boost * 100.0).round() as u32,
-        jump_boost_pct: (c.jump_boost * 100.0).round() as u32,
+        jump_height_cm: (c.jump_height * 100.0).round() as u32,
     }
 }
 
@@ -32,8 +32,8 @@ pub struct Changes {
     pub options: Vec<(CharacterOption, bool)>,
     /// A new run speed multiplier.
     pub speed_boost: Option<f32>,
-    /// A new jump height multiplier.
-    pub jump_boost: Option<f32>,
+    /// A new full-jump height, metres.
+    pub jump_height: Option<f32>,
 }
 
 /// Returns the options toggled this frame with their new value. The
@@ -78,18 +78,20 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
                 {
                     changed.speed_boost = Some(boost);
                 }
-                // Likewise the jump; the client keeps the height under
-                // what the server calls a hack (10 m above the ground).
-                let mut jump = v.jump_boost_pct as f32 / 100.0;
+                // Likewise the jump, as the height of a full one; the
+                // server calls more than 10 m above the ground a hack,
+                // so 9.5 is the most. The skill's own height still wins
+                // when it is more.
+                let mut jump = v.jump_height_cm as f32 / 100.0;
                 if ui
                     .add(
-                        egui::Slider::new(&mut jump, 0.5..=6.0)
-                            .text("jump height ×")
-                            .fixed_decimals(2),
+                        egui::Slider::new(&mut jump, 0.0..=9.5)
+                            .text("full jump, m (0 = by skill)")
+                            .fixed_decimals(1),
                     )
                     .changed()
                 {
-                    changed.jump_boost = Some(jump);
+                    changed.jump_height = Some(jump);
                 }
             });
         ui.separator();
@@ -118,7 +120,7 @@ pub struct Options {
     /// The run speed multiplier chosen here, kept between sessions and
     /// given to each client as it appears.
     speed_boost: Option<f32>,
-    jump_boost: Option<f32>,
+    jump_height: Option<f32>,
 }
 
 impl Options {
@@ -131,11 +133,11 @@ impl Options {
                     .map(|(i, o)| (*o, i % 2 == 0))
                     .collect(),
                 speed_boost_pct: 200,
-                jump_boost_pct: 200,
+                jump_height_cm: 900,
             }),
             show: false,
             speed_boost: None,
-            jump_boost: None,
+            jump_height: None,
         }
     }
 }
@@ -152,8 +154,8 @@ impl Plugin for Options {
         if let Some(b) = settings.get::<f32>("options.speed_boost") {
             self.speed_boost = Some(b);
         }
-        if let Some(b) = settings.get::<f32>("options.jump_boost") {
-            self.jump_boost = Some(b);
+        if let Some(b) = settings.get::<f32>("options.jump_height") {
+            self.jump_height = Some(b);
         }
     }
 
@@ -162,8 +164,8 @@ impl Plugin for Options {
         if let Some(b) = self.speed_boost {
             settings.set("options.speed_boost", b);
         }
-        if let Some(b) = self.jump_boost {
-            settings.set("options.jump_boost", b);
+        if let Some(b) = self.jump_height {
+            settings.set("options.jump_height", b);
         }
     }
 
@@ -175,9 +177,9 @@ impl Plugin for Options {
                     c.set_speed_boost(b);
                 }
             }
-            if let Some(b) = self.jump_boost {
-                if (c.jump_boost - b).abs() > 1e-3 {
-                    c.set_jump_boost(b);
+            if let Some(b) = self.jump_height {
+                if (c.jump_height - b).abs() > 1e-3 {
+                    c.set_jump_height(b);
                 }
             }
         }
@@ -201,9 +203,9 @@ impl Plugin for Options {
                 c.set_speed_boost(b);
                 self.speed_boost = Some(c.speed_boost);
             }
-            if let Some(b) = changed.jump_boost {
-                c.set_jump_boost(b);
-                self.jump_boost = Some(c.jump_boost);
+            if let Some(b) = changed.jump_height {
+                c.set_jump_height(b);
+                self.jump_height = Some(c.jump_height);
             }
         }
     }
