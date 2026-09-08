@@ -332,7 +332,7 @@ pub fn title_bar(ui: &mut egui::Ui, id: &str, text: impl Into<String>) {
             let close = ui
                 .add(
                     egui::Button::new(
-                        egui::RichText::new("✕").color(egui::Color32::from_gray(200)),
+                        egui::RichText::new("×").color(egui::Color32::from_gray(200)),
                     )
                     .frame(false),
                 )

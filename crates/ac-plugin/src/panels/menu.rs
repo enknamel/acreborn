@@ -132,7 +132,7 @@ fn draw(egui: &egui::Context, listening: Option<&str>, in_world: bool) -> Action
     if in_world {
         // The corner button, always there for the mouse.
         egui::Area::new(egui::Id::new("menu.button"))
-            .fixed_pos(egui::pos2(8.0, 32.0))
+            .fixed_pos(egui::pos2(egui.viewport_rect().width() - 78.0, 6.0))
             .show(egui, |ui| {
                 if ui
                     .add(egui::Button::new("☰ Menu").small())
@@ -173,7 +173,7 @@ impl Plugin for Menu {
         } else if self.in_world {
             let mut a = Actions::default();
             egui::Area::new(egui::Id::new("menu.button"))
-                .fixed_pos(egui::pos2(8.0, 32.0))
+                .fixed_pos(egui::pos2(egui.viewport_rect().width() - 78.0, 6.0))
                 .show(egui, |ui| {
                     if ui
                         .add(egui::Button::new("☰ Menu").small())
