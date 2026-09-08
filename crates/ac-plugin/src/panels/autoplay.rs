@@ -344,6 +344,11 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                         .text("radius"),
                 )
                 .on_hover_text("How far to look for something to attack");
+                ui.checkbox(&mut cfg.fight.craft_ammo, "make ammunition when out")
+                    .on_hover_text(
+                        "From a bundle of heads and a bundle of shafts carried, \
+                         when Fletching is up to the recipe",
+                    );
                 ui.checkbox(&mut cfg.fight.pick_weapon, "wield the best weapon")
                     .on_hover_text(
                         "Swap to the carried weapon whose element the target \

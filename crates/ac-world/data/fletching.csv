@@ -1,0 +1,326 @@
+# How ammunition is made: use `source` (a bundle of heads) on `target`
+# (a bundle of shafts) and `amount` of `result` come out, if Fletching
+# is up to `difficulty`.
+# source_wcid,target_wcid,result_wcid,amount,difficulty,element,ammo_type,source_name,target_name,result_name
+# element is the result's damage type (2 pierce, 4 bludgeon, 8 cold,
+# 16 fire, 32 acid, 64 electric); ammo_type is what it fits (1 a bow,
+# 2 a crossbow, 4 an atlatl). Names are there to read by; the client
+# matches on the ids.
+# Regenerate with reference/scripts/data/fletching.sh (reads the ACE
+# world database, the community's reconstruction of retail's server
+# data; the client has no copy of its own).
+4586,4585,300,100,5,2,1,Bundle of Arrowheads,Bundle of Arrowshafts,Arrow
+4586,5339,305,100,5,2,2,Bundle of Arrowheads,Bundle of Quarrelshafts,Quarrel
+4586,15296,12464,100,5,2,4,Bundle of Arrowheads,Bundle of Atlatl Dart Shafts,Atlatl Dart
+5340,4585,4181,100,60,32,1,Bundle of Acid Arrowheads,Bundle of Arrowshafts,Acid Arrow
+5340,5339,4185,100,60,32,2,Bundle of Acid Arrowheads,Bundle of Quarrelshafts,Acid Quarrel
+5340,15296,15279,100,60,32,4,Bundle of Acid Arrowheads,Bundle of Atlatl Dart Shafts,Acid Atlatl Dart
+5341,4585,1437,100,60,16,1,Bundle of Fire Arrowheads,Bundle of Arrowshafts,Fire Arrow
+5341,5339,4188,100,60,16,2,Bundle of Fire Arrowheads,Bundle of Quarrelshafts,Fire Quarrel
+5341,15296,15284,100,60,16,4,Bundle of Fire Arrowheads,Bundle of Atlatl Dart Shafts,Fire Atlatl Dart
+5342,4585,4182,100,60,8,1,Bundle of Frost Arrowheads,Bundle of Arrowshafts,Frost Arrow
+5342,5339,4186,100,60,8,2,Bundle of Frost Arrowheads,Bundle of Quarrelshafts,Frost Quarrel
+5342,15296,15286,100,60,8,4,Bundle of Frost Arrowheads,Bundle of Atlatl Dart Shafts,Frost Atlatl Dart
+5343,4585,4183,100,60,64,1,Bundle of Lightning Arrowheads,Bundle of Arrowshafts,Lightning Arrow
+5343,5339,4187,100,60,64,2,Bundle of Lightning Arrowheads,Bundle of Quarrelshafts,Lightning Quarrel
+5343,15296,15283,100,60,64,4,Bundle of Lightning Arrowheads,Bundle of Atlatl Dart Shafts,Lightning Atlatl Dart
+5344,4585,3599,100,10,4,1,Bundle of Blunt Arrowheads,Bundle of Arrowshafts,Blunt Arrow
+5344,5339,3603,100,10,4,2,Bundle of Blunt Arrowheads,Bundle of Quarrelshafts,Blunt Quarrel
+5344,15296,15281,100,10,4,4,Bundle of Blunt Arrowheads,Bundle of Atlatl Dart Shafts,Blunt Atlatl Dart
+5345,4585,3600,100,10,1,1,Bundle of Broad Arrowheads,Bundle of Arrowshafts,Broadhead Arrow
+5345,5339,3604,100,10,1,2,Bundle of Broad Arrowheads,Bundle of Quarrelshafts,Broadhead Quarrel
+5345,15296,15282,100,10,1,4,Bundle of Broad Arrowheads,Bundle of Atlatl Dart Shafts,Broadhead Atlatl Dart
+5346,4585,3601,100,20,1,1,Bundle of Frog Crotch Arrowheads,Bundle of Arrowshafts,Frog Crotch Arrow
+5346,5339,3605,100,20,1,2,Bundle of Frog Crotch Arrowheads,Bundle of Quarrelshafts,Frog Crotch Quarrel
+5346,15296,15285,100,20,1,4,Bundle of Frog Crotch Arrowheads,Bundle of Atlatl Dart Shafts,Frog Crotch Atlatl Dart
+5347,4585,3598,100,20,2,1,Bundle of Armor Piercing Arrowheads,Bundle of Arrowshafts,Armor Piercing Arrow
+5347,5339,3602,100,20,2,2,Bundle of Armor Piercing Arrowheads,Bundle of Quarrelshafts,Armor Piercing Quarrel
+5347,15296,15280,100,20,2,4,Bundle of Armor Piercing Arrowheads,Bundle of Atlatl Dart Shafts,Armor Piercing Atlatl Dart
+5348,4585,5304,100,120,2,1,Bundle of Greater Arrowheads,Bundle of Arrowshafts,Greater Arrow
+5348,5339,5313,100,120,2,2,Bundle of Greater Arrowheads,Bundle of Quarrelshafts,Greater Quarrel
+5348,15296,15287,100,120,2,4,Bundle of Greater Arrowheads,Bundle of Atlatl Dart Shafts,Greater Atlatl Dart
+5349,4585,5306,100,200,32,1,Bundle of Greater Acid Arrowheads,Bundle of Arrowshafts,Greater Acid Arrow
+5349,5339,5314,100,200,32,2,Bundle of Greater Acid Arrowheads,Bundle of Quarrelshafts,Greater Acid Quarrel
+5349,15296,15288,100,200,32,4,Bundle of Greater Acid Arrowheads,Bundle of Atlatl Dart Shafts,Greater Acid Atlatl Dart
+5350,4585,5305,100,200,16,1,Bundle of Greater Fire Arrowheads,Bundle of Arrowshafts,Greater Fire Arrow
+5350,5339,5317,100,200,16,2,Bundle of Greater Fire Arrowheads,Bundle of Quarrelshafts,Greater Fire Quarrel
+5350,15296,15293,100,200,16,4,Bundle of Greater Fire Arrowheads,Bundle of Atlatl Dart Shafts,Greater Fire Atlatl Dart
+5351,4585,5307,100,200,8,1,Bundle of Greater Frost Arrowheads,Bundle of Arrowshafts,Greater Frost Arrow
+5351,5339,5315,100,200,8,2,Bundle of Greater Frost Arrowheads,Bundle of Quarrelshafts,Greater Frost Quarrel
+5351,15296,15295,100,200,8,4,Bundle of Greater Frost Arrowheads,Bundle of Atlatl Dart Shafts,Greater Frost Atlatl Dart
+5352,4585,5308,100,200,64,1,Bundle of Greater Lightning Arrowheads,Bundle of Arrowshafts,Greater Lightning Arrow
+5352,5339,5316,100,200,64,2,Bundle of Greater Lightning Arrowheads,Bundle of Quarrelshafts,Greater Lightning Quarrel
+5352,15296,15292,100,200,64,4,Bundle of Greater Lightning Arrowheads,Bundle of Atlatl Dart Shafts,Greater Lightning Atlatl Dart
+5353,4585,5310,100,140,4,1,Bundle of Greater Blunt Arrowheads,Bundle of Arrowshafts,Greater Blunt Arrow
+5353,5339,5319,100,140,4,2,Bundle of Greater Blunt Arrowheads,Bundle of Quarrelshafts,Greater Blunt Quarrel
+5353,15296,15290,100,140,4,4,Bundle of Greater Blunt Arrowheads,Bundle of Atlatl Dart Shafts,Greater Blunt Atlatl Dart
+5354,4585,5357,100,140,1,1,Bundle of Greater Broad Arrowheads,Bundle of Arrowshafts,Greater Broadhead Arrow
+5354,5339,5320,100,140,1,2,Bundle of Greater Broad Arrowheads,Bundle of Quarrelshafts,Greater Broadhead Quarrel
+5354,15296,15291,100,140,1,4,Bundle of Greater Broad Arrowheads,Bundle of Atlatl Dart Shafts,Greater Broadhead Atlatl Dart
+5355,4585,5312,100,160,1,1,Bundle of Greater Frog Crotch Arrowheads,Bundle of Arrowshafts,Greater Frog Crotch Arrow
+5355,5339,5321,100,160,1,2,Bundle of Greater Frog Crotch Arrowheads,Bundle of Quarrelshafts,Greater Frog Crotch Quarrel
+5355,15296,15294,100,160,1,4,Bundle of Greater Frog Crotch Arrowheads,Bundle of Atlatl Dart Shafts,Greater Frog Crotch Atlatl Dart
+5356,4585,5309,100,160,2,1,Bundle of Greater Armor Piercing Arrowheads,Bundle of Arrowshafts,Greater Armor Piercing Arrow
+5356,5339,5318,100,160,2,2,Bundle of Greater Armor Piercing Arrowheads,Bundle of Quarrelshafts,Greater Armor Piercing Quarrel
+5356,15296,15289,100,160,2,4,Bundle of Greater Armor Piercing Arrowheads,Bundle of Atlatl Dart Shafts,Greater Armor Piercing Atlatl Dart
+7996,4585,7995,250,60,16,8,Bundle of Crystal Arrowheads,Bundle of Arrowshafts,Crystal-tip Arrow
+7996,5339,7997,250,60,16,16,Bundle of Crystal Arrowheads,Bundle of Quarrelshafts,Crystal-tip quarrel
+7996,15296,23525,250,60,16,32,Bundle of Crystal Arrowheads,Bundle of Atlatl Dart Shafts,Crystal-tip Atlatl Dart
+8824,4585,8826,100,20,2,1,Bundle of Barbed Arrowheads,Bundle of Arrowshafts,Barbed Arrow
+8824,5339,8828,100,20,2,2,Bundle of Barbed Arrowheads,Bundle of Quarrelshafts,Barbed Quarrel
+8824,15296,24548,100,20,2,4,Bundle of Barbed Arrowheads,Bundle of Atlatl Dart Shafts,Barbed Atlatl Dart
+8825,4585,8827,100,160,2,1,Bundle of Greater Barbed Arrowheads,Bundle of Arrowshafts,Greater Barbed Arrow
+8825,5339,8829,100,160,2,2,Bundle of Greater Barbed Arrowheads,Bundle of Quarrelshafts,Greater Barbed Quarrel
+8825,15296,24550,100,160,2,4,Bundle of Greater Barbed Arrowheads,Bundle of Atlatl Dart Shafts,Greater Barbed Atlatl Dart
+9233,4585,9230,100,80,2,8,Bloodletter Arrowhead,Bundle of Arrowshafts,Bloodletter Arrow
+9233,5339,9236,100,80,2,16,Bloodletter Arrowhead,Bundle of Quarrelshafts,Bloodletter Quarrel
+9233,15296,24130,100,80,2,32,Bloodletter Arrowhead,Bundle of Atlatl Dart Shafts,Bloodletter Atlatl Dart
+9234,4585,9231,100,100,2,8,Fleshripper Arrowhead,Bundle of Arrowshafts,Fleshripper Arrow
+9234,5339,9237,100,100,2,16,Fleshripper Arrowhead,Bundle of Quarrelshafts,Fleshripper Quarrel
+9234,15296,24131,100,100,2,32,Fleshripper Arrowhead,Bundle of Atlatl Dart Shafts,Fleshripper Atlatl Dart
+9235,4585,9232,100,130,2,8,Soulrender Arrowhead,Bundle of Arrowshafts,Soulrender Arrow
+9235,5339,9238,100,130,2,16,Soulrender Arrowhead,Bundle of Quarrelshafts,Soulrender Quarrel
+9235,15296,24132,100,130,2,32,Soulrender Arrowhead,Bundle of Atlatl Dart Shafts,Soulrender Atlatl Dart
+9359,9377,300,1000,35,2,1,Wrapped Bundle of Arrowheads,Wrapped Bundle of Arrowshafts,Arrow
+9359,9378,305,1000,35,2,2,Wrapped Bundle of Arrowheads,Wrapped Bundle of Quarrelshafts,Quarrel
+9359,15298,12464,1000,35,2,4,Wrapped Bundle of Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Atlatl Dart
+9360,9377,4181,1000,90,32,1,Wrapped Bundle of Acid Arrowheads,Wrapped Bundle of Arrowshafts,Acid Arrow
+9360,9378,4185,1000,90,32,2,Wrapped Bundle of Acid Arrowheads,Wrapped Bundle of Quarrelshafts,Acid Quarrel
+9360,15298,15279,1000,90,32,4,Wrapped Bundle of Acid Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Acid Atlatl Dart
+9361,9377,3598,1000,50,2,1,Wrapped Bundle of Armor Piercing Arrowheads,Wrapped Bundle of Arrowshafts,Armor Piercing Arrow
+9361,9378,3602,1000,50,2,2,Wrapped Bundle of Armor Piercing Arrowheads,Wrapped Bundle of Quarrelshafts,Armor Piercing Quarrel
+9361,15298,15280,1000,50,2,4,Wrapped Bundle of Armor Piercing Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Armor Piercing Atlatl Dart
+9362,9377,3599,1000,40,4,1,Wrapped Bundle of Blunt Arrowheads,Wrapped Bundle of Arrowshafts,Blunt Arrow
+9362,9378,3603,1000,40,4,2,Wrapped Bundle of Blunt Arrowheads,Wrapped Bundle of Quarrelshafts,Blunt Quarrel
+9362,15298,15281,1000,40,4,4,Wrapped Bundle of Blunt Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Blunt Atlatl Dart
+9363,9377,3600,1000,40,1,1,Wrapped Bundle of Broad Arrowheads,Wrapped Bundle of Arrowshafts,Broadhead Arrow
+9363,9378,3604,1000,40,1,2,Wrapped Bundle of Broad Arrowheads,Wrapped Bundle of Quarrelshafts,Broadhead Quarrel
+9363,15298,15282,1000,40,1,4,Wrapped Bundle of Broad Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Broadhead Atlatl Dart
+9364,9377,4183,1000,90,64,1,Wrapped Bundle of Lightning Arrowheads,Wrapped Bundle of Arrowshafts,Lightning Arrow
+9364,9378,4187,1000,90,64,2,Wrapped Bundle of Lightning Arrowheads,Wrapped Bundle of Quarrelshafts,Lightning Quarrel
+9364,15298,15283,1000,90,64,4,Wrapped Bundle of Lightning Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Lightning Atlatl Dart
+9365,9377,1437,1000,90,16,1,Wrapped Bundle of Fire Arrowheads,Wrapped Bundle of Arrowshafts,Fire Arrow
+9365,9378,4188,1000,90,16,2,Wrapped Bundle of Fire Arrowheads,Wrapped Bundle of Quarrelshafts,Fire Quarrel
+9365,15298,15284,1000,90,16,4,Wrapped Bundle of Fire Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Fire Atlatl Dart
+9366,9377,3601,1000,50,1,1,Wrapped Bundle of Frog Crotch Arrowheads,Wrapped Bundle of Arrowshafts,Frog Crotch Arrow
+9366,9378,3605,1000,50,1,2,Wrapped Bundle of Frog Crotch Arrowheads,Wrapped Bundle of Quarrelshafts,Frog Crotch Quarrel
+9366,15298,15285,1000,50,1,4,Wrapped Bundle of Frog Crotch Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Frog Crotch Atlatl Dart
+9367,9377,4182,1000,90,8,1,Wrapped Bundle of Frost Arrowheads,Wrapped Bundle of Arrowshafts,Frost Arrow
+9367,9378,4186,1000,90,8,2,Wrapped Bundle of Frost Arrowheads,Wrapped Bundle of Quarrelshafts,Frost Quarrel
+9367,15298,15286,1000,90,8,4,Wrapped Bundle of Frost Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Frost Atlatl Dart
+9368,9377,5304,1000,150,2,1,Wrapped Bundle of Greater Arrowheads,Wrapped Bundle of Arrowshafts,Greater Arrow
+9368,9378,5313,1000,150,2,2,Wrapped Bundle of Greater Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Quarrel
+9368,15298,15287,1000,150,2,4,Wrapped Bundle of Greater Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Atlatl Dart
+9369,9377,5306,1000,230,32,1,Wrapped Bundle of Greater Acid Arrowheads,Wrapped Bundle of Arrowshafts,Greater Acid Arrow
+9369,9378,5314,1000,200,32,2,Wrapped Bundle of Greater Acid Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Acid Quarrel
+9369,15298,15288,1000,230,32,4,Wrapped Bundle of Greater Acid Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Acid Atlatl Dart
+9370,9377,5309,1000,190,2,1,Wrapped Bundle of Greater Armor Piercing Arrowheads,Wrapped Bundle of Arrowshafts,Greater Armor Piercing Arrow
+9370,9378,5318,1000,190,2,2,Wrapped Bundle of Greater Armor Piercing Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Armor Piercing Quarrel
+9370,15298,15289,1000,190,2,4,Wrapped Bundle of Greater Armor Piercing Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Armor Piercing Atlatl Dart
+9371,9377,5310,1000,170,4,1,Wrapped Bundle of Greater Blunt Arrowheads,Wrapped Bundle of Arrowshafts,Greater Blunt Arrow
+9371,9378,5319,1000,170,4,2,Wrapped Bundle of Greater Blunt Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Blunt Quarrel
+9371,15298,15290,1000,170,4,4,Wrapped Bundle of Greater Blunt Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Blunt Atlatl Dart
+9372,9377,5357,1000,170,1,1,Wrapped Bundle of Greater Broad Arrowheads,Wrapped Bundle of Arrowshafts,Greater Broadhead Arrow
+9372,9378,5320,1000,170,1,2,Wrapped Bundle of Greater Broad Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Broadhead Quarrel
+9372,15298,15291,1000,170,1,4,Wrapped Bundle of Greater Broad Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Broadhead Atlatl Dart
+9373,9377,5308,1000,230,64,1,Wrapped Bundle of Greater Lightning Arrowheads,Wrapped Bundle of Arrowshafts,Greater Lightning Arrow
+9373,9378,5316,1000,230,64,2,Wrapped Bundle of Greater Lightning Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Lightning Quarrel
+9373,15298,15292,1000,230,64,4,Wrapped Bundle of Greater Lightning Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Lightning Atlatl Dart
+9374,9377,5305,1000,230,16,1,Wrapped Bundle of Greater Fire Arrowheads,Wrapped Bundle of Arrowshafts,Greater Fire Arrow
+9374,9378,5317,1000,230,16,2,Wrapped Bundle of Greater Fire Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Fire Quarrel
+9374,15298,15293,1000,230,16,4,Wrapped Bundle of Greater Fire Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Fire Atlatl Dart
+9375,9377,5312,1000,190,1,1,Wrapped Bundle of Greater Frog Crotch Arrowheads,Wrapped Bundle of Arrowshafts,Greater Frog Crotch Arrow
+9375,9378,5321,1000,190,1,2,Wrapped Bundle of Greater Frog Crotch Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Frog Crotch Quarrel
+9375,15298,15294,1000,190,1,4,Wrapped Bundle of Greater Frog Crotch Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Frog Crotch Atlatl Dart
+9376,9377,5307,1000,230,8,1,Wrapped Bundle of Greater Frost Arrowheads,Wrapped Bundle of Arrowshafts,Greater Frost Arrow
+9376,9378,5315,1000,230,8,2,Wrapped Bundle of Greater Frost Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Frost Quarrel
+9376,15298,15295,1000,230,8,4,Wrapped Bundle of Greater Frost Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Frost Atlatl Dart
+15411,4585,15429,100,150,2,1,Bundle of Deadly Arrowheads,Bundle of Arrowshafts,Deadly Arrow
+15411,5339,15438,100,150,2,2,Bundle of Deadly Arrowheads,Bundle of Quarrelshafts,Deadly Quarrel
+15411,15296,20964,100,150,2,4,Bundle of Deadly Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Atlatl Dart
+15412,4585,15430,100,225,32,1,Bundle of Deadly Acid Arrowheads,Bundle of Arrowshafts,Deadly Acid Arrow
+15412,5339,15439,100,225,32,2,Bundle of Deadly Acid Arrowheads,Bundle of Quarrelshafts,Deadly Acid Quarrel
+15412,15296,20965,100,225,32,4,Bundle of Deadly Acid Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Acid Atlatl Dart
+15413,4585,15431,100,175,2,1,Bundle of Deadly Armor Piercing Arrowheads,Bundle of Arrowshafts,Deadly Armor Piercing Arrow
+15413,5339,15440,100,175,2,2,Bundle of Deadly Armor Piercing Arrowheads,Bundle of Quarrelshafts,Deadly Armor Piercing Quarrel
+15413,15296,20966,100,175,2,4,Bundle of Deadly Armor Piercing Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Armor Piercing Atlatl Dart
+15414,4585,15432,100,150,4,1,Bundle of Deadly Blunt Arrowheads,Bundle of Arrowshafts,Deadly Blunt Arrow
+15414,5339,15441,100,150,4,2,Bundle of Deadly Blunt Arrowheads,Bundle of Quarrelshafts,Deadly Blunt Quarrel
+15414,15296,20967,100,150,4,4,Bundle of Deadly Blunt Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Blunt Atlatl Dart
+15415,4585,15433,100,150,1,1,Bundle of Deadly Broad Arrowheads,Bundle of Arrowshafts,Deadly Broadhead Arrow
+15415,5339,15442,100,150,1,2,Bundle of Deadly Broad Arrowheads,Bundle of Quarrelshafts,Deadly Broadhead Quarrel
+15415,15296,20968,100,150,1,4,Bundle of Deadly Broad Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Broadhead Atlatl Dart
+15416,4585,15434,100,225,64,1,Bundle of Deadly Lightning Arrowheads,Bundle of Arrowshafts,Deadly Lightning Arrow
+15416,5339,15443,100,225,64,2,Bundle of Deadly Lightning Arrowheads,Bundle of Quarrelshafts,Deadly Lightning Quarrel
+15416,15296,20969,100,225,64,4,Bundle of Deadly Lightning Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Lightning Atlatl Dart
+15417,4585,15435,100,225,16,1,Bundle of Deadly Fire Arrowheads,Bundle of Arrowshafts,Deadly Fire Arrow
+15417,5339,15444,100,225,16,2,Bundle of Deadly Fire Arrowheads,Bundle of Quarrelshafts,Deadly Fire Quarrel
+15417,15296,20970,100,225,16,4,Bundle of Deadly Fire Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Fire Atlatl Dart
+15418,4585,15436,100,175,1,1,Bundle of Deadly Frog Crotch Arrowheads,Bundle of Arrowshafts,Deadly Frog Crotch Arrow
+15418,5339,15445,100,175,1,2,Bundle of Deadly Frog Crotch Arrowheads,Bundle of Quarrelshafts,Deadly Frog Crotch Quarrel
+15418,15296,20971,100,175,1,4,Bundle of Deadly Frog Crotch Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Frog Crotch Atlatl Dart
+15419,4585,15437,100,225,8,1,Bundle of Deadly Frost Arrowheads,Bundle of Arrowshafts,Deadly Frost Arrow
+15419,5339,15446,100,225,8,2,Bundle of Deadly Frost Arrowheads,Bundle of Quarrelshafts,Deadly Frost Quarrel
+15419,15296,20972,100,225,8,4,Bundle of Deadly Frost Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Frost Atlatl Dart
+15420,9377,15429,1000,175,2,1,Wrapped Bundle of Deadly Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Arrow
+15420,9378,15438,1000,175,2,2,Wrapped Bundle of Deadly Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Quarrel
+15420,15298,20964,1000,175,2,4,Wrapped Bundle of Deadly Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Atlatl Dart
+15421,9377,15430,1000,250,32,1,Wrapped Bundle of Deadly Acid Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Acid Arrow
+15421,9378,15439,1000,250,32,2,Wrapped Bundle of Deadly Acid Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Acid Quarrel
+15421,15298,20965,1000,250,32,4,Wrapped Bundle of Deadly Acid Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Acid Atlatl Dart
+15422,9377,15431,1000,200,2,1,Wrapped Bundle of Deadly Armor Piercing Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Armor Piercing Arrow
+15422,9378,15440,1000,200,2,2,Wrapped Bundle of Deadly Armor Piercing Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Armor Piercing Quarrel
+15422,15298,20966,1000,200,2,4,Wrapped Bundle of Deadly Armor Piercing Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Armor Piercing Atlatl Dart
+15423,9377,15432,1000,180,4,1,Wrapped Bundle of Deadly Blunt Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Blunt Arrow
+15423,9378,15441,1000,180,4,2,Wrapped Bundle of Deadly Blunt Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Blunt Quarrel
+15423,15298,20967,1000,180,4,4,Wrapped Bundle of Deadly Blunt Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Blunt Atlatl Dart
+15424,9377,15433,1000,180,1,1,Wrapped Bundle of Deadly Broad Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Broadhead Arrow
+15424,9378,15442,1000,180,1,2,Wrapped Bundle of Deadly Broad Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Broadhead Quarrel
+15424,15298,20968,1000,180,1,4,Wrapped Bundle of Deadly Broad Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Broadhead Atlatl Dart
+15425,9377,15434,1000,250,64,1,Wrapped Bundle of Deadly Lightning Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Lightning Arrow
+15425,9378,15443,1000,250,64,2,Wrapped Bundle of Deadly Lightning Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Lightning Quarrel
+15425,15298,20969,1000,250,64,4,Wrapped Bundle of Deadly Lightning Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Lightning Atlatl Dart
+15426,9377,15435,1000,250,16,1,Wrapped Bundle of Deadly Fire Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Fire Arrow
+15426,9378,15444,1000,250,16,2,Wrapped Bundle of Deadly Fire Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Fire Quarrel
+15426,15298,20970,1000,250,16,4,Wrapped Bundle of Deadly Fire Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Fire Atlatl Dart
+15427,9377,15436,1000,200,1,1,Wrapped Bundle of Deadly Frog Crotch Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Frog Crotch Arrow
+15427,9378,15445,1000,200,1,2,Wrapped Bundle of Deadly Frog Crotch Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Frog Crotch Quarrel
+15427,15298,20971,1000,200,1,4,Wrapped Bundle of Deadly Frog Crotch Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Frog Crotch Atlatl Dart
+15428,9377,15437,1000,250,8,1,Wrapped Bundle of Deadly Frost Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Frost Arrow
+15428,9378,15446,1000,250,8,2,Wrapped Bundle of Deadly Frost Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Frost Quarrel
+15428,15298,20972,1000,250,8,4,Wrapped Bundle of Deadly Frost Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Frost Atlatl Dart
+21997,4585,21347,100,120,2,64,Bundle of Chorizite Arrowheads,Bundle of Arrowshafts,Chorizite Arrow
+21997,5339,21351,100,120,2,128,Bundle of Chorizite Arrowheads,Bundle of Quarrelshafts,Chorizite Quarrel
+21997,15296,21349,100,120,2,256,Bundle of Chorizite Arrowheads,Bundle of Atlatl Dart Shafts,Chorizite Atlatl Dart
+21998,4585,21348,100,150,2,64,Bundle of Deadly Chorizite Arrowheads,Bundle of Arrowshafts,Deadly Chorizite Arrow
+21998,5339,21352,100,150,2,128,Bundle of Deadly Chorizite Arrowheads,Bundle of Quarrelshafts,Deadly Chorizite Quarrel
+21998,15296,21350,100,150,2,256,Bundle of Deadly Chorizite Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Chorizite Atlatl Dart
+21999,9377,21347,1000,150,2,64,Wrapped Bundle of Chorizite Arrowheads,Wrapped Bundle of Arrowshafts,Chorizite Arrow
+21999,9378,21351,1000,150,2,128,Wrapped Bundle of Chorizite Arrowheads,Wrapped Bundle of Quarrelshafts,Chorizite Quarrel
+21999,15298,21349,1000,150,2,256,Wrapped Bundle of Chorizite Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Chorizite Atlatl Dart
+22000,9377,21348,1000,175,2,64,Wrapped Bundle of Deadly Chorizite Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Chorizite Arrow
+22000,9378,21352,1000,175,2,128,Wrapped Bundle of Deadly Chorizite Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Chorizite Quarrel
+22000,15298,21350,1000,175,2,256,Wrapped Bundle of Deadly Chorizite Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Chorizite Atlatl Dart
+24543,4585,24547,100,175,2,1,Bundle of Deadly Barbed Arrowheads,Bundle of Arrowshafts,Deadly Barbed Arrow
+24543,5339,24551,100,175,2,2,Bundle of Deadly Barbed Arrowheads,Bundle of Quarrelshafts,Deadly Barbed Quarrel
+24543,15296,24549,100,175,2,4,Bundle of Deadly Barbed Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Barbed Atlatl Dart
+24544,9377,8826,1000,50,2,1,Wrapped Bundle of Barbed Arrowheads,Wrapped Bundle of Arrowshafts,Barbed Arrow
+24544,9378,8828,1000,50,2,2,Wrapped Bundle of Barbed Arrowheads,Wrapped Bundle of Quarrelshafts,Barbed Quarrel
+24544,15298,24548,1000,50,2,4,Wrapped Bundle of Barbed Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Barbed Atlatl Dart
+24545,9377,24547,1000,200,2,1,Wrapped Bundle of Deadly Barbed Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Barbed Arrow
+24545,9378,24551,1000,200,2,2,Wrapped Bundle of Deadly Barbed Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Barbed Quarrel
+24545,15298,24549,1000,200,2,4,Wrapped Bundle of Deadly Barbed Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Barbed Atlatl Dart
+24546,9377,8827,1000,190,2,1,Wrapped Bundle of Greater Barbed Arrowheads,Wrapped Bundle of Arrowshafts,Greater Barbed Arrow
+24546,9378,8829,1000,190,2,2,Wrapped Bundle of Greater Barbed Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Barbed Quarrel
+24546,15298,24550,1000,190,2,4,Wrapped Bundle of Greater Barbed Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Barbed Atlatl Dart
+30074,4585,15433,100,250,1,1,Infinite Deadly Broad Arrowheads,Bundle of Arrowshafts,Deadly Broadhead Arrow
+30074,5339,15442,100,250,1,2,Infinite Deadly Broad Arrowheads,Bundle of Quarrelshafts,Deadly Broadhead Quarrel
+30074,9377,15433,1000,180,1,1,Infinite Deadly Broad Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Broadhead Arrow
+30074,9378,15442,1000,180,1,2,Infinite Deadly Broad Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Broadhead Quarrel
+30074,15296,20968,100,250,1,4,Infinite Deadly Broad Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Broadhead Atlatl Dart
+30074,15298,20968,1000,180,1,4,Infinite Deadly Broad Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Broadhead Atlatl Dart
+30075,4585,15430,100,250,32,1,Infinite Deadly Acid Arrowheads,Bundle of Arrowshafts,Deadly Acid Arrow
+30075,5339,15439,100,250,32,2,Infinite Deadly Acid Arrowheads,Bundle of Quarrelshafts,Deadly Acid Quarrel
+30075,9377,15430,1000,250,32,1,Infinite Deadly Acid Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Acid Arrow
+30075,9378,15439,1000,250,32,2,Infinite Deadly Acid Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Acid Quarrel
+30075,15296,20965,100,250,32,4,Infinite Deadly Acid Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Acid Atlatl Dart
+30075,15298,20965,1000,250,32,4,Infinite Deadly Acid Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Acid Atlatl Dart
+30076,4585,15431,100,250,2,1,Infinite Deadly Armor Piercing Arrowheads,Bundle of Arrowshafts,Deadly Armor Piercing Arrow
+30076,5339,15440,100,250,2,2,Infinite Deadly Armor Piercing Arrowheads,Bundle of Quarrelshafts,Deadly Armor Piercing Quarrel
+30076,9377,15431,1000,200,2,1,Infinite Deadly Armor Piercing Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Armor Piercing Arrow
+30076,9378,15440,1000,200,2,2,Infinite Deadly Armor Piercing Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Armor Piercing Quarrel
+30076,15296,20966,100,250,2,4,Infinite Deadly Armor Piercing Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Armor Piercing Atlatl Dart
+30076,15298,20966,1000,200,2,4,Infinite Deadly Armor Piercing Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Armor Piercing Atlatl Dart
+30077,4585,15432,100,250,4,1,Infinite Deadly Blunt Arrowheads,Bundle of Arrowshafts,Deadly Blunt Arrow
+30077,5339,15441,100,250,4,2,Infinite Deadly Blunt Arrowheads,Bundle of Quarrelshafts,Deadly Blunt Quarrel
+30077,9377,15432,1000,180,4,1,Infinite Deadly Blunt Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Blunt Arrow
+30077,9378,15441,1000,180,4,2,Infinite Deadly Blunt Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Blunt Quarrel
+30077,15296,20967,100,250,4,4,Infinite Deadly Blunt Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Blunt Atlatl Dart
+30077,15298,20967,1000,180,4,4,Infinite Deadly Blunt Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Blunt Atlatl Dart
+30078,4585,15434,100,250,64,1,Infinite Deadly Lightning Arrowheads,Bundle of Arrowshafts,Deadly Lightning Arrow
+30078,5339,15443,100,250,64,2,Infinite Deadly Lightning Arrowheads,Bundle of Quarrelshafts,Deadly Lightning Quarrel
+30078,9377,15434,1000,250,64,1,Infinite Deadly Lightning Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Lightning Arrow
+30078,9378,15443,1000,250,64,2,Infinite Deadly Lightning Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Lightning Quarrel
+30078,15296,20969,100,250,64,4,Infinite Deadly Lightning Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Lightning Atlatl Dart
+30078,15298,20969,1000,250,64,4,Infinite Deadly Lightning Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Lightning Atlatl Dart
+30079,4585,15435,100,250,16,1,Infinite Deadly Fire Arrowheads,Bundle of Arrowshafts,Deadly Fire Arrow
+30079,5339,15444,100,250,16,2,Infinite Deadly Fire Arrowheads,Bundle of Quarrelshafts,Deadly Fire Quarrel
+30079,9377,15435,1000,250,16,1,Infinite Deadly Fire Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Fire Arrow
+30079,9378,15444,1000,250,16,2,Infinite Deadly Fire Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Fire Quarrel
+30079,15296,20970,100,250,16,4,Infinite Deadly Fire Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Fire Atlatl Dart
+30079,15298,20970,1000,250,16,4,Infinite Deadly Fire Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Fire Atlatl Dart
+30080,4585,15436,100,250,1,1,Infinite Deadly Frog-Crotch Arrowheads,Bundle of Arrowshafts,Deadly Frog Crotch Arrow
+30080,5339,15445,100,250,1,2,Infinite Deadly Frog-Crotch Arrowheads,Bundle of Quarrelshafts,Deadly Frog Crotch Quarrel
+30080,9377,15436,1000,200,1,1,Infinite Deadly Frog-Crotch Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Frog Crotch Arrow
+30080,9378,15445,1000,200,1,2,Infinite Deadly Frog-Crotch Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Frog Crotch Quarrel
+30080,15296,20971,100,250,1,4,Infinite Deadly Frog-Crotch Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Frog Crotch Atlatl Dart
+30080,15298,20971,1000,200,1,4,Infinite Deadly Frog-Crotch Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Frog Crotch Atlatl Dart
+30081,4585,15437,100,250,8,1,Infinite Deadly Frost Arrowheads,Bundle of Arrowshafts,Deadly Frost Arrow
+30081,5339,15446,100,250,8,2,Infinite Deadly Frost Arrowheads,Bundle of Quarrelshafts,Deadly Frost Quarrel
+30081,9377,15437,1000,250,8,1,Infinite Deadly Frost Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Frost Arrow
+30081,9378,15446,1000,250,8,2,Infinite Deadly Frost Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Frost Quarrel
+30081,15296,20972,100,250,8,4,Infinite Deadly Frost Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Frost Atlatl Dart
+30081,15298,20972,1000,250,8,4,Infinite Deadly Frost Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Frost Atlatl Dart
+36363,9377,36389,2500,300,32,1,Wrapped Bundle of Olthoi Acid Arrowheads,Wrapped Bundle of Arrowshafts,Olthoi Acid Arrow
+36363,9378,36391,2500,300,32,2,Wrapped Bundle of Olthoi Acid Arrowheads,Wrapped Bundle of Quarrelshafts,Olthoi Acid Bolt
+36363,15298,36390,2500,300,32,4,Wrapped Bundle of Olthoi Acid Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Olthoi Acid Atlatl Dart
+36497,9377,36520,2500,300,4,1,Wrapped Bundle of Greater Deadly Blunt Arrowheads,Wrapped Bundle of Arrowshafts,Greater Deadly Blunt Arrow
+36497,9378,36522,2500,300,4,2,Wrapped Bundle of Greater Deadly Blunt Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Deadly Blunt Quarrel
+36497,15298,36521,2500,300,4,4,Wrapped Bundle of Greater Deadly Blunt Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Deadly Blunt Atlatl Dart
+38779,9377,38780,2500,300,64,1,Wrapped Bundle of Raider Lightning Arrowheads,Wrapped Bundle of Arrowshafts,Raider Lightning Arrow
+38779,9378,38782,2500,300,64,2,Wrapped Bundle of Raider Lightning Arrowheads,Wrapped Bundle of Quarrelshafts,Raider Lightning Bolt
+38779,15298,38781,2500,300,64,4,Wrapped Bundle of Raider Lightning Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Raider Lightning Atlatl Dart
+43148,9377,43150,2500,300,1,1,Wrapped Bundle of Gear Blade Slashing Arrowheads,Wrapped Bundle of Arrowshafts,Gear Blade Slashing Arrow
+43148,9378,43152,2500,300,1,2,Wrapped Bundle of Gear Blade Slashing Arrowheads,Wrapped Bundle of Quarrelshafts,Gear Blade Slashing Bolt
+43148,15298,43151,2500,300,1,4,Wrapped Bundle of Gear Blade Slashing Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Gear Blade Slashing Atlatl Dart
+44068,4585,43951,100,385,268435456,1,Bundle of Deadly Prismatic Arrowheads,Bundle of Arrowshafts,Deadly Prismatic Arrow
+44068,5339,43956,100,385,268435456,2,Bundle of Deadly Prismatic Arrowheads,Bundle of Quarrelshafts,Deadly Prismatic Quarrel
+44068,15296,43953,100,385,268435456,4,Bundle of Deadly Prismatic Arrowheads,Bundle of Atlatl Dart Shafts,Deadly Prismatic Atlatl Dart
+44069,4585,43942,100,370,268435456,1,Bundle of Greater Prismatic Arrowheads,Bundle of Arrowshafts,Greater Prismatic Arrow
+44069,5339,43957,100,370,268435456,2,Bundle of Greater Prismatic Arrowheads,Bundle of Quarrelshafts,Greater Prismatic Quarrel
+44069,15296,43954,100,370,268435456,4,Bundle of Greater Prismatic Arrowheads,Bundle of Atlatl Dart Shafts,Greater Prismatic Atlatl Dart
+44070,4585,43952,100,250,268435456,1,Bundle of Prismatic Arrowheads,Bundle of Arrowshafts,Prismatic Arrow
+44070,5339,43958,100,210,268435456,2,Bundle of Prismatic Arrowheads,Bundle of Quarrelshafts,Prismatic Quarrel
+44070,15296,43955,100,210,268435456,4,Bundle of Prismatic Arrowheads,Bundle of Atlatl Dart Shafts,Prismatic Atlatl Dart
+44071,9377,43952,1000,275,268435456,1,Wrapped Bundle of Prismatic Arrowheads,Wrapped Bundle of Arrowshafts,Prismatic Arrow
+44071,9378,43958,1000,230,268435456,2,Wrapped Bundle of Prismatic Arrowheads,Wrapped Bundle of Quarrelshafts,Prismatic Quarrel
+44071,15298,43955,1000,230,268435456,4,Wrapped Bundle of Prismatic Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Prismatic Atlatl Dart
+44072,9377,43951,1000,400,268435456,1,Wrapped Bundle of Deadly Prismatic Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Prismatic Arrow
+44072,9378,43956,1000,400,268435456,2,Wrapped Bundle of Deadly Prismatic Arrowheads,Wrapped Bundle of Quarrelshafts,Deadly Prismatic Quarrel
+44072,15298,43953,1000,390,268435456,4,Wrapped Bundle of Deadly Prismatic Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Deadly Prismatic Atlatl Dart
+44073,9377,43942,1000,375,268435456,1,Wrapped Bundle of Greater Prismatic Arrowheads,Wrapped Bundle of Arrowshafts,Greater Prismatic Arrow
+44073,9378,43957,1000,375,268435456,2,Wrapped Bundle of Greater Prismatic Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Prismatic Quarrel
+44073,15298,43954,1000,375,268435456,4,Wrapped Bundle of Greater Prismatic Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Prismatic Atlatl Dart
+44210,9377,44212,2500,300,16,1,Wrapped Bundle of Burning Sands Arrowheads,Wrapped Bundle of Arrowshafts,Burning Sands Arrow
+44210,9378,44214,2500,300,16,2,Wrapped Bundle of Burning Sands Arrowheads,Wrapped Bundle of Quarrelshafts,Burning Sands Bolt
+44210,15298,44213,2500,300,16,4,Wrapped Bundle of Burning Sands Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Burning Sands Atlatl Dart
+44224,9377,44368,1000,320,4,1,Wrapped Bundle of Greater Deadly Blunt Arrowheads,Wrapped Bundle of Arrowshafts,Greater Deadly Blunt Arrow
+44224,9378,44370,1000,320,4,2,Wrapped Bundle of Greater Deadly Blunt Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Deadly Blunt Quarrel
+44224,15298,44369,1000,320,4,4,Wrapped Bundle of Greater Deadly Blunt Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Deadly Blunt Atlatl Dart
+44359,4585,44372,100,260,2,1,Bundle of Greater Deadly Arrowheads,Bundle of Arrowshafts,Deadly Arrow
+44359,5339,44374,100,260,2,2,Bundle of Greater Deadly Arrowheads,Bundle of Quarrelshafts,Greater Deadly Quarrel
+44359,15296,44373,100,260,2,4,Bundle of Greater Deadly Arrowheads,Bundle of Atlatl Dart Shafts,Greater Deadly Atlatl Dart
+44360,4585,44368,100,260,4,1,Bundle of Greater Deadly Blunt Arrowheads,Bundle of Arrowshafts,Greater Deadly Blunt Arrow
+44360,5339,44370,100,260,4,2,Bundle of Greater Deadly Blunt Arrowheads,Bundle of Quarrelshafts,Greater Deadly Blunt Quarrel
+44360,15296,44369,100,260,4,4,Bundle of Greater Deadly Blunt Arrowheads,Bundle of Atlatl Dart Shafts,Greater Deadly Blunt Atlatl Dart
+44361,4585,44379,100,260,1,1,Bundle of Greater Deadly Broad Arrowheads,Bundle of Arrowshafts,Deadly Broadhead Arrow
+44361,5339,44381,100,260,1,2,Bundle of Greater Deadly Broad Arrowheads,Bundle of Quarrelshafts,Greater Deadly Broadhead Quarrel
+44361,15296,44380,100,260,1,4,Bundle of Greater Deadly Broad Arrowheads,Bundle of Atlatl Dart Shafts,Greater Deadly Broadhead Atlatl Dart
+44362,4585,44376,100,275,2,1,Bundle of Greater Deadly Armor Piercing Arrowheads,Bundle of Arrowshafts,Greater Deadly Armor Piercing Arrow
+44362,5339,44378,100,275,2,2,Bundle of Greater Deadly Armor Piercing Arrowheads,Bundle of Quarrelshafts,Greater Deadly Armor Piercing Quarrel
+44362,15296,44377,100,275,2,4,Bundle of Greater Deadly Armor Piercing Arrowheads,Bundle of Atlatl Dart Shafts,Greater Deadly Armor Piercing Atlatl Dart
+44363,4585,44383,100,275,1,1,Bundle of Greater Deadly Frog Crotch Arrowheads,Bundle of Arrowshafts,Greater Deadly Frog Crotch Arrow
+44363,5339,44385,100,275,1,2,Bundle of Greater Deadly Frog Crotch Arrowheads,Bundle of Quarrelshafts,Greater Deadly Frog Crotch Quarrel
+44363,15296,44384,100,275,1,4,Bundle of Greater Deadly Frog Crotch Arrowheads,Bundle of Atlatl Dart Shafts,Greater Deadly Frog Crotch Atlatl Dart
+44364,9377,44372,1000,320,2,1,Wrapped Bundle of Greater Deadly Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Arrow
+44364,9378,44374,1000,320,2,2,Wrapped Bundle of Greater Deadly Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Deadly Quarrel
+44364,15298,44373,1000,320,2,4,Wrapped Bundle of Greater Deadly Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Deadly Atlatl Dart
+44365,9377,44379,1000,325,1,1,Wrapped Bundle of Greater Deadly Broad Arrowheads,Wrapped Bundle of Arrowshafts,Deadly Broadhead Arrow
+44365,9378,44381,1000,325,1,2,Wrapped Bundle of Greater Deadly Broad Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Deadly Broadhead Quarrel
+44365,15298,44380,1000,325,1,4,Wrapped Bundle of Greater Deadly Broad Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Deadly Broadhead Atlatl Dart
+44366,9377,44376,1000,325,2,1,Wrapped Bundle of Greater Deadly Armor Piercing Arrowheads,Wrapped Bundle of Arrowshafts,Greater Deadly Armor Piercing Arrow
+44366,9378,44378,1000,325,2,2,Wrapped Bundle of Greater Deadly Armor Piercing Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Deadly Armor Piercing Quarrel
+44366,15298,44377,1000,325,2,4,Wrapped Bundle of Greater Deadly Armor Piercing Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Deadly Armor Piercing Atlatl Dart
+44367,9377,44383,1000,325,1,1,Wrapped Bundle of Greater Deadly Frog Crotch Arrowheads,Wrapped Bundle of Arrowshafts,Greater Deadly Frog Crotch Arrow
+44367,9378,44385,1000,325,1,2,Wrapped Bundle of Greater Deadly Frog Crotch Arrowheads,Wrapped Bundle of Quarrelshafts,Greater Deadly Frog Crotch Quarrel
+44367,15298,44384,1000,325,1,4,Wrapped Bundle of Greater Deadly Frog Crotch Arrowheads,Wrapped Bundle of Atlatl Dartshafts,Greater Deadly Frog Crotch Atlatl Dart

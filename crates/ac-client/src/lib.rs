@@ -1389,7 +1389,7 @@ impl Client {
             .world
             .objects
             .values()
-            .filter(|o| me.is_some() && (o.container == me || o.wielder == me))
+            .filter(|o| self.world.is_carried(o.guid) || o.wielder == me)
             .filter(|o| o.name.starts_with(name))
             .min_by_key(|o| if o.name == name { 0 } else { 1 })
             .map(|o| (o.guid, o.valid_locations, o.wielder == me))
@@ -1430,8 +1430,8 @@ impl Client {
             attributes_current[i] = stats.attribute_current(i as u32 + 1);
         }
         let mut vitals = [0u32; 3];
-        for i in 0..3 {
-            vitals[i] = stats.vital_max(i);
+        for (i, v) in vitals.iter_mut().enumerate() {
+            *v = stats.vital_max(i);
         }
         crate::weapons::Wielder {
             level: stats.level.max(0) as u32,
@@ -1445,12 +1445,11 @@ impl Client {
     /// Wield a carried item by guid, in whatever slot it goes in.
     pub fn wield_guid(&mut self, guid: u32) -> bool {
         use ac_net::messages::action;
-        let me = self.world.player_guid;
         let Some(locations) = self
             .world
             .objects
             .get(&guid)
-            .filter(|o| me.is_some() && o.container == me)
+            .filter(|o| self.world.is_carried(o.guid))
             .map(|o| o.valid_locations)
         else {
             return false;
@@ -1480,12 +1479,11 @@ impl Client {
         if self.wielded_ammo().is_some() {
             return false;
         }
-        let me = self.world.player_guid;
         let Some((guid, locations, name)) = self
             .world
             .objects
             .values()
-            .filter(|o| me.is_some() && o.container == me)
+            .filter(|o| self.world.is_carried(o.guid))
             .filter(|o| o.valid_locations & ac_world::equip::MISSILE_AMMO != 0)
             .max_by_key(|o| o.stack_size.max(1))
             .map(|o| (o.guid, o.valid_locations, o.name.clone()))
@@ -1573,17 +1571,22 @@ impl Client {
         if self.combat_stance() == want {
             return false;
         }
+        // The server will not put a bow in the hands that hold a wand:
+        // whatever weapon is held goes back in the pack first, and the
+        // new one is wielded on a later tick once it is there.
+        if self.put_weapons_away() {
+            return true;
+        }
         let mask = match want {
             Stance::Magic => item_type::CASTER,
             Stance::Missile => item_type::MISSILE_WEAPON,
             Stance::Melee => item_type::MELEE_WEAPON,
         };
-        let me = self.world.player_guid;
         let Some((guid, locations, name)) = self
             .world
             .objects
             .values()
-            .filter(|o| me.is_some() && o.container == me)
+            .filter(|o| self.world.is_carried(o.guid))
             .filter(|o| o.item_type & mask != 0)
             // The dearest one is usually the best one, and it is the
             // only ordering the client has before appraising.
@@ -1598,6 +1601,31 @@ impl Client {
         self.session
             .send_action(action::GET_AND_WIELD_ITEM, &w.finish());
         true
+    }
+
+    /// Put every weapon in hand back in the pack. True when something
+    /// was sent; the hands are empty on a later tick.
+    pub fn put_weapons_away(&mut self) -> bool {
+        use ac_world::item_type;
+        let Some(me) = self.world.player_guid else {
+            return false;
+        };
+        let held: Vec<u32> = self
+            .world
+            .wielded()
+            .filter(|o| {
+                o.item_type
+                    & (item_type::MELEE_WEAPON | item_type::MISSILE_WEAPON | item_type::CASTER)
+                    != 0
+                    && o.valid_locations & ac_world::equip::MISSILE_AMMO == 0
+            })
+            .map(|o| o.guid)
+            .collect();
+        let mut sent = false;
+        for g in held {
+            sent |= self.put_in_container(g, me);
+        }
+        sent
     }
 
     /// Drop back to peace mode.

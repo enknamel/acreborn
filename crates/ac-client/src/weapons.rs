@@ -24,6 +24,7 @@
 //! unappraised weapon is scored on what little its description carries.
 
 use ac_world::elements::{self, imbue, Creature, Element};
+use ac_world::fletching::combat_use;
 
 use crate::items::ItemStats;
 use crate::Stance;
@@ -153,17 +154,131 @@ pub struct Choice {
 }
 
 /// Which stance a weapon gives, or `None` when it is not a weapon.
+/// Ammunition is not one: it shares the missile item type with the
+/// bows that shoot it, and is told apart by what it is for.
 pub fn stance_of(item: &ItemStats) -> Option<Stance> {
     use ac_world::item_type;
     if item.item_type & item_type::CASTER != 0 {
         Some(Stance::Magic)
     } else if item.item_type & item_type::MISSILE_WEAPON != 0 {
-        Some(Stance::Missile)
+        (!is_ammo(item)).then_some(Stance::Missile)
     } else if item.item_type & item_type::MELEE_WEAPON != 0 {
         Some(Stance::Melee)
     } else {
         None
     }
+}
+
+/// Arrows, quarrels, darts: shot from something else.
+pub fn is_ammo(item: &ItemStats) -> bool {
+    item.combat_use == combat_use::AMMO
+}
+
+/// A bow, crossbow or atlatl: shoots ammunition rather than being
+/// thrown. Told by what it is for; failing that, by needing a kind of
+/// ammunition while doing no damage of its own.
+pub fn is_launcher(item: &ItemStats) -> bool {
+    use ac_world::item_type;
+    item.item_type & item_type::MISSILE_WEAPON != 0
+        && !is_ammo(item)
+        && (item.combat_use == combat_use::LAUNCHER
+            || (item.ammo_type != 0 && item.damage_high == 0))
+}
+
+/// How good a launcher is with a particular ammunition against
+/// `target`. The element is the ammunition's; a bow's rending counts
+/// when it rends that element; the bow's damage modifier and criticals
+/// are its own, and the skill is the bow's.
+pub fn score_pair(
+    launcher: &ItemStats,
+    ammo: &ItemStats,
+    target: Option<&Creature>,
+    wielder: &Wielder,
+) -> f32 {
+    // Judge the pair as one weapon: the arrow's damage and element,
+    // the bow's imbues, modifier and skill.
+    let together = ItemStats {
+        damage_low: ammo.damage_low,
+        damage_high: ammo.damage_high,
+        damage_type_bits: if ammo.damage_type_bits != 0 {
+            ammo.damage_type_bits
+        } else {
+            launcher.damage_type_bits
+        },
+        ..launcher.clone()
+    };
+    let modifier = if launcher.damage_mod > 0.0 {
+        launcher.damage_mod
+    } else {
+        1.0
+    };
+    score(&together, target, wielder) * modifier
+}
+
+/// The best launcher and ammunition carried, judged together, against
+/// `target`; or a thrown weapon, which is its own ammunition. `None`
+/// when nothing carried shoots.
+pub fn best_missile(
+    carried: &[ItemStats],
+    target: Option<&Creature>,
+    wielder: &Wielder,
+) -> Option<(Choice, Option<Choice>)> {
+    let mut best: Option<(f32, Choice, Option<Choice>)> = None;
+    let mut offer = |s: f32, launcher: Choice, ammo: Option<Choice>| {
+        if best.as_ref().is_none_or(|b| s > b.0) {
+            best = Some((s, launcher, ammo));
+        }
+    };
+    for l in carried
+        .iter()
+        .filter(|i| stance_of(i) == Some(Stance::Missile))
+        .filter(|i| wielder.can_wield(i))
+    {
+        if is_launcher(l) {
+            for a in carried
+                .iter()
+                .filter(|a| is_ammo(a) && a.ammo_type == l.ammo_type && a.stack > 0)
+            {
+                let s = score_pair(l, a, target, wielder);
+                let why = reason(
+                    &ItemStats {
+                        damage_type_bits: a.damage_type_bits,
+                        ..l.clone()
+                    },
+                    target,
+                );
+                offer(
+                    s,
+                    Choice {
+                        guid: l.guid,
+                        name: l.name.clone(),
+                        score: s,
+                        why: why.clone(),
+                    },
+                    Some(Choice {
+                        guid: a.guid,
+                        name: a.name.clone(),
+                        score: s,
+                        why,
+                    }),
+                );
+            }
+        } else {
+            // Thrown: the weapon is the ammunition.
+            let s = score(l, target, wielder);
+            offer(
+                s,
+                Choice {
+                    guid: l.guid,
+                    name: l.name.clone(),
+                    score: s,
+                    why: reason(l, target),
+                },
+                None,
+            );
+        }
+    }
+    best.map(|(_, l, a)| (l, a))
 }
 
 /// The skill a weapon is used with. The weapon profile says so for a
@@ -285,6 +400,10 @@ pub fn best(
     target: Option<&Creature>,
     wielder: &Wielder,
 ) -> Option<Choice> {
+    if want == Stance::Missile {
+        // A bow is nothing without its arrows: judged as a pair.
+        return best_missile(carried, target, wielder).map(|(l, _)| l);
+    }
     carried
         .iter()
         .filter(|i| stance_of(i) == Some(want))
@@ -573,6 +692,61 @@ mod tests {
         let unknown = Wielder::default();
         assert_eq!(unknown.skill_factor(&carried[0]), 1.0);
         assert_eq!(unknown.skill_factor(&carried[1]), 1.0);
+    }
+
+    #[test]
+    fn a_bow_is_judged_with_its_arrows_and_only_arrows_that_fit() {
+        use ac_world::fletching::{ammo_type, combat_use};
+        use ac_world::item_type::MISSILE_WEAPON;
+        let ice = elements::creature_by_id(196).expect("Ice Golem");
+        let mut bow = weapon(MISSILE_WEAPON, 0, 0, 0, 0);
+        bow.guid = 1;
+        bow.name = "Longbow".into();
+        bow.combat_use = combat_use::LAUNCHER;
+        bow.ammo_type = ammo_type::ARROW;
+        bow.damage_mod = 1.5;
+        let mut fire = weapon(MISSILE_WEAPON, 8, 12, Element::Fire as u32, 0);
+        fire.guid = 2;
+        fire.name = "Fire Arrow".into();
+        fire.combat_use = combat_use::AMMO;
+        fire.ammo_type = ammo_type::ARROW;
+        fire.stack = 50;
+        let mut frost = ItemStats {
+            guid: 3,
+            name: "Frost Arrow".into(),
+            damage_type_bits: Element::Cold as u32,
+            ..fire.clone()
+        };
+        frost.stack = 50;
+        let mut bolt = ItemStats {
+            guid: 4,
+            name: "Fire Quarrel".into(),
+            ammo_type: ammo_type::BOLT,
+            ..fire.clone()
+        };
+        bolt.stack = 50;
+        let carried = [bow.clone(), frost, fire.clone(), bolt];
+        // Ammunition is never a weapon in its own right.
+        assert_eq!(stance_of(&fire), None);
+        assert!(is_launcher(&bow) && !is_launcher(&fire));
+        let (l, a) = best_missile(&carried, Some(ice), &able()).expect("the bow and an arrow");
+        assert_eq!(l.guid, 1);
+        assert_eq!(
+            a.map(|a| a.guid),
+            Some(2),
+            "fire arrows against an ice golem"
+        );
+        assert!(l.why.contains("fire"), "{}", l.why);
+        // The pair's score carries the bow's modifier.
+        let pair = score_pair(&bow, &fire, Some(ice), &able());
+        assert!(pair > score(&fire, Some(ice), &able()));
+        // With no arrows at all, a bow shoots nothing and is not offered.
+        assert!(best_missile(&[bow.clone()], Some(ice), &able()).is_none());
+        // A thrown weapon needs none.
+        let mut dart = weapon(MISSILE_WEAPON, 6, 9, Element::Pierce as u32, 0);
+        dart.guid = 9;
+        let (l, a) = best_missile(&[dart], None, &able()).expect("thrown");
+        assert_eq!((l.guid, a), (9, None));
     }
 
     #[test]

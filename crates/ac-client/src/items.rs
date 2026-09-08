@@ -79,6 +79,14 @@ pub struct ItemStats {
     /// How often and how hard criticals land, 0 when not said.
     pub crit_frequency: f32,
     pub crit_multiplier: f32,
+    /// A launcher's damage modifier (a bow multiplies its arrows' damage
+    /// by this), 0 when not said.
+    pub damage_mod: f32,
+    /// What ammunition it takes or is (see `ac_world::fletching::ammo_type`),
+    /// 0 for a weapon that needs none.
+    pub ammo_type: u32,
+    /// What it is for in a fight (see `ac_world::fletching::combat_use`).
+    pub combat_use: u32,
     pub speed: u32,
     pub weapon_skill: String,
     /// The id of the skill the weapon is used with, 0 when not said.
@@ -245,6 +253,15 @@ impl ItemStats {
         }
         if let Some(m) = a.float(136) {
             self.crit_multiplier = m as f32;
+        }
+        if let Some(m) = a.float(63) {
+            self.damage_mod = m as f32;
+        }
+        if let Some(t) = a.int(50) {
+            self.ammo_type = t.max(0) as u32;
+        }
+        if let Some(u) = a.int(51) {
+            self.combat_use = u.max(0) as u32;
         }
         // A caster's own damage type is not in the weapon profile.
         if self.damage_type_bits == 0 {

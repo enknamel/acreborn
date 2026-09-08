@@ -6,6 +6,7 @@
 pub mod allegiance;
 pub mod buffs;
 pub mod elements;
+pub mod fletching;
 pub mod housing;
 pub mod landmarks;
 pub mod material;
@@ -406,6 +407,19 @@ impl World {
                         .and_then(|c| self.objects.get(&c))
                         .is_some_and(|c| c.container == me))
         })
+    }
+
+    /// Whether `guid` is in the character's packs, the main one or a
+    /// side pack. Anything wielded is not "carried" in this sense.
+    pub fn is_carried(&self, guid: u32) -> bool {
+        let me = self.player_guid;
+        me.is_some()
+            && self.objects.get(&guid).is_some_and(|o| {
+                o.container == me
+                    || o.container
+                        .and_then(|c| self.objects.get(&c))
+                        .is_some_and(|c| c.container == me)
+            })
     }
 
     /// Items directly in the main pack (not inside side packs).

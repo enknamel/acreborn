@@ -36,6 +36,11 @@ const LOOT_TIMEOUT: Duration = Duration::from_secs(6);
 const HEAL_EVERY: Duration = Duration::from_millis(2500);
 /// Least time between two casts of the same buff.
 const BUFF_EVERY: Duration = Duration::from_millis(1500);
+/// A change of weapon is asked for at most this often.
+const REWIELD_EVERY: Duration = Duration::from_millis(1000);
+/// Ammunition is made at most this often: a use takes a moment and
+/// the bundles need to answer.
+const CRAFT_EVERY: Duration = Duration::from_secs(4);
 /// The same note is not logged again within this.
 const NOTE_EVERY: Duration = Duration::from_secs(5);
 /// How often the buffs are gone through to see what is due.
@@ -157,6 +162,9 @@ pub struct Fight {
     pub avoid: Vec<String>,
     /// Farthest creature to pick, metres.
     pub radius: f32,
+    /// Make more ammunition when out, from a bundle of heads and a
+    /// bundle of shafts carried, if Fletching is up to it.
+    pub craft_ammo: bool,
 }
 
 impl Default for Fight {
@@ -167,6 +175,7 @@ impl Default for Fight {
             spells: Vec::new(),
             pick_weapon: true,
             vuln_above_health: crate::weapons::LONG_FIGHT_HEALTH,
+            craft_ammo: true,
             only: Vec::new(),
             avoid: Vec::new(),
             radius: 25.0,
@@ -501,6 +510,12 @@ pub struct Autoplay {
     /// The weapon put down to cast an urgent buff mid-fight, to be taken
     /// up again the moment the buffing is done.
     put_down: Option<u32>,
+    /// The ammunition chosen for the target, to be wielded with the bow.
+    wanted_ammo: Option<u32>,
+    /// When the hands were last asked to change weapon.
+    last_rewield: Option<Instant>,
+    /// When ammunition was last made.
+    last_craft: Option<Instant>,
     /// When stamina was last poured into mana or Revitalize cast.
     last_vital: Option<Instant>,
     /// The corpse being looted and when we started.
@@ -975,6 +990,15 @@ impl Client {
             {
                 return true;
             }
+            // A full pack takes nothing, and asking the server anyway
+            // only fills the log with refusals.
+            if self.pack_full() {
+                self.autoplay.note("pack full, leaving the loot", now);
+                self.autoplay.looted.push(guid);
+                self.autoplay.corpse = None;
+                self.autoplay.appraising = false;
+                return false;
+            }
             let mut took = 0;
             for g in &items {
                 let Some(stats) = self.stats_of(*g) else {
@@ -1030,11 +1054,19 @@ impl Client {
             .collect();
         players.sort();
         players.dedup();
+        // A corpse is a creature's when its name is a creature's; a
+        // corpse of anyone else, whether or not we can see them, is a
+        // player's, and a player's corpse is theirs.
         let someone_elses = |corpse: &str| {
-            let corpse = corpse.to_lowercase();
-            corpse
-                .strip_prefix("corpse of ")
-                .is_some_and(|who| players.iter().any(|p| p == who))
+            let lower = corpse.to_lowercase();
+            let Some(who) = lower.strip_prefix("corpse of ") else {
+                return false;
+            };
+            if who == my_name {
+                return false;
+            }
+            players.iter().any(|p| p == who)
+                || ac_world::elements::creature(corpse.get(10..).unwrap_or("")).is_none()
         };
         let corpse = self
             .world
@@ -1085,8 +1117,18 @@ impl Client {
         };
         if self.combat_stance() != want {
             // Wielding takes a moment; until the server confirms it, the
-            // hands still say what they said.
-            self.wield_for(want);
+            // hands still say what they said. Asked once a second, not
+            // once a tick: the server answers each ask, and refuses the
+            // ones it cannot yet do.
+            let now = Instant::now();
+            if self
+                .autoplay
+                .last_rewield
+                .is_none_or(|t| now.duration_since(t) >= REWIELD_EVERY)
+            {
+                self.autoplay.last_rewield = Some(now);
+                self.wield_for(want);
+            }
         }
         self.combat_stance()
     }
@@ -1133,6 +1175,16 @@ impl Client {
         } else {
             crate::weapons::best(&carried, stance, Some(known), &wielder)
         };
+        // A bow's choice comes with the arrows to shoot from it.
+        self.autoplay.wanted_ammo = picked
+            .as_ref()
+            .filter(|p| {
+                carried
+                    .iter()
+                    .any(|i| i.guid == p.guid && crate::weapons::is_launcher(i))
+            })
+            .and_then(|_| crate::weapons::best_missile(&carried, Some(known), &wielder))
+            .and_then(|(_, ammo)| ammo.map(|a| a.guid));
         let Some(pick) = picked else {
             return;
         };
@@ -1255,6 +1307,120 @@ impl Client {
             .collect()
     }
 
+    /// See that the bow has something to shoot: the ammunition chosen
+    /// for the target if it is still carried, else whatever fits. True
+    /// when something is wielded or was already.
+    fn ready_ammo(&mut self) -> bool {
+        if self.wielded_ammo().is_some() {
+            // The chosen kind, if it is not the one in the slot.
+            if let Some(want) = self.autoplay.wanted_ammo {
+                if self.wielded_ammo() != Some(want) && self.world.is_carried(want) {
+                    self.wield_guid(want);
+                }
+            }
+            return true;
+        }
+        if let Some(want) = self.autoplay.wanted_ammo {
+            if self.world.is_carried(want) {
+                return self.wield_guid(want);
+            }
+        }
+        self.wield_ammo()
+    }
+
+    /// Make ammunition for the launcher in hand from a bundle of heads
+    /// and a bundle of shafts carried, the recipe within Fletching, for
+    /// the element the target is weakest to when there is a choice.
+    /// True when a bundle was used this tick.
+    fn autoplay_craft_ammo(&mut self, now: Instant) -> bool {
+        if !self.autoplay.config.fight.craft_ammo {
+            return false;
+        }
+        if self
+            .autoplay
+            .last_craft
+            .is_some_and(|t| now.duration_since(t) < CRAFT_EVERY)
+        {
+            return false;
+        }
+        let launcher = self
+            .wielded_missile_weapon()
+            .and_then(|g| self.stats_of(g))
+            .filter(crate::weapons::is_launcher);
+        let Some(launcher) = launcher else {
+            return false;
+        };
+        if launcher.ammo_type == 0 {
+            return false;
+        }
+        // Fletching as it stands.
+        let fletching = {
+            let stats = &self.world.stats;
+            let table = self.assets.skill_table().ok();
+            stats
+                .skill(37)
+                .map(|sk| stats.skill_current(sk, table.as_ref().and_then(|t| t.get(37))))
+                .unwrap_or(0)
+        };
+        let carried: Vec<(u32, u32)> = self
+            .world
+            .objects
+            .values()
+            .filter(|o| self.world.is_carried(o.guid))
+            .map(|o| (o.weenie_class_id, o.guid))
+            .collect();
+        let held = |wcid: u32| carried.iter().find(|(w, _)| *w == wcid).map(|(_, g)| *g);
+        let weakest = self
+            .autoplay
+            .casting_at
+            .or(self.attack_target)
+            .and_then(|g| self.creature_known(g))
+            .and_then(|c| c.weakest_to());
+        let mut options: Vec<(&ac_world::fletching::Recipe, u32, u32)> =
+            ac_world::fletching::making(launcher.ammo_type)
+                .filter(|r| r.difficulty <= fletching)
+                .filter_map(|r| Some((r, held(r.source)?, held(r.target)?)))
+                .collect();
+        if options.is_empty() {
+            self.autoplay.note(
+                format!(
+                    "out of {} and nothing to make more from",
+                    ac_world::fletching::ammo_type::name(launcher.ammo_type)
+                ),
+                now,
+            );
+            return false;
+        }
+        // The target's weakness first, then whatever is hardest to make,
+        // which is the better arrow.
+        options.sort_by(|a, b| {
+            let hits =
+                |r: &ac_world::fletching::Recipe| weakest.is_some_and(|w| r.element() == Some(w));
+            hits(b.0)
+                .cmp(&hits(a.0))
+                .then(b.0.difficulty.cmp(&a.0.difficulty))
+        });
+        let (recipe, source, target) = options[0];
+        self.use_on(source, target);
+        self.autoplay.last_craft = Some(now);
+        self.autoplay.say(
+            Doing::Looting,
+            format!("making {} from {}", recipe.result_name, recipe.source_name),
+        );
+        true
+    }
+
+    /// The main pack has no room for another item.
+    pub fn pack_full(&self) -> bool {
+        let capacity = self
+            .world
+            .player()
+            .map(|p| p.items_capacity)
+            .filter(|c| *c > 0)
+            .unwrap_or(102);
+        self.world.main_pack().count() as u32 >= capacity
+    }
+
     /// What is known about the kind of creature `guid` is.
     fn creature_known(&self, guid: u32) -> Option<&'static ac_world::elements::Creature> {
         let o = self.world.objects.get(&guid)?;
@@ -1289,8 +1455,11 @@ impl Client {
                         .say(Doing::Fighting, format!("fighting {name}"));
                     // A bow with an empty ammunition slot shoots
                     // nothing, and the slot empties mid-fight.
-                    if stance == Stance::Missile {
-                        self.wield_ammo();
+                    if stance == Stance::Missile
+                        && !self.ready_ammo()
+                        && self.autoplay_craft_ammo(now)
+                    {
+                        return true;
                     }
                     return true;
                 }
@@ -1303,10 +1472,11 @@ impl Client {
         {
             return false;
         }
-        // Fighting at range: the bow needs something to shoot.
+        // Fighting at range: the bow needs something to shoot, and
+        // when there is nothing to shoot, something is made.
         let missile = stance == Stance::Missile;
-        if missile {
-            self.wield_ammo();
+        if missile && !self.ready_ammo() && self.autoplay_craft_ammo(now) {
+            return true;
         }
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
@@ -1904,6 +2074,22 @@ impl Client {
             }
             return false;
         };
+        // Mana is kept back for healing and fighting: a top-up waits
+        // until there is that much to spare, and even an urgent recast
+        // leaves half of it.
+        let reserve = self.vital_max_of(2) as f32 * cfg.keep_mana * if urgent { 0.5 } else { 1.0 };
+        let cost = self
+            .assets
+            .spell_table()
+            .ok()
+            .and_then(|t| t.get(spell).map(|s| s.base_mana))
+            .unwrap_or(0) as f32;
+        let have = self.world.stats.vitals[2].current as f32;
+        if have - cost < reserve {
+            self.autoplay
+                .note(format!("holding off {name} to keep mana back"), now);
+            return false;
+        }
         // A wand is needed to cast. Out of a fight the arming code sorts
         // the hands out afterwards; in one, remember what was put down
         // so it is taken up again the moment the buffing is done.
@@ -1930,22 +2116,6 @@ impl Client {
             return true;
         }
         if !matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
-            return false;
-        }
-        // Mana is kept back for healing and fighting: a top-up waits
-        // until there is that much to spare, and even an urgent recast
-        // leaves half of it.
-        let reserve = self.vital_max_of(2) as f32 * cfg.keep_mana * if urgent { 0.5 } else { 1.0 };
-        let cost = self
-            .assets
-            .spell_table()
-            .ok()
-            .and_then(|t| t.get(spell).map(|s| s.base_mana))
-            .unwrap_or(0) as f32;
-        let have = self.world.stats.vitals[2].current as f32;
-        if have - cost < reserve {
-            self.autoplay
-                .note(format!("holding off {name} to keep mana back"), now);
             return false;
         }
         use crate::buffs::Target;
