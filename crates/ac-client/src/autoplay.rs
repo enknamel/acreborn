@@ -469,6 +469,10 @@ pub struct Team {
     /// A follower fights only what stands within this of its leader,
     /// metres: further off, a monster would draw it away.
     pub fight_radius: f32,
+    /// When the party stops hunting to restock, how it makes the trip,
+    /// and what it does about money. How much of each thing to carry
+    /// lives in `growth::Growth`.
+    pub restock: crate::logistics::Restock,
 }
 
 /// A leader further off than twice the following distance (and at least
@@ -503,6 +507,7 @@ impl Default for Team {
             follow: true,
             follow_distance: 4.0,
             fight_radius: 25.0,
+            restock: crate::logistics::Restock::default(),
         }
     }
 }
@@ -558,6 +563,9 @@ pub struct Mate {
     /// an Ust: what decides who salvages for the team.
     pub salvaging: u32,
     pub has_ust: bool,
+    /// How close to empty it is, what it still has to buy and what that
+    /// will cost: what the party decides hunting and restocking from.
+    pub supplies: crate::logistics::Supplies,
 }
 
 /// Who salvages for the team, out of `mates` (the caller includes

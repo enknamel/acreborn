@@ -43,6 +43,7 @@ use std::collections::BTreeMap;
 
 use crate::autoplay::{name_matches, Doing, LootAction};
 use crate::items::{ItemStats, Query};
+use crate::logistics::{self, Supplies};
 use crate::Client;
 use ac_world::{equip, item_type, object_desc_flags};
 
@@ -299,6 +300,16 @@ struct Run {
 /// The running state of the growth rules.
 #[derive(Default)]
 pub struct State {
+    /// What the party is doing, as this session last worked it out from
+    /// the roster. Every session reaches the same answer, so this is a
+    /// cache of a shared decision rather than a vote of its own.
+    pub mode: crate::logistics::GroupMode,
+    /// When the mode last changed, and why, for the log and the UI.
+    pub mode_since: Option<Instant>,
+    pub mode_because: String,
+    /// This character has given the quartermaster its sale loot and its
+    /// order. Cleared whenever the mode changes.
+    pub handed_over: bool,
     last_raise: Option<Instant>,
     /// The pool as it stood when the last rank was bought, and when.
     raise_pending: Option<(i64, Instant)>,
@@ -353,6 +364,11 @@ struct Need {
     name: String,
     /// How many more to buy.
     want: u32,
+    /// How many are carried, and how many the rules ask for. The
+    /// shortfall alone does not say how close to empty a line is, and
+    /// that is what decides whether the party stops hunting.
+    have: u32,
+    keep: u32,
     /// Whether it is short enough to be worth a run to town.
     urgent: bool,
     kind: NeedKind,
@@ -546,6 +562,7 @@ impl Client {
                 self.autoplay.growth.last_outdoors = Some(Vec2::new(p.x, p.y));
             }
         }
+        let mode = self.grow_mode(now, &cfg);
         // A rank is one message and takes no time: it goes out even in
         // the middle of a walk to town.
         if cfg.auto_xp && self.grow_spend_xp(now, &cfg) {
@@ -554,7 +571,9 @@ impl Client {
         if cfg.town_runs && self.grow_town_run(now, &cfg) {
             return true;
         }
-        if cfg.hunt_grounds && self.grow_hunt(now, &cfg) {
+        // A party that has stopped to restock does not wander off to a
+        // new hunting ground in the middle of it.
+        if cfg.hunt_grounds && mode.hunting() && self.grow_hunt(now, &cfg) {
             return true;
         }
         false
@@ -1013,6 +1032,8 @@ impl Client {
                     needs.push(Need {
                         name: name.clone(),
                         want: least - have,
+                        have,
+                        keep: least,
                         urgent: true,
                         kind: NeedKind::Named(name),
                     });
@@ -1024,6 +1045,8 @@ impl Client {
                 needs.push(Need {
                     name: ac_world::fletching::ammo_type::name(kind).to_string(),
                     want: cfg.ammo_keep - have,
+                    have,
+                    keep: cfg.ammo_keep,
                     urgent: have < cfg.ammo_keep / 4 && !self.can_craft_ammo(kind),
                     kind: NeedKind::Ammo(kind),
                 });
@@ -1062,6 +1085,8 @@ impl Client {
                             needs.push(Need {
                                 name,
                                 want: cfg.comps_keep - have,
+                                have,
+                                keep: cfg.comps_keep,
                                 urgent: have < cfg.comps_keep / 4,
                                 kind: NeedKind::Component(wcid),
                             });
@@ -1080,6 +1105,120 @@ impl Client {
             .filter(|o| o.item_type & item_type::MONEY != 0)
             .map(|o| o.stack_size.max(1))
             .sum()
+    }
+
+    /// Work out what the party is doing and remember it.
+    ///
+    /// Every session runs this on the same roster and reaches the same
+    /// answer, so there is nothing to agree on: the party changes mode
+    /// together without a message being sent about it. A character
+    /// playing alone, or one whose team rules are off, is always
+    /// hunting -- its own supplies still send it to town, by the older
+    /// rule that fires on an urgent shortfall.
+    fn grow_mode(&mut self, now: Instant, cfg: &Growth) -> crate::logistics::GroupMode {
+        use crate::logistics::{decide, GroupMode};
+        let team = &self.autoplay.config.team;
+        if !team.enabled || !team.restock.together {
+            self.autoplay.growth.mode = GroupMode::Hunting;
+            return GroupMode::Hunting;
+        }
+        let policy = team.restock.clone();
+        let mut party: Vec<Supplies> = self
+            .autoplay
+            .team
+            .mates
+            .iter()
+            .map(|m| m.supplies.clone())
+            .collect();
+        party.push(self.supplies(cfg));
+        let was = self.autoplay.growth.mode;
+        if let Some(switch) = decide(was, &party, &policy) {
+            let st = &mut self.autoplay.growth;
+            st.mode = switch.mode;
+            st.mode_since = Some(now);
+            st.mode_because = switch.because.clone();
+            // A new stage is a new set of errands; nothing carries over.
+            st.handed_over = false;
+            self.autoplay.note(
+                format!("the party is {}: {}", switch.mode, switch.because),
+                now,
+            );
+        }
+        self.autoplay.growth.mode
+    }
+
+    /// Free slots in the main pack: what decides who can carry the
+    /// party's shopping.
+    pub fn free_space(&self) -> u32 {
+        let capacity = self
+            .world
+            .player()
+            .map(|p| p.items_capacity)
+            .filter(|c| *c > 0)
+            .unwrap_or(102);
+        capacity.saturating_sub(self.world.main_pack().count() as u32)
+    }
+
+    /// What the character can spend. Coin and trade notes both: a note
+    /// is money in a lighter form, and a vendor takes either.
+    pub fn spendable(&self) -> u32 {
+        let notes: u32 = self
+            .world
+            .inventory()
+            .filter(|o| o.item_type & item_type::PROMISSORY_NOTE != 0)
+            .map(|o| o.value.saturating_mul(o.stack_size.max(1)))
+            .sum();
+        self.purse().saturating_add(notes)
+    }
+
+    /// What this character says about itself for the party to decide
+    /// with: how close to empty it is, what it still has to buy, and
+    /// what that will cost.
+    ///
+    /// The level is the worst supply line, not the average. A mage with
+    /// a full load of scarabs and no tapers cannot cast, and averaging
+    /// the two would hide that.
+    pub fn supplies(&self, cfg: &Growth) -> Supplies {
+        let needs = self.grow_needs(cfg);
+        let level = needs
+            .iter()
+            .map(|n| logistics::line_level(n.have, n.keep))
+            .fold(1.0f32, f32::min);
+        let policy = self.autoplay.config.team.restock.sane();
+        Supplies {
+            name: self
+                .world
+                .player()
+                .map(|p| p.name.clone())
+                .unwrap_or_default(),
+            level,
+            pack_full: self.pack_full(),
+            // Ready to go back: stocked up, and not still mid-errand.
+            stocked: level >= policy.full_at && self.autoplay.growth.run.is_none(),
+            handed_over: self.autoplay.growth.handed_over,
+            bill: needs.iter().map(|n| self.rough_cost(n)).sum(),
+            purse: self.spendable(),
+            free_space: self.free_space(),
+            order: needs
+                .iter()
+                .filter(|n| n.want > 0)
+                .map(|n| (n.name.clone(), n.want))
+                .collect(),
+        }
+    }
+
+    /// Roughly what filling a need will cost, for working out who has
+    /// to be handed money before the party can shop. A vendor sells
+    /// above an item's own value, so this is an underestimate rather
+    /// than a promise; it is only ever compared against a purse.
+    fn rough_cost(&self, need: &Need) -> u32 {
+        let unit = self
+            .world
+            .inventory()
+            .find(|o| o.name.eq_ignore_ascii_case(&need.name) && o.value > 0)
+            .map(|o| o.value)
+            .unwrap_or(0);
+        unit.saturating_mul(need.want)
     }
 
     /// The pack items to sell to the open vendor, which takes only some
@@ -1208,12 +1347,31 @@ impl Client {
                 n
             }
         };
+        // On a team that restocks together, the party's mode decides:
+        // one character does not walk off to a vendor while the rest
+        // are fighting, and none of them stays behind when the party
+        // has agreed to go. Alone, the older rule stands -- something
+        // urgent, or a pack with no room left.
+        let party_mode = self.autoplay.growth.mode;
+        let together = self.autoplay.config.team.enabled
+            && self.autoplay.config.team.restock.together;
         let urgent: Vec<&Need> = needs.iter().filter(|n| n.urgent).collect();
-        if !full && urgent.is_empty() {
-            return false;
-        }
-        let reason = if full {
+        let reason = if together {
+            match party_mode.stage() {
+                None => return false,
+                Some(_) => {
+                    let because = self.autoplay.growth.mode_because.clone();
+                    if because.is_empty() {
+                        "the party is restocking".to_string()
+                    } else {
+                        because
+                    }
+                }
+            }
+        } else if full {
             "the pack is full".to_string()
+        } else if urgent.is_empty() {
+            return false;
         } else {
             format!(
                 "short of {}",
@@ -1874,6 +2032,8 @@ mod tests {
         Need {
             name: "x".into(),
             want,
+            have: 0,
+            keep: want,
             urgent: true,
             kind,
         }

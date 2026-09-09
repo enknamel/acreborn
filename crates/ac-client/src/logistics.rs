@@ -31,8 +31,10 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// What the party is doing.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GroupMode {
     /// Out in the field, fighting.
     #[default]
@@ -44,7 +46,7 @@ pub enum GroupMode {
 /// Where a restocking trip has got to. A trip everyone makes together
 /// has only one stage; a quartermaster run has three, because the party
 /// has to load the runner, wait for it, and be given the goods back.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Stage {
     /// Everyone is walking to town and buying for themselves.
     #[default]
@@ -105,7 +107,7 @@ impl fmt::Display for GroupMode {
 }
 
 /// How a restocking trip is made.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Plan {
     /// Everyone walks to town and shops for themselves. Slow, but it
     /// needs nothing of anybody and cannot strand the party.
@@ -128,10 +130,11 @@ impl Plan {
     }
 }
 
-/// How the party keeps itself supplied. Every amount here is per
-/// character: builds differ, and a mage burning tapers wants a very
-/// different load to an archer.
-#[derive(Clone, Debug, PartialEq)]
+/// How the party keeps itself supplied. How *much* of each thing to
+/// carry lives in `growth::Growth` alongside the other amounts; this is
+/// the policy: when to go, how to go, and what to do about money.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Restock {
     /// Restock as a party rather than one at a time.
     pub together: bool,
@@ -150,13 +153,6 @@ pub struct Restock {
     /// than `go_at` so a party that has just shopped does not turn
     /// straight round.
     pub full_at: f32,
-    /// How many spell components of each kind to carry.
-    pub comps: u32,
-    /// How much ammunition to carry.
-    pub ammo: u32,
-    /// How many healing kits to carry, for a character that has
-    /// trained Healing. Nothing is bought for one that has not.
-    pub kits: u32,
     /// Pyreals to keep in hand after shopping, for the next trip.
     pub float: u32,
     /// Turn what is left over into trade notes rather than carrying
@@ -172,9 +168,6 @@ impl Default for Restock {
             runner_space: 30,
             go_at: 0.35,
             full_at: 0.9,
-            comps: 300,
-            ammo: 250,
-            kits: 2,
             float: 5_000,
             share_money: true,
         }
@@ -197,7 +190,8 @@ impl Restock {
 
 /// What one character says about its own supplies, for the party to
 /// decide on. Filled in by each session about itself.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Supplies {
     /// Who it is.
     pub name: String,
