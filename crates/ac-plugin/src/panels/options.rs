@@ -6,6 +6,7 @@
 use super::{title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_client::options::{CharacterOption, OPTIONS};
+use ac_client::player::MovementRules;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OptionsView {
@@ -19,7 +20,17 @@ pub struct OptionsView {
     /// How far from the camera objects are drawn, metres (0 = no limit).
     /// The viewer's, not the client's: see [`DRAW_DISTANCE_KEY`].
     pub draw_distance_m: u32,
+    /// Which movement rules the character is held to.
+    pub movement_rules: MovementRules,
+    /// What that comes to on the server we are connected to: true when
+    /// the run boost, the jump height and flying are all held back.
+    pub server_safe: bool,
+    /// Flying was asked for and refused, for the panel to say so.
+    pub noclip_refused: bool,
 }
+
+/// Settings key the movement rules are kept under.
+pub const MOVEMENT_RULES_KEY: &str = "options.movement_rules";
 
 /// Blackboard key the draw distance is published on, metres as a number
 /// (0 = no limit); the viewer reads it each frame.
@@ -31,6 +42,9 @@ pub fn view(c: &Client) -> OptionsView {
         speed_boost_pct: (c.speed_boost * 100.0).round() as u32,
         jump_height_cm: (c.jump_height * 100.0).round() as u32,
         draw_distance_m: 0,
+        movement_rules: c.movement_rules,
+        server_safe: c.movement_limits().is_server_safe(),
+        noclip_refused: c.noclip_refused(),
     }
 }
 
@@ -44,6 +58,8 @@ pub struct Changes {
     pub jump_height: Option<f32>,
     /// A new draw distance, metres (0 = no limit).
     pub draw_distance: Option<f32>,
+    /// A new movement rules setting.
+    pub movement_rules: Option<MovementRules>,
     /// The player clicked "Change…" to re-pick the game data folder.
     pub pick_data_dir: bool,
 }
@@ -84,19 +100,68 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
                 }
                 ui.separator();
                 ui.label("This client");
+                // Fast running, high jumps and flying are the client's
+                // own doing. A server that checks the moves it is told
+                // about refuses them and keeps the character where its
+                // own physics put it, so they are only for a server
+                // that allows them -- the player's own.
+                ui.horizontal(|ui| {
+                    ui.label("movement rules");
+                    egui::ComboBox::from_id_salt("options.movement_rules")
+                        .selected_text(v.movement_rules.label())
+                        .show_ui(ui, |ui| {
+                            for r in MovementRules::ALL {
+                                if ui
+                                    .selectable_label(r == v.movement_rules, r.label())
+                                    .on_hover_text(r.help())
+                                    .clicked()
+                                {
+                                    changed.movement_rules = Some(r);
+                                }
+                            }
+                        });
+                })
+                .response
+                .on_hover_text(
+                    "Fast run, high jumps and flying only work on servers \
+                     that allow them; on other servers they get your moves \
+                     refused and your character rolled back. Automatic \
+                     allows them on a server running on this machine and \
+                     nowhere else.",
+                );
+                ui.label(egui::RichText::new(v.movement_rules.help()).weak().small());
+                if v.server_safe {
+                    ui.label(
+                        egui::RichText::new(
+                            "In force here: running at the Run skill's pace, \
+                             jumping by the Jump skill, no flying.",
+                        )
+                        .color(egui::Color32::from_rgb(220, 190, 120)),
+                    );
+                    if v.noclip_refused {
+                        ui.label(
+                            egui::RichText::new("Flying was asked for and refused.")
+                                .color(egui::Color32::from_rgb(230, 120, 110)),
+                        );
+                    }
+                }
                 // The game runs a character at its Run skill's pace; this
                 // is on top. The server does not mind, but other players
                 // see the character at its proper pace, so a big boost
                 // looks like skating to them.
                 let mut boost = v.speed_boost_pct as f32 / 100.0;
-                if ui
-                    .add(
-                        egui::Slider::new(&mut boost, 0.5..=4.0)
-                            .text("run speed ×")
-                            .fixed_decimals(2),
-                    )
-                    .changed()
-                {
+                let mut r = ui.add(
+                    egui::Slider::new(&mut boost, 0.5..=4.0)
+                        .text("run speed ×")
+                        .fixed_decimals(2),
+                );
+                if v.server_safe {
+                    r = r.on_hover_text(
+                        "Kept for later: the movement rules run this \
+                         character at 1.00× on this server.",
+                    );
+                }
+                if r.changed() {
                     changed.speed_boost = Some(boost);
                 }
                 // Likewise the jump, as the height of a full one; the
@@ -104,14 +169,18 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
                 // so 9.5 is the most. The skill's own height still wins
                 // when it is more.
                 let mut jump = v.jump_height_cm as f32 / 100.0;
-                if ui
-                    .add(
-                        egui::Slider::new(&mut jump, 0.0..=9.5)
-                            .text("full jump, m (0 = by skill)")
-                            .fixed_decimals(1),
-                    )
-                    .changed()
-                {
+                let mut r = ui.add(
+                    egui::Slider::new(&mut jump, 0.0..=9.5)
+                        .text("full jump, m (0 = by skill)")
+                        .fixed_decimals(1),
+                );
+                if v.server_safe {
+                    r = r.on_hover_text(
+                        "Kept for later: the movement rules jump this \
+                         character by its Jump skill on this server.",
+                    );
+                }
+                if r.changed() {
                     changed.jump_height = Some(jump);
                 }
                 // Objects (creatures, items, other players) farther than
@@ -172,6 +241,13 @@ pub struct Options {
     /// The draw distance chosen here, metres (0 = no limit), kept between
     /// runs and published on the blackboard for the viewer.
     draw_distance: Option<f32>,
+    /// The movement rules chosen here, kept between sessions and given
+    /// to each client as it appears. Unset is [`MovementRules::Auto`],
+    /// which is server-safe anywhere but a server on this machine.
+    movement_rules: MovementRules,
+    /// Whether the rules were holding the character back last tick, so
+    /// a change can be said once in the chat log.
+    was_safe: Option<bool>,
 }
 
 impl Options {
@@ -186,11 +262,16 @@ impl Options {
                 speed_boost_pct: 200,
                 jump_height_cm: 900,
                 draw_distance_m: 300,
+                movement_rules: MovementRules::Auto,
+                server_safe: true,
+                noclip_refused: false,
             }),
             show: false,
             speed_boost: None,
             jump_height: None,
             draw_distance: None,
+            movement_rules: MovementRules::default(),
+            was_safe: None,
         }
     }
 }
@@ -213,6 +294,9 @@ impl Plugin for Options {
         if let Some(d) = settings.get::<f32>("options.draw_distance") {
             self.draw_distance = Some(d);
         }
+        if let Some(r) = settings.get::<MovementRules>(MOVEMENT_RULES_KEY) {
+            self.movement_rules = r;
+        }
     }
 
     fn save(&self, settings: &mut Settings) {
@@ -226,6 +310,7 @@ impl Plugin for Options {
         if let Some(d) = self.draw_distance {
             settings.set("options.draw_distance", d);
         }
+        settings.set(MOVEMENT_RULES_KEY, self.movement_rules);
     }
 
     fn tick(&mut self, cx: &mut Ctx) {
@@ -238,6 +323,9 @@ impl Plugin for Options {
         }
         // A remembered boost applies to whatever client is here now.
         if let Some(c) = cx.try_client() {
+            // The rules come first: they decide what the rest comes to.
+            c.movement_rules = self.movement_rules;
+            let safe = c.movement_limits().is_server_safe();
             if let Some(b) = self.speed_boost {
                 if (c.speed_boost - b).abs() > 1e-3 {
                     c.set_speed_boost(b);
@@ -247,6 +335,29 @@ impl Plugin for Options {
                 if (c.jump_height - b).abs() > 1e-3 {
                     c.set_jump_height(b);
                 }
+            }
+            // Say once, in the chat log, when the rules start or stop
+            // holding this character back.
+            let held_back = safe
+                && (self.speed_boost.unwrap_or(c.speed_boost) > 1.0
+                    || self.jump_height.unwrap_or(c.jump_height) > 0.0);
+            if self.was_safe != Some(safe) {
+                if held_back {
+                    cx.chat.push((
+                        "This server checks how you move: running at the game's own pace, \
+                         jumping by the Jump skill, no flying (Options, \"movement rules\")."
+                            .to_string(),
+                        0,
+                    ));
+                } else if self.was_safe == Some(true) {
+                    cx.chat.push((
+                        "Movement rules relaxed: the run boost, the jump height and flying \
+                         are yours again."
+                            .to_string(),
+                        0,
+                    ));
+                }
+                self.was_safe = Some(safe);
             }
         }
     }
@@ -295,6 +406,10 @@ impl Plugin for Options {
                 c.set_jump_height(b);
                 self.jump_height = Some(c.jump_height);
             }
+            if let Some(r) = changed.movement_rules {
+                self.movement_rules = r;
+                c.movement_rules = r;
+            }
         }
     }
 
@@ -312,6 +427,32 @@ mod tests {
     use super::*;
     use crate::{Blackboard, IconCache};
     use std::time::Instant;
+
+    #[test]
+    fn the_movement_rules_default_to_safe_and_are_remembered() {
+        // Out of the box: automatic, which is the game's own rules on
+        // anyone else's server and the extras only on our own.
+        let o = Options::default();
+        assert_eq!(o.movement_rules, MovementRules::Auto);
+        assert!(MovementRules::Auto
+            .limits("play.coldeve.ac:9000")
+            .is_server_safe());
+        assert!(!MovementRules::Auto
+            .limits("127.0.0.1:9000")
+            .is_server_safe());
+        // A choice survives a restart.
+        let mut settings = Settings::new();
+        let mut chosen = Options::default();
+        chosen.movement_rules = MovementRules::Unrestricted;
+        chosen.save(&mut settings);
+        let mut back = Options::default();
+        back.load(&settings);
+        assert_eq!(back.movement_rules, MovementRules::Unrestricted);
+        // Settings with nothing saved leave the safe default alone.
+        let mut fresh = Options::default();
+        fresh.load(&Settings::new());
+        assert_eq!(fresh.movement_rules, MovementRules::Auto);
+    }
 
     #[test]
     fn draw_distance_is_kept_and_published_for_the_viewer() {

@@ -912,13 +912,14 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   move only when it is both more than 50 m from the last it accepted and
   more than a landblock away, so it does not hold a character to its
   run rate; other players' clients animate the character at that rate.
-  This client does not hold its character to either: out of the box it
-  runs at twice the run rate and a full jump rises 9 m ("run speed ×"
-  and "full jump, m" in the Options panel, `speed_boost`/`jump_height`
-  in scripts; the skill's own height wins when it is more). The rise is
+  This client can go past either -- twice the run rate and a 9 m full
+  jump ("run speed ×" and "full jump, m" in the Options panel,
+  `speed_boost`/`jump_height` in scripts; the skill's own height wins
+  when it is more) -- but only where the server allows it. The rise is
   capped at 9.5 m: the server calls a character found more than 10 m
   above the ground it last stood on, a second after a jump, a
-  z-position hack and puts it back.
+  z-position hack and puts it back. See "movement rules" below for when
+  the extras apply at all.
 * **The server takes the client's word for where it is.** ACE runs
   its own physics on each reported position only to notice what was
   touched (portals, creatures); it does not push the character out of
@@ -934,6 +935,24 @@ list instead of entering). Headless: `acclient --create NAME` and `acbot
   flies (Space up, Control down, Y again drops onto whatever is below;
   F is the fellowship panel and every other letter is taken), and
   scripts have `noclip(true|false)`.
+* **Only on a server that allows it: the movement rules.** Taking the
+  client's word for a position is not the same as agreeing with it.
+  ACE still runs its own physics on every position reported
+  (`update_object_server`), so a character flown into a wall is held at
+  the wall on the server while this screen shows it through; a jump
+  higher than the Jump skill's is force-corrected as a z-pos hack; and
+  everything the server decides by where *it* thinks the character is
+  -- casting, looting, every range check -- then refuses what looks from
+  here like a fair try. So the client holds itself to the game's own
+  rules unless the server is its own. "Movement rules" in the Options
+  panel (`Client::movement_rules`, `player::MovementRules`) has three
+  settings: Automatic (the default: the extras only when connected to a
+  loopback host, `127.0.0.1`, `::1` or a `localhost` name),
+  Server-safe, and Unrestricted. Server-safe holds `speed_boost` at
+  1.0, adds nothing to the Jump skill's own height, and refuses
+  `set_noclip(true)` (which returns false and says why). The limits
+  live on the `Player` (`MovementLimits`) and default to the safe ones,
+  so a character nobody tells stays inside the rules.
 * **A building's door can open onto bare terrain** (a villa's grounds:
   cell 6F8B015F at Loredane Villas). Leaving the interior floor with
   nothing but terrain a step away must go outdoors; before this the

@@ -261,7 +261,9 @@ impl Plugin for Hunter {
 The verbs to know: `use_by_name` / `interact(guid)` (double-click),
 `pick_up`, `attack(guid)`, `toggle_combat`, `cast(spell)` / `cast_at`,
 `say`, `take(guid)` / `close_container`, `buy` / `sell`, `give`,
-`use_on(item, target)`, `travel_to(goal)`, `set_noclip`, `jump`. Read
+`use_on(item, target)`, `travel_to(goal)`, `set_noclip` (refused, with
+false, unless the movement rules allow flying here -- see
+`docs/game/mechanics.md`), `jump`. Read
 `docs/plugins.md` ("Protocol facts") before writing a loop: actions are
 asynchronous, one pickup at a time, a move-to can take seconds.
 
