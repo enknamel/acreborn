@@ -462,6 +462,31 @@ fn worth_stocking(name: &str, heals_with_kits: bool) -> bool {
     !name.to_lowercase().contains("healing kit")
 }
 
+/// Which trade notes to cash to cover a bill of `need_coin` when only
+/// `purse` pyreals are in hand, as their guids.
+///
+/// Smallest face value first, so a 250,000 note is not broken to buy a
+/// stack of tapers, and only as many as the bill needs. The server pays
+/// face value for a note, so cashing one costs nothing; it is only the
+/// making of them that is dear.
+fn notes_for_bill(purse: u32, need_coin: u32, notes: &[(u32, u32)]) -> Vec<u32> {
+    let Some(short) = need_coin.checked_sub(purse).filter(|s| *s > 0) else {
+        return Vec::new();
+    };
+    let mut notes = notes.to_vec();
+    notes.sort_by_key(|(_, face)| *face);
+    let mut raised = 0;
+    let mut out = Vec::new();
+    for (guid, face) in notes {
+        if raised >= short {
+            break;
+        }
+        raised += face;
+        out.push(guid);
+    }
+    out
+}
+
 /// How much of a purse to turn into trade notes here, and which.
 ///
 /// Coin is bulky: pyreals stack 25,000 to a slot, so a good afternoon's
@@ -888,7 +913,9 @@ impl Client {
         let st = &self.autoplay.growth;
         st.bound.clone().or_else(|| {
             let lb = st.hunting_at?;
-            let g = ac_world::hunting::all().iter().find(|g| g.landblock == lb)?;
+            let g = ac_world::hunting::all()
+                .iter()
+                .find(|g| g.landblock == lb)?;
             Some((lb, g.at, g.name.clone()))
         })
     }
@@ -1405,6 +1432,35 @@ impl Client {
         !me.is_empty() && self.quartermaster_name(cfg).as_deref() == Some(me)
     }
 
+    /// Trade notes to cash so the character can pay for its shopping.
+    ///
+    /// A note is money, but not money a vendor will take: only coin
+    /// buys. Since the takings are turned into notes at every counter,
+    /// a character can walk up to the next one with a fortune in its
+    /// pack and nothing to pay with. Notes are cashed smallest first,
+    /// so a 250,000 note is not broken to buy a stack of tapers, and
+    /// only enough are cashed to cover the bill. The server pays face
+    /// value for a note, so cashing one costs nothing.
+    fn notes_to_cash(&self, need_coin: u32) -> Vec<u32> {
+        // Only notes this counter will take: one that deals in armour
+        // and nothing else cannot cash them.
+        let takes = self
+            .world
+            .open_vendor
+            .as_ref()
+            .map_or(0, |v| v.item_types & item_type::PROMISSORY_NOTE);
+        if takes == 0 {
+            return Vec::new();
+        }
+        let notes: Vec<(u32, u32)> = self
+            .world
+            .inventory()
+            .filter(|o| o.item_type & item_type::PROMISSORY_NOTE != 0 && o.value > 0)
+            .map(|o| (o.guid, o.value))
+            .collect();
+        notes_for_bill(self.purse(), need_coin, &notes)
+    }
+
     /// Everything the character is carrying that the rules would sell,
     /// whether or not a vendor is open. What the party hands its
     /// quartermaster before it leaves.
@@ -1827,7 +1883,25 @@ impl Client {
                     self.autoplay.growth.run = Some(run);
                     return true;
                 }
-                let queue = self.sale_list(cfg);
+                let mut queue = self.sale_list(cfg);
+                // Cash whatever notes the shopping needs. The counter
+                // takes coin, not notes, and the takings from the last
+                // stop are already notes.
+                let bill: u32 = {
+                    let stock = self.stock();
+                    let needs = self.grow_needs(cfg);
+                    orders(&needs, &stock, u32::MAX)
+                        .iter()
+                        .filter_map(|(g, a)| {
+                            stock.iter().find(|s| s.guid == *g).map(|s| s.price * a)
+                        })
+                        .sum()
+                };
+                for note in self.notes_to_cash(bill) {
+                    if !queue.contains(&note) {
+                        queue.push(note);
+                    }
+                }
                 let n = queue.len();
                 run.phase = Phase::Selling {
                     queue,
@@ -2345,6 +2419,34 @@ mod tests {
             price: ac_world::shops::note_price(face),
             stack: None,
         }
+    }
+
+    #[test]
+    fn only_as_many_notes_are_cashed_as_the_bill_needs() {
+        let held = vec![(1, 250_000), (2, 1_000), (3, 5_000)];
+        // Nothing owed, nothing cashed.
+        assert!(notes_for_bill(10_000, 0, &held).is_empty());
+        // Coin already covers it.
+        assert!(notes_for_bill(10_000, 8_000, &held).is_empty());
+        // Short by 4,000: the two small notes, not the fortune.
+        let cashed = notes_for_bill(1_000, 5_000, &held);
+        assert_eq!(cashed, vec![2, 3], "broke the wrong notes");
+    }
+
+    #[test]
+    fn a_big_note_is_broken_only_when_nothing_smaller_will_do() {
+        let held = vec![(1, 250_000), (2, 1_000)];
+        let cashed = notes_for_bill(0, 100_000, &held);
+        assert_eq!(cashed, vec![2, 1], "smallest first, then the rest");
+    }
+
+    #[test]
+    fn a_bill_no_amount_of_notes_covers_cashes_them_all() {
+        // Not an error: the character buys what it can afford.
+        let held = vec![(1, 100), (2, 500)];
+        assert_eq!(notes_for_bill(0, 1_000_000, &held), vec![1, 2]);
+        // And with no notes at all, nothing.
+        assert!(notes_for_bill(0, 1_000, &[]).is_empty());
     }
 
     #[test]
