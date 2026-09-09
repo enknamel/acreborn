@@ -15,6 +15,17 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/ac-scene/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ac-scene/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/ac-world/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/acbot/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/bins/aclauncher/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-audio/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-audio/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-bus/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-client/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-client/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-client/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-plugin/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-script/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/ac-world/examples" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

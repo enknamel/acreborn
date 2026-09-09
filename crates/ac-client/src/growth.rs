@@ -424,6 +424,17 @@ fn ammo_stock(name: &str, kind: u32) -> bool {
 
 /// What the vendor charges for an item of `value` (ACE's SellPrice), at
 /// least a pyreal.
+/// Whether a name on the keep-stocked list is worth buying. A healing
+/// kit does nothing for a character that has not trained Healing -- it
+/// restores next to nothing untrained -- so buying one wastes the money
+/// and the trip. Such a character heals with a spell instead.
+fn worth_stocking(name: &str, heals_with_kits: bool) -> bool {
+    if heals_with_kits {
+        return true;
+    }
+    !name.to_lowercase().contains("healing kit")
+}
+
 pub fn buy_price(value: u32, sell_rate: f32) -> u32 {
     ((value as f32 * sell_rate - 0.1).ceil().max(1.0)) as u32
 }
@@ -954,6 +965,9 @@ impl Client {
         }
         for (name, least) in named {
             if name.trim().is_empty() || least == 0 {
+                continue;
+            }
+            if !worth_stocking(&name, self.heals_with_kits()) {
                 continue;
             }
             let have = self.carried_named(&name);
@@ -1757,6 +1771,19 @@ mod tests {
             price,
             stack,
         }
+    }
+
+    #[test]
+    fn a_healing_kit_is_not_bought_for_someone_who_cannot_use_one() {
+        // Untrained Healing: a kit restores next to nothing, so it is
+        // not worth the money or the trip to a vendor.
+        assert!(!worth_stocking("Healing Kit", false));
+        assert!(!worth_stocking("Excellent Healing Kit", false));
+        // Trained, it is worth having again.
+        assert!(worth_stocking("Healing Kit", true));
+        // Everything else is judged on its own, either way.
+        assert!(worth_stocking("Prismatic Taper", false));
+        assert!(worth_stocking("Mana Stone", false));
     }
 
     #[test]

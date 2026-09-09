@@ -1405,8 +1405,11 @@ impl Client {
         {
             return false;
         }
-        // A kit is quicker and cheaper than a spell.
-        if cfg.use_kits {
+        // A kit is quicker and cheaper than a spell -- but only to
+        // someone who has trained Healing. Untrained it restores next to
+        // nothing, so a caster is far better off with Heal Self, and
+        // reaching for a kit only wastes the moment it takes.
+        if cfg.use_kits && self.heals_with_kits() {
             let kit = self
                 .world
                 .inventory()
@@ -1461,6 +1464,18 @@ impl Client {
             );
         }
         false
+    }
+
+    /// Whether a healing kit is worth using: Healing has to be trained
+    /// or specialised for one to restore anything much. A character
+    /// without it heals with a spell instead, and does not want kits
+    /// bought for it either (see `grow_needs`).
+    pub fn heals_with_kits(&self) -> bool {
+        use ac_world::stats::{sac, skill};
+        self.world
+            .stats
+            .skill(skill::HEALING)
+            .is_some_and(|s| s.advancement >= sac::TRAINED)
     }
 
     /// Open the corpse of something we killed and take what is worth
