@@ -346,10 +346,16 @@ impl Session {
             match self.sent.get(seq) {
                 Some(bytes) => {
                     let mut b = bytes.clone();
-                    let mut h = Header::parse(&b).unwrap();
+                    let was = Header::parse(&b).unwrap();
+                    let mut h = was;
                     h.flags |= flags::RETRANSMISSION;
-                    // Retransmissions keep their original checksum/XOR.
-                    h.checksum = Header::parse(&b).unwrap().checksum;
+                    // A retransmission keeps its original ISAAC key: that is
+                    // the key the server recorded for this sequence. But the
+                    // checksum covers the header, so setting the flag
+                    // invalidates it. `checksum - header hash` is the
+                    // key-carrying half, which is unchanged; re-add it to the
+                    // hash of the new header.
+                    h.checksum = h.hash().wrapping_add(was.checksum.wrapping_sub(was.hash()));
                     h.write(&mut b[..packet::HEADER_SIZE]);
                     self.outgoing.push((Port::Primary, b));
                 }

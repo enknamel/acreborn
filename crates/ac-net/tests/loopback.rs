@@ -410,6 +410,52 @@ fn wide_gap_is_requested_immediately() {
     assert_eq!(naks(&s.outgoing()), vec![vec![seq2, seq2 + 1]]);
 }
 
+/// A retransmission we send in answer to the server's request must still
+/// verify: setting the Retransmission flag changes the header hash, so the
+/// checksum has to be rebuilt around the original ISAAC key.
+#[test]
+fn our_retransmissions_still_verify() {
+    let (mut s, mut srv, t0) = connected(Duration::from_millis(0));
+    s.send_message(9, opcode_msg(0xF7B1, &[7; 16]));
+    s.poll(t0);
+    let out = s.outgoing();
+    assert_eq!(out.len(), 1);
+    let original = srv.receive(&out[0].1);
+    let seq = original.header.sequence;
+
+    // The server asks for it back.
+    srv.seq += 1;
+    let xor = srv.send_keys.next();
+    let mut body = 1u32.to_le_bytes().to_vec();
+    body.extend_from_slice(&seq.to_le_bytes());
+    let req = packet::build(
+        Header {
+            sequence: srv.seq,
+            flags: flags::ENCRYPTED_CHECKSUM | flags::REQUEST_RETRANSMIT,
+            id: 0xB,
+            ..Default::default()
+        },
+        &body,
+        &[],
+        xor,
+    );
+    s.receive(&req, t0);
+    let out = s.outgoing();
+    assert_eq!(out.len(), 1, "one retransmission");
+    let again = Packet::parse(&out[0].1).unwrap();
+    assert!(
+        again.header.has(flags::RETRANSMISSION),
+        "flagged as a resend"
+    );
+    assert_eq!(again.header.sequence, seq);
+    assert_eq!(
+        again.checksum_key(),
+        original.checksum_key(),
+        "a retransmission keeps its original ISAAC key"
+    );
+    assert_eq!(again.fragments, original.fragments);
+}
+
 /// End to end over a link that loses, reorders and duplicates packets. The
 /// old key stream latched shut part way through a run like this and the
 /// client went deaf; every message must arrive, in order, with the session
