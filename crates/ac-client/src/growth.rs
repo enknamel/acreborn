@@ -1353,8 +1353,8 @@ impl Client {
         // has agreed to go. Alone, the older rule stands -- something
         // urgent, or a pack with no room left.
         let party_mode = self.autoplay.growth.mode;
-        let together = self.autoplay.config.team.enabled
-            && self.autoplay.config.team.restock.together;
+        let together =
+            self.autoplay.config.team.enabled && self.autoplay.config.team.restock.together;
         let urgent: Vec<&Need> = needs.iter().filter(|n| n.urgent).collect();
         let reason = if together {
             match party_mode.stage() {

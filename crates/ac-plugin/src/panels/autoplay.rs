@@ -30,6 +30,7 @@ use super::{caption, title, title_bar, window, Source};
 use crate::{egui, Client, Ctx, Plugin, Settings};
 use ac_client::autoplay::{Buffs, Config, Fight, Loot, LootAction, LootRule, Role, Style, Survive};
 use ac_client::items::{ItemStats, Query};
+use ac_client::logistics::Plan;
 
 /// What the panel draws: the rules, what the character is doing, and how
 /// many carried items each loot search matches.
@@ -738,6 +739,108 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     .on_hover_text("Move on when nothing worth fighting is about");
                 ui.checkbox(&mut cfg.growth.town_runs, "run to town for supplies")
                     .on_hover_text("Sell the loot, buy what is short, when the pack fills up");
+                ui.horizontal(|ui| {
+                    ui.label("carry");
+                    ui.add(
+                        egui::DragValue::new(&mut cfg.growth.comps_keep)
+                            .speed(5.0)
+                            .range(0..=1000)
+                            .suffix(" of each spell component"),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("carry");
+                    ui.add(
+                        egui::DragValue::new(&mut cfg.growth.ammo_keep)
+                            .speed(5.0)
+                            .range(0..=1000)
+                            .suffix(" arrows or quarrels"),
+                    );
+                });
+
+                ui.add_space(6.0);
+                title(ui, "Restocking");
+                ui.checkbox(
+                    &mut cfg.team.restock.together,
+                    "restock as a party, not one at a time",
+                )
+                .on_hover_text(
+                    "The whole party stops hunting and goes together. Off, each \
+                     character runs to town on its own when it is short, which \
+                     leaves the rest a man down mid-fight. Needs the team rules on.",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("how");
+                    egui::ComboBox::from_id_salt("autoplay.restock.plan")
+                        .selected_text(cfg.team.restock.plan.label())
+                        .show_ui(ui, |ui| {
+                            for plan in Plan::ALL {
+                                ui.selectable_value(
+                                    &mut cfg.team.restock.plan,
+                                    plan,
+                                    plan.label(),
+                                );
+                            }
+                        });
+                })
+                .response
+                .on_hover_text(
+                    "One character can carry the party's sale loot and everyone's \
+                     shopping list to town and hand the goods back out when it \
+                     returns. Faster, and the party keeps its place at the hunting \
+                     ground. The roomiest pack makes the run; a party with no room \
+                     to spare walks to town together instead.",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("go shopping at");
+                    let mut go = cfg.team.restock.go_at * 100.0;
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut go)
+                                .speed(1.0)
+                                .range(5.0..=90.0)
+                                .suffix("% of a full load"),
+                        )
+                        .changed()
+                    {
+                        cfg.team.restock.go_at = go / 100.0;
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Well before empty. A party that runs until someone fires their \
+                     last arrow starts the walk to town from a losing fight.",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("done shopping at");
+                    let mut full = cfg.team.restock.full_at * 100.0;
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut full)
+                                .speed(1.0)
+                                .range(10.0..=100.0)
+                                .suffix("% of a full load"),
+                        )
+                        .changed()
+                    {
+                        cfg.team.restock.full_at = full / 100.0;
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Higher than the shopping mark, so a party that has just \
+                     restocked cannot turn straight round.",
+                );
+                ui.checkbox(
+                    &mut cfg.team.restock.share_money,
+                    "share the takings so everyone can pay",
+                )
+                .on_hover_text(
+                    "The character that looted the good armour comes out of town \
+                     rich while the mage that burnt four hundred tapers comes out \
+                     broke. Surpluses cover shortfalls, and nobody is asked to give \
+                     away what it needs itself.",
+                );
             });
     });
     (cfg != v.config).then_some(cfg)
@@ -1121,5 +1224,42 @@ mod tests {
         );
         assert!(back.saved.growth.hunt_grounds, "hunting is untouched");
         assert!(back.saved.growth.town_runs, "town runs are untouched");
+    }
+
+    #[test]
+    fn how_the_party_restocks_is_remembered() {
+        // Out of the box a party restocks together, everyone walking to
+        // town, and shares the takings.
+        let out_of_the_box = Config::default().team.restock;
+        assert!(out_of_the_box.together);
+        assert!(out_of_the_box.share_money);
+        assert_eq!(out_of_the_box.plan, Plan::Everyone);
+
+        let mut p = Autoplay::default();
+        p.saved.team.restock.plan = Plan::Quartermaster;
+        p.saved.team.restock.go_at = 0.5;
+        p.saved.team.restock.share_money = false;
+        p.saved.growth.comps_keep = 500;
+        let mut settings = Settings::new();
+        p.save(&mut settings);
+        let mut back = Autoplay::default();
+        back.load(&settings);
+        assert_eq!(back.saved.team.restock.plan, Plan::Quartermaster);
+        assert_eq!(back.saved.team.restock.go_at, 0.5);
+        assert!(!back.saved.team.restock.share_money);
+        assert_eq!(back.saved.growth.comps_keep, 500);
+    }
+
+    #[test]
+    fn settings_written_before_restocking_existed_still_load() {
+        // A rules file from an older build has no restock block at all;
+        // it has to come back with the defaults rather than fail.
+        let mut settings = Settings::new();
+        let mut p = Autoplay::default();
+        p.saved.growth.auto_xp = false;
+        p.save(&mut settings);
+        let mut back = Autoplay::default();
+        back.load(&settings);
+        assert_eq!(back.saved.team.restock, Config::default().team.restock);
     }
 }
