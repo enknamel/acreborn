@@ -122,6 +122,10 @@ pub struct Lobby {
     /// The server and account this session logged in as, so the
     /// character list the server sends can be filed against it.
     connected_as: Option<(String, String)>,
+    /// The character this login is entering as, when one was chosen on
+    /// the connect screen. While it is set the character list is not
+    /// shown: the question has been answered.
+    entering_as: Option<String>,
 }
 
 impl Lobby {
@@ -242,6 +246,7 @@ impl Lobby {
                 // server sends next can be filed against the right
                 // account.
                 self.connected_as = Some((host.clone(), account.clone()));
+                self.entering_as = Some(character.clone()).filter(|c| !c.trim().is_empty());
                 self.pending = Some(Login {
                     host,
                     account,
@@ -249,8 +254,16 @@ impl Lobby {
                     character,
                     ..Default::default()
                 });
-                // The character list will flip us to Select on arrival.
-                self.screen = Some(Screen::Select);
+                // With a character chosen there is nothing to ask, so
+                // the connect screen stays up saying what is happening
+                // until the world appears. Without one, the character
+                // list flips us to Select when it arrives.
+                match &self.entering_as {
+                    Some(name) => {
+                        self.connect.message = Some(format!("Logging in as {name}..."));
+                    }
+                    None => self.screen = Some(Screen::Select),
+                }
             }
             ConnectAction::AddServer(server) => self.edit(ServerEdit::Add(server)),
             ConnectAction::Forget { host, account } => {
@@ -318,6 +331,23 @@ impl Lobby {
                         names,
                     });
                 }
+                // A character was chosen on the connect screen, so the
+                // client is entering as it: showing the list again
+                // would be asking a question already answered.
+                //
+                // Unless it is not there any more. A character deleted
+                // since the last login would otherwise leave a blank
+                // screen while the client waited to enter as somebody
+                // who does not exist, so the list comes back with a
+                // word about why.
+                if let Some(name) = self.entering_as.take() {
+                    if list.iter().any(|c| c.name == name) {
+                        return;
+                    }
+                    self.select.message = Some(format!(
+                        "{name} is no longer on this account; choose another."
+                    ));
+                }
                 if self.screen != Some(Screen::Create) {
                     self.screen = Some(Screen::Select);
                 }
@@ -336,11 +366,18 @@ impl Lobby {
             Event::Placed { .. } => {
                 self.screen = None;
                 self.create = None;
+                self.entering_as = None;
+                self.connect.message = None;
             }
             Event::Refused(op) => {
                 self.select.message = Some(format!("The server refused (opcode {op:#06x})"));
             }
             Event::Terminated(why) => {
+                // The straight-in login did not get there, so the next
+                // one stops at the list again rather than waiting on a
+                // character it will never be asked about.
+                self.entering_as = None;
+                self.connect.message = Some(format!("Disconnected: {why}"));
                 self.select.message = Some(format!("Disconnected: {why}"));
             }
             _ => {}
@@ -721,5 +758,78 @@ mod tests {
         });
         let started = l.take_connect().expect("a login");
         assert_eq!(started.character, "Aldric");
+    }
+    fn entry(name: &str) -> ac_net::messages::CharacterEntry {
+        ac_net::messages::CharacterEntry {
+            id: 1,
+            name: name.to_string(),
+            seconds_until_deleted: 0,
+        }
+    }
+
+    /// A lobby mid-login as `character` on a saved account.
+    fn logging_in_as(character: &str) -> Lobby {
+        let path = scratch(&format!("straight-{character}"));
+        store::update_at(&path, |s| {
+            s.remember("h:9000", "main", "pw", character);
+            s.note_characters("h:9000", "main", &[character.to_string()]);
+        });
+        let mut l = Lobby {
+            store: Some(path.clone()),
+            ..Default::default()
+        };
+        l.open_connect(store::load_at(&path));
+        l.apply_connect(ConnectAction::Connect {
+            host: "h:9000".into(),
+            account: "main".into(),
+            password: "pw".into(),
+            character: character.into(),
+            remember: true,
+        });
+        let _ = l.take_connect();
+        l
+    }
+
+    #[test]
+    fn a_chosen_character_is_not_asked_for_twice() {
+        // The whole point: pick Aldric on the connect screen and the
+        // login goes straight into the world, no second question.
+        let mut l = logging_in_as("Aldric");
+        l.on_event(&Event::Characters(vec![entry("Aldric"), entry("Bryn")]));
+        assert_ne!(
+            l.screen,
+            Some(Screen::Select),
+            "stopped to ask a question already answered"
+        );
+    }
+
+    #[test]
+    fn choosing_nobody_still_stops_at_the_list() {
+        let mut l = logging_in_as("");
+        l.on_event(&Event::Characters(vec![entry("Aldric")]));
+        assert_eq!(l.screen, Some(Screen::Select));
+    }
+
+    #[test]
+    fn a_character_that_is_gone_brings_the_list_back() {
+        // Deleted since the last login. Going straight in is impossible,
+        // so the list returns rather than leaving a blank screen, and it
+        // says why.
+        let mut l = logging_in_as("Aldric");
+        l.on_event(&Event::Characters(vec![entry("Bryn")]));
+        assert_eq!(l.screen, Some(Screen::Select));
+        let said = l.select.message.clone().unwrap_or_default();
+        assert!(said.contains("Aldric"), "{said}");
+        assert!(said.contains("no longer"), "{said}");
+    }
+
+    #[test]
+    fn a_login_that_never_arrives_does_not_strand_the_screen() {
+        // Dropped before the character list. The next login must be
+        // able to stop at the list again.
+        let mut l = logging_in_as("Aldric");
+        l.on_event(&Event::Terminated("no reply".into()));
+        l.on_event(&Event::Characters(vec![entry("Aldric")]));
+        assert_eq!(l.screen, Some(Screen::Select));
     }
 }

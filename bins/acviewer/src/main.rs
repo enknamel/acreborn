@@ -1160,10 +1160,14 @@ impl App {
     /// connect, landing on the character-select screen.
     fn begin_login(&mut self, login: ac_plugin::servers::Login) {
         self.current_host = Some(login.host);
+        // A character chosen on the connect screen goes straight in.
+        // Passing it here is what turns on `auto_enter`, so the login
+        // does not stop to ask again for something already answered.
+        let character = Some(login.character).filter(|c| !c.trim().is_empty());
         self.start_session(ac_plugin::SessionSpec {
             account: login.account,
             password: login.password,
-            character: None,
+            character,
             create: None,
             role: ac_plugin::Role::default(),
         });
