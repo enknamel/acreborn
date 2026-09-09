@@ -3079,6 +3079,13 @@ impl Client {
             .map(|(n, a)| (n, a.trim()))
             .unwrap_or((body, ""));
         let name = name.to_ascii_lowercase();
+        // A logout the player asked for is a session ending on purpose,
+        // however the server ends up ending it: never reconnected (see
+        // [`reconnect`]). The command itself is passed on as a server
+        // command like any other.
+        if matches!(name.as_str(), "logout" | "logoff" | "quit" | "exit") {
+            self.quitting = true;
+        }
         let mut w = ac_net::wire::Writer::new();
         match name.as_str() {
             "lifestone" | "ls" => self.session.send_action(action::TELE_TO_LIFESTONE, &[]),

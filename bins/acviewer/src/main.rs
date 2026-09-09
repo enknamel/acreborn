@@ -191,6 +191,12 @@ struct Cli {
     /// many seconds after session 1 was placed, then finish.
     #[arg(long, default_value_t = 45.0)]
     fleet_stop_after: f32,
+    /// How many times to log back in after a session is dropped (a
+    /// network drop, a server restart), before giving up and saying so.
+    /// 0 turns reconnection off; a session the player quits is never
+    /// reconnected whatever this says.
+    #[arg(long, default_value_t = 6)]
+    reconnect_tries: u32,
 }
 
 impl Cli {
@@ -429,6 +435,16 @@ fn icon_loader(data_dir: PathBuf) -> ac_plugin::IconLoader {
 /// Live server connection state for `--connect`.
 struct Net {
     client: ac_client::Client,
+    /// The server this session was started against, and what started it,
+    /// so a dropped session can be started again as the same character
+    /// against the same server (see `App::reconnect_session`).
+    host: String,
+    spec: ac_plugin::SessionSpec,
+    /// When to come back after a drop (see `ac_client::reconnect`).
+    reconnect: ac_client::reconnect::Reconnect,
+    /// This client's ending has been handed to `reconnect`. Cleared when
+    /// a fresh client replaces it, so the next ending is heard too.
+    ending_reported: bool,
     last_generation: u64,
     pickables: Vec<scene::Pickable>,
     anims: std::collections::HashMap<u32, scene::ObjectAnim>,
@@ -733,7 +749,7 @@ impl App {
             },
         };
         let cfg = ac_client::Config {
-            host,
+            host: host.clone(),
             account: account.clone(),
             password: spec.password.clone(),
             character: spec.character_name().map(str::to_string),
@@ -752,8 +768,13 @@ impl App {
         if let Some(create) = spec.create.clone() {
             client.create_when_missing(create);
         }
+        let reconnect = self.reconnect_rule();
         self.nets.push(Net {
             client,
+            host,
+            spec: spec.clone(),
+            reconnect,
+            ending_reported: false,
             last_generation: 0,
             pickables: Vec::new(),
             anims: Default::default(),
@@ -800,6 +821,161 @@ impl App {
             self.active = usize::MAX;
             self.lobby = Default::default();
             self.switch_to(next);
+        }
+    }
+
+    /// The reconnection rule a new session starts with (`--reconnect-tries`).
+    fn reconnect_rule(&self) -> ac_client::reconnect::Reconnect {
+        ac_client::reconnect::Reconnect::new(ac_client::reconnect::Policy {
+            tries: self.cli.reconnect_tries,
+            ..Default::default()
+        })
+    }
+
+    /// Notice the sessions that have ended, and put the dropped ones
+    /// back.
+    ///
+    /// A session being reconnected keeps its place in `nets`: the window
+    /// goes on showing the world it was last in, the plugins keep the
+    /// per-session state they index by that slot, and the fleet panel
+    /// keeps its row. Only the `Client` inside is replaced, so what
+    /// survives a reconnect is what `reconnect::Carry` names and nothing
+    /// else.
+    fn tick_reconnect(&mut self, now: Instant) {
+        if self.nets.is_empty() {
+            return;
+        }
+        use ac_client::reconnect::{Action, State};
+        let mut notices: Vec<(usize, String, String)> = Vec::new();
+        let mut attempts: Vec<usize> = Vec::new();
+        let mut settled: Vec<String> = Vec::new();
+        for (i, net) in self.nets.iter_mut().enumerate() {
+            // In the world (or back at the select screen we were
+            // dropped from): the attempt worked. `Client::placed` stays
+            // true on a dropped client, whose scene is still up, so this
+            // only counts while an attempt is actually in flight.
+            let back = net.client.placed()
+                || (net.client.config.character.is_none() && net.client.characters_known);
+            if back && matches!(net.reconnect.state(), State::Trying { .. }) {
+                net.reconnect.placed();
+                settled.push(net.client.config.account.clone());
+            }
+            if let Some(ending) = net.client.ending() {
+                if !net.ending_reported {
+                    net.ending_reported = true;
+                    tracing::warn!(
+                        "session {} ({}) ended: {}",
+                        i + 1,
+                        net.client.config.account,
+                        ending.describe()
+                    );
+                    net.reconnect.ended(ending, now);
+                }
+            }
+            if net.reconnect.poll(now) == Action::Connect {
+                attempts.push(i);
+            }
+            let account = net.client.config.account.clone();
+            while let Some(line) = net.reconnect.take_notice() {
+                notices.push((i, account.clone(), line));
+            }
+        }
+        for (i, account, line) in notices {
+            let line = if i == self.active {
+                line
+            } else {
+                format!("[{account}] {line}")
+            };
+            tracing::info!("{line}");
+            if let Some(ui) = &mut self.ui {
+                ui.push_chat(line, 0);
+            }
+        }
+        // A session that gave up shows in the fleet panel the way one
+        // that could not be started does; one that came back clears it.
+        for account in settled {
+            self.plugins.board.set_local(
+                plugins::panels::fleet::error_key(&account),
+                ac_plugin::Value::Null,
+            );
+        }
+        for i in attempts {
+            self.reconnect_session(i, now);
+        }
+        for net in &self.nets {
+            if let Some(stopped) = net.reconnect.stopped() {
+                let why = match stopped {
+                    ac_client::reconnect::Stopped::Quit => continue,
+                    ac_client::reconnect::Stopped::Exhausted => {
+                        "dropped, and out of retries".into()
+                    }
+                    ac_client::reconnect::Stopped::Fatal(why) => why.clone(),
+                };
+                let key = plugins::panels::fleet::error_key(&net.client.config.account);
+                if self.plugins.board.get(&key).is_none() {
+                    self.plugins.board.set_local(key, why);
+                }
+            }
+        }
+    }
+
+    /// Log a dropped session back in where it stood: the same slot in
+    /// `nets`, the same account against the same server, and the same
+    /// character, so the player lands back in the world rather than at
+    /// the character-select screen.
+    fn reconnect_session(&mut self, i: usize, now: Instant) {
+        let Some(net) = self.nets.get(i) else { return };
+        let carry = ac_client::reconnect::Carry::of(&net.client);
+        let cfg = ac_client::Config {
+            host: net.host.clone(),
+            account: net.client.config.account.clone(),
+            password: net.client.config.password.clone(),
+            character: carry.character.clone(),
+            // Straight back into the world when we know who we were; a
+            // session dropped at the select screen comes back to it.
+            auto_enter: carry.character.is_some(),
+        };
+        let account = cfg.account.clone();
+        let assets = match self.assets.clone() {
+            Some(a) => a,
+            None => {
+                let net = &mut self.nets[i];
+                net.reconnect.ended(
+                    ac_client::reconnect::Ending::Fatal("the DAT archives are not open".into()),
+                    now,
+                );
+                return;
+            }
+        };
+        tracing::info!(
+            "reconnecting session {} ({account}) as {}",
+            i + 1,
+            carry.character.as_deref().unwrap_or("<character select>")
+        );
+        match ac_client::Client::connect(cfg, assets) {
+            Ok(mut client) => {
+                carry.apply(&mut client);
+                let net = &mut self.nets[i];
+                // Tell the server to let the old session go, in case it
+                // is only half dead (an attempt that timed out).
+                net.client.disconnect(now);
+                net.client = client;
+                net.ending_reported = false;
+                net.last_generation = 0;
+                net.pickables = Vec::new();
+                net.anims.clear();
+                if i == self.active {
+                    self.lobby = Default::default();
+                }
+            }
+            Err(e) => {
+                // The socket would not open (no route, DNS gone): this
+                // attempt is spent, and the rule schedules the next.
+                tracing::warn!("reconnecting {account}: {e}");
+                let net = &mut self.nets[i];
+                net.reconnect
+                    .ended(ac_client::reconnect::Ending::Dropped(e.to_string()), now);
+            }
         }
     }
 
@@ -1227,9 +1403,22 @@ impl App {
         self.audio = audio;
         self.assets = Some(assets.clone());
         for cfg in configs {
+            let spec = ac_plugin::SessionSpec {
+                account: cfg.account.clone(),
+                password: cfg.password.clone(),
+                character: cfg.character.clone(),
+                create: None,
+                role: ac_plugin::Role::default(),
+            };
+            let host = cfg.host.clone();
             let client = ac_client::Client::connect(cfg, assets.clone())?;
+            let reconnect = self.reconnect_rule();
             self.nets.push(Net {
                 client,
+                host,
+                spec,
+                reconnect,
+                ending_reported: false,
                 last_generation: 0,
                 pickables: Vec::new(),
                 anims: Default::default(),
@@ -1402,6 +1591,10 @@ impl App {
             }
         }
         self.plugins.end_frame();
+        // A session that ended without being asked to comes back here,
+        // in its own slot, before the starts and stops below can move
+        // the slots around.
+        self.tick_reconnect(now);
         // Sessions come and go only here, between frames: no session is
         // being ticked and no plugin holds them.
         self.apply_pending_sessions();
