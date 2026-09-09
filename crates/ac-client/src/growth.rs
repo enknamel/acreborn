@@ -310,6 +310,8 @@ pub struct State {
     /// This character has given the quartermaster its sale loot and its
     /// order. Cleared whenever the mode changes.
     pub handed_over: bool,
+    /// How many trips the quartermaster has made this time out.
+    pub round: u32,
     last_raise: Option<Instant>,
     /// The pool as it stood when the last rank was bought, and when.
     raise_pending: Option<(i64, Instant)>,
@@ -1139,21 +1141,33 @@ impl Client {
         // gives up and goes back to it.
         let stalled = !was.hunting()
             && policy.give_up_after > 0.0
-            && self.autoplay.growth.mode_since.is_some_and(|t| {
-                now.duration_since(t).as_secs_f32() > policy.give_up_after
-            });
+            && self
+                .autoplay
+                .growth
+                .mode_since
+                .is_some_and(|t| now.duration_since(t).as_secs_f32() > policy.give_up_after);
         if stalled {
             let st = &mut self.autoplay.growth;
             st.mode = GroupMode::Hunting;
             st.mode_since = Some(now);
             st.mode_because = "the trip to town took too long".to_string();
             st.handed_over = false;
-            self.autoplay
-                .note("giving up on the trip to town and going back to hunting", now);
+            st.round = 0;
+            self.autoplay.note(
+                "giving up on the trip to town and going back to hunting",
+                now,
+            );
             return GroupMode::Hunting;
         }
-        if let Some(switch) = decide(was, &party, &policy) {
+        if let Some(switch) = decide(was, &party, &policy, self.autoplay.growth.round) {
             let st = &mut self.autoplay.growth;
+            // Back to the start of a trip is another round; going home
+            // starts the count again.
+            st.round = match switch.mode {
+                GroupMode::Hunting => 0,
+                GroupMode::Restocking(Stage::HandOver) if !was.hunting() => st.round + 1,
+                GroupMode::Restocking(_) => st.round,
+            };
             st.mode = switch.mode;
             st.mode_since = Some(now);
             st.mode_because = switch.because.clone();
@@ -1216,6 +1230,7 @@ impl Client {
             // Ready to go back: stocked up, and not still mid-errand.
             stocked: level >= policy.full_at && self.autoplay.growth.run.is_none(),
             handed_over: self.autoplay.growth.handed_over,
+            holding_orders: self.holding_orders(),
             bill: needs.iter().map(|n| self.rough_cost(n)).sum(),
             purse: self.spendable(),
             free_space: self.free_space(),
@@ -1239,6 +1254,34 @@ impl Client {
             .map(|o| o.value)
             .unwrap_or(0);
         unit.saturating_mul(need.want)
+    }
+
+    /// Whether this character is carrying something another character
+    /// asked for. On a quartermaster run that is how the party knows
+    /// the runner still has goods to hand out; on any other it is
+    /// simply false, since nobody has asked it for anything.
+    ///
+    /// Worked out from the others' orders alone, never from who the
+    /// runner is: the runner is chosen from these reports, so asking
+    /// would be circular.
+    fn holding_orders(&self) -> bool {
+        let me = self.world.stats.name.as_str();
+        let wanted: Vec<&str> = self
+            .autoplay
+            .team
+            .mates
+            .iter()
+            .filter(|m| m.name != me)
+            .flat_map(|m| m.supplies.order.iter())
+            .filter(|(_, count)| *count > 0)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        if wanted.is_empty() {
+            return false;
+        }
+        self.world
+            .inventory()
+            .any(|o| wanted.iter().any(|w| o.name.eq_ignore_ascii_case(w)))
     }
 
     /// The party as everyone has last described itself, this character
@@ -1399,11 +1442,18 @@ impl Client {
         {
             return false;
         }
-        if self
-            .autoplay
-            .growth
-            .last_run
-            .is_some_and(|t| now.duration_since(t) < RUN_EVERY)
+        // The party has already decided to shop, so the throttle that
+        // stops a lone character wearing a path to the vendor does not
+        // apply: it would leave the rest waiting at the hunting ground
+        // for nothing. The retry delay still holds, since it means a
+        // vendor could not be reached at all.
+        let party_restocking = !self.autoplay.growth.mode.hunting();
+        if !party_restocking
+            && self
+                .autoplay
+                .growth
+                .last_run
+                .is_some_and(|t| now.duration_since(t) < RUN_EVERY)
         {
             return false;
         }

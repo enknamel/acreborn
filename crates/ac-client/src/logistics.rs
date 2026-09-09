@@ -141,9 +141,10 @@ pub struct Restock {
     /// How the party makes the trip.
     pub plan: Plan,
     /// The fewest free pack slots a quartermaster needs before the
-    /// party will trust it with the run. Below this the party walks to
-    /// town together instead, rather than send a runner that cannot
-    /// carry the order home.
+    /// party will trust it with the run. This is a floor, not a
+    /// requirement to carry the whole order at once: a runner that
+    /// cannot fit everything makes another trip. Below the floor there
+    /// is no point sending anybody, and the party walks to town.
     pub runner_space: u32,
     /// The whole party goes shopping once any one member is down to
     /// this fraction of a full load. Well before empty: the trip to
@@ -158,6 +159,11 @@ pub struct Restock {
     /// Turn what is left over into trade notes rather than carrying
     /// coin, and share the notes out so everyone can pay their own way.
     pub share_money: bool,
+    /// How many trips the quartermaster may make before the party
+    /// settles for what it has. One pack does not always hold a whole
+    /// party's shopping, and a vendor does not always have it all, so
+    /// more than one round is normal rather than a failure.
+    pub max_rounds: u32,
     /// Give up on a trip that has taken this many seconds and go back
     /// to hunting.
     ///
@@ -173,11 +179,12 @@ impl Default for Restock {
         Restock {
             together: true,
             plan: Plan::default(),
-            runner_space: 30,
+            runner_space: 10,
             go_at: 0.35,
             full_at: 0.9,
             float: 5_000,
             share_money: true,
+            max_rounds: 4,
             give_up_after: 900.0,
         }
     }
@@ -219,6 +226,11 @@ pub struct Supplies {
     pub free_space: u32,
     /// It has given the quartermaster its sale loot and its order.
     pub handed_over: bool,
+    /// The quartermaster still has goods in its pack that belong to
+    /// somebody else. While this is true the party is still being
+    /// unloaded; once it is false and anyone is still short, the run
+    /// was not big enough and another round is needed.
+    pub holding_orders: bool,
     /// What it wants brought back, by name and count. The quartermaster
     /// adds these up into one shopping list.
     pub order: Vec<(String, u32)>,
@@ -244,14 +256,14 @@ pub struct Switch {
 /// character included; an empty roster means nobody has spoken yet, in
 /// which case nothing changes. The answer depends only on the
 /// arguments, so every session in the party works out the same one.
-pub fn decide(now: GroupMode, mates: &[Supplies], cfg: &Restock) -> Option<Switch> {
+pub fn decide(now: GroupMode, mates: &[Supplies], cfg: &Restock, round: u32) -> Option<Switch> {
     let cfg = cfg.sane();
     if mates.is_empty() {
         return None;
     }
     match now {
         GroupMode::Hunting => start_trip(mates, &cfg),
-        GroupMode::Restocking(stage) => advance_trip(stage, mates),
+        GroupMode::Restocking(stage) => advance_trip(stage, mates, &cfg, round),
     }
 }
 
@@ -296,7 +308,7 @@ fn opening_stage(mates: &[Supplies], cfg: &Restock) -> Stage {
 }
 
 /// Whether the trip has reached its next stage.
-fn advance_trip(stage: Stage, mates: &[Supplies]) -> Option<Switch> {
+fn advance_trip(stage: Stage, mates: &[Supplies], cfg: &Restock, round: u32) -> Option<Switch> {
     let done = |m: &Supplies| m.stocked;
     match stage {
         // Everyone shopping for themselves: one stage, and nobody goes
@@ -325,11 +337,38 @@ fn advance_trip(stage: Stage, mates: &[Supplies]) -> Option<Switch> {
             })
         }
         // Handing the goods out. Over when everyone, runner included,
-        // has what it asked for.
-        Stage::HandOut => mates.iter().all(done).then(|| Switch {
-            mode: GroupMode::Hunting,
-            because: "everyone has their supplies".to_string(),
-        }),
+        // has what it asked for -- or when the runner's pack is empty
+        // and somebody still is not, in which case one trip was not
+        // enough and it goes back for another. A pack does not always
+        // hold a whole party's shopping and a vendor does not always
+        // have it all, so this is normal rather than a failure.
+        Stage::HandOut => {
+            if mates.iter().all(done) {
+                return Some(Switch {
+                    mode: GroupMode::Hunting,
+                    because: "everyone has their supplies".to_string(),
+                });
+            }
+            let runner = quartermaster(mates)?;
+            if runner.holding_orders {
+                return None;
+            }
+            if round + 1 >= cfg.max_rounds {
+                let short: Vec<&str> = still_shopping(mates);
+                return Some(Switch {
+                    mode: GroupMode::Hunting,
+                    because: format!(
+                        "back to hunting after {} trips; {} still short",
+                        round + 1,
+                        short.join(", ")
+                    ),
+                });
+            }
+            Some(Switch {
+                mode: GroupMode::Restocking(Stage::HandOver),
+                because: format!("one trip was not enough; {} is going back", runner.name),
+            })
+        }
     }
 }
 
@@ -519,7 +558,7 @@ mod tests {
     fn a_full_party_keeps_hunting() {
         let cfg = Restock::default();
         let party = [mate("Aldric", 1.0), mate("Bryn", 0.8)];
-        assert_eq!(decide(GroupMode::Hunting, &party, &cfg), None);
+        assert_eq!(decide(GroupMode::Hunting, &party, &cfg, 0), None);
     }
 
     #[test]
@@ -527,7 +566,7 @@ mod tests {
         let cfg = Restock::default();
         // Bryn is below go_at while everyone else is comfortable.
         let party = [mate("Aldric", 1.0), mate("Bryn", 0.2), mate("Caius", 0.9)];
-        let s = decide(GroupMode::Hunting, &party, &cfg).expect("a switch");
+        let s = decide(GroupMode::Hunting, &party, &cfg, 0).expect("a switch");
         assert_eq!(s.mode, SHOPPING);
         assert!(s.because.contains("Bryn"), "{}", s.because);
     }
@@ -538,7 +577,7 @@ mod tests {
         // round, its worst-off member still has a third of a load.
         let cfg = Restock::default();
         let party = [mate("Aldric", 0.34)];
-        assert!(decide(GroupMode::Hunting, &party, &cfg).is_some());
+        assert!(decide(GroupMode::Hunting, &party, &cfg, 0).is_some());
         assert!(party[0].level > 0.0);
     }
 
@@ -547,7 +586,7 @@ mod tests {
         let cfg = Restock::default();
         let mut m = mate("Aldric", 1.0);
         m.pack_full = true;
-        let s = decide(GroupMode::Hunting, &[m], &cfg).expect("a switch");
+        let s = decide(GroupMode::Hunting, &[m], &cfg, 0).expect("a switch");
         assert_eq!(s.mode, SHOPPING);
         assert!(s.because.contains("pack is full"), "{}", s.because);
     }
@@ -557,10 +596,10 @@ mod tests {
         let cfg = Restock::default();
         let mut party = [mate("Aldric", 1.0), mate("Bryn", 1.0)];
         party[1].stocked = false;
-        assert_eq!(decide(SHOPPING, &party, &cfg), None);
+        assert_eq!(decide(SHOPPING, &party, &cfg, 0), None);
         assert_eq!(still_shopping(&party), vec!["Bryn"]);
         party[1].stocked = true;
-        let s = decide(SHOPPING, &party, &cfg).expect("a switch");
+        let s = decide(SHOPPING, &party, &cfg, 0).expect("a switch");
         assert_eq!(s.mode, GroupMode::Hunting);
     }
 
@@ -571,10 +610,10 @@ mod tests {
         let cfg = Restock::default().sane();
         let party = [mate("Aldric", cfg.full_at)];
         assert_eq!(
-            decide(SHOPPING, &party, &cfg).map(|s| s.mode),
+            decide(SHOPPING, &party, &cfg, 0).map(|s| s.mode),
             Some(GroupMode::Hunting)
         );
-        assert_eq!(decide(GroupMode::Hunting, &party, &cfg), None);
+        assert_eq!(decide(GroupMode::Hunting, &party, &cfg, 0), None);
     }
 
     #[test]
@@ -591,8 +630,8 @@ mod tests {
     #[test]
     fn nobody_speaking_yet_changes_nothing() {
         let cfg = Restock::default();
-        assert_eq!(decide(GroupMode::Hunting, &[], &cfg), None);
-        assert_eq!(decide(SHOPPING, &[], &cfg), None);
+        assert_eq!(decide(GroupMode::Hunting, &[], &cfg, 0), None);
+        assert_eq!(decide(SHOPPING, &[], &cfg, 0), None);
     }
 
     fn purse(name: &str, purse: u32, bill: u32) -> Supplies {
@@ -691,7 +730,7 @@ mod tests {
         let mut party = [mate("Aldric", 1.0), mate("Bryn", 0.2)];
         party[0].free_space = 90;
         party[1].free_space = 10;
-        let s = decide(GroupMode::Hunting, &party, &qm_cfg()).expect("a switch");
+        let s = decide(GroupMode::Hunting, &party, &qm_cfg(), 0).expect("a switch");
         assert_eq!(s.mode, GroupMode::Restocking(Stage::HandOver));
         // The roomiest pack carries for the party.
         assert_eq!(
@@ -707,7 +746,7 @@ mod tests {
         let mut party = [mate("Aldric", 1.0), mate("Bryn", 0.2)];
         party[0].free_space = 3;
         party[1].free_space = 2;
-        let s = decide(GroupMode::Hunting, &party, &qm_cfg()).expect("a switch");
+        let s = decide(GroupMode::Hunting, &party, &qm_cfg(), 0).expect("a switch");
         assert_eq!(s.mode, SHOPPING);
     }
 
@@ -715,7 +754,7 @@ mod tests {
     fn a_character_on_its_own_has_nobody_to_send() {
         let mut party = [mate("Aldric", 0.1)];
         party[0].free_space = 90;
-        let s = decide(GroupMode::Hunting, &party, &qm_cfg()).expect("a switch");
+        let s = decide(GroupMode::Hunting, &party, &qm_cfg(), 0).expect("a switch");
         assert_eq!(s.mode, SHOPPING);
     }
 
@@ -726,10 +765,10 @@ mod tests {
         party[1].free_space = 10;
         let at = GroupMode::Restocking(Stage::HandOver);
         // Bryn has not handed anything over yet.
-        assert_eq!(decide(at, &party, &qm_cfg()), None);
+        assert_eq!(decide(at, &party, &qm_cfg(), 0), None);
         party[1].handed_over = true;
         // The runner does not wait on itself.
-        let s = decide(at, &party, &qm_cfg()).expect("a switch");
+        let s = decide(at, &party, &qm_cfg(), 0).expect("a switch");
         assert_eq!(s.mode, GroupMode::Restocking(Stage::Away));
         assert!(s.because.contains("Aldric"), "{}", s.because);
     }
@@ -742,11 +781,11 @@ mod tests {
         party[0].stocked = false;
         party[1].stocked = false;
         let at = GroupMode::Restocking(Stage::Away);
-        assert_eq!(decide(at, &party, &qm_cfg()), None);
+        assert_eq!(decide(at, &party, &qm_cfg(), 0), None);
         // Only the runner's word matters here: the others cannot be
         // stocked until it hands their goods over.
         party[0].stocked = true;
-        let s = decide(at, &party, &qm_cfg()).expect("a switch");
+        let s = decide(at, &party, &qm_cfg(), 0).expect("a switch");
         assert_eq!(s.mode, GroupMode::Restocking(Stage::HandOut));
     }
 
@@ -757,10 +796,58 @@ mod tests {
         party[0].stocked = true;
         party[1].stocked = false;
         let at = GroupMode::Restocking(Stage::HandOut);
-        assert_eq!(decide(at, &party, &qm_cfg()), None);
+        // The runner still has goods in its pack: it is mid-handout.
+        party[0].holding_orders = true;
+        assert_eq!(decide(at, &party, &qm_cfg(), 0), None);
+        party[0].holding_orders = false;
         party[1].stocked = true;
-        let s = decide(at, &party, &qm_cfg()).expect("a switch");
+        let s = decide(at, &party, &qm_cfg(), 0).expect("a switch");
         assert_eq!(s.mode, GroupMode::Hunting);
+    }
+
+    #[test]
+    fn one_trip_that_was_not_enough_becomes_a_second() {
+        // The runner's pack is empty and Bryn is still short, so one
+        // trip did not cover the party and it goes back for more.
+        let mut party = [mate("Aldric", 1.0), mate("Bryn", 0.2)];
+        party[0].free_space = 90;
+        party[0].stocked = true;
+        party[1].stocked = false;
+        party[0].holding_orders = false;
+        let at = GroupMode::Restocking(Stage::HandOut);
+        let s = decide(at, &party, &qm_cfg(), 0).expect("a switch");
+        assert_eq!(s.mode, GroupMode::Restocking(Stage::HandOver));
+        assert!(s.because.contains("not enough"), "{}", s.because);
+    }
+
+    #[test]
+    fn the_party_stops_going_back_eventually() {
+        // Some things simply cannot be bought: no vendor has them, or
+        // the money has run out. After the allowed rounds the party
+        // settles for what it has rather than shuttling for ever.
+        let cfg = Restock {
+            max_rounds: 3,
+            ..qm_cfg()
+        };
+        let mut party = [mate("Aldric", 1.0), mate("Bryn", 0.2)];
+        party[0].free_space = 90;
+        party[0].stocked = true;
+        party[1].stocked = false;
+        let at = GroupMode::Restocking(Stage::HandOut);
+        // Rounds 0 and 1 go back for more.
+        for round in 0..2 {
+            let s = decide(at, &party, &cfg, round).expect("a switch");
+            assert_eq!(
+                s.mode,
+                GroupMode::Restocking(Stage::HandOver),
+                "round {round}"
+            );
+        }
+        // The last one gives up and says who is still short.
+        let s = decide(at, &party, &cfg, 2).expect("a switch");
+        assert_eq!(s.mode, GroupMode::Hunting);
+        assert!(s.because.contains("Bryn"), "{}", s.because);
+        assert!(s.because.contains("3 trips"), "{}", s.because);
     }
 
     #[test]
