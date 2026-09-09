@@ -58,7 +58,50 @@ ratio, then `a = b = c = seed` and one scramble; keys are read from index
 first seed in `ConnectRequest`, client->server with the second. A receiver
 searches up to 256 keys ahead for a match so lost packets do not
 desynchronise it. Verified against ACE for three seeds
-(`tests/golden/net/isaac_*.txt`).
+(`tests/golden/net/isaac_*.txt`). See "Surviving a real link" for how the
+receive window is bounded.
+
+## Surviving a real link (2026-09-08)
+
+Everything below is invisible on localhost, which never loses, reorders
+or duplicates a packet, and was behind random disconnects on a public
+server.
+
+- **The receive key window must not latch.** `KeyStream` holds the keys
+  it has generated but nobody has claimed, tagged with their index in the
+  stream, plus a ring of the last 256 keys it used. A packet is accepted
+  if its key is the next one (the lossless case, one comparison), one
+  still waiting in the window (reordered, or a retransmission, which
+  keeps its original key), or one already used (a duplicate). Otherwise
+  the stream is extended, but never more than 256 keys past the newest
+  key accepted, so unrecognised packets cannot walk the window away from
+  the server. Unclaimed keys are dropped oldest first once they fall 256
+  behind. The straight port of ACE's `CryptoSystem`, which took its
+  search budget from the space left in a set that nothing ever emptied,
+  died permanently after roughly 256 lost packets: measured at 10% loss,
+  it accepted 2307 packets and then rejected every one after 2564, at
+  which point the client silently discarded all server traffic, stopped
+  acking and was dropped.
+- **A single lost packet has to be re-requested.** ACE only asks once two
+  or more packets are missing, because on its side the client volunteers
+  resends. The client asks for a wider gap at once and for a single
+  missing packet after 250 ms, which is long enough for a reordered
+  packet to arrive on its own. Requests are rate limited to one a second
+  and carry at most 115 sequence numbers, which is all ACE reads.
+- **A retransmission must have its checksum rebuilt.** Setting the
+  Retransmission flag changes the header, and the header is hashed into
+  the checksum. Keep the original ISAAC key, which is what the peer
+  matches on, and recompute: the key-carrying half of the checksum is
+  `checksum - hash32(header)`, which the flag does not change. Sending
+  the old checksum makes the peer derive a key from nobody's stream,
+  which on ACE burns 256 keys of its copy of our stream per attempt.
+- **Say why a session died.** Every termination goes through one helper
+  that logs the reason at warn before raising the event: net error code
+  and table, CharacterError translated to a phrase, account boot, a
+  ConnectResponse the server never accepted. Checksum mismatches are
+  counted and reported at most once every five seconds with the running
+  total and the number of unclaimed keys; ten seconds of silence from the
+  server is reported once.
 
 ## Login flow
 
