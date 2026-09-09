@@ -1,0 +1,14 @@
+warning: method `inject` is never used
+   --> bins/acviewer/src/ui.rs:130:12
+    |
+ 47 | impl Ui {
+    | ------- method in this implementation
+...
+130 |     pub fn inject(&mut self, events: impl IntoIterator<Item = egui::Event>) {
+    |            ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `acviewer` (bin "acviewer") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.43s
+     Running `target/release/acviewer --connect 'play.coldeve.ac:9000' -a rawrtherton -v rawr1234`
