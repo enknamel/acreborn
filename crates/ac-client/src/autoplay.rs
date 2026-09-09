@@ -358,6 +358,15 @@ pub struct Loot {
     /// Carry what the rules tagged to the team's best salvager, when
     /// that is someone else.
     pub hand_off: bool,
+    /// Pour loose stacks of the same thing together, so that slots are
+    /// not wasted on the change left by buying and looting.
+    #[serde(default = "yes")]
+    pub tidy_pack: bool,
+}
+
+/// Serde's default for a switch that is on unless it was turned off.
+fn yes() -> bool {
+    true
 }
 
 impl Default for Loot {
@@ -371,6 +380,7 @@ impl Default for Loot {
             appraise: true,
             salvage: true,
             hand_off: true,
+            tidy_pack: true,
         }
     }
 }
@@ -483,6 +493,10 @@ const FOLLOW_BREAK: f32 = 10.0;
 /// How often one character hands something to another. The server
 /// takes one give at a time and answers in its own time.
 const GIVE_EVERY: Duration = Duration::from_millis(700);
+
+/// How often a stack is poured into another. The server takes one merge
+/// at a time and answers in its own time.
+const MERGE_EVERY: Duration = Duration::from_millis(600);
 
 /// How far from its leader a follower keeping `keep` metres may stray
 /// before following comes before everything else.
@@ -784,11 +798,14 @@ pub enum Doing {
     Dodging,
     /// Doing the Training Academy tutorial (see `crate::academy`).
     Training,
+    /// Pouring loose stacks together (see `crate::pack`).
+    Tidying,
 }
 
 impl Doing {
     pub fn label(self) -> &'static str {
         match self {
+            Doing::Tidying => "tidying the pack",
             Doing::Idle => "waiting",
             Doing::Healing => "healing",
             Doing::Fleeing => "breaking off",
@@ -911,6 +928,7 @@ pub struct Autoplay {
     pub wants: Vec<String>,
     last_debuff: Option<Instant>,
     last_give: Option<Instant>,
+    last_merge: Option<Instant>,
     last_recruit: Option<Instant>,
     /// Where the journey after a far-off leader was bound, to plan
     /// again once it has moved on.
@@ -1427,6 +1445,11 @@ impl Client {
         if self.autoplay_resume_journey() {
             return;
         }
+        // Tidy before anything decides the pack is full: a pack full
+        // of change is not a pack that needs emptying in town.
+        if self.autoplay_tidy(now) {
+            return;
+        }
         // With nothing else to do: grow, find monsters, run to town.
         if self.autoplay_grow(now) {
             return;
@@ -1435,6 +1458,67 @@ impl Client {
         if doing != Doing::Idle {
             self.autoplay.say(Doing::Idle, "waiting");
         }
+    }
+
+    /// Every stack in the packs, as the compactor sees them.
+    ///
+    /// What the character is holding is here too: a quiver of arrows
+    /// can be topped up from the pack, and is worth topping up, but is
+    /// never the stack poured away.
+    pub fn pack_stacks(&self) -> Vec<crate::pack::Stack> {
+        let me = self.world.player_guid;
+        let describe = |o: &ac_world::WorldObject, wielded: bool| crate::pack::Stack {
+            guid: o.guid,
+            wcid: o.weenie_class_id,
+            name: o.name.clone(),
+            count: o.stack_size.max(1),
+            max: o.max_stack_size,
+            wielded,
+        };
+        self.world
+            .inventory()
+            .map(|o| describe(o, false))
+            .chain(
+                self.world
+                    .objects
+                    .values()
+                    .filter(|o| me.is_some() && o.wielder == me)
+                    .map(|o| describe(o, true)),
+            )
+            .collect()
+    }
+
+    /// Pour loose stacks together. True when a merge went out.
+    ///
+    /// Slots are the scarce thing, not weight, and nothing warns a
+    /// player that a purchase landed beside a pile of the same. This
+    /// runs before the rules that decide the pack is full, so that a
+    /// pack full of change does not send the character to town.
+    fn autoplay_tidy(&mut self, now: Instant) -> bool {
+        if !self.autoplay.config.loot.tidy_pack {
+            return false;
+        }
+        if self
+            .autoplay
+            .last_merge
+            .is_some_and(|t| now.duration_since(t) < MERGE_EVERY)
+        {
+            return false;
+        }
+        let Some(m) = crate::pack::next_merge(&self.pack_stacks()) else {
+            return false;
+        };
+        if !self.merge_stacks(m.from, m.to, Some(m.amount)) {
+            // The server would refuse it; do not ask again at once.
+            self.autoplay.last_merge = Some(now);
+            return false;
+        }
+        self.autoplay.last_merge = Some(now);
+        self.autoplay.say(
+            Doing::Tidying,
+            format!("putting {} {} with the rest", m.amount, m.name),
+        );
+        true
     }
 
     /// Heal, and break off a losing fight. True when it acted.

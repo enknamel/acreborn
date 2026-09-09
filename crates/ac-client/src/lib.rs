@@ -17,6 +17,7 @@ pub mod items;
 pub mod logistics;
 pub mod magic;
 pub mod options;
+pub mod pack;
 pub mod pathfinder;
 pub mod player;
 pub mod recalls;
@@ -2431,10 +2432,17 @@ impl Client {
         else {
             return false;
         };
+        // Either stack may sit in a side pack: the server searches
+        // everywhere the character can move things from, and a purchase
+        // that landed in the main pack often belongs with a pile kept
+        // in a side one. The target may also be in hand, which is how a
+        // quiver gets topped up; the source may not, since emptying
+        // what the character is holding is not tidying.
+        let to_in_hand = b.wielder == me;
         if me.is_none()
             || from == to
-            || a.container != me
-            || (b.container != me && b.wielder != me)
+            || !self.world.is_carried(from)
+            || !(self.world.is_carried(to) || to_in_hand)
             || a.weenie_class_id != b.weenie_class_id
             || b.max_stack_size <= 1
         {

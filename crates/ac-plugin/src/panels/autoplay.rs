@@ -590,6 +590,14 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     ui.checkbox(&mut cfg.loot.hand_off, "hand off")
                         .on_hover_text("Carry tagged items to the team's best salvager (highest Salvaging with an Ust)");
                 });
+                ui.checkbox(&mut cfg.loot.tidy_pack, "pour loose stacks together")
+                    .on_hover_text(
+                        "Buy five scarabs and they arrive in their own slot beside \
+                         the fifteen already carried; loot four arrows and they land \
+                         beside the two hundred in the pack. Slots are the scarce \
+                         thing, so stacks of the same thing are poured together as \
+                         they turn up.",
+                    );
                 caption(
                     ui,
                     if v.salvager.is_empty() {
@@ -1224,6 +1232,31 @@ mod tests {
         );
         assert!(back.saved.growth.hunt_grounds, "hunting is untouched");
         assert!(back.saved.growth.town_runs, "town runs are untouched");
+    }
+
+    #[test]
+    fn pouring_stacks_together_can_be_turned_off() {
+        // On out of the box: a pack that fills with change is nobody's
+        // idea of a feature.
+        assert!(Config::default().loot.tidy_pack);
+        let mut p = Autoplay::default();
+        p.saved.loot.tidy_pack = false;
+        let mut settings = Settings::new();
+        p.save(&mut settings);
+        let mut back = Autoplay::default();
+        back.load(&settings);
+        assert!(!back.saved.loot.tidy_pack);
+        // And the rest of the loot rules are untouched.
+        assert!(back.saved.loot.enabled);
+        assert!(back.saved.loot.salvage);
+    }
+
+    #[test]
+    fn a_rules_file_written_before_tidying_existed_turns_it_on() {
+        // The switch has to default on when it is missing, or every
+        // existing player quietly loses it.
+        let old: Loot = serde_json::from_str(r#"{"enabled":true,"rules":[],"always":[],"never":[],"appraise":true,"salvage":true,"hand_off":true}"#).unwrap();
+        assert!(old.tidy_pack);
     }
 
     #[test]
