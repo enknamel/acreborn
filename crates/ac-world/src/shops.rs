@@ -120,8 +120,14 @@ fn parse(sells: &str, buys: &str) -> Vec<Shop> {
     let int = |s: &str| s.trim().parse::<u32>().ok();
 
     // The prices and the location come from the buys file, which has
-    // one row per vendor; the wares are added to it.
-    let mut shops: BTreeMap<u32, Shop> = BTreeMap::new();
+    // one row per shop *placement*; the wares are added to it.
+    //
+    // Keyed on the vendor and where it stands, not the vendor alone.
+    // The same shopkeeper is placed in many towns -- the Academy
+    // Shopkeep stands in twenty-six of them -- and keying on the weenie
+    // would keep one of each and throw the rest away, sending a mage in
+    // Holtburg to the archmage of the same name in Yaraq.
+    let mut shops: BTreeMap<(u32, u32), Shop> = BTreeMap::new();
     for f in rows(buys, 11) {
         let (Some(wcid), Some(cell)) = (int(f[0]), hex(f[2])) else {
             continue;
@@ -131,7 +137,7 @@ fn parse(sells: &str, buys: &str) -> Vec<Shop> {
         };
         let Some(buys) = hex(f[6]) else { continue };
         shops.insert(
-            wcid,
+            (wcid, cell),
             Shop {
                 wcid,
                 name: f[1].to_string(),
@@ -147,11 +153,11 @@ fn parse(sells: &str, buys: &str) -> Vec<Shop> {
         );
     }
     for f in rows(sells, 10) {
-        let (Some(vendor), Some(wcid)) = (int(f[0]), int(f[6])) else {
+        let (Some(vendor), Some(cell), Some(wcid)) = (int(f[0]), hex(f[2]), int(f[6])) else {
             continue;
         };
         let Some(item_type) = hex(f[8]) else { continue };
-        let Some(shop) = shops.get_mut(&vendor) else {
+        let Some(shop) = shops.get_mut(&(vendor, cell)) else {
             continue;
         };
         shop.sells.push(Ware {
@@ -296,12 +302,40 @@ mod tests {
     #[test]
     fn the_shops_of_dereth_read() {
         let all = all();
-        assert!(all.len() > 600, "{} shops", all.len());
+        // One row per placement, not per shopkeeper: the same
+        // shopkeeper stands in many towns.
+        assert_eq!(all.len(), 1_043, "shops");
+        let names: std::collections::BTreeSet<&str> = all.iter().map(|s| s.name.as_str()).collect();
+        assert!(
+            names.len() < all.len(),
+            "{} names for {} shops",
+            names.len(),
+            all.len()
+        );
         let wares: usize = all.iter().map(|s| s.sells.len()).sum();
         assert!(wares > 40_000, "{wares} wares");
         // Every shop has a place in the world and a name.
         assert!(all.iter().all(|s| !s.name.is_empty()));
         assert!(all.iter().all(|s| s.cell != 0));
+    }
+
+    #[test]
+    fn a_shopkeeper_who_works_in_many_towns_is_in_all_of_them() {
+        // The Academy Shopkeep stands in twenty-six places. Keeping one
+        // of each would send a character across the world to a counter
+        // that is also next door.
+        let mut by_name: BTreeMap<&str, usize> = BTreeMap::new();
+        for shop in all() {
+            *by_name.entry(shop.name.as_str()).or_default() += 1;
+        }
+        let most = by_name.values().max().copied().unwrap_or(0);
+        assert!(most > 10, "no shopkeeper is placed more than {most} times");
+        // Every placement has its own spot in the world.
+        let mut spots: Vec<(u32, u32)> = all().iter().map(|s| (s.wcid, s.cell)).collect();
+        let before = spots.len();
+        spots.sort_unstable();
+        spots.dedup();
+        assert_eq!(spots.len(), before, "two shops share a wcid and a cell");
     }
 
     #[test]
