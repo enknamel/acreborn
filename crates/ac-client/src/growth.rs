@@ -883,6 +883,34 @@ impl Client {
 
     // ---- hunting grounds ------------------------------------------
 
+    /// The hunting ground this character is on or heading for.
+    pub fn hunting_ground(&self) -> Option<(u32, Vec2, String)> {
+        let st = &self.autoplay.growth;
+        st.bound.clone().or_else(|| {
+            let lb = st.hunting_at?;
+            let g = ac_world::hunting::all().iter().find(|g| g.landblock == lb)?;
+            Some((lb, g.at, g.name.clone()))
+        })
+    }
+
+    /// The ground the party is on, for a character that does not choose
+    /// its own.
+    ///
+    /// A party that walks out of town each picking the nearest ground
+    /// to whichever shop it finished at ends up in four different
+    /// places. The leader's ground is the party's, so everyone comes
+    /// back to the same one.
+    fn party_ground(&self) -> Option<(u32, Vec2, String)> {
+        let team = &self.autoplay.config.team;
+        if !team.enabled || team.lead {
+            return None;
+        }
+        self.autoplay
+            .team
+            .leader_mate()
+            .and_then(|m| m.ground.clone())
+    }
+
     /// Go somewhere with monsters when there have been none for a
     /// while. True while it is on the way.
     fn grow_hunt(&mut self, now: Instant, cfg: &Growth) -> bool {
@@ -973,6 +1001,20 @@ impl Client {
         skip.push(here);
         if let Some(h) = st.hunting_at {
             skip.push(h);
+        }
+        // On a team, the party's ground comes before any this
+        // character would pick for itself: four characters leaving town
+        // from four different shops would otherwise go four ways.
+        if let Some((lb, at, name)) = self.party_ground() {
+            if self.autoplay.growth.hunting_at != Some(lb) && self.grow_travel(at, now) {
+                let st = &mut self.autoplay.growth;
+                st.bound = Some((lb, at, name.clone()));
+                st.bound_since = Some(now);
+                st.idle_since = None;
+                self.autoplay
+                    .say(Doing::Traveling, format!("rejoining the party at {name}"));
+                return true;
+            }
         }
         let Some(g) = ac_world::hunting::nearest_for(level as u32, cfg.level_margin, me, &skip)
         else {

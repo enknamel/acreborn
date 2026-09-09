@@ -570,6 +570,10 @@ pub struct Mate {
     /// How close to empty it is, what it still has to buy and what that
     /// will cost: what the party decides hunting and restocking from.
     pub supplies: crate::logistics::Supplies,
+    /// The hunting ground it is on or heading for: landblock, where,
+    /// and what it is called. What the party goes back to together
+    /// after a trip to town.
+    pub ground: Option<(u32, glam::Vec2, String)>,
 }
 
 /// The larger of a health boost and a stamina transfer, as
