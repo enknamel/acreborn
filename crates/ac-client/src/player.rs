@@ -156,6 +156,14 @@ pub struct Player {
     /// moves the character up and down. See [`Player::set_noclip`] for
     /// what the server makes of it.
     pub noclip: bool,
+    /// What the movement rules allow here (see [`MovementRules`]).
+    /// Server-safe until something says otherwise, so a character that
+    /// is never told stays inside the rules.
+    limits: MovementLimits,
+    /// Flying was asked for and the rules refused it; for the Options
+    /// panel to say so. Cleared when the rules change or flying is
+    /// allowed again.
+    noclip_refused: bool,
 }
 
 /// How fast a flying character climbs, as a fraction of its run speed.
@@ -180,6 +188,168 @@ pub fn run_rate(run_skill: u32) -> f32 {
     }
     let s = run_skill as f32;
     (s / (s + 200.0) * 11.0 + 4.0) / 4.0
+}
+
+/// The most the client will multiply the run speed by, whatever is
+/// asked for (the Options slider and `speed_boost` in scripts stop
+/// here).
+pub const MAX_SPEED_BOOST: f32 = 4.0;
+
+/// Which movement rules to hold the character to.
+///
+/// The client can run faster than the Run skill, jump higher than the
+/// Jump skill and fly through walls. A server that checks what it is
+/// told does not follow: it runs its own physics on every position the
+/// client reports, holds the character at the wall it was flown into,
+/// and force-corrects a character found more than 10 m above the ground
+/// it last stood on. The character then looks fine on this screen while
+/// the server has it somewhere else, and casting, looting and every
+/// other range check goes by the server's idea, not ours.
+///
+/// So these extras are for a server that allows them -- the player's
+/// own. [`MovementRules::ServerSafe`] keeps inside what a server that
+/// enforces the rules accepts, and is what [`MovementRules::Auto`]
+/// (the default) picks for anything but a server on this machine.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MovementRules {
+    /// Server-safe, unless the client is connected to a server on this
+    /// machine (see [`host_is_local`]), which is the player's own and
+    /// allows what a public one does not.
+    #[default]
+    Auto,
+    /// Stay inside what a rule-enforcing server accepts, wherever we
+    /// are connected.
+    ServerSafe,
+    /// Everything the client can do, wherever we are connected.
+    Unrestricted,
+}
+
+impl MovementRules {
+    /// The three settings, in the order the Options panel lists them.
+    pub const ALL: [MovementRules; 3] = [
+        MovementRules::Auto,
+        MovementRules::ServerSafe,
+        MovementRules::Unrestricted,
+    ];
+
+    /// Short name for the Options panel.
+    pub fn label(self) -> &'static str {
+        match self {
+            MovementRules::Auto => "Automatic",
+            MovementRules::ServerSafe => "Server-safe",
+            MovementRules::Unrestricted => "Unrestricted",
+        }
+    }
+
+    /// One line saying what it does, for the Options panel.
+    pub fn help(self) -> &'static str {
+        match self {
+            MovementRules::Auto => {
+                "Fast run, high jumps and flying on your own server; the game's own rules anywhere else"
+            }
+            MovementRules::ServerSafe => "The game's own run speed and jump height, no flying",
+            MovementRules::Unrestricted => {
+                "Fast run, high jumps and flying everywhere -- a server that checks will refuse the moves"
+            }
+        }
+    }
+
+    /// What this allows against `host`, the `host` or `host:port` the
+    /// client connected to.
+    pub fn limits(self, host: &str) -> MovementLimits {
+        match self {
+            MovementRules::Unrestricted => MovementLimits::UNRESTRICTED,
+            MovementRules::ServerSafe => MovementLimits::SERVER_SAFE,
+            MovementRules::Auto if host_is_local(host) => MovementLimits::UNRESTRICTED,
+            MovementRules::Auto => MovementLimits::SERVER_SAFE,
+        }
+    }
+}
+
+/// The address the client connected to (`host` or `host:port`, with an
+/// IPv6 address in brackets or not) is on this machine: loopback, or a
+/// `localhost` name.
+pub fn host_is_local(host: &str) -> bool {
+    let host = host.trim();
+    // Strip the port: `[::1]:9000`, `127.0.0.1:9000`, `localhost:9000`,
+    // or a bare IPv6 address, which is all colons and has no port.
+    let host = if let Some(rest) = host.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else if host.matches(':').count() > 1 {
+        host
+    } else {
+        host.split(':').next().unwrap_or("")
+    };
+    // An IPv6 zone (`::1%lo0`) is not part of the address.
+    let host = host.split('%').next().unwrap_or("");
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    // `.localhost` is reserved for the loopback (RFC 6761).
+    if host.len() > 10 && host[host.len() - 10..].eq_ignore_ascii_case(".localhost") {
+        return true;
+    }
+    host.parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// What the movement code may do, worked out from [`MovementRules`] and
+/// the server we are connected to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MovementLimits {
+    /// The most the run speed may be multiplied by on top of the Run
+    /// skill's own rate.
+    pub max_speed_boost: f32,
+    /// The most a full jump may be raised to beyond the Jump skill's
+    /// own height (0 = the skill's own height, nothing added).
+    pub max_jump_height: f32,
+    /// Flying (no-clip) is allowed.
+    pub noclip: bool,
+}
+
+impl MovementLimits {
+    /// What a server that checks the moves it is told about accepts:
+    /// the Run skill's own pace, the Jump skill's own height, no
+    /// flying. Nothing here needs the server to take our word for
+    /// anything its own physics would not have done itself.
+    pub const SERVER_SAFE: MovementLimits = MovementLimits {
+        max_speed_boost: 1.0,
+        max_jump_height: 0.0,
+        noclip: false,
+    };
+
+    /// Everything the client can do.
+    pub const UNRESTRICTED: MovementLimits = MovementLimits {
+        max_speed_boost: MAX_SPEED_BOOST,
+        max_jump_height: MAX_JUMP_HEIGHT,
+        noclip: true,
+    };
+
+    /// The run multiplier actually used for a wanted one. Slower than
+    /// the game allows is always fine; faster is not.
+    pub fn clamp_speed_boost(&self, wanted: f32) -> f32 {
+        wanted.clamp(0.0, self.max_speed_boost)
+    }
+
+    /// The extra jump height actually used for a wanted one (0 leaves
+    /// the height to the Jump skill).
+    pub fn clamp_jump_height(&self, wanted: f32) -> f32 {
+        wanted.clamp(0.0, self.max_jump_height)
+    }
+
+    /// These are the server-safe limits.
+    pub fn is_server_safe(&self) -> bool {
+        *self == MovementLimits::SERVER_SAFE
+    }
+}
+
+impl Default for MovementLimits {
+    /// Safe until told otherwise: a character that never hears which
+    /// server it is on stays inside the rules.
+    fn default() -> Self {
+        MovementLimits::SERVER_SAFE
+    }
 }
 
 /// A jump worked out before it is made: where the character would fly
@@ -235,6 +405,8 @@ impl Player {
             jump_height: 0.0,
             charge_pinned: false,
             noclip: false,
+            limits: MovementLimits::default(),
+            noclip_refused: false,
             last_jump: None,
             pending_commands: Vec::new(),
             jump_charge: None,
@@ -262,7 +434,8 @@ impl Player {
         let power = power.clamp(0.0, self.max_jump_power);
         let skill = self.jump_skill as f32;
         let by_skill = ((skill / (skill + 1300.0) * 22.2 + 0.05) * power).max(0.35);
-        let height = by_skill.max(self.jump_height * power).min(MAX_JUMP_HEIGHT);
+        let wanted = self.limits.clamp_jump_height(self.jump_height);
+        let height = by_skill.max(wanted * power).min(MAX_JUMP_HEIGHT);
         self.vz = (2.0 * GRAVITY * height).sqrt();
         self.airborne = true;
         self.air_velocity = self.ground_velocity;
@@ -291,9 +464,29 @@ impl Player {
     /// crossing between two dungeons or two buildings' interiors in
     /// different landblocks. Stopping mid-air drops the character onto
     /// whatever is below.
-    pub fn set_noclip(&mut self, on: bool) {
+    ///
+    /// That is a server that takes the client's word for it. One that
+    /// runs its own physics keeps the character at the wall it was
+    /// flown into, so flying is only for a server that allows it.
+    /// Flying is refused when the movement rules do not allow it
+    /// ([`MovementLimits::noclip`]): the server would keep the
+    /// character where its own physics put it. Returns false then, and
+    /// true whenever the character ends up as asked.
+    pub fn set_noclip(&mut self, on: bool) -> bool {
+        if on && !self.limits.noclip {
+            // A follower whose leader is flying asks every tick; say it
+            // once until the rules or the answer change.
+            if !self.noclip_refused {
+                tracing::warn!(
+                    "flying refused: server-safe movement is on (Options, \"movement rules\")"
+                );
+                self.noclip_refused = true;
+            }
+            return false;
+        }
+        self.noclip_refused = false;
         if self.noclip == on {
-            return;
+            return true;
         }
         self.noclip = on;
         self.jump_charge = None;
@@ -309,6 +502,45 @@ impl Player {
         }
         self.moving = true;
         self.dirty = true;
+        true
+    }
+
+    /// What the movement rules allow this character right now.
+    pub fn limits(&self) -> MovementLimits {
+        self.limits
+    }
+
+    /// Flying was asked for since the rules last changed and refused
+    /// (see [`Player::set_noclip`]).
+    pub fn noclip_refused(&self) -> bool {
+        self.noclip_refused
+    }
+
+    /// Hold the character to these limits. Taking flying away while the
+    /// character is flying drops it onto whatever is below.
+    pub fn set_limits(&mut self, limits: MovementLimits) {
+        if self.limits == limits {
+            return;
+        }
+        let was_flying = self.noclip;
+        self.limits = limits;
+        self.noclip_refused = false;
+        if was_flying && !limits.noclip {
+            tracing::info!("movement rules: flying off, this server's rules are enforced");
+            self.set_noclip(false);
+        }
+    }
+
+    /// The run multiplier actually used, after the movement rules
+    /// ([`Player::speed_boost`] is what was asked for).
+    pub fn effective_speed_boost(&self) -> f32 {
+        self.limits.clamp_speed_boost(self.speed_boost)
+    }
+
+    /// The extra full-jump height actually used, after the movement
+    /// rules (0 = the Jump skill's own height).
+    pub fn effective_jump_height(&self) -> f32 {
+        self.limits.clamp_jump_height(self.jump_height)
     }
 
     /// One frame of flight: straight to where the input points, then
@@ -893,7 +1125,7 @@ impl Player {
     /// Apply one frame of input. Returns true if the position changed.
     pub fn update(&mut self, assets: &Assets, input: &Input, dt: f32) -> bool {
         let speed = if input.run {
-            self.run_speed * self.run_rate * self.speed_boost
+            self.run_speed * self.run_rate * self.limits.clamp_speed_boost(self.speed_boost)
         } else {
             self.walk_speed
         };
@@ -1299,5 +1531,77 @@ mod tests {
         assert!((run_rate(800) - 4.5).abs() < 1e-6);
         assert!((run_rate(2000) - 4.5).abs() < 1e-6);
         assert!(run_rate(100) > run_rate(50));
+    }
+
+    #[test]
+    fn our_own_server_is_the_one_the_rules_are_relaxed_for() {
+        for local in [
+            "127.0.0.1",
+            "127.0.0.1:9000",
+            "127.1.2.3:9000",
+            "localhost",
+            "LocalHost:9000",
+            "ace.localhost:9000",
+            "::1",
+            "[::1]:9000",
+            "::1%lo0",
+        ] {
+            assert!(host_is_local(local), "{local} should count as ours");
+        }
+        for public in [
+            "",
+            "play.coldeve.ac:9000",
+            "127.0.0.1.example.com:9000",
+            "notlocalhost:9000",
+            "localhost.example.com",
+            "10.0.0.4:9000",
+            "192.168.1.20:9000",
+            "74.50.118.178:9000",
+            "[2001:db8::1]:9000",
+        ] {
+            assert!(!host_is_local(public), "{public} should not count as ours");
+        }
+    }
+
+    #[test]
+    fn the_rules_are_safe_everywhere_but_home() {
+        // Automatic: the extras on our own server, the game's own rules
+        // on anyone else's -- including when we do not know where we are.
+        let auto = MovementRules::Auto;
+        assert_eq!(auto.limits("127.0.0.1:9000"), MovementLimits::UNRESTRICTED);
+        assert!(auto.limits("play.coldeve.ac:9000").is_server_safe());
+        assert!(auto.limits("").is_server_safe());
+        assert_eq!(MovementRules::default(), MovementRules::Auto);
+        // The two settings that do not care where we are.
+        assert!(MovementRules::ServerSafe
+            .limits("127.0.0.1:9000")
+            .is_server_safe());
+        assert_eq!(
+            MovementRules::Unrestricted.limits("play.coldeve.ac:9000"),
+            MovementLimits::UNRESTRICTED
+        );
+        // Unset limits are the safe ones.
+        assert!(MovementLimits::default().is_server_safe());
+    }
+
+    #[test]
+    fn server_safe_limits_hold_the_run_the_jump_and_the_flying() {
+        let safe = MovementLimits::SERVER_SAFE;
+        // The Run skill's own pace: no boost, but slower is always fine.
+        assert_eq!(safe.clamp_speed_boost(2.5), 1.0);
+        assert_eq!(safe.clamp_speed_boost(1.0), 1.0);
+        assert_eq!(safe.clamp_speed_boost(0.5), 0.5);
+        // The Jump skill's own height: nothing added.
+        assert_eq!(safe.clamp_jump_height(9.0), 0.0);
+        assert_eq!(safe.clamp_jump_height(0.0), 0.0);
+        assert!(!safe.noclip);
+
+        let free = MovementLimits::UNRESTRICTED;
+        assert_eq!(free.clamp_speed_boost(2.5), 2.5);
+        assert_eq!(free.clamp_speed_boost(99.0), MAX_SPEED_BOOST);
+        assert_eq!(free.clamp_jump_height(9.0), 9.0);
+        assert_eq!(free.clamp_jump_height(99.0), MAX_JUMP_HEIGHT);
+        assert!(free.noclip);
+        assert!(!free.is_server_safe());
     }
 }

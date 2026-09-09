@@ -4,7 +4,7 @@
 //! arrived a few centimetres under the porch top used to pass down
 //! through the slab and leave the character stuck in the one-metre gap
 //! beneath it (the server then refused every move).
-use ac_client::player::{Input, Player};
+use ac_client::player::{Input, MovementLimits, Player};
 use ac_scene::{collision::CollisionWorld, landblock, Assets};
 use glam::{Quat, Vec3};
 
@@ -266,7 +266,12 @@ fn flying_ignores_the_ground_and_landing_finds_it_again() {
         pl.update(&assets, &Input::default(), 1.0 / 30.0);
     }
     let ground = pl.world_position();
-    pl.set_noclip(true);
+    // Out of the box the character is held to the game's own rules, and
+    // flying is refused; it takes a server that allows it.
+    assert!(!pl.set_noclip(true), "flew under the server-safe rules");
+    assert!(!pl.noclip);
+    pl.set_limits(MovementLimits::UNRESTRICTED);
+    assert!(pl.set_noclip(true));
     let up = Input {
         run: true,
         climb: 1.0,
