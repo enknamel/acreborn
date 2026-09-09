@@ -103,50 +103,156 @@ fn shuffle(x: &mut [u32; 8]) {
     x[0] = x[0].wrapping_add(x[1]);
 }
 
-/// Receiving side: the peer's key stream with a bounded look-ahead so a
-/// dropped packet does not desynchronise us (ACE's `CryptoSystem`).
+/// Receiving side: a sliding window over the peer's key stream.
+///
+/// Every encrypted packet carries one key from the peer's ISAAC stream, in
+/// send order. On a lossless link we consume them one at a time. On a real
+/// link packets are lost, reordered and duplicated, so the window holds
+/// keys we generated but nobody has claimed yet, and remembers the keys we
+/// already used.
+///
+/// Two rules keep the window from wedging shut, which is what a plain port
+/// of ACE's `CryptoSystem` does:
+///
+/// * the look ahead never runs more than [`KeyStream::MAX_EFFORT`] keys past
+///   the newest key we accepted, so unrecognised packets cannot walk the
+///   stream away from the peer;
+/// * unclaimed keys are dropped once they fall [`BACKLOG`] behind, oldest
+///   first, instead of filling a fixed budget and failing every packet from
+///   then on.
 pub struct KeyStream {
     isaac: Isaac,
-    current: u32,
-    /// Keys we skipped past while searching; may still arrive (reordered
-    /// or retransmitted packets keep their original XOR).
-    pending: Vec<u32>,
+    /// Generated but unused keys with their index in the stream, oldest
+    /// first. The front is the next key a lossless peer will send.
+    window: std::collections::VecDeque<(u64, u32)>,
+    /// Index of the next key `isaac` will produce.
+    next_index: u64,
+    /// One past the index of the newest key we accepted.
+    live: u64,
+    /// Keys already used, oldest first: lets a duplicated or twice
+    /// retransmitted packet verify without disturbing the window.
+    recent: std::collections::VecDeque<u32>,
+    stats: KeyStats,
+}
+
+/// Unclaimed keys are dropped once they are this far behind the newest key
+/// we accepted. A retransmit older than this is given up on; the session
+/// keeps running rather than failing every later packet.
+const BACKLOG: usize = 256;
+/// How many used keys we remember for duplicate detection.
+const RECENT: usize = 256;
+
+/// Counters for logging; see [`KeyStream::stats`].
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct KeyStats {
+    /// Keys that fell out of the window unclaimed (packets lost for good).
+    pub lost: u64,
+    /// Packets whose key we had already used.
+    pub duplicates: u64,
+    /// Packets whose key was nowhere in the window.
+    pub rejected: u64,
 }
 
 impl KeyStream {
+    /// How far past the newest accepted key we will look ahead. ACE uses
+    /// the same number for its own search.
     pub const MAX_EFFORT: usize = 256;
 
     pub fn new(seed: u32) -> Self {
-        let mut isaac = Isaac::new(seed);
-        let current = isaac.next();
-        KeyStream {
-            isaac,
-            current,
-            pending: Vec::new(),
+        let mut ks = KeyStream {
+            isaac: Isaac::new(seed),
+            window: std::collections::VecDeque::new(),
+            next_index: 0,
+            live: 0,
+            recent: std::collections::VecDeque::new(),
+            stats: KeyStats::default(),
+        };
+        ks.fill();
+        ks
+    }
+
+    pub fn stats(&self) -> KeyStats {
+        self.stats
+    }
+
+    /// How many generated keys are still waiting to be claimed. One on a
+    /// healthy connection; it grows with loss and shrinks again as the
+    /// stale entries age out.
+    pub fn window_len(&self) -> usize {
+        self.window.len()
+    }
+
+    /// True if `key` is one this peer could have sent: the next key, one
+    /// within the look-ahead window, a key we skipped past earlier (a
+    /// retransmission keeps its original key), or one we have just used (a
+    /// duplicate). Consumes it on success.
+    pub fn accept(&mut self, key: u32) -> bool {
+        // The lossless case: exactly the next key in the stream.
+        if self.window.front().is_some_and(|&(_, k)| k == key) {
+            let (idx, _) = self.window.pop_front().expect("front checked");
+            self.consumed(idx, key);
+            return true;
+        }
+        // A key we skipped over: a reordered or retransmitted packet.
+        if let Some(i) = self.window.iter().position(|&(_, k)| k == key) {
+            let (idx, _) = self.window.remove(i).expect("index from position");
+            self.consumed(idx, key);
+            return true;
+        }
+        // A packet we have already seen. The session drops it by sequence;
+        // recognising it here stops a duplicate from costing a full search.
+        if self.recent.contains(&key) {
+            self.stats.duplicates += 1;
+            return true;
+        }
+        // Look ahead for keys the peer has sent but we have not seen,
+        // keeping everything we pass over: those packets may still arrive.
+        while self.next_index < self.live + Self::MAX_EFFORT as u64 {
+            let idx = self.next_index;
+            let k = self.isaac.next();
+            self.next_index += 1;
+            if k == key {
+                self.consumed(idx, key);
+                return true;
+            }
+            self.window.push_back((idx, k));
+        }
+        self.stats.rejected += 1;
+        self.trim();
+        false
+    }
+
+    /// Book-keeping after `key` at stream index `idx` was accepted.
+    fn consumed(&mut self, idx: u64, key: u32) {
+        self.live = self.live.max(idx + 1);
+        self.recent.push_back(key);
+        while self.recent.len() > RECENT {
+            self.recent.pop_front();
+        }
+        self.trim();
+        self.fill();
+    }
+
+    /// Forget unclaimed keys that have fallen too far behind.
+    fn trim(&mut self) {
+        let cutoff = self.live.saturating_sub(BACKLOG as u64);
+        while let Some(&(idx, _)) = self.window.front() {
+            if idx >= cutoff {
+                break;
+            }
+            self.window.pop_front();
+            self.stats.lost += 1;
         }
     }
 
-    /// True if `key` is the current key or one within the look-ahead
-    /// window (or a previously skipped key). Consumes it on success.
-    pub fn accept(&mut self, key: u32) -> bool {
-        if self.current == key {
-            self.current = self.isaac.next();
-            return true;
+    /// Keep the next key materialised so the lossless path is one compare.
+    fn fill(&mut self) {
+        if self.window.is_empty() && self.next_index < self.live + Self::MAX_EFFORT as u64 {
+            let idx = self.next_index;
+            let k = self.isaac.next();
+            self.next_index += 1;
+            self.window.push_back((idx, k));
         }
-        if let Some(i) = self.pending.iter().position(|&k| k == key) {
-            self.pending.swap_remove(i);
-            return true;
-        }
-        let budget = Self::MAX_EFFORT.saturating_sub(self.pending.len());
-        for _ in 0..budget {
-            self.pending.push(self.current);
-            self.current = self.isaac.next();
-            if self.current == key {
-                self.current = self.isaac.next();
-                return true;
-            }
-        }
-        false
     }
 }
 
@@ -154,14 +260,17 @@ impl KeyStream {
 mod tests {
     use super::*;
 
+    /// A peer that hands out keys in send order, like ACE's server ISAAC.
+    fn peer(seed: u32, n: usize) -> Vec<u32> {
+        let mut p = Isaac::new(seed);
+        (0..n).map(|_| p.next()).collect()
+    }
+
     #[test]
     fn deterministic_and_seed_sensitive() {
-        let mut a = Isaac::new(0x1234_5678);
-        let mut b = Isaac::new(0x1234_5678);
-        let mut c = Isaac::new(0x1234_5679);
-        let va: Vec<u32> = (0..600).map(|_| a.next()).collect();
-        let vb: Vec<u32> = (0..600).map(|_| b.next()).collect();
-        let vc: Vec<u32> = (0..600).map(|_| c.next()).collect();
+        let va = peer(0x1234_5678, 600);
+        let vb = peer(0x1234_5678, 600);
+        let vc = peer(0x1234_5679, 600);
         assert_eq!(va, vb);
         assert_ne!(va, vc);
         // Crosses a scramble boundary without repeating.
@@ -170,15 +279,197 @@ mod tests {
 
     #[test]
     fn keystream_tolerates_skips() {
-        let mut peer = Isaac::new(42);
+        let k = peer(42, 3);
         let mut ks = KeyStream::new(42);
-        let k0 = peer.next();
-        let k1 = peer.next();
-        let k2 = peer.next();
-        assert!(ks.accept(k0));
-        assert!(ks.accept(k2)); // skipped k1
-        assert!(ks.accept(k1)); // late arrival still accepted
+        assert!(ks.accept(k[0]));
+        assert!(ks.accept(k[2])); // skipped k1
+        assert!(ks.accept(k[1])); // late arrival still accepted
         assert!(!ks.accept(0xDEAD_BEEF));
+    }
+
+    /// The zero-loss path must consume exactly one key per packet.
+    #[test]
+    fn lossless_stream_is_exact() {
+        let k = peer(7, 4000);
+        let mut ks = KeyStream::new(7);
+        for (i, &key) in k.iter().enumerate() {
+            assert!(ks.accept(key), "key {i} rejected");
+        }
+        assert_eq!(ks.window_len(), 1, "one key of look ahead, no backlog");
+        assert_eq!(ks.stats(), KeyStats::default(), "nothing lost or skipped");
+    }
+
+    /// A run of unrecognised packets used to consume 256 keys each until the
+    /// window latched shut and every later packet failed. It must recover.
+    #[test]
+    fn survives_a_burst_of_garbage() {
+        let k = peer(11, 600);
+        let mut ks = KeyStream::new(11);
+        for &key in &k[..50] {
+            assert!(ks.accept(key));
+        }
+        for i in 0..500u32 {
+            assert!(!ks.accept(0x8000_0000 | i), "garbage {i} accepted");
+        }
+        for (i, &key) in k[50..].iter().enumerate() {
+            assert!(ks.accept(key), "key {} rejected after garbage", i + 50);
+        }
+        assert_eq!(ks.stats().rejected, 500);
+    }
+
+    /// Interleaving garbage with real traffic must not degrade over time.
+    #[test]
+    fn garbage_interleaved_with_traffic() {
+        let k = peer(13, 3000);
+        let mut ks = KeyStream::new(13);
+        for (i, &key) in k.iter().enumerate() {
+            if i % 7 == 0 {
+                assert!(!ks.accept(0xC000_0000 ^ i as u32));
+            }
+            assert!(ks.accept(key), "key {i} rejected");
+        }
+    }
+
+    /// Steady loss over a long session: everything that arrives is accepted,
+    /// and the window does not grow without bound.
+    #[test]
+    fn steady_loss_over_a_long_session() {
+        let k = peer(17, 20_000);
+        let mut ks = KeyStream::new(17);
+        let mut delivered = 0;
+        for (i, &key) in k.iter().enumerate() {
+            if i % 10 == 3 {
+                continue; // lost in the network
+            }
+            assert!(ks.accept(key), "key {i} rejected after {delivered} good");
+            delivered += 1;
+        }
+        assert!(
+            ks.window_len() <= BACKLOG + 1,
+            "window grew to {}",
+            ks.window_len()
+        );
+        assert!(ks.stats().lost > 0, "stale keys should age out");
+    }
+
+    /// Reordering inside a window, in the worst order: newest first.
+    #[test]
+    fn reordering_in_reverse() {
+        let k = peer(19, 128);
+        let mut ks = KeyStream::new(19);
+        for &key in k.iter().rev() {
+            assert!(ks.accept(key));
+        }
+        // The stream carries on from where it got to.
+        let mut p = Isaac::new(19);
+        for _ in 0..128 {
+            p.next();
+        }
+        assert!(ks.accept(p.next()));
+    }
+
+    /// Duplicated packets (server resend racing our own request) verify and
+    /// cost nothing: the window must not move.
+    #[test]
+    fn duplicates_are_recognised() {
+        let k = peer(23, 40);
+        let mut ks = KeyStream::new(23);
+        for &key in &k[..20] {
+            assert!(ks.accept(key));
+        }
+        let before = ks.window_len();
+        for &key in &k[..20] {
+            assert!(ks.accept(key), "duplicate rejected");
+        }
+        assert_eq!(ks.window_len(), before, "duplicates moved the window");
+        assert_eq!(ks.stats().duplicates, 20);
+        for &key in &k[20..] {
+            assert!(ks.accept(key));
+        }
+    }
+
+    /// A retransmission carries its original key and can arrive well after
+    /// the packets that followed it.
+    #[test]
+    fn late_retransmission_within_the_backlog() {
+        let k = peer(29, 400);
+        let mut ks = KeyStream::new(29);
+        assert!(ks.accept(k[0]));
+        for &key in &k[2..200] {
+            assert!(ks.accept(key));
+        }
+        assert!(ks.accept(k[1]), "retransmit of an early packet");
+    }
+
+    /// The look ahead is bounded: a key far past the live position is
+    /// refused, and that refusal does not disturb the live window.
+    #[test]
+    fn look_ahead_is_bounded() {
+        let k = peer(31, 2000);
+        let mut ks = KeyStream::new(31);
+        assert!(ks.accept(k[0]));
+        assert!(
+            !ks.accept(k[1 + KeyStream::MAX_EFFORT]),
+            "beyond look ahead"
+        );
+        for (i, &key) in k[1..1 + KeyStream::MAX_EFFORT].iter().enumerate() {
+            assert!(ks.accept(key), "key {} rejected", i + 1);
+        }
+        for (i, &key) in k[1 + KeyStream::MAX_EFFORT..].iter().enumerate() {
+            assert!(
+                ks.accept(key),
+                "key {} rejected",
+                i + 1 + KeyStream::MAX_EFFORT
+            );
+        }
+    }
+
+    /// Loss, reordering, duplication and garbage all at once for a long run.
+    #[test]
+    fn survives_a_hostile_link() {
+        let k = peer(37, 30_000);
+        let mut ks = KeyStream::new(37);
+        let mut rng = 0x1234_5678u32;
+        let mut next = || {
+            rng ^= rng << 13;
+            rng ^= rng >> 17;
+            rng ^= rng << 5;
+            rng
+        };
+        let mut held: Vec<u32> = Vec::new();
+        let mut accepted = 0;
+        for (i, &key) in k.iter().enumerate() {
+            match next() % 16 {
+                // Lost for good.
+                0 => continue,
+                // Delayed: delivered a few packets later, out of order.
+                1 => {
+                    held.push(key);
+                    continue;
+                }
+                // Garbage from a stale connection.
+                2 => {
+                    ks.accept(next());
+                }
+                // Duplicated.
+                3 => {
+                    assert!(ks.accept(key), "key {i} rejected");
+                    assert!(ks.accept(key), "duplicate of {i} rejected");
+                    accepted += 1;
+                    continue;
+                }
+                _ => {}
+            }
+            assert!(ks.accept(key), "key {i} rejected");
+            accepted += 1;
+            if held.len() >= 4 {
+                for h in held.drain(..) {
+                    assert!(ks.accept(h), "delayed packet rejected");
+                    accepted += 1;
+                }
+            }
+        }
+        assert!(accepted > 20_000, "only {accepted} packets got through");
     }
 }
 
