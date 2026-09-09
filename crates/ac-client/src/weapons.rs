@@ -362,7 +362,14 @@ pub fn score(item: &ItemStats, target: Option<&Creature>, wielder: &Wielder) -> 
         .map(|e| {
             let takes = target.map(|c| c.takes_from(*e)).unwrap_or(1.0);
             if item.imbued & e.rending() != 0 {
-                takes.max(1.0) * RENDING_BONUS
+                // Rending strips some of the target's protection, so it
+                // is worth more than the bare figure -- but it does not
+                // make every element alike. Raising a resistant one to
+                // a flat 1.0 did: a character carrying a rending caster
+                // of all seven elements scored them identically against
+                // anything that resists across the board, and so never
+                // swapped off whichever was already in hand.
+                takes * RENDING_BONUS
             } else {
                 takes
             }
@@ -967,5 +974,62 @@ mod tests {
         );
         assert!(!vulnerability_spells(Element::Fire).is_empty());
         assert_eq!(vulnerability_for(None, LONG_FIGHT_HEALTH), None);
+    }
+    /// A caster is chosen for the target the same way a sword is: the
+    /// seven element sceptres differ only in what they deal and rend, so
+    /// against a drudge (slash 0.86, fire 1.42) the fiery one has to win.
+    #[test]
+    fn the_caster_matching_the_targets_weakness_is_the_one_picked() {
+        use ac_world::item_type::CASTER;
+        let drudge = elements::creature_by_id(7).expect("Drudge Skulker");
+        let sceptre = |guid: u32, name: &str, element: Element| {
+            let mut w = weapon(CASTER, 0, 0, element as u32, element.rending());
+            w.guid = guid;
+            w.name = name.into();
+            w.elemental_damage = 1.5;
+            w
+        };
+        let carried = vec![
+            sceptre(1, "Slashing Sceptre", Element::Slash),
+            sceptre(2, "Fiery Sceptre", Element::Fire),
+            sceptre(3, "Acid Sceptre", Element::Acid),
+        ];
+        let picked = best(&carried, Stance::Magic, Some(drudge), &able()).expect("a caster");
+        assert_eq!(picked.name, "Fiery Sceptre", "{}", picked.why);
+        // And it really is rated above the one that would be kept.
+        let slash = score(&carried[0], Some(drudge), &able());
+        let fire = score(&carried[1], Some(drudge), &able());
+        assert!(fire > slash, "fire {fire} should beat slash {slash}");
+    }
+
+    /// Seven rending casters, one per element, against something that
+    /// resists every element (a Soiled Doll: slash 0.95, fire 0.6). They
+    /// used to score identically, because rending raised each to a flat
+    /// 1.0, so the one already in hand was never swapped off. The one
+    /// the target resists least has to win.
+    #[test]
+    fn rending_casters_are_still_told_apart_by_what_the_target_resists() {
+        use ac_world::item_type::CASTER;
+        let doll = elements::creature_by_id(25858).expect("Soiled Doll");
+        let sceptre = |guid: u32, name: &str, element: Element| {
+            let mut w = weapon(CASTER, 0, 0, element as u32, element.rending());
+            w.guid = guid;
+            w.name = name.into();
+            w.elemental_damage = 1.5;
+            w
+        };
+        let carried = vec![
+            sceptre(1, "Fiery Sceptre", Element::Fire),
+            sceptre(2, "Slashing Sceptre", Element::Slash),
+            sceptre(3, "Acid Sceptre", Element::Acid),
+        ];
+        let slash = score(&carried[1], Some(doll), &able());
+        let fire = score(&carried[0], Some(doll), &able());
+        assert!(
+            slash > fire,
+            "it resists fire (0.6) more than slashing (0.95): slash {slash}, fire {fire}"
+        );
+        let picked = best(&carried, Stance::Magic, Some(doll), &able()).expect("a caster");
+        assert_eq!(picked.name, "Slashing Sceptre", "{}", picked.why);
     }
 }

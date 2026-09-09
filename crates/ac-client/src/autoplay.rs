@@ -1676,6 +1676,7 @@ impl Client {
         }
         self.autoplay.armed_for = Some(target);
         let Some(known) = self.creature_known(target) else {
+            tracing::debug!("arm: nothing known about {target:#010x}, keeping what is held");
             return;
         };
         let carried: Vec<crate::items::ItemStats> = self.item_stats();
@@ -1712,6 +1713,7 @@ impl Client {
             .and_then(|_| crate::weapons::best_missile(&carried, Some(known), &wielder))
             .and_then(|(_, ammo)| ammo.map(|a| a.guid));
         let Some(pick) = picked else {
+            tracing::debug!("arm: nothing to pick from for {}", known.name);
             return;
         };
         // What is in hand now, whichever kind it is when the choice is
@@ -1723,12 +1725,21 @@ impl Client {
                     None => false,
                 }
         });
-        // Only swap for something meaningfully better: an appraisal we
-        // have not done yet should not make us drop a good weapon.
+        // Swapping costs nothing worth counting, so take the best there
+        // is: anything better than what is in hand wins. Equal keeps
+        // what is held, so a tie cannot set it swapping back and forth.
         let now_worth = held
             .map(|i| crate::weapons::score(i, Some(known), &wielder))
             .unwrap_or(0.0);
-        if held.map(|i| i.guid) == Some(pick.guid) || pick.score <= now_worth * 1.1 {
+        tracing::debug!(
+            "arm: {} vs {} -> best {} {:.3} (held {:.3})",
+            known.name,
+            held.map(|i| i.name.as_str()).unwrap_or("nothing"),
+            pick.name,
+            pick.score,
+            now_worth
+        );
+        if held.map(|i| i.guid) == Some(pick.guid) || pick.score <= now_worth {
             return;
         }
         tracing::info!(
