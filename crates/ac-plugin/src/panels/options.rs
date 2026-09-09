@@ -248,6 +248,8 @@ pub struct Options {
     /// Whether the rules were holding the character back last tick, so
     /// a change can be said once in the chat log.
     was_safe: Option<bool>,
+    /// A refusal to fly was already reported in the chat log.
+    said_refusal: bool,
 }
 
 impl Options {
@@ -272,6 +274,7 @@ impl Options {
             draw_distance: None,
             movement_rules: MovementRules::default(),
             was_safe: None,
+            said_refusal: false,
         }
     }
 }
@@ -341,6 +344,18 @@ impl Plugin for Options {
             let held_back = safe
                 && (self.speed_boost.unwrap_or(c.speed_boost) > 1.0
                     || self.jump_height.unwrap_or(c.jump_height) > 0.0);
+            // Flying asked for and refused: say it once, wherever it was
+            // asked from (the viewer's Y key, a script, a fleet leader).
+            let refused = c.noclip_refused();
+            if refused && !self.said_refusal {
+                cx.chat.push((
+                    "Flying is off: this server checks how you move \
+                     (Options, \"movement rules\")."
+                        .to_string(),
+                    0,
+                ));
+            }
+            self.said_refusal = refused;
             if self.was_safe != Some(safe) {
                 if held_back {
                     cx.chat.push((
