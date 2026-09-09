@@ -264,13 +264,19 @@ impl Client {
         use ac_net::messages::DatIteration;
         use ac_net::session::{Config as NetConfig, Session};
         let host = config.host.clone();
-        let primary: std::net::SocketAddr = if host.contains(':') {
-            host.parse().map_err(std::io::Error::other)?
+        // Resolve the login address, accepting a hostname or an IP, with or
+        // without a port (the public servers are named hosts, so a bare
+        // `parse()` to a SocketAddr rejects them; `to_socket_addrs` runs
+        // DNS). Default to the login port 9000 when none is given.
+        let target = if host.contains(':') {
+            host.clone()
         } else {
             format!("{host}:9000")
-                .parse()
-                .map_err(std::io::Error::other)?
         };
+        let primary: std::net::SocketAddr = std::net::ToSocketAddrs::to_socket_addrs(&target)
+            .map_err(std::io::Error::other)?
+            .next()
+            .ok_or_else(|| std::io::Error::other(format!("no address found for {host}")))?;
         let secondary = std::net::SocketAddr::new(primary.ip(), primary.port() + 1);
         let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
         socket.set_nonblocking(true)?;

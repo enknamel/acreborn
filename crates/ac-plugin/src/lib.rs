@@ -22,6 +22,7 @@ pub mod icons;
 pub mod lobby;
 pub mod panels;
 pub mod party;
+pub mod servers;
 pub mod settings;
 pub mod team;
 

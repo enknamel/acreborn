@@ -10,6 +10,7 @@
 //! state) and have a demo mode with no session: `acviewer --demo-select`
 //! and `--demo-create`.
 
+pub mod connect;
 pub mod create;
 pub mod select;
 
@@ -18,13 +19,17 @@ use std::rc::Rc;
 use ac_client::creation::{self, CharacterBuild};
 use ac_scene::Assets;
 
+use crate::servers::{Login, Servers};
 use crate::{egui, Client, Ctx, Event, Plugin};
+use connect::{ConnectAction, ConnectState};
 use create::{CreateAction, CreateState};
 use select::{SelectAction, SelectState, SelectView};
 
 /// Which screen is up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
+    /// Pick a server, account and password.
+    Connect,
     Select,
     Create,
 }
@@ -34,6 +39,13 @@ pub struct Lobby {
     pub screen: Option<Screen>,
     pub select: SelectState,
     pub create: Option<CreateState>,
+    /// The connect screen's state and the servers/logins it draws from.
+    pub servers: Servers,
+    pub connect: ConnectState,
+    /// A login the connect screen asked to start, for the host to pick up.
+    pending: Option<Login>,
+    /// The servers/logins changed and should be written back to settings.
+    servers_dirty: bool,
     /// A canned character list for the offline demo (no session).
     demo: Option<SelectView>,
 }
@@ -62,6 +74,62 @@ impl Lobby {
 
     pub fn visible(&self) -> bool {
         self.screen.is_some()
+    }
+
+    /// Open the connect screen on the player's servers and logins.
+    pub fn open_connect(&mut self, servers: Servers) {
+        self.connect = ConnectState::from_servers(&servers);
+        self.servers = servers;
+        self.screen = Some(Screen::Connect);
+    }
+
+    /// The login the connect screen asked to start, if any (taken once).
+    pub fn take_connect(&mut self) -> Option<Login> {
+        self.pending.take()
+    }
+
+    /// The servers/logins to write back, when they changed (taken once).
+    pub fn take_dirty_servers(&mut self) -> Option<Servers> {
+        self.servers_dirty.then(|| {
+            self.servers_dirty = false;
+            self.servers.clone()
+        })
+    }
+
+    /// Act on the connect screen: start a login, add a server, or forget
+    /// a remembered account.
+    fn apply_connect(&mut self, action: ConnectAction) {
+        match action {
+            ConnectAction::Connect {
+                host,
+                account,
+                password,
+                remember,
+            } => {
+                // Remember the account (and the password when asked); an
+                // un-remembered account still comes back, without its
+                // password.
+                let kept = if remember { password.as_str() } else { "" };
+                self.servers.remember(&host, &account, kept, "");
+                self.servers_dirty = true;
+                self.pending = Some(Login {
+                    host,
+                    account,
+                    password,
+                    character: String::new(),
+                });
+                // The character list will flip us to Select on arrival.
+                self.screen = Some(Screen::Select);
+            }
+            ConnectAction::AddServer(server) => {
+                self.servers.add(server);
+                self.servers_dirty = true;
+            }
+            ConnectAction::Forget { host, account } => {
+                self.servers.forget(&host, &account);
+                self.servers_dirty = true;
+            }
+        }
     }
 
     /// The character being created, for the host's 3D preview.
@@ -200,6 +268,12 @@ impl Lobby {
     pub fn ui(&mut self, egui: &egui::Context, mut client: Option<&mut Client>) {
         match self.screen {
             None => {}
+            Some(Screen::Connect) => {
+                let actions = connect::draw(egui, &self.servers, &mut self.connect);
+                for a in actions {
+                    self.apply_connect(a);
+                }
+            }
             Some(Screen::Select) => {
                 let v = self.select_view(client.as_deref());
                 for a in select::draw(egui, &v, &mut self.select) {
@@ -225,6 +299,9 @@ impl Lobby {
         }
         match self.screen {
             None => false,
+            // egui's text fields handle their own keys; keep them from the
+            // game, but let Escape through so the app can still quit.
+            Some(Screen::Connect) => key != egui::Key::Escape,
             Some(Screen::Select) => {
                 let v = self.select_view(client.as_deref());
                 // Escape is only ours while a delete waits for Yes/No, so

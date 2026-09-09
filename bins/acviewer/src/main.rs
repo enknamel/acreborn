@@ -170,6 +170,10 @@ struct Cli {
     /// with the 3D preview (no server); `--press ArrowRight` steps it.
     #[arg(long)]
     demo_create: bool,
+    /// Offline: the connect screen (server, account, password), for a look
+    /// or a `--screenshot`.
+    #[arg(long)]
+    demo_connect: bool,
     /// Join the local cross-process bus so plugins here and in other
     /// acviewer/acbot processes share posts and values: HOST:PORT or PORT
     /// (default 127.0.0.1:9500, or $ACSWARM_BUS). The first process up
@@ -297,6 +301,26 @@ fn no_data_dir_notice() {
 
 #[cfg(target_os = "linux")]
 fn no_data_dir_notice() {}
+
+/// Where the player's servers and remembered logins are kept.
+fn servers_path() -> PathBuf {
+    ac_plugin::Settings::config_dir().join("servers.json")
+}
+
+/// Read the player's servers and logins.
+fn load_servers() -> ac_plugin::servers::Servers {
+    ac_plugin::servers::Servers::load(&ac_plugin::Settings::load(&servers_path()))
+}
+
+/// Write the player's servers and logins back to their file.
+fn save_servers(servers: &ac_plugin::servers::Servers) {
+    let path = servers_path();
+    let mut settings = ac_plugin::Settings::load(&path);
+    servers.save(&mut settings);
+    if let Err(e) = settings.save(&path) {
+        tracing::warn!("could not save the server list: {e}");
+    }
+}
 
 /// Settle on a data directory: an explicit choice wins; otherwise the
 /// remembered one, then the usual places, then a folder picker when a
@@ -470,6 +494,9 @@ struct App {
     pending_sessions: Vec<(Vec<ac_plugin::SessionSpec>, Vec<usize>)>,
     /// Frame pacing, culling settings and cost accounting.
     render: RenderState,
+    /// The server the connect screen chose (`host:port`), used for every
+    /// session it and the fleet start; falls back to `--connect`.
+    current_host: Option<String>,
 }
 
 /// Rendering-side state the frame loop keeps between frames.
@@ -672,8 +699,15 @@ impl App {
             }
             app.plugins.board.set_local(err_key.clone(), why);
         };
-        let Some(host) = self.cli.connect.clone() else {
-            fail(self, "not connected to a server (--connect)".into());
+        let Some(host) = self
+            .current_host
+            .clone()
+            .or_else(|| self.cli.connect.clone())
+        else {
+            fail(
+                self,
+                "no server chosen (use the connect screen or --connect)".into(),
+            );
             return;
         };
         if self
@@ -703,7 +737,10 @@ impl App {
             account: account.clone(),
             password: spec.password.clone(),
             character: spec.character_name().map(str::to_string),
-            auto_enter: true,
+            // Enter the world straight away when a character (or a
+            // character to create) is named; otherwise stop at the lobby's
+            // character-select screen (the connect screen's path).
+            auto_enter: spec.character_name().is_some() || spec.create.is_some(),
         };
         let mut client = match ac_client::Client::connect(cfg, assets) {
             Ok(c) => c,
@@ -906,6 +943,26 @@ impl App {
         if let Some((item, px, py)) = world_drop {
             self.world_drop(item, px, py, (w, h));
         }
+        // The connect screen asked to log in, or changed the saved servers.
+        if let Some(login) = self.lobby.take_connect() {
+            self.begin_login(login);
+        }
+        if let Some(servers) = self.lobby.take_dirty_servers() {
+            save_servers(&servers);
+        }
+    }
+
+    /// Start a session from the connect screen: remember the server and
+    /// connect, landing on the character-select screen.
+    fn begin_login(&mut self, login: ac_plugin::servers::Login) {
+        self.current_host = Some(login.host);
+        self.start_session(ac_plugin::SessionSpec {
+            account: login.account,
+            password: login.password,
+            character: None,
+            create: None,
+            role: ac_plugin::Role::default(),
+        });
     }
 
     /// Finish a drag that ended over the 3D view: hand the item to the
@@ -1548,6 +1605,9 @@ impl App {
             return Ok(());
         }
         let assets = ac_scene::Assets::open(self.cli.data_dir()).context("opening DAT archives")?;
+        if self.cli.demo_connect {
+            self.lobby.open_connect(load_servers());
+        }
         if self.cli.demo_select || self.cli.demo_create {
             // The lobby with no server: daylight sky, no world; the creation
             // screen's preview model is instanced by `tick_lobby`.
@@ -1706,6 +1766,17 @@ impl ApplicationHandler for App {
         self.gpu = Some(gpu);
         self.window = Some(window);
         self.last_frame = Instant::now();
+        // Nothing was told to connect to and no demo is up: open the
+        // server/account picker so the app starts there.
+        if self.cli.connect.is_none()
+            && self.cli.fleet_start.is_empty()
+            && !self.cli.demo_select
+            && !self.cli.demo_create
+            && !self.lobby.visible()
+            && self.nets.is_empty()
+        {
+            self.lobby.open_connect(load_servers());
+        }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -2150,6 +2221,7 @@ fn main() -> Result<()> {
             assets: None,
             pending_sessions: Vec::new(),
             render: Default::default(),
+            current_host: None,
         };
         if let Some(bus) = app.cli.bus.clone() {
             plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
@@ -2762,6 +2834,7 @@ fn main() -> Result<()> {
         assets: None,
         pending_sessions: Vec::new(),
         render: Default::default(),
+        current_host: None,
     };
     if let Some(bus) = app.cli.bus.clone() {
         plugins::join_bus(&mut app.plugins, &bus, app.cli.account.as_deref())?;
