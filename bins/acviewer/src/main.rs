@@ -325,7 +325,35 @@ fn save_servers(servers: &ac_plugin::servers::Servers) {
     servers.save(&mut settings);
     if let Err(e) = settings.save(&path) {
         tracing::warn!("could not save the server list: {e}");
+        return;
     }
+    keep_to_yourself(&path);
+}
+
+/// Make a file readable only by the person who owns it.
+///
+/// This file holds account passwords in the clear, and it was being
+/// written world-readable, which on a shared machine means any other
+/// account could read them. Tightening the mode is not encryption and
+/// does not pretend to be: anything running as this user can still read
+/// it. It closes the easy door, not every door.
+fn keep_to_yourself(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // The directory too: a world-readable directory is how the
+        // backup file beside this one gets found.
+        for target in [path.parent().unwrap_or(path), path] {
+            let owner_only = if target.is_dir() { 0o700 } else { 0o600 };
+            if let Err(e) =
+                std::fs::set_permissions(target, std::fs::Permissions::from_mode(owner_only))
+            {
+                tracing::warn!("could not lock down {}: {e}", target.display());
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 /// Settle on a data directory: an explicit choice wins; otherwise the
