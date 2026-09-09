@@ -1498,6 +1498,13 @@ impl Client {
         if !self.autoplay.config.loot.tidy_pack {
             return false;
         }
+        // Not with a counter open. A run to town holds a list of what
+        // it has sent the vendor, by guid, and a merge makes one of
+        // those guids vanish mid-sale. Whatever was bought is tidied
+        // the moment the window closes, which is soon enough.
+        if self.world.open_vendor.is_some() {
+            return false;
+        }
         if self
             .autoplay
             .last_merge
