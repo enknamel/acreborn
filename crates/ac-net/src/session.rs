@@ -53,6 +53,10 @@ const MAX_PARTIALS: usize = 256;
 const MISMATCH_WARN_INTERVAL: Duration = Duration::from_secs(5);
 /// Warn once when the server has gone quiet for this long.
 const STALL_WARN: Duration = Duration::from_secs(10);
+/// Give the session up when the server has said nothing for this long. A
+/// dead link otherwise leaves the client looking connected for ever, and
+/// nothing tells the host to log back in.
+const SILENT_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
@@ -697,6 +701,18 @@ impl Session {
                 self.last_recv,
                 self.mismatches
             );
+        }
+        // Still nothing much later: the session is gone whether or not the
+        // server ever said so. End it, so the client stops pretending it is
+        // connected and can log back in by itself.
+        let silence = now.saturating_duration_since(self.last_traffic);
+        if silence >= SILENT_TIMEOUT {
+            tracing::warn!("no packet from the server for {silence:.0?}; giving the session up");
+            self.state = State::Terminated;
+            self.events.push(Event::Terminated(format!(
+                "no reply from the server for {silence:.0?}"
+            )));
+            return;
         }
         if let Some(t) = self.connect_retry_at {
             if !self.got_data && now >= t {

@@ -652,3 +652,39 @@ fn lost_fragment_releases_the_backlog_on_the_timer() {
     s.receive(&p4[0], t0 + Duration::from_secs(18));
     assert_eq!(s.events().len(), 1, "p4 delivered straight away");
 }
+
+/// A server that goes quiet for good ends the session, so the client stops
+/// looking connected and the host knows to log back in.
+#[test]
+fn a_silent_server_ends_the_session() {
+    let (mut s, mut srv, t0) = connected(Duration::from_secs(2));
+    // Traffic keeps it alive.
+    let mut t = t0;
+    for _ in 0..6 {
+        t += Duration::from_secs(5);
+        for dg in srv.message(&[0u8; 8], 8) {
+            s.receive(&dg, t);
+        }
+        s.poll(t);
+        assert_eq!(
+            s.state(),
+            State::Connected,
+            "still talking, still connected"
+        );
+    }
+    // Then silence. Short quiet spells are tolerated.
+    s.poll(t + Duration::from_secs(45));
+    assert_eq!(s.state(), State::Connected, "45 s of quiet is survivable");
+    // Past the timeout the session is given up, with a reason to show.
+    s.poll(t + Duration::from_secs(61));
+    assert_eq!(s.state(), State::Terminated);
+    let why = s
+        .events()
+        .into_iter()
+        .find_map(|e| match e {
+            Event::Terminated(w) => Some(w),
+            _ => None,
+        })
+        .expect("a Terminated event with a reason");
+    assert!(why.contains("no reply"), "reason says what happened: {why}");
+}
