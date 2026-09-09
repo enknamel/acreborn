@@ -16,31 +16,60 @@
 //! plugin over there applies (`team::Request`). A row of this process
 //! is clickable to switch the window to it.
 //!
-//! The panel also starts the fleet. Its **Sessions** section is a
-//! roster of accounts (kept in the settings under [`ROSTER_KEY`], the
-//! passwords in plain text: a private-server convenience) with, for
-//! each, the character to enter with, what to create when the account
-//! lacks it ([`CreateSpec`]: template, heritage, sex, town) and a
-//! [`Role`]. Start asks the host for a session (`Ctx::start_session`);
-//! once its character stands in the world the role is applied
-//! ([`apply_role`]): a follower gets team, follow and autoplay on, the
-//! leader team and lead. "I lead" does the same for the session being
-//! played and remembers its account ([`LEAD_KEY`]) for the next launch.
-//! A script or the command line drives the same path through the
-//! blackboard keys [`START_KEY`] and [`STOP_KEY`].
+//! The panel also starts the fleet. Its **Sessions** section is the
+//! roster of accounts for the server being played, and it is the same
+//! set of accounts the connect screen offers: both read and write the
+//! login store (`crate::servers::Servers` in
+//! [`crate::lobby::store`]'s file), so an account added or forgotten in
+//! one shows in the other. The account, its password and the character
+//! to enter with are the login store's; what the fleet adds is an
+//! [`Entry`] per (server, account) with the [`Role`] and what to create
+//! when the account lacks the character ([`CreateSpec`]: template,
+//! heritage, sex, town), kept in the settings under [`ENTRIES_KEY`].
+//! [`roster`] puts the two together into the [`SessionSpec`]s the rows
+//! stand for.
+//!
+//! Start asks the host for a session (`Ctx::start_session`); once its
+//! character stands in the world the role is applied ([`apply_role`]):
+//! a follower gets team, follow and autoplay on, the leader team and
+//! lead. "I lead" does the same for the session being played and
+//! remembers its account for that server ([`LEADS_KEY`]) for the next
+//! launch. A script or the command line drives the same path through
+//! the blackboard keys [`START_KEY`] and [`STOP_KEY`].
+//!
+//! An older build kept one global roster of accounts under
+//! [`ROSTER_KEY`] with no server against it. [`migrate`] folds that into
+//! the login store once, on the first launch that knows a server.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use serde::{Deserialize, Serialize};
+
 use super::{caption, title_bar, window, Source};
+use crate::lobby::store;
+use crate::servers::{Login, Servers};
 use crate::team::{self, Request, Roster, MATE_TOPIC, REQUEST_TOPIC};
-use crate::{egui, CreateSpec, Ctx, Event, Plugin, Role, SessionSpec, Settings, Value};
+use crate::{egui, Client, CreateSpec, Ctx, Event, Plugin, Role, SessionSpec, Settings, Value};
 use ac_client::autoplay::Mate;
 
-/// The settings key the roster (a list of [`SessionSpec`]) is kept under.
+/// The settings key the old global roster (a list of [`SessionSpec`],
+/// with no server against it) was kept under. Read once, by
+/// [`migrate`], and never written again.
 pub const ROSTER_KEY: &str = "fleet.roster";
-/// The settings key naming the account whose session leads ("I lead").
+/// The settings key the old global "I lead" account was kept under.
 pub const LEAD_KEY: &str = "fleet.lead_account";
+/// The settings key the fleet's own knowledge of an account is kept
+/// under: a list of [`Entry`], one per (server, account).
+pub const ENTRIES_KEY: &str = "fleet.entries";
+/// The settings key naming, per server, the account whose session leads
+/// ("I lead"): a `{host: account}` object.
+pub const LEADS_KEY: &str = "fleet.leads";
+/// The settings key set once [`ROSTER_KEY`] has been folded in.
+pub const MIGRATED_KEY: &str = "fleet.roster_migrated";
+/// The login store is re-read no more often than this.
+const RELOAD_EVERY: Duration = Duration::from_millis(1000);
 /// A blackboard key a script or the command line sets to start
 /// sessions through the panel: a [`SessionSpec`] or a list of them
 /// (each is added to the roster and started). An optional `"process"`
@@ -85,6 +114,179 @@ pub const TEMPLATES: [&str; 7] = [
     "Soldier",
 ];
 pub const TOWNS: [&str; 4] = ["Holtburg", "Shoushi", "Yaraq", "Sanamar"];
+
+/// What the fleet knows about one remembered account on one server, on
+/// top of what the login store holds (the account, its password and the
+/// character to enter with): the [`Role`] its session takes, and what to
+/// create when the account has no such character.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Entry {
+    /// The server, as `host:port` (a [`crate::servers::Server`] address).
+    pub host: String,
+    pub account: String,
+    #[serde(default)]
+    pub role: Role,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create: Option<CreateSpec>,
+}
+
+/// A server address as the login store writes it: `host:port`, with the
+/// login port assumed when none is given (the same rule the client's
+/// `Config::host` follows).
+pub fn address_of(host: &str) -> String {
+    let host = host.trim();
+    if host.is_empty() || host.contains(':') {
+        host.to_string()
+    } else {
+        format!("{host}:9000")
+    }
+}
+
+/// The fleet's entry for `account` on `host`, if it has one.
+pub fn entry_of<'a>(entries: &'a [Entry], host: &str, account: &str) -> Option<&'a Entry> {
+    entries
+        .iter()
+        .find(|e| e.host == host && e.account.eq_ignore_ascii_case(account))
+}
+
+/// Put `entry` among `entries`, replacing the one for the same server
+/// and account.
+pub fn upsert_entry(entries: &mut Vec<Entry>, entry: Entry) {
+    match entries
+        .iter()
+        .position(|e| e.host == entry.host && e.account.eq_ignore_ascii_case(&entry.account))
+    {
+        Some(i) => entries[i] = entry,
+        None => entries.push(entry),
+    }
+}
+
+/// The session a remembered login stands for, with what the fleet adds.
+/// The login holds the one character name: it is the one to enter with,
+/// or the one to create when there is a creation rule.
+pub fn session_spec(login: &Login, entry: Option<&Entry>) -> SessionSpec {
+    let create = entry.and_then(|e| e.create.clone()).map(|mut c| {
+        if !login.character.is_empty() {
+            c.name = login.character.clone();
+        }
+        c
+    });
+    SessionSpec {
+        account: login.account.clone(),
+        password: login.password.clone(),
+        character: (create.is_none() && !login.character.is_empty())
+            .then(|| login.character.clone()),
+        create,
+        // An account the connect screen remembered and the fleet has
+        // never been told about switches nothing on by itself.
+        role: entry.map(|e| e.role).unwrap_or(Role::Manual),
+    }
+}
+
+/// The roster for `host`: every account remembered there, in the order
+/// they were remembered, with the fleet's role and creation rule for it.
+/// This is the same set of accounts the connect screen offers.
+pub fn roster(servers: &Servers, entries: &[Entry], host: &str) -> Vec<SessionSpec> {
+    servers
+        .accounts_for(host)
+        .into_iter()
+        .map(|l| session_spec(l, entry_of(entries, host, &l.account)))
+        .collect()
+}
+
+/// The server an old roster entry belongs to: the one that already
+/// remembers the account, else `current`.
+fn host_for(servers: &Servers, account: &str, current: &str) -> String {
+    servers
+        .logins
+        .iter()
+        .find(|l| l.account.eq_ignore_ascii_case(account))
+        .map(|l| l.host.clone())
+        .unwrap_or_else(|| current.to_string())
+}
+
+/// Remember a login without moving the connect screen's idea of the
+/// server and account last used: only connecting does that.
+fn remember_quietly(servers: &mut Servers, host: &str, account: &str, password: &str, ch: &str) {
+    let (last_host, last_account) = (servers.last_host.clone(), servers.last_account.clone());
+    servers.remember(host, account, password, ch);
+    servers.last_host = last_host;
+    servers.last_account = last_account;
+}
+
+/// Fold the old global roster into the login store, once. Each entry's
+/// account, password and character are remembered for the server it
+/// belongs to (the one that already knows the account, else `current`,
+/// the server being played or last connected to), and its role and
+/// creation rule become an [`Entry`] there. An account already
+/// remembered keeps a password it has when the old entry has none.
+///
+/// `false` when there is nowhere to put them yet (no server is known):
+/// nothing is changed and the fold is tried again next launch.
+pub fn migrate(
+    old: &[SessionSpec],
+    lead: Option<&str>,
+    current: &str,
+    servers: &mut Servers,
+    entries: &mut Vec<Entry>,
+    leads: &mut BTreeMap<String, String>,
+) -> bool {
+    if old.is_empty() && lead.is_none() {
+        return true;
+    }
+    if current.is_empty() && servers.logins.is_empty() {
+        return false;
+    }
+    for spec in old {
+        if spec.account.trim().is_empty() {
+            continue;
+        }
+        let host = host_for(servers, &spec.account, current);
+        if host.is_empty() {
+            continue;
+        }
+        let known = servers
+            .accounts_for(&host)
+            .into_iter()
+            .find(|l| l.account.eq_ignore_ascii_case(&spec.account))
+            .cloned();
+        let password = if spec.password.is_empty() {
+            known
+                .as_ref()
+                .map(|l| l.password.clone())
+                .unwrap_or_default()
+        } else {
+            spec.password.clone()
+        };
+        let character = spec
+            .character_name()
+            .map(str::to_string)
+            .or_else(|| known.map(|l| l.character))
+            .unwrap_or_default();
+        remember_quietly(servers, &host, &spec.account, &password, &character);
+        upsert_entry(
+            entries,
+            Entry {
+                host: host.clone(),
+                account: spec.account.clone(),
+                role: spec.role,
+                create: spec.create.clone(),
+            },
+        );
+        if lead.is_some_and(|l| l.eq_ignore_ascii_case(&spec.account)) {
+            leads.insert(host, spec.account.clone());
+        }
+    }
+    // A leader that was not on the roster still leads on the server it
+    // is known on, or on the current one.
+    if let Some(l) = lead.filter(|l| !l.trim().is_empty()) {
+        let host = host_for(servers, l, current);
+        if !host.is_empty() {
+            leads.entry(host).or_insert_with(|| l.to_string());
+        }
+    }
+    true
+}
 
 /// Switch the team rules on for a role: a follower follows, fights and
 /// plays on its own; the leader leads (and does not follow); manual
@@ -277,6 +479,40 @@ impl AddForm {
         })
     }
 
+    /// Fill the form from a roster entry, so a remembered account is
+    /// picked rather than typed again.
+    pub fn fill_from(&mut self, spec: &SessionSpec) {
+        self.account = spec.account.clone();
+        self.password = spec.password.clone();
+        self.character = spec.character_name().unwrap_or_default().to_string();
+        self.role = spec.role;
+        self.create = spec.create.is_some();
+        self.error = None;
+        let pick = |list: &[&str], v: &Option<String>| {
+            v.as_deref()
+                .and_then(|want| list.iter().position(|l| l.eq_ignore_ascii_case(want)))
+        };
+        if let Some(c) = &spec.create {
+            if let Some(i) = pick(&HERITAGES, &c.heritage) {
+                self.heritage = i;
+            }
+            if let Some(i) = pick(&TEMPLATES, &c.template) {
+                self.template = i;
+            }
+            if let Some(i) = pick(&TOWNS, &c.town) {
+                self.town = i;
+            }
+            if let Some(want) = c.sex.as_deref() {
+                if let Some(i) = SEXES
+                    .iter()
+                    .position(|(a, b)| a.eq_ignore_ascii_case(want) || b.eq_ignore_ascii_case(want))
+                {
+                    self.sex = i;
+                }
+            }
+        }
+    }
+
     /// Clear the fields (the dropdown choices stay) after an Add.
     pub fn clear(&mut self) {
         self.account.clear();
@@ -347,8 +583,14 @@ pub struct FleetView {
     pub rows: Vec<Row>,
     /// A bus is attached: other processes can be seen.
     pub on_bus: bool,
-    /// The roster, with where each entry stands.
+    /// The roster, with where each entry stands. It is the accounts
+    /// remembered for [`FleetView::host`], the same ones the connect
+    /// screen offers.
     pub sessions: Vec<SessionRow>,
+    /// The server the roster is for, as `host:port`.
+    pub host: String,
+    /// That server's name in the server list, when it has one.
+    pub server: String,
     /// The session being played leads (its team rules say so).
     pub lead: bool,
     /// The account of the session being played, if any.
@@ -576,6 +818,8 @@ pub struct Actions {
     pub set_role: Vec<(usize, Role)>,
     /// The Add form was submitted.
     pub add: bool,
+    /// A remembered account (by roster index) was picked into the form.
+    pub pick: Option<usize>,
     /// Start every follower that is not running.
     pub start_followers: bool,
     /// "I lead" was ticked or unticked for the session being played.
@@ -954,8 +1198,15 @@ fn roster_table(ui: &mut egui::Ui, v: &FleetView, a: &mut Actions) {
                         ui.label(&spec.account);
                     }
                 }
-                ui.label(egui::RichText::new("••••••").weak())
-                    .on_hover_text("Kept in the settings file in plain text");
+                if spec.password.is_empty() {
+                    ui.label(egui::RichText::new("none").weak()).on_hover_text(
+                        "No password saved for this account: type it in below and Add, \
+                         or connect with it once and tick Remember",
+                    );
+                } else {
+                    ui.label(egui::RichText::new("••••••").weak())
+                        .on_hover_text("Kept in the login store in plain text");
+                }
                 cell(
                     ui,
                     110.0,
@@ -1010,7 +1261,9 @@ fn roster_table(ui: &mut egui::Ui, v: &FleetView, a: &mut Actions) {
                     }
                     if ui
                         .add(egui::Button::new("Remove").small())
-                        .on_hover_text("Forget the account (stops it first)")
+                        .on_hover_text(
+                            "Forget the account here and on the connect screen (stops it first)",
+                        )
                         .clicked()
                     {
                         a.remove.push(r.index);
@@ -1021,9 +1274,27 @@ fn roster_table(ui: &mut egui::Ui, v: &FleetView, a: &mut Actions) {
         });
 }
 
-/// The Add form.
-fn add_form(ui: &mut egui::Ui, form: &mut AddForm, a: &mut Actions) {
-    caption(ui, "Add an account");
+/// The Add form, with the accounts already remembered for this server
+/// offered as buttons: picking one fills the form instead of typing it
+/// again.
+fn add_form(ui: &mut egui::Ui, v: &FleetView, form: &mut AddForm, a: &mut Actions) {
+    caption(ui, "Add or change an account");
+    if !v.sessions.is_empty() {
+        ui.horizontal_wrapped(|ui| {
+            caption(ui, "Remembered here:");
+            for r in &v.sessions {
+                if ui
+                    .add(egui::Button::new(
+                        egui::RichText::new(&r.spec.account).small(),
+                    ))
+                    .on_hover_text("Fill the form from this account")
+                    .clicked()
+                {
+                    a.pick = Some(r.index);
+                }
+            }
+        });
+    }
     ui.horizontal(|ui| {
         ui.add(
             egui::TextEdit::singleline(&mut form.account)
@@ -1069,6 +1340,17 @@ fn add_form(ui: &mut egui::Ui, form: &mut AddForm, a: &mut Actions) {
 /// The Sessions section: the roster, the all-hands buttons, the form.
 fn sessions(ui: &mut egui::Ui, v: &FleetView, form: &mut AddForm, a: &mut Actions) {
     ui.horizontal(|ui| {
+        let where_ = if v.host.is_empty() {
+            "No server chosen yet: connect to one and its accounts show here".to_string()
+        } else if v.server.is_empty() {
+            format!("Accounts on {}", v.host)
+        } else {
+            format!("Accounts on {} — {}", v.server, v.host)
+        };
+        ui.label(egui::RichText::new(&where_).strong())
+            .on_hover_text("The same accounts the connect screen offers for this server");
+    });
+    ui.horizontal(|ui| {
         let followers = v
             .sessions
             .iter()
@@ -1103,12 +1385,15 @@ fn sessions(ui: &mut egui::Ui, v: &FleetView, form: &mut AddForm, a: &mut Action
         });
     });
     if v.sessions.is_empty() {
-        ui.weak("No accounts yet. Add a follower below, then Start it.");
+        ui.weak(
+            "No accounts remembered for this server yet. Add a follower below, then Start it; \
+             it is offered on the connect screen too.",
+        );
     } else {
         roster_table(ui, v, a);
     }
     ui.add_space(4.0);
-    add_form(ui, form, a);
+    add_form(ui, v, form, a);
 }
 
 /// Draw the panel. `compact` picks one line per character over the
@@ -1132,7 +1417,7 @@ pub fn draw(
     // The section's own header, the roster's header row and rows, and
     // the three lines of the Add form.
     let sessions_h = if sessions_open {
-        176.0 + v.sessions.len().max(1) as f32 * 26.0
+        212.0 + v.sessions.len().max(1) as f32 * 26.0
     } else {
         24.0
     };
@@ -1187,10 +1472,29 @@ pub struct Fleet {
     /// The last `autoplay.event` line of each other process's session.
     events: BTreeMap<Key, String>,
     xp: XpMeter,
-    /// The accounts to run as extra sessions (settings: [`ROSTER_KEY`]).
+    /// The login store, as last read from its file: the servers the
+    /// player knows and the accounts remembered for each.
+    pub servers: Servers,
+    /// What the fleet adds to those accounts (settings: [`ENTRIES_KEY`]).
+    pub entries: Vec<Entry>,
+    /// Per server, the account whose session leads (settings:
+    /// [`LEADS_KEY`]).
+    pub leads: BTreeMap<String, String>,
+    /// The server the roster is for, worked out each frame: the session
+    /// being played, else any session's, else the last connected to.
+    pub host: String,
+    /// The current server's roster, from `servers` and `entries`. Held
+    /// so the rows have stable indices within a frame.
     pub accounts: Vec<SessionSpec>,
-    /// The account whose session leads (settings: [`LEAD_KEY`]).
-    pub lead_account: Option<String>,
+    /// The old global roster and leader, until [`migrate`] folds them in.
+    legacy: Vec<SessionSpec>,
+    legacy_lead: Option<String>,
+    migrated: bool,
+    /// The login store's file (the usual place unless a test says
+    /// otherwise), and when it was last read.
+    store: Option<PathBuf>,
+    store_seen: Option<std::time::SystemTime>,
+    store_checked: Option<Instant>,
     pub form: AddForm,
     /// Accounts asked to start, and when, until their session appears.
     starting: BTreeMap<String, Instant>,
@@ -1314,6 +1618,8 @@ impl Fleet {
                 rows: rows(&seen, &xp, now),
                 on_bus: true,
                 sessions,
+                host: "play.coldeve.ac:9000".into(),
+                server: "Coldeve".into(),
                 lead: true,
                 active_account: Some("alice".into()),
             }),
@@ -1323,18 +1629,145 @@ impl Fleet {
         }
     }
 
-    /// The roster's role for `account`, if it is on it; else the
-    /// leader's, when "I lead" named it.
-    fn role_for(&self, account: &str) -> Option<Role> {
-        if let Some(e) = self
-            .accounts
-            .iter()
-            .find(|e| e.account.eq_ignore_ascii_case(account))
+    /// A panel reading and writing `path` instead of the usual login
+    /// store, for tests.
+    pub fn using_store(path: PathBuf) -> Self {
+        Fleet {
+            store: Some(path),
+            ..Default::default()
+        }
+    }
+
+    /// The login store's file.
+    fn store_path(&self) -> PathBuf {
+        self.store.clone().unwrap_or_else(store::path)
+    }
+
+    /// Read the login store again when it moved under us (the connect
+    /// screen remembered or forgot an account), at most once a second.
+    fn reload_servers(&mut self, now: Instant) {
+        if self
+            .store_checked
+            .is_some_and(|t| now.duration_since(t) < RELOAD_EVERY)
         {
+            return;
+        }
+        self.store_checked = Some(now);
+        let path = self.store_path();
+        let when = store::changed_at(&path);
+        if when == self.store_seen {
+            return;
+        }
+        self.store_seen = when;
+        self.servers = store::load_at(&path);
+    }
+
+    /// Change the login store: what is on disk is read again, `edit`
+    /// makes the change to that, and it is written back, so a change the
+    /// connect screen made since is kept. Which server and account were
+    /// last connected with is left alone: only connecting sets those.
+    fn edit_servers(&mut self, edit: impl FnOnce(&mut Servers)) {
+        let path = self.store_path();
+        self.servers = store::update_at(&path, |s| {
+            let (host, account) = (s.last_host.clone(), s.last_account.clone());
+            edit(s);
+            s.last_host = host;
+            s.last_account = account;
+        });
+        self.store_seen = store::changed_at(&path);
+    }
+
+    /// The server the roster is for: the session being played, else any
+    /// session of this process, else the one last connected to.
+    fn host_of(&self, cx: &Ctx) -> String {
+        let of = |c: &&mut Client| (!c.config.host.is_empty()).then(|| address_of(&c.config.host));
+        if let Some(h) = cx.clients.get(cx.index).and_then(of) {
+            return h;
+        }
+        if let Some(h) = cx.clients.iter().find_map(of) {
+            return h;
+        }
+        self.servers.last_host.clone()
+    }
+
+    /// That server's name in the server list, if it is one we know.
+    fn server_name(&self) -> String {
+        self.servers
+            .all()
+            .into_iter()
+            .find(|s| s.address() == self.host)
+            .map(|s| s.name)
+            .unwrap_or_default()
+    }
+
+    /// Rebuild the current server's roster from the login store and the
+    /// fleet's entries.
+    fn rebuild(&mut self) {
+        self.accounts = roster(&self.servers, &self.entries, &self.host);
+    }
+
+    /// Fold an older build's global roster in, once a server is known.
+    fn migrate_once(&mut self, cx: &mut Ctx) {
+        if self.migrated {
+            return;
+        }
+        if self.legacy.is_empty() && self.legacy_lead.is_none() {
+            // Nothing an older build left: say so without touching the
+            // login store.
+            self.migrated = true;
+            self.save_roster(cx);
+            return;
+        }
+        let old = std::mem::take(&mut self.legacy);
+        let lead = self.legacy_lead.take();
+        let host = self.host.clone();
+        let mut entries = std::mem::take(&mut self.entries);
+        let mut leads = std::mem::take(&mut self.leads);
+        let mut done = false;
+        let n = old.len();
+        self.edit_servers(|servers| {
+            done = migrate(
+                &old,
+                lead.as_deref(),
+                &host,
+                servers,
+                &mut entries,
+                &mut leads,
+            );
+        });
+        self.entries = entries;
+        self.leads = leads;
+        if !done {
+            // Nowhere to put them yet: keep them for the next launch.
+            self.legacy = old;
+            self.legacy_lead = lead;
+            return;
+        }
+        self.migrated = true;
+        if n > 0 {
+            cx.log(format!(
+                "The fleet's {n} account{} now {} the connect screen's, for {}",
+                if n == 1 { "" } else { "s" },
+                if n == 1 { "is" } else { "are" },
+                if host.is_empty() {
+                    "this server"
+                } else {
+                    &host
+                },
+            ));
+            tracing::info!(accounts = n, host, "fleet: the old roster was folded in");
+        }
+        self.save_roster(cx);
+    }
+
+    /// The roster's role for `account` on the current server, if it has
+    /// one; else the leader's, when "I lead" named it.
+    fn role_for(&self, account: &str) -> Option<Role> {
+        if let Some(e) = entry_of(&self.entries, &self.host, account) {
             return Some(e.role);
         }
-        self.lead_account
-            .as_deref()
+        self.leads
+            .get(&self.host)
             .filter(|l| l.eq_ignore_ascii_case(account))
             .map(|_| Role::Leader)
     }
@@ -1390,6 +1823,12 @@ impl Fleet {
         if self.starting.contains_key(&key) {
             return;
         }
+        if spec.password.is_empty() {
+            let why = "no password saved: type it in below and Add";
+            cx.log(format!("Cannot start {}: {why}", spec.account));
+            cx.board.set_local(error_key(&spec.account), why);
+            return;
+        }
         cx.board.set_local(error_key(&spec.account), Value::Null);
         self.starting.insert(key, cx.now);
         cx.log(format!(
@@ -1419,27 +1858,56 @@ impl Fleet {
         }
     }
 
-    /// Put `spec` on the roster, replacing an entry for the same account.
-    fn upsert(&mut self, spec: SessionSpec) -> usize {
-        match self
-            .accounts
+    /// Put `spec` on the current server's roster: its account, password
+    /// and character go to the login store (so the connect screen offers
+    /// them too), its role and creation rule to the fleet's entries.
+    /// The roster index it landed on, or `None` with no server known.
+    fn remember(&mut self, spec: SessionSpec) -> Option<usize> {
+        let host = self.host.clone();
+        if host.is_empty() {
+            return None;
+        }
+        let character = spec.character_name().unwrap_or_default().to_string();
+        let (account, password) = (spec.account.clone(), spec.password.clone());
+        self.edit_servers(|s| remember_quietly(s, &host, &account, &password, &character));
+        upsert_entry(
+            &mut self.entries,
+            Entry {
+                host: host.clone(),
+                account: spec.account.clone(),
+                role: spec.role,
+                create: spec.create.clone(),
+            },
+        );
+        self.rebuild();
+        self.accounts
             .iter()
             .position(|e| e.account.eq_ignore_ascii_case(&spec.account))
-        {
-            Some(i) => {
-                self.accounts[i] = spec;
-                i
-            }
-            None => {
-                self.accounts.push(spec);
-                self.accounts.len() - 1
-            }
-        }
     }
 
+    /// Forget an account: it goes from the login store (and so from the
+    /// connect screen) and from the fleet's entries.
+    fn forget(&mut self, account: &str) {
+        let (host, account) = (self.host.clone(), account.to_string());
+        self.edit_servers(|s| s.forget(&host, &account));
+        self.entries
+            .retain(|e| !(e.host == host && e.account.eq_ignore_ascii_case(&account)));
+        if self
+            .leads
+            .get(&host)
+            .is_some_and(|l| l.eq_ignore_ascii_case(&account))
+        {
+            self.leads.remove(&host);
+        }
+        self.rebuild();
+    }
+
+    /// The fleet's own knowledge (roles, creation rules, leaders): the
+    /// accounts themselves live in the login store, not here.
     fn save_roster(&self, cx: &mut Ctx) {
-        cx.settings.set(ROSTER_KEY, &self.accounts);
-        cx.settings.set(LEAD_KEY, &self.lead_account);
+        cx.settings.set(ENTRIES_KEY, &self.entries);
+        cx.settings.set(LEADS_KEY, &self.leads);
+        cx.settings.set(MIGRATED_KEY, self.migrated);
     }
 
     /// Apply session `i`'s role now, whether or not it was before.
@@ -1491,9 +1959,17 @@ impl Fleet {
                 if spec.account.is_empty() {
                     continue;
                 }
-                let i = self.upsert(spec);
-                changed = true;
-                self.start(cx, i);
+                let account = spec.account.clone();
+                match self.remember(spec) {
+                    Some(i) => {
+                        changed = true;
+                        self.start(cx, i);
+                    }
+                    None => cx.log(format!(
+                        "Cannot start {account}: no server chosen \
+                         (use the connect screen or --connect)"
+                    )),
+                }
             }
             if changed {
                 self.save_roster(cx);
@@ -1627,11 +2103,18 @@ impl Plugin for Fleet {
         if let Some(v) = settings.get("fleet.sessions_open") {
             self.sessions_open = v;
         }
-        if let Some(v) = settings.get::<Vec<SessionSpec>>(ROSTER_KEY) {
-            self.accounts = v;
+        if let Some(v) = settings.get::<Vec<Entry>>(ENTRIES_KEY) {
+            self.entries = v;
         }
-        if let Some(v) = settings.get::<Option<String>>(LEAD_KEY) {
-            self.lead_account = v;
+        if let Some(v) = settings.get::<BTreeMap<String, String>>(LEADS_KEY) {
+            self.leads = v;
+        }
+        self.migrated = settings.get(MIGRATED_KEY).unwrap_or(false);
+        if !self.migrated {
+            // An older build's global roster, folded in on the first
+            // tick that knows a server (see [`migrate`]).
+            self.legacy = settings.get(ROSTER_KEY).unwrap_or_default();
+            self.legacy_lead = settings.get::<Option<String>>(LEAD_KEY).unwrap_or_default();
         }
     }
 
@@ -1639,8 +2122,9 @@ impl Plugin for Fleet {
         settings.set("fleet.show", self.show);
         settings.set("fleet.compact", self.compact);
         settings.set("fleet.sessions_open", self.sessions_open);
-        settings.set(ROSTER_KEY, &self.accounts);
-        settings.set(LEAD_KEY, &self.lead_account);
+        settings.set(ENTRIES_KEY, &self.entries);
+        settings.set(LEADS_KEY, &self.leads);
+        settings.set(MIGRATED_KEY, self.migrated);
     }
 
     fn session_removed(&mut self, index: usize) {
@@ -1709,9 +2193,13 @@ impl Plugin for Fleet {
         }
         self.local = Self::me(cx);
         if cx.index == 0 {
+            let now = cx.now;
+            self.reload_servers(now);
+            self.host = self.host_of(cx);
+            self.migrate_once(cx);
+            self.rebuild();
             self.hear(cx);
             self.take_board_requests(cx);
-            let now = cx.now;
             self.starting
                 .retain(|_, at| now.duration_since(*at) < STARTING_FOR);
             // A session that appeared is no longer starting.
@@ -1748,6 +2236,8 @@ impl Plugin for Fleet {
                     rows: rows(&self.seen(cx), &self.xp, cx.now),
                     on_bus: cx.board.bus_name().is_some(),
                     sessions: self.session_rows(cx),
+                    host: self.host.clone(),
+                    server: self.server_name(),
                     lead: active.is_some_and(|c| {
                         c.autoplay.config.team.enabled && c.autoplay.config.team.lead
                     }),
@@ -1796,21 +2286,43 @@ impl Plugin for Fleet {
         }
         // The roster.
         let mut changed = false;
+        if let Some(i) = a.pick {
+            if let Some(spec) = self.accounts.get(i) {
+                let spec = spec.clone();
+                self.form.fill_from(&spec);
+            }
+        }
         if a.add {
             match self.form.spec() {
                 Ok(spec) => {
-                    self.upsert(spec);
-                    self.form.clear();
-                    changed = true;
+                    let account = spec.account.clone();
+                    if self.remember(spec).is_some() {
+                        self.form.clear();
+                        changed = true;
+                    } else {
+                        self.form.error = Some(format!(
+                            "no server chosen yet: connect to one, then add {account}"
+                        ));
+                    }
                 }
                 Err(e) => self.form.error = Some(e),
             }
         }
         for (i, role) in a.set_role {
-            if let Some(e) = self.accounts.get_mut(i) {
-                e.role = role;
+            if let Some(spec) = self.accounts.get(i) {
+                let account = spec.account.clone();
+                let mut entry = entry_of(&self.entries, &self.host, &account)
+                    .cloned()
+                    .unwrap_or_else(|| Entry {
+                        host: self.host.clone(),
+                        account: account.clone(),
+                        create: spec.create.clone(),
+                        ..Default::default()
+                    });
+                entry.role = role;
+                upsert_entry(&mut self.entries, entry);
+                self.rebuild();
                 changed = true;
-                let account = e.account.clone();
                 if let Some(s) = Self::session_of(cx, &account) {
                     if cx.clients[s].placed() {
                         Self::apply_role_now(cx, s, role);
@@ -1838,31 +2350,35 @@ impl Plugin for Fleet {
         let mut remove = a.remove;
         remove.sort_unstable();
         remove.dedup();
-        for i in remove.into_iter().rev() {
-            if i < self.accounts.len() {
-                let account = self.accounts[i].account.clone();
-                self.stop(cx, &account);
-                cx.board.set_local(error_key(&account), Value::Null);
-                self.accounts.remove(i);
-                changed = true;
-            }
+        let gone: Vec<String> = remove
+            .iter()
+            .filter_map(|&i| self.accounts.get(i).map(|e| e.account.clone()))
+            .collect();
+        for account in gone {
+            self.stop(cx, &account);
+            cx.board.set_local(error_key(&account), Value::Null);
+            self.forget(&account);
+            changed = true;
         }
         if let Some(on) = a.lead {
             let i = cx.index;
+            let host = self.host.clone();
             if let Some(c) = cx.clients.get_mut(i) {
                 let account = c.config.account.clone();
                 if on {
                     apply_role(&mut c.autoplay.config, Role::Leader);
-                    self.lead_account = Some(account.clone());
+                    if !host.is_empty() {
+                        self.leads.insert(host, account.clone());
+                    }
                     cx.log(format!("{account} leads: the followers come to it"));
                 } else {
                     c.autoplay.config.team.lead = false;
                     if self
-                        .lead_account
-                        .as_deref()
+                        .leads
+                        .get(&host)
                         .is_some_and(|l| l.eq_ignore_ascii_case(&account))
                     {
-                        self.lead_account = None;
+                        self.leads.remove(&host);
                     }
                     cx.log(format!("{account} no longer leads"));
                 }
@@ -1920,49 +2436,382 @@ mod tests {
         }
     }
 
+    /// A scratch login store of this test's own.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("acswarm-fleet-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir.join("servers.json")
+    }
+
+    /// A `Ctx` with no sessions, for driving the panel in a test.
+    fn ctx<'a>(
+        board: &'a mut crate::Blackboard,
+        settings: &'a mut Settings,
+        icons: &'a mut crate::IconCache,
+        now: Instant,
+    ) -> Ctx<'a> {
+        Ctx {
+            clients: Vec::new(),
+            index: 0,
+            board,
+            settings,
+            icons,
+            dt: 0.05,
+            now,
+            chat: Vec::new(),
+            activate: None,
+            quit: false,
+            pick_data_dir: false,
+            start_sessions: Vec::new(),
+            stop_sessions: Vec::new(),
+        }
+    }
+
     #[test]
-    fn the_roster_round_trips_through_the_settings() {
-        let mut fleet = Fleet {
-            accounts: vec![
-                spec("fleetbot1", Role::Follower, true),
-                spec("acreborn7", Role::Leader, false),
+    fn the_fleets_own_knowledge_round_trips_through_the_settings() {
+        let entry = |host: &str, account: &str, role| Entry {
+            host: host.into(),
+            account: account.into(),
+            role,
+            create: Some(CreateSpec {
+                name: "Fleetbot One".into(),
+                template: Some("Bow Hunter".into()),
+                town: Some("Holtburg".into()),
+                heritage: Some("Aluvian".into()),
+                sex: Some("m".into()),
+            }),
+        };
+        let fleet = Fleet {
+            entries: vec![
+                entry("play.coldeve.ac:9000", "fleetbot1", Role::Follower),
+                entry("127.0.0.1:9000", "acreborn7", Role::Leader),
             ],
-            lead_account: Some("acreborn7".into()),
+            leads: [("127.0.0.1:9000".to_string(), "acreborn7".to_string())]
+                .into_iter()
+                .collect(),
+            migrated: true,
             sessions_open: true,
             ..Default::default()
         };
         let mut settings = Settings::new();
         fleet.save(&mut settings);
-        let text = serde_json::to_string(settings.get_value(ROSTER_KEY).unwrap()).unwrap();
+        let text = serde_json::to_string(settings.get_value(ENTRIES_KEY).unwrap()).unwrap();
         assert!(text.contains("\"role\":\"follower\""), "{text}");
         assert!(text.contains("\"template\":\"Bow Hunter\""), "{text}");
         assert!(
-            !text.contains("\"character\":null"),
-            "absent choices are left out: {text}"
+            !text.contains("password"),
+            "passwords live in the login store, not here: {text}"
         );
         // Through a file and back into a fresh panel.
-        let dir = std::env::temp_dir().join(format!("acswarm-fleet-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("acswarm-fleet-ui-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("ui.json");
         settings.save(&path).unwrap();
-        let back = Settings::load(&path);
         let mut fresh = Fleet::default();
-        fresh.load(&back);
-        assert_eq!(fresh.accounts, fleet.accounts);
-        assert_eq!(fresh.lead_account.as_deref(), Some("acreborn7"));
-        assert!(fresh.sessions_open);
-        assert_eq!(fresh.role_for("FLEETBOT1"), Some(Role::Follower));
+        fresh.load(&Settings::load(&path));
+        assert_eq!(fresh.entries, fleet.entries);
+        assert_eq!(fresh.leads, fleet.leads);
+        assert!(fresh.migrated && fresh.sessions_open);
+        assert!(fresh.legacy.is_empty(), "nothing left to fold in");
+        // Roles are read for the server being played, not globally.
+        fresh.host = "127.0.0.1:9000".into();
+        assert_eq!(fresh.role_for("ACREBORN7"), Some(Role::Leader));
+        assert_eq!(fresh.role_for("fleetbot1"), None, "that is another server");
+        fresh.host = "play.coldeve.ac:9000".into();
+        assert_eq!(fresh.role_for("fleetbot1"), Some(Role::Follower));
+        // "I lead" alone names a leader on its own server.
+        fresh.entries.clear();
+        fresh.host = "127.0.0.1:9000".into();
         assert_eq!(fresh.role_for("acreborn7"), Some(Role::Leader));
-        assert_eq!(fresh.role_for("nobody"), None);
-        // "I lead" alone names a leader too.
-        fleet.accounts.clear();
-        assert_eq!(fleet.role_for("acreborn7"), Some(Role::Leader));
-        // Upserting replaces by account, case-insensitively.
-        fleet.upsert(spec("Bot", Role::Manual, false));
-        assert_eq!(fleet.upsert(spec("bot", Role::Follower, true)), 0);
-        assert_eq!(fleet.accounts.len(), 1);
-        assert_eq!(fleet.accounts[0].role, Role::Follower);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_roster_is_the_login_stores_accounts_for_this_server() {
+        let mut servers = Servers::default();
+        servers.remember("a:9000", "alice", "pw", "Alys");
+        servers.remember("a:9000", "bob", "", "");
+        servers.remember("b:9000", "carol", "pw2", "");
+        let entries = vec![
+            Entry {
+                host: "a:9000".into(),
+                account: "bob".into(),
+                role: Role::Follower,
+                create: Some(CreateSpec::named("ignored")),
+            },
+            Entry {
+                host: "b:9000".into(),
+                account: "carol".into(),
+                role: Role::Leader,
+                create: None,
+            },
+        ];
+        let a = roster(&servers, &entries, "a:9000");
+        let names: Vec<&str> = a.iter().map(|s| s.account.as_str()).collect();
+        assert_eq!(names, ["alice", "bob"], "only this server's accounts");
+        // The two views agree: the roster is exactly what the connect
+        // screen offers for the server.
+        let offered: Vec<&str> = servers
+            .accounts_for("a:9000")
+            .iter()
+            .map(|l| l.account.as_str())
+            .collect();
+        assert_eq!(names, offered);
+        // alice was never told to the fleet: nothing is switched on.
+        assert_eq!(a[0].role, Role::Manual);
+        assert_eq!(a[0].password, "pw");
+        assert_eq!(a[0].character.as_deref(), Some("Alys"));
+        assert!(a[0].create.is_none());
+        // bob has no character remembered and a creation rule: the rule
+        // names it, and it is not asked for twice.
+        assert_eq!(a[1].role, Role::Follower);
+        assert!(a[1].password.is_empty(), "no password was remembered");
+        assert_eq!(a[1].character, None);
+        assert_eq!(a[1].create.as_ref().unwrap().name, "ignored");
+        // A character remembered for an account being created wins.
+        servers.remember("a:9000", "bob", "pw3", "Fleetbot One");
+        let a = roster(&servers, &entries, "a:9000");
+        assert_eq!(a[1].create.as_ref().unwrap().name, "Fleetbot One");
+        assert_eq!(a[1].character, None);
+        assert_eq!(a[1].password, "pw3");
+        let b = roster(&servers, &entries, "b:9000");
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0].role, Role::Leader);
+        assert!(roster(&servers, &entries, "nowhere:9000").is_empty());
+        assert_eq!(address_of("play.coldeve.ac"), "play.coldeve.ac:9000");
+        assert_eq!(address_of("play.coldeve.ac:9050"), "play.coldeve.ac:9050");
+        assert_eq!(address_of(""), "");
+    }
+
+    #[test]
+    fn the_old_roster_folds_into_the_login_store() {
+        let old = vec![
+            spec("fleetbot1", Role::Follower, true),
+            spec("acreborn7", Role::Leader, false),
+            spec("elsewhere", Role::Follower, false),
+        ];
+        let mut servers = Servers::default();
+        // One of them is already remembered, on another server: it stays
+        // there rather than moving to the current one.
+        servers.remember("old:9000", "elsewhere", "kept", "");
+        servers.remember("now:9000", "typed", "byhand", "");
+        servers.last_host = "now:9000".into();
+        servers.last_account = "typed".into();
+        let mut entries = Vec::new();
+        let mut leads = BTreeMap::new();
+        assert!(migrate(
+            &old,
+            Some("acreborn7"),
+            "now:9000",
+            &mut servers,
+            &mut entries,
+            &mut leads
+        ));
+        // Nothing was lost: every old account is remembered somewhere,
+        // with its password and character.
+        let here: Vec<&str> = servers
+            .accounts_for("now:9000")
+            .iter()
+            .map(|l| l.account.as_str())
+            .collect();
+        assert_eq!(here, ["typed", "fleetbot1", "acreborn7"]);
+        assert_eq!(
+            servers
+                .accounts_for("old:9000")
+                .iter()
+                .map(|l| l.account.as_str())
+                .collect::<Vec<_>>(),
+            ["elsewhere"],
+            "an account already known keeps its server"
+        );
+        let by = |host: &str, account: &str| {
+            servers
+                .accounts_for(host)
+                .into_iter()
+                .find(|l| l.account == account)
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(by("now:9000", "fleetbot1").password, "testpass");
+        assert_eq!(by("now:9000", "fleetbot1").character, "Fleetbot One");
+        assert_eq!(by("now:9000", "acreborn7").character, "Reborn");
+        assert_eq!(
+            by("old:9000", "elsewhere").password,
+            "testpass",
+            "the old entry's password wins over none"
+        );
+        // The connect screen's idea of where it last connected is left
+        // alone.
+        assert_eq!(servers.last_host, "now:9000");
+        assert_eq!(servers.last_account, "typed");
+        // Roles and creation rules came across, against the server.
+        assert_eq!(
+            entry_of(&entries, "now:9000", "fleetbot1").map(|e| e.role),
+            Some(Role::Follower)
+        );
+        assert_eq!(
+            entry_of(&entries, "now:9000", "fleetbot1")
+                .and_then(|e| e.create.as_ref())
+                .map(|c| c.template.clone().unwrap()),
+            Some("Bow Hunter".into())
+        );
+        assert_eq!(
+            entry_of(&entries, "old:9000", "elsewhere").map(|e| e.role),
+            Some(Role::Follower)
+        );
+        assert_eq!(leads.get("now:9000").map(String::as_str), Some("acreborn7"));
+        // The rosters that come out say the same as the old entries did.
+        let now = roster(&servers, &entries, "now:9000");
+        let fleetbot = now.iter().find(|s| s.account == "fleetbot1").unwrap();
+        assert_eq!(fleetbot, &old[0]);
+        let reborn = now.iter().find(|s| s.account == "acreborn7").unwrap();
+        assert_eq!(reborn, &old[1]);
+        // With no server known and nothing remembered there is nowhere
+        // to put them: it is tried again next launch.
+        let mut empty = Servers::default();
+        assert!(!migrate(
+            &old,
+            None,
+            "",
+            &mut empty,
+            &mut Vec::new(),
+            &mut BTreeMap::new()
+        ));
+        assert!(empty.logins.is_empty());
+        // Nothing to fold is done at once.
+        assert!(migrate(
+            &[],
+            None,
+            "",
+            &mut empty,
+            &mut Vec::new(),
+            &mut BTreeMap::new()
+        ));
+    }
+
+    #[test]
+    fn the_panel_and_the_connect_screen_share_one_account_list() {
+        let path = scratch("share");
+        // What the connect screen left behind: a server, one account
+        // remembered with a password and one without.
+        store::update_at(&path, |s| {
+            s.add(crate::servers::Server {
+                name: "Home".into(),
+                host: "127.0.0.1".into(),
+                port: 9000,
+            });
+            s.remember("127.0.0.1:9000", "alice", "pw", "");
+            s.remember("127.0.0.1:9000", "bob", "", "");
+            s.remember("other:9000", "carol", "pw", "");
+            s.last_host = "127.0.0.1:9000".into();
+            s.last_account = "alice".into();
+        });
+        // An older build's roster, still in the settings.
+        let mut settings = Settings::new();
+        settings.set(ROSTER_KEY, vec![spec("fleetbot1", Role::Follower, true)]);
+        settings.set(LEAD_KEY, Some("alice".to_string()));
+        let mut fleet = Fleet::using_store(path.clone());
+        fleet.load(&settings);
+        assert_eq!(fleet.legacy.len(), 1, "waiting to be folded in");
+
+        let mut board = crate::Blackboard::default();
+        let mut icons = crate::IconCache::default();
+        let now = Instant::now();
+        let mut cx = ctx(&mut board, &mut settings, &mut icons, now);
+        fleet.tick(&mut cx);
+
+        assert_eq!(fleet.host, "127.0.0.1:9000", "the last server connected to");
+        assert_eq!(fleet.server_name(), "Home");
+        assert!(fleet.migrated && fleet.legacy.is_empty());
+        let names: Vec<&str> = fleet.accounts.iter().map(|s| s.account.as_str()).collect();
+        assert_eq!(
+            names,
+            ["alice", "bob", "fleetbot1"],
+            "the old one folded in"
+        );
+        assert_eq!(
+            fleet.leads.get("127.0.0.1:9000").map(String::as_str),
+            Some("alice")
+        );
+        // The two views agree, through the file: what the connect screen
+        // would offer is exactly the roster.
+        let on_disk = store::load_at(&path);
+        assert_eq!(
+            on_disk
+                .accounts_for("127.0.0.1:9000")
+                .iter()
+                .map(|l| l.account.as_str())
+                .collect::<Vec<_>>(),
+            names
+        );
+        assert_eq!(on_disk.last_account, "alice", "left where it was");
+        assert!(
+            !names.contains(&"carol"),
+            "another server's account is not on this roster"
+        );
+
+        // An account without a password cannot start, and says why.
+        let i = fleet
+            .accounts
+            .iter()
+            .position(|s| s.account == "bob")
+            .unwrap();
+        fleet.start(&mut cx, i);
+        assert!(cx.start_sessions.is_empty());
+        assert!(cx
+            .board
+            .get(&error_key("bob"))
+            .and_then(Value::as_str)
+            .is_some_and(|w| w.contains("no password")));
+        // One with a password does.
+        let i = fleet
+            .accounts
+            .iter()
+            .position(|s| s.account == "alice")
+            .unwrap();
+        fleet.start(&mut cx, i);
+        assert_eq!(cx.start_sessions.len(), 1);
+        assert_eq!(cx.start_sessions[0].account, "alice");
+
+        // Adding one in the fleet puts it on the connect screen too...
+        fleet.form.account = "dain".into();
+        fleet.form.password = "secret".into();
+        fleet.form.character = "Dain".into();
+        fleet.form.role = Role::Follower;
+        let added = fleet.remember(fleet.form.spec().unwrap()).unwrap();
+        assert_eq!(fleet.accounts[added].account, "dain");
+        let after = store::load_at(&path);
+        assert!(after
+            .accounts_for("127.0.0.1:9000")
+            .iter()
+            .any(|l| l.account == "dain" && l.password == "secret"));
+        // ...and picking it back into the form does not need retyping.
+        let mut form = AddForm::default();
+        form.fill_from(&fleet.accounts[added]);
+        assert_eq!(form.account, "dain");
+        assert_eq!(form.password, "secret");
+        assert_eq!(form.character, "Dain");
+        assert!(form.create && form.role == Role::Follower);
+
+        // ...and forgetting it in the fleet forgets it there too.
+        fleet.forget("dain");
+        assert!(!fleet.accounts.iter().any(|s| s.account == "dain"));
+        assert!(!store::load_at(&path)
+            .accounts_for("127.0.0.1:9000")
+            .iter()
+            .any(|l| l.account == "dain"));
+        assert!(entry_of(&fleet.entries, "127.0.0.1:9000", "dain").is_none());
+
+        // A change the connect screen makes shows in the fleet.
+        store::update_at(&path, |s| s.remember("127.0.0.1:9000", "edda", "pw4", ""));
+        fleet.store_checked = None;
+        fleet.reload_servers(now + RELOAD_EVERY * 2);
+        fleet.rebuild();
+        assert!(
+            fleet.accounts.iter().any(|s| s.account == "edda"),
+            "the connect screen's new account is on the roster"
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -2057,7 +2906,10 @@ mod tests {
     #[test]
     fn board_requests_start_and_stop_through_the_panel() {
         use crate::{Blackboard, IconCache};
-        let mut fleet = Fleet::default();
+        // A login store of this test's own, with a server to start on.
+        let path = scratch("board");
+        store::update_at(&path, |s| s.last_host = "127.0.0.1:9000".into());
+        let mut fleet = Fleet::using_store(path.clone());
         let mut board = Blackboard::default();
         let mut settings = Settings::new();
         let mut icons = IconCache::default();
@@ -2097,7 +2949,16 @@ mod tests {
         );
         assert_eq!(fleet.accounts.len(), 1, "on the roster too");
         assert!(cx.board.get(START_KEY).is_some_and(Value::is_null), "taken");
-        assert!(cx.settings.get::<Vec<SessionSpec>>(ROSTER_KEY).is_some());
+        assert!(cx.settings.get::<Vec<Entry>>(ENTRIES_KEY).is_some());
+        // ...and in the login store, so the connect screen offers it.
+        assert_eq!(
+            store::load_at(&path)
+                .accounts_for("127.0.0.1:9000")
+                .iter()
+                .map(|l| l.account.as_str())
+                .collect::<Vec<_>>(),
+            ["fleetbot1"]
+        );
         assert!(cx
             .chat
             .iter()
@@ -2128,6 +2989,7 @@ mod tests {
             status_of(None, fleet.starting.contains_key("fleetbot1"), None),
             Status::Stopped
         );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
