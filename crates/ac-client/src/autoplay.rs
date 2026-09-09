@@ -568,6 +568,16 @@ pub struct Mate {
     pub supplies: crate::logistics::Supplies,
 }
 
+/// The larger of a health boost and a stamina transfer, as
+/// `(spell, points restored)`. Either may be missing; a tie goes to the
+/// boost, which does not spend a bar the character may need to run.
+fn bigger_heal(boost: Option<(u32, u32)>, transfer: Option<(u32, u32)>) -> Option<(u32, u32)> {
+    match (boost, transfer) {
+        (Some(b), Some(t)) => Some(if t.1 > b.1 { t } else { b }),
+        (b, t) => b.or(t),
+    }
+}
+
 /// Who salvages for the team, out of `mates` (the caller includes
 /// itself): the highest Salvaging among those with an Ust, ties to the
 /// name that sorts first. `None` when nobody carries an Ust.
@@ -1097,6 +1107,39 @@ impl Client {
             .map(|t| t.spell)
     }
 
+    /// The biggest heal the character can land right now, and how much
+    /// health it would restore.
+    ///
+    /// A mage has two ways out of an emergency and they are not the
+    /// same size. Heal Self restores a fixed number of points however
+    /// hurt it is; Stamina to Health takes half the stamina bar, which
+    /// on a character with a full bar is far more, and is why a caster
+    /// in trouble reaches for it rather than a kit. Which is larger
+    /// depends on the moment, so both are worked out and the larger
+    /// wins. A transfer from a bar that is nearly empty scores near
+    /// nothing and loses on its own merits, so no floor is needed.
+    fn best_emergency_heal(&self) -> Option<(u32, u32)> {
+        use ac_world::vitals::vital;
+        let table = self.assets.spell_table().ok()?;
+        let usable = |spell: u32| {
+            self.world.stats.spells.contains(&spell)
+                && table.get(spell).is_some_and(|s| s.is_self_targeted())
+                && matches!(self.can_cast(spell), crate::magic::CastCheck::Ok)
+        };
+        let boost = ac_world::vitals::boosts_of(vital::HEALTH)
+            .into_iter()
+            .filter(|b| usable(b.spell))
+            .map(|b| (b.spell, ((b.low + b.high) / 2).max(0) as u32))
+            .max_by_key(|(_, gain)| *gain);
+        let stamina = self.world.stats.vitals[1].current;
+        let transfer = ac_world::vitals::transfers_between(vital::STAMINA, vital::HEALTH)
+            .into_iter()
+            .filter(|t| usable(t.spell))
+            .map(|t| (t.spell, t.gain(stamina)))
+            .max_by_key(|(_, gain)| *gain);
+        bigger_heal(boost, transfer)
+    }
+
     /// Keep mana and stamina up the way a caster does: stamina poured
     /// into mana when mana runs low, Revitalize when stamina does. True
     /// when a spell went out.
@@ -1435,7 +1478,7 @@ impl Client {
             }
         }
         let heal = if cfg.heal_spell.trim().is_empty() {
-            self.best_boost(ac_world::vitals::vital::HEALTH)
+            self.best_emergency_heal().map(|(spell, _)| spell)
         } else {
             self.spell_by_name(&cfg.heal_spell)
         };
@@ -3864,5 +3907,42 @@ mod tests {
         assert!(partial.enabled);
         assert_eq!(partial.survive.heal_below, Survive::default().heal_below);
         assert_eq!(Doing::Fighting.label(), "fighting");
+    }
+}
+#[cfg(test)]
+mod heal_choice_tests {
+    use super::bigger_heal;
+    use ac_world::vitals::{transfers_between, vital, Transfer};
+
+    #[test]
+    fn the_bigger_heal_wins() {
+        // Heal Self restores a fixed amount; the transfer takes half a
+        // bar. On a full stamina bar the transfer is much the larger.
+        assert_eq!(bigger_heal(Some((1, 100)), Some((2, 260))), Some((2, 260)));
+        // Nearly out of stamina, it is worth almost nothing and loses.
+        assert_eq!(bigger_heal(Some((1, 100)), Some((2, 12))), Some((1, 100)));
+    }
+
+    #[test]
+    fn a_tie_goes_to_the_spell_that_costs_no_stamina() {
+        assert_eq!(bigger_heal(Some((1, 100)), Some((2, 100))), Some((1, 100)));
+    }
+
+    #[test]
+    fn either_may_be_missing() {
+        assert_eq!(bigger_heal(Some((1, 40)), None), Some((1, 40)));
+        assert_eq!(bigger_heal(None, Some((2, 40))), Some((2, 40)));
+        assert_eq!(bigger_heal(None, None), None);
+    }
+
+    #[test]
+    fn a_caster_really_does_know_stamina_to_health() {
+        // The choice is worth nothing if the table has no such spell.
+        let found: Vec<Transfer> = transfers_between(vital::STAMINA, vital::HEALTH);
+        assert!(!found.is_empty(), "no stamina to health transfers");
+        // The strongest moves half a bar, and on a big bar that beats
+        // any fixed heal.
+        let best = found.iter().map(|t| t.gain(700)).max().unwrap_or(0);
+        assert!(best > 200, "the top transfer only returned {best}");
     }
 }
