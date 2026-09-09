@@ -392,6 +392,9 @@ pub struct Stock {
     pub guid: u32,
     pub name: String,
     pub wcid: u32,
+    /// `ac_world::item_type` bits: what tells a trade note from the
+    /// rest of the shelf.
+    pub item_type: u32,
     /// What one costs at this vendor.
     pub price: u32,
     /// How many it has; `None` for unlimited.
@@ -459,7 +462,54 @@ fn worth_stocking(name: &str, heals_with_kits: bool) -> bool {
     !name.to_lowercase().contains("healing kit")
 }
 
-pub fn buy_price(value: u32, sell_rate: f32) -> u32 {
+/// How much of a purse to turn into trade notes here, and which.
+///
+/// Coin is bulky: pyreals stack 25,000 to a slot, so a good afternoon's
+/// selling fills the pack with money and leaves no room for loot. Notes
+/// hold a fortune in one slot. They are not free -- the server charges
+/// 1.15 times face and pays back only face -- so what is still to be
+/// bought is kept back as coin first and only the rest is converted.
+///
+/// `reserve` is the coin to keep: the shopping still to do, plus
+/// whatever float the rules say to carry. Returns `(stock guid, how
+/// many)` per note, largest face value first.
+fn notes_to_buy(purse: u32, reserve: u32, stock: &[Stock]) -> Vec<(u32, u32)> {
+    let Some(mut spare) = purse.checked_sub(reserve) else {
+        return Vec::new();
+    };
+    let mut notes: Vec<&Stock> = stock
+        .iter()
+        .filter(|s| s.item_type & item_type::PROMISSORY_NOTE != 0 && s.price > 0)
+        .collect();
+    // Largest first: the point is to carry the money in as few items as
+    // it will go into.
+    notes.sort_by_key(|s| std::cmp::Reverse(s.price));
+    let mut out = Vec::new();
+    for note in notes {
+        if note.price > spare {
+            continue;
+        }
+        let mut want = spare / note.price;
+        if let Some(left) = note.stack {
+            want = want.min(left);
+        }
+        if want > 0 {
+            out.push((note.guid, want));
+            spare -= want * note.price;
+        }
+    }
+    out
+}
+
+/// What a vendor charges for one of something worth `value`.
+///
+/// A trade note is the exception: the server ignores the shop's own
+/// rate for those and charges a flat 1.15 times face value, so a shop
+/// that marks everything else up by 1.7 still sells notes at 1.15.
+pub fn buy_price(value: u32, sell_rate: f32, item_type: u32) -> u32 {
+    if item_type & item_type::PROMISSORY_NOTE != 0 {
+        return ac_world::shops::note_price(value);
+    }
     ((value as f32 * sell_rate - 0.1).ceil().max(1.0)) as u32
 }
 
@@ -1398,7 +1448,8 @@ impl Client {
                 guid: it.guid,
                 name: it.desc.name.clone(),
                 wcid: it.desc.weenie_class_id,
-                price: buy_price(it.desc.value, v.sell_rate),
+                item_type: it.desc.item_type,
+                price: buy_price(it.desc.value, v.sell_rate, it.desc.item_type),
                 stack: (it.stack < UNLIMITED_STACK).then_some(it.stack),
             })
             .collect()
@@ -1810,6 +1861,31 @@ impl Client {
                         .unwrap_or_default();
                     bought.push(format!("{amount} {name}"));
                 }
+                // Turn the takings into notes before leaving the
+                // counter. A pack can hold far more selling than it can
+                // hold the pyreals that come back, so this happens at
+                // every stop rather than once at the end -- but only
+                // with coin over and above what the rest of the
+                // shopping will cost.
+                let spent: u32 = orders
+                    .iter()
+                    .filter_map(|(g, a)| stock.iter().find(|s| s.guid == *g).map(|s| s.price * a))
+                    .sum();
+                if self.autoplay.config.team.restock.share_money {
+                    let still_to_buy: u32 = needs.iter().map(|n| self.rough_cost(n)).sum();
+                    let reserve = spent
+                        .saturating_add(still_to_buy)
+                        .saturating_add(self.autoplay.config.team.restock.float);
+                    for (guid, amount) in notes_to_buy(purse, reserve, &stock) {
+                        self.buy_amount(guid, amount);
+                        let name = stock
+                            .iter()
+                            .find(|s| s.guid == guid)
+                            .map(|s| s.name.clone())
+                            .unwrap_or_default();
+                        bought.push(format!("{amount} {name}"));
+                    }
+                }
                 self.autoplay.growth.needs = needs;
                 run.phase = Phase::Buying;
                 run.since = now;
@@ -2212,9 +2288,61 @@ mod tests {
             guid,
             name: name.into(),
             wcid,
+            item_type: 0,
             price,
             stack,
         }
+    }
+
+    fn note(guid: u32, face: u32) -> Stock {
+        Stock {
+            guid,
+            name: format!("Trade Note ({face})"),
+            wcid: 2600 + guid,
+            item_type: item_type::PROMISSORY_NOTE,
+            price: ac_world::shops::note_price(face),
+            stack: None,
+        }
+    }
+
+    #[test]
+    fn the_takings_become_notes_once_the_shopping_is_paid_for() {
+        // 250,000 face costs 287,500; 100,000 face costs 115,000.
+        let shelf = vec![note(1, 250_000), note(2, 100_000), note(3, 1_000)];
+        // A purse of 400,000 with 50,000 still to spend leaves 350,000:
+        // one big note, then what fits after it.
+        let plan = notes_to_buy(400_000, 50_000, &shelf);
+        assert_eq!(plan[0].0, 1, "the biggest note first");
+        assert_eq!(plan[0].1, 1);
+        let spent: u32 = plan
+            .iter()
+            .filter_map(|(g, n)| shelf.iter().find(|s| s.guid == *g).map(|s| s.price * n))
+            .sum();
+        assert!(spent <= 350_000, "spent {spent} of 350000");
+    }
+
+    #[test]
+    fn the_shopping_money_is_never_converted() {
+        let shelf = vec![note(1, 1_000)];
+        // Everything carried is spoken for.
+        assert!(notes_to_buy(1_000, 1_000, &shelf).is_empty());
+        // And a reserve larger than the purse does not wrap round.
+        assert!(notes_to_buy(500, 5_000, &shelf).is_empty());
+    }
+
+    #[test]
+    fn a_shop_with_no_notes_on_the_shelf_converts_nothing() {
+        let shelf = vec![stock(9, "Prismatic Taper", 693, 43, None)];
+        assert!(notes_to_buy(500_000, 0, &shelf).is_empty());
+    }
+
+    #[test]
+    fn a_shop_that_has_only_a_few_notes_left_sells_only_those() {
+        let mut small = note(1, 100_000);
+        small.stack = Some(2);
+        let shelf = vec![small];
+        let plan = notes_to_buy(1_000_000, 0, &shelf);
+        assert_eq!(plan, vec![(1, 2)], "took more than the shop had");
     }
 
     #[test]
@@ -2267,8 +2395,12 @@ mod tests {
         assert!(!ammo_stock("Arrow", ammo_type::BOLT));
         assert!(ammo_stock("Quarrel", ammo_type::BOLT));
         assert!(ammo_stock("Atlatl Dart", ammo_type::ATLATL));
-        assert_eq!(buy_price(100, 1.0), 100);
-        assert_eq!(buy_price(0, 1.0), 1);
+        assert_eq!(buy_price(100, 1.0, 0), 100);
+        assert_eq!(buy_price(0, 1.0, 1), 1);
+        // A shop that marks everything up by 1.7 still sells notes at
+        // the server's flat 1.15.
+        assert_eq!(buy_price(100, 1.7, 0), 170);
+        assert_eq!(buy_price(100, 1.7, item_type::PROMISSORY_NOTE), 115);
     }
 
     #[test]

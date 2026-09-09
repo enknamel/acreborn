@@ -3327,7 +3327,19 @@ impl Client {
             return false;
         };
         let loot = self.loot_for_sale(growth);
-        if loot.is_empty() {
+        // Money travels with the loot. The runner is the one standing
+        // at the counter, so it is the one that has to be able to pay,
+        // and coin changes hands for nothing: it is trade notes that
+        // cost to make (see `spare_coin`).
+        let coin = self
+            .autoplay
+            .config
+            .team
+            .restock
+            .share_money
+            .then(|| self.spare_coin())
+            .flatten();
+        if loot.is_empty() && coin.is_none() {
             // Nothing to hand over: this character is loaded already.
             self.autoplay.growth.handed_over = true;
             return false;
@@ -3337,7 +3349,18 @@ impl Client {
                 .say(Doing::Helping, format!("taking the loot to {runner}"));
             return true;
         }
+        if let Some((purse, amount)) = coin {
+            if self.give(mate.guid, purse, Some(amount)) {
+                self.autoplay.last_give = Some(now);
+                self.autoplay.say(
+                    Doing::Helping,
+                    format!("giving {runner} {amount} pyreals to shop with"),
+                );
+                return true;
+            }
+        }
         let Some(&item) = loot.first() else {
+            self.autoplay.growth.handed_over = true;
             return false;
         };
         let name = self
@@ -3405,6 +3428,26 @@ impl Client {
             }
         }
         false
+    }
+
+    /// The coin this character can hand over, as `(stack, amount)`:
+    /// what it carries less the float it keeps for itself.
+    ///
+    /// Coin, not trade notes. A note is the lighter way to carry a
+    /// fortune, but the server charges 1.15 times a note's face value
+    /// to make one and pays only face value to cash it back, so turning
+    /// a purse into notes and back costs the party thirteen percent of
+    /// it. Handing over pyreals costs nothing and buys exactly as much.
+    fn spare_coin(&self) -> Option<(u32, u32)> {
+        let float = self.autoplay.config.team.restock.float;
+        let purse = self
+            .world
+            .inventory()
+            .filter(|o| o.item_type & ac_world::item_type::MONEY != 0)
+            .map(|o| (o.guid, o.stack_size.max(1)))
+            .max_by_key(|(_, n)| *n)?;
+        let spare = purse.1.checked_sub(float)?;
+        (spare > 0).then_some((purse.0, spare))
     }
 
     /// Walk towards a spot until close enough to hand something over.

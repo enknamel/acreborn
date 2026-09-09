@@ -170,6 +170,64 @@ pub fn all() -> &'static [Shop] {
     SHOPS.get_or_init(|| parse(SELLS, BUYS))
 }
 
+/// What a vendor charges for a trade note, as a multiple of its face
+/// value. The server fixes this at 1.15 whatever the shop's own sell
+/// rate is, and pays back only face value, so a purse turned into notes
+/// and back is thirteen percent lighter. Notes are still how a fortune
+/// is carried: pyreals stack 25,000 to a slot, and a 250,000 note is
+/// one item.
+pub const NOTE_MARKUP: f32 = 1.15;
+
+/// What a note of `face` value costs to buy.
+pub fn note_price(face: u32) -> u32 {
+    ((NOTE_MARKUP * face as f32) - 0.1).ceil().max(1.0) as u32
+}
+
+/// Every trade note in the world, largest face value first.
+pub fn trade_notes() -> &'static [Ware] {
+    static NOTES: OnceLock<Vec<Ware>> = OnceLock::new();
+    NOTES.get_or_init(|| {
+        let mut seen: BTreeMap<u32, Ware> = BTreeMap::new();
+        for shop in all() {
+            for w in &shop.sells {
+                if w.item_type & crate::item_type::PROMISSORY_NOTE != 0
+                    && w.value > 0
+                    && w.name.starts_with("Trade Note")
+                {
+                    seen.entry(w.wcid).or_insert_with(|| w.clone());
+                }
+            }
+        }
+        let mut v: Vec<Ware> = seen.into_values().collect();
+        v.sort_by_key(|w| std::cmp::Reverse(w.value));
+        v
+    })
+}
+
+/// How to turn `spare` pyreals into trade notes: the fewest notes that
+/// carry the most of it, largest face value first.
+///
+/// Greedy works here because the faces are the usual money-like set
+/// (100, 500, 1,000 and up), where each is a whole multiple of the ones
+/// below it often enough that no smaller-first arrangement carries
+/// more. Whatever is left over stays as coin.
+pub fn notes_for(spare: u32, notes: &[Ware]) -> Vec<(&Ware, u32)> {
+    let mut left = spare;
+    let mut out = Vec::new();
+    for note in notes {
+        let price = note_price(note.value);
+        if price == 0 || price > left {
+            continue;
+        }
+        let how_many = left / price;
+        if how_many > 0 {
+            out.push((note, how_many));
+            left -= how_many * price;
+        }
+    }
+    out
+}
+
 /// The shops selling something whose name contains `needle`, nearest
 /// `from` first.
 ///
@@ -351,5 +409,67 @@ mod tests {
         let orphan = parse("9,Nobody,A9B40019,1.0,2.0,3.0,99,Nail,4,10\n", buys);
         assert_eq!(orphan.len(), 1);
         assert!(orphan[0].sells.is_empty());
+    }
+    #[test]
+    fn a_note_costs_more_than_it_is_worth() {
+        // The server charges 1.15 times face however cheap the shop is.
+        assert_eq!(note_price(100), 115);
+        assert_eq!(note_price(250_000), 287_500);
+        // Never free, however small.
+        assert!(note_price(1) >= 1);
+    }
+
+    #[test]
+    fn the_world_really_sells_trade_notes() {
+        let notes = trade_notes();
+        assert!(notes.len() >= 10, "only {} notes", notes.len());
+        // Largest first, and the top one is the 250,000.
+        assert_eq!(notes[0].value, 250_000);
+        for pair in notes.windows(2) {
+            assert!(pair[0].value >= pair[1].value);
+        }
+        assert!(notes
+            .iter()
+            .all(|n| n.item_type & crate::item_type::PROMISSORY_NOTE != 0));
+    }
+
+    #[test]
+    fn a_purse_becomes_the_fewest_notes_that_carry_it() {
+        let notes = trade_notes();
+        // Enough for one 250,000 note and change.
+        let bought = notes_for(300_000, notes);
+        assert_eq!(bought[0].0.value, 250_000);
+        assert_eq!(bought[0].1, 1);
+        // Never spends more than it has.
+        let spent: u32 = bought.iter().map(|(n, c)| note_price(n.value) * c).sum();
+        assert!(spent <= 300_000, "spent {spent} of 300000");
+    }
+
+    #[test]
+    fn a_purse_too_small_for_any_note_buys_none() {
+        let notes = trade_notes();
+        assert!(notes_for(50, notes).is_empty());
+        assert!(notes_for(0, notes).is_empty());
+    }
+
+    #[test]
+    fn whatever_is_carried_home_is_worth_most_of_what_went_in() {
+        // The markup is the price of the pack space; it should not be
+        // eating the purse. Across a wide range, the face value carried
+        // stays close to what the purse could buy.
+        let notes = trade_notes();
+        for purse in [1_000u32, 12_345, 100_000, 999_999, 5_000_000] {
+            let bought = notes_for(purse, notes);
+            let spent: u32 = bought.iter().map(|(n, c)| note_price(n.value) * c).sum();
+            let face: u32 = bought.iter().map(|(n, c)| n.value * c).sum();
+            assert!(spent <= purse, "{purse}: spent {spent}");
+            // What is left as coin plus the face carried is never worse
+            // than 87% of the purse.
+            let kept = (purse - spent) + face;
+            assert!(
+                kept as f32 >= purse as f32 * 0.86,
+                "{purse}: kept only {kept}"
+            );
+        }
     }
 }
