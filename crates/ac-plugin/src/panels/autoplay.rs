@@ -726,6 +726,18 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                         }
                     })
                     .collect();
+
+                ui.add_space(6.0);
+                title(ui, "Growth");
+                ui.checkbox(&mut cfg.growth.auto_xp, "spend experience by itself")
+                    .on_hover_text(
+                        "Off, unassigned experience is left alone and the character \
+                         is yours to raise by hand. What is already spent stays spent.",
+                    );
+                ui.checkbox(&mut cfg.growth.hunt_grounds, "go to a hunting ground that suits")
+                    .on_hover_text("Move on when nothing worth fighting is about");
+                ui.checkbox(&mut cfg.growth.town_runs, "run to town for supplies")
+                    .on_hover_text("Sell the loot, buy what is short, when the pack fills up");
             });
     });
     (cfg != v.config).then_some(cfg)
@@ -1089,5 +1101,25 @@ mod tests {
         back.load(&Settings::new());
         assert_eq!(back.saved, Config::default());
         assert!(!back.saved.enabled, "it never starts playing by itself");
+    }
+
+    #[test]
+    fn turning_off_the_auto_skilling_is_remembered() {
+        // Spending experience is on out of the box, and each growth rule
+        // is its own switch: turning the skilling off leaves the hunting
+        // and the town runs alone.
+        assert!(Config::default().growth.auto_xp);
+        let mut p = Autoplay::default();
+        p.saved.growth.auto_xp = false;
+        let mut settings = Settings::new();
+        p.save(&mut settings);
+        let mut back = Autoplay::default();
+        back.load(&settings);
+        assert!(
+            !back.saved.growth.auto_xp,
+            "the character is raised by hand"
+        );
+        assert!(back.saved.growth.hunt_grounds, "hunting is untouched");
+        assert!(back.saved.growth.town_runs, "town runs are untouched");
     }
 }
