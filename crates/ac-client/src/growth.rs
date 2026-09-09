@@ -487,6 +487,10 @@ fn notes_for_bill(purse: u32, need_coin: u32, notes: &[(u32, u32)]) -> Vec<u32> 
     out
 }
 
+/// How many trade notes go in one stack. Buying past this in one go
+/// would not fit.
+const NOTE_STACK: u32 = 250;
+
 /// How much of a purse to turn into trade notes here, and which.
 ///
 /// Coin is bulky: pyreals stack 25,000 to a slot, so a good afternoon's
@@ -498,6 +502,10 @@ fn notes_for_bill(purse: u32, need_coin: u32, notes: &[(u32, u32)]) -> Vec<u32> 
 /// `reserve` is the coin to keep: the shopping still to do, plus
 /// whatever float the rules say to carry. Returns `(stock guid, how
 /// many)` per note, largest face value first.
+///
+/// The largest is the 250,000, which players call the MMD after the
+/// Roman numeral printed on it: notes are denominated in hundreds of
+/// pyreals, and 250,000 over 100 is 2,500, which is MMD.
 fn notes_to_buy(purse: u32, reserve: u32, stock: &[Stock]) -> Vec<(u32, u32)> {
     let Some(mut spare) = purse.checked_sub(reserve) else {
         return Vec::new();
@@ -514,7 +522,10 @@ fn notes_to_buy(purse: u32, reserve: u32, stock: &[Stock]) -> Vec<(u32, u32)> {
         if note.price > spare {
             continue;
         }
-        let mut want = spare / note.price;
+        // No more than a stack at a time, and no more than the shop
+        // has: a trade note stacks 250 to a slot, and a purchase past
+        // that would not fit in one.
+        let mut want = (spare / note.price).min(NOTE_STACK);
         if let Some(left) = note.stack {
             want = want.min(left);
         }
@@ -2478,6 +2489,15 @@ mod tests {
     fn a_shop_with_no_notes_on_the_shelf_converts_nothing() {
         let shelf = vec![stock(9, "Prismatic Taper", 693, 43, None)];
         assert!(notes_to_buy(500_000, 0, &shelf).is_empty());
+    }
+
+    #[test]
+    fn no_more_notes_are_bought_than_fit_in_a_stack() {
+        // A trade note stacks 250 to a slot, so a purse that could buy
+        // thousands of the small ones still buys one stack.
+        let shelf = vec![note(1, 100)];
+        let plan = notes_to_buy(10_000_000, 0, &shelf);
+        assert_eq!(plan, vec![(1, 250)]);
     }
 
     #[test]
