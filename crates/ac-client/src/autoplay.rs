@@ -3396,6 +3396,14 @@ impl Client {
         if !matches!(self.can_cast(spell), crate::magic::CastCheck::Ok) {
             return false;
         }
+        // Casting a low level of something we know a better version of
+        // is worth saying once: it is nearly always components for the
+        // higher formula, and a character quietly buffing at level one
+        // looks like a bug rather than an empty pack.
+        if let Some((better, why)) = self.better_buff_blocked(spell) {
+            self.autoplay
+                .note(format!("buffing with a weaker spell: {better} {why}"), now);
+        }
         use crate::buffs::Target;
         match target {
             Target::Me => {
@@ -3423,6 +3431,33 @@ impl Client {
         self.autoplay.last_buff = Some(now);
         self.autoplay.last_cast = Some(now);
         true
+    }
+
+    /// A stronger spell than `spell` that we know, do the same thing
+    /// with, and cannot cast: its name and why. `None` when the one we
+    /// are about to cast is already the best we know.
+    fn better_buff_blocked(&self, spell: u32) -> Option<(String, String)> {
+        use crate::magic::CastCheck;
+        let table = self.assets.spell_table().ok()?;
+        let mine = table.get(spell)?;
+        let mut best: Option<(u32, String, String)> = None;
+        for &id in &self.world.stats.spells {
+            let Some(sp) = table.get(id) else { continue };
+            // The same buff, only stronger: the category is the family
+            // and the power is the level within it.
+            if sp.category != mine.category || sp.power <= mine.power {
+                continue;
+            }
+            let check = self.can_cast(id);
+            if matches!(check, CastCheck::Ok) {
+                continue;
+            }
+            let why = cast_problem(&check);
+            if best.as_ref().is_none_or(|b| sp.power > b.0) {
+                best = Some((sp.power, sp.name.clone(), why));
+            }
+        }
+        best.map(|(_, name, why)| (name, why))
     }
 
     /// When buffs are wanted but none can be cast, say why for the
@@ -3497,8 +3532,16 @@ impl Client {
         use crate::buffs::Target;
         let cfg = &self.autoplay.config.buffs;
         let table = self.assets.spell_table().ok();
-        let mut due: Option<(f32, u32, Target, u32, String, f32)> = None;
+        // (rank, left, ...): creature magic goes first. Its buffs raise
+        // the skills and attributes the other schools cast from, so a
+        // character that buffs them first can land higher levels of
+        // everything after.
+        let mut due: Option<(u8, f32, u32, Target, u32, String, f32)> = None;
         let clock = self.session.server_time().is_some();
+        let creature_first = |spell: u32| -> u8 {
+            let school = table.as_ref().and_then(|t| t.get(spell)).map(|s| s.school);
+            u8::from(school != Some(ac_formats::spell_table::school::CREATURE))
+        };
         let mut offer = |left: Option<f32>, spell: u32, target: Target, category: u32| {
             // Not up at all is due now; but until the server's clock is
             // known nothing can be told apart, so nothing is due.
@@ -3517,13 +3560,14 @@ impl Client {
                 crate::magic::CastCheck::Ok | crate::magic::CastCheck::NoCaster => {}
                 _ => return,
             }
-            if due.as_ref().is_some_and(|d| d.0 <= left) {
+            let rank = creature_first(spell);
+            if due.as_ref().is_some_and(|d| (d.0, d.1) <= (rank, left)) {
                 return;
             }
             let sp = table.as_ref().and_then(|t| t.get(spell));
             let name = sp.map(|s| s.name.clone()).unwrap_or_default();
             let lasts = sp.and_then(|s| s.duration()).unwrap_or(1800.0) as f32;
-            due = Some((left, spell, target, category, name, lasts));
+            due = Some((rank, left, spell, target, category, name, lasts));
         };
         if cfg.auto {
             for want in self.wanted_buffs() {
@@ -3545,7 +3589,9 @@ impl Client {
                 .unwrap_or(0);
             offer(self.buff_left(spell), spell, Target::Me, category);
         }
-        due.map(|(_, spell, target, category, name, lasts)| (spell, target, category, name, lasts))
+        due.map(|(_, _, spell, target, category, name, lasts)| {
+            (spell, target, category, name, lasts)
+        })
     }
 }
 
