@@ -159,9 +159,19 @@ impl Client {
     pub fn train_skill(&mut self, skill: u32) -> bool {
         use ac_net::messages::action;
         let Some(credits) = self.skill_train_cost(skill) else {
+            tracing::debug!(
+                "train {}: no cost (already trained? {:?})",
+                ac_world::stats::skill_name(skill),
+                self.world.stats.skill(skill).map(|s| s.advancement)
+            );
             return false;
         };
         if self.world.stats.skill_credits < credits as i32 {
+            tracing::debug!(
+                "train {}: costs {credits}, have {} credits",
+                ac_world::stats::skill_name(skill),
+                self.world.stats.skill_credits
+            );
             return false;
         }
         tracing::info!(
