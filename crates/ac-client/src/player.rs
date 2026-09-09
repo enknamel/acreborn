@@ -206,96 +206,59 @@ pub const MAX_SPEED_BOOST: f32 = 4.0;
 /// the server has it somewhere else, and casting, looting and every
 /// other range check goes by the server's idea, not ours.
 ///
-/// So these extras are for a server that allows them -- the player's
-/// own. [`MovementRules::ServerSafe`] keeps inside what a server that
-/// enforces the rules accepts, and is what [`MovementRules::Auto`]
-/// (the default) picks for anything but a server on this machine.
+/// Whether to use them is the player's call, wherever they are playing:
+/// the run multiplier, the jump height and flying are their own settings
+/// and apply on any server. [`MovementRules::ServerSafe`] is there for
+/// anyone who would rather be held to the game's own rules; nothing turns
+/// it on by itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MovementRules {
-    /// Server-safe, unless the client is connected to a server on this
-    /// machine (see [`host_is_local`]), which is the player's own and
-    /// allows what a public one does not.
+    /// The player's own run, jump and flying settings apply, wherever
+    /// they are connected. A server that checks the moves it is told
+    /// about may refuse them; that is the player's to weigh.
     #[default]
-    Auto,
-    /// Stay inside what a rule-enforcing server accepts, wherever we
-    /// are connected.
-    ServerSafe,
-    /// Everything the client can do, wherever we are connected.
     Unrestricted,
+    /// Stay inside what a rule-enforcing server accepts: the game's own
+    /// run speed and jump height, and no flying.
+    ServerSafe,
 }
 
 impl MovementRules {
-    /// The three settings, in the order the Options panel lists them.
-    pub const ALL: [MovementRules; 3] = [
-        MovementRules::Auto,
-        MovementRules::ServerSafe,
-        MovementRules::Unrestricted,
-    ];
+    /// The settings, in the order the Options panel lists them.
+    pub const ALL: [MovementRules; 2] = [MovementRules::Unrestricted, MovementRules::ServerSafe];
 
     /// Short name for the Options panel.
     pub fn label(self) -> &'static str {
         match self {
-            MovementRules::Auto => "Automatic",
-            MovementRules::ServerSafe => "Server-safe",
-            MovementRules::Unrestricted => "Unrestricted",
+            MovementRules::Unrestricted => "My settings",
+            MovementRules::ServerSafe => "The game's rules",
         }
     }
 
     /// One line saying what it does, for the Options panel.
     pub fn help(self) -> &'static str {
         match self {
-            MovementRules::Auto => {
-                "Fast run, high jumps and flying on your own server; the game's own rules anywhere else"
-            }
-            MovementRules::ServerSafe => "The game's own run speed and jump height, no flying",
             MovementRules::Unrestricted => {
-                "Fast run, high jumps and flying everywhere -- a server that checks will refuse the moves"
+                "Your run speed, jump height and flying apply wherever you play"
+            }
+            MovementRules::ServerSafe => {
+                "Hold me to the game's own run speed and jump height, and no flying"
             }
         }
     }
 
-    /// What this allows against `host`, the `host` or `host:port` the
-    /// client connected to.
-    pub fn limits(self, host: &str) -> MovementLimits {
+    /// What this setting allows.
+    pub fn limits(self) -> MovementLimits {
         match self {
             MovementRules::Unrestricted => MovementLimits::UNRESTRICTED,
             MovementRules::ServerSafe => MovementLimits::SERVER_SAFE,
-            MovementRules::Auto if host_is_local(host) => MovementLimits::UNRESTRICTED,
-            MovementRules::Auto => MovementLimits::SERVER_SAFE,
         }
     }
 }
 
-/// The address the client connected to (`host` or `host:port`, with an
-/// IPv6 address in brackets or not) is on this machine: loopback, or a
-/// `localhost` name.
-pub fn host_is_local(host: &str) -> bool {
-    let host = host.trim();
-    // Strip the port: `[::1]:9000`, `127.0.0.1:9000`, `localhost:9000`,
-    // or a bare IPv6 address, which is all colons and has no port.
-    let host = if let Some(rest) = host.strip_prefix('[') {
-        rest.split(']').next().unwrap_or("")
-    } else if host.matches(':').count() > 1 {
-        host
-    } else {
-        host.split(':').next().unwrap_or("")
-    };
-    // An IPv6 zone (`::1%lo0`) is not part of the address.
-    let host = host.split('%').next().unwrap_or("");
-    if host.eq_ignore_ascii_case("localhost") {
-        return true;
-    }
-    // `.localhost` is reserved for the loopback (RFC 6761).
-    if host.len() > 10 && host[host.len() - 10..].eq_ignore_ascii_case(".localhost") {
-        return true;
-    }
-    host.parse::<std::net::IpAddr>()
-        .is_ok_and(|ip| ip.is_loopback())
-}
-
-/// What the movement code may do, worked out from [`MovementRules`] and
-/// the server we are connected to.
+/// What the movement code may do, from the player's [`MovementRules`]
+/// setting.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MovementLimits {
     /// The most the run speed may be multiplied by on top of the Run
@@ -1534,53 +1497,18 @@ mod tests {
     }
 
     #[test]
-    fn our_own_server_is_the_one_the_rules_are_relaxed_for() {
-        for local in [
-            "127.0.0.1",
-            "127.0.0.1:9000",
-            "127.1.2.3:9000",
-            "localhost",
-            "LocalHost:9000",
-            "ace.localhost:9000",
-            "::1",
-            "[::1]:9000",
-            "::1%lo0",
-        ] {
-            assert!(host_is_local(local), "{local} should count as ours");
-        }
-        for public in [
-            "",
-            "play.coldeve.ac:9000",
-            "127.0.0.1.example.com:9000",
-            "notlocalhost:9000",
-            "localhost.example.com",
-            "10.0.0.4:9000",
-            "192.168.1.20:9000",
-            "74.50.118.178:9000",
-            "[2001:db8::1]:9000",
-        ] {
-            assert!(!host_is_local(public), "{public} should not count as ours");
-        }
-    }
-
-    #[test]
-    fn the_rules_are_safe_everywhere_but_home() {
-        // Automatic: the extras on our own server, the game's own rules
-        // on anyone else's -- including when we do not know where we are.
-        let auto = MovementRules::Auto;
-        assert_eq!(auto.limits("127.0.0.1:9000"), MovementLimits::UNRESTRICTED);
-        assert!(auto.limits("play.coldeve.ac:9000").is_server_safe());
-        assert!(auto.limits("").is_server_safe());
-        assert_eq!(MovementRules::default(), MovementRules::Auto);
-        // The two settings that do not care where we are.
-        assert!(MovementRules::ServerSafe
-            .limits("127.0.0.1:9000")
-            .is_server_safe());
+    fn the_players_settings_apply_wherever_they_play() {
+        // Nothing is decided by where we connected: the default lets the
+        // player's own run, jump and flying settings through everywhere.
+        assert_eq!(MovementRules::default(), MovementRules::Unrestricted);
         assert_eq!(
-            MovementRules::Unrestricted.limits("play.coldeve.ac:9000"),
+            MovementRules::Unrestricted.limits(),
             MovementLimits::UNRESTRICTED
         );
-        // Unset limits are the safe ones.
+        // The opt-in for anyone who would rather be held to the rules.
+        assert!(MovementRules::ServerSafe.limits().is_server_safe());
+        // Unset limits are the safe ones, so a character nobody has told
+        // still starts inside the rules.
         assert!(MovementLimits::default().is_server_safe());
     }
 

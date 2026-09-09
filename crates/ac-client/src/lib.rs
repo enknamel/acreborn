@@ -989,7 +989,7 @@ impl Client {
             pl.run_rate = player::run_rate(current(&self.world.stats, ac_world::stats::skill::RUN));
             pl.speed_boost = self.speed_boost;
             pl.jump_height = self.jump_height;
-            pl.set_limits(self.movement_rules.limits(&self.config.host));
+            pl.set_limits(self.movement_rules.limits());
             if let Some(p) = self.pending_jump.take() {
                 if !pl.noclip {
                     pl.jump(p);
@@ -2500,7 +2500,7 @@ impl Client {
     /// What the movement rules allow against the server we are
     /// connected to.
     pub fn movement_limits(&self) -> player::MovementLimits {
-        self.movement_rules.limits(&self.config.host)
+        self.movement_rules.limits()
     }
 
     pub fn noclip(&self) -> bool {

@@ -123,18 +123,19 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
                 })
                 .response
                 .on_hover_text(
-                    "Fast run, high jumps and flying only work on servers \
-                     that allow them; on other servers they get your moves \
-                     refused and your character rolled back. Automatic \
-                     allows them on a server running on this machine and \
-                     nowhere else.",
+                    "Your run speed, jump height and flying are yours to \
+                     set and apply wherever you play. A server that checks \
+                     the moves it is told about may refuse them, which \
+                     leaves your character where it thinks you are; pick \
+                     the game's rules if you would rather stay inside them.",
                 );
                 ui.label(egui::RichText::new(v.movement_rules.help()).weak().small());
                 if v.server_safe {
                     ui.label(
                         egui::RichText::new(
-                            "In force here: running at the Run skill's pace, \
-                             jumping by the Jump skill, no flying.",
+                            "Held to the game's rules: running at the Run \
+                             skill's pace, jumping by the Jump skill, no \
+                             flying.",
                         )
                         .color(egui::Color32::from_rgb(220, 190, 120)),
                     );
@@ -242,8 +243,9 @@ pub struct Options {
     /// runs and published on the blackboard for the viewer.
     draw_distance: Option<f32>,
     /// The movement rules chosen here, kept between sessions and given
-    /// to each client as it appears. Unset is [`MovementRules::Auto`],
-    /// which is server-safe anywhere but a server on this machine.
+    /// to each client as it appears. Unset is
+    /// [`MovementRules::Unrestricted`], so the player's own run, jump and
+    /// flying settings apply until they ask to be held to the rules.
     movement_rules: MovementRules,
     /// Whether the rules were holding the character back last tick, so
     /// a change can be said once in the chat log.
@@ -264,7 +266,7 @@ impl Options {
                 speed_boost_pct: 200,
                 jump_height_cm: 900,
                 draw_distance_m: 300,
-                movement_rules: MovementRules::Auto,
+                movement_rules: MovementRules::ServerSafe,
                 server_safe: true,
                 noclip_refused: false,
             }),
@@ -444,29 +446,26 @@ mod tests {
     use std::time::Instant;
 
     #[test]
-    fn the_movement_rules_default_to_safe_and_are_remembered() {
-        // Out of the box: automatic, which is the game's own rules on
-        // anyone else's server and the extras only on our own.
+    fn the_movement_rules_are_the_players_choice_and_are_remembered() {
+        // Out of the box the player's own run, jump and flying settings
+        // apply, wherever they are playing. Nothing decides that for them.
         let o = Options::default();
-        assert_eq!(o.movement_rules, MovementRules::Auto);
-        assert!(MovementRules::Auto
-            .limits("play.coldeve.ac:9000")
-            .is_server_safe());
-        assert!(!MovementRules::Auto
-            .limits("127.0.0.1:9000")
-            .is_server_safe());
+        assert_eq!(o.movement_rules, MovementRules::Unrestricted);
+        assert!(!MovementRules::Unrestricted.limits().is_server_safe());
+        // The opt-in for being held to the game's rules.
+        assert!(MovementRules::ServerSafe.limits().is_server_safe());
         // A choice survives a restart.
         let mut settings = Settings::new();
         let mut chosen = Options::default();
-        chosen.movement_rules = MovementRules::Unrestricted;
+        chosen.movement_rules = MovementRules::ServerSafe;
         chosen.save(&mut settings);
         let mut back = Options::default();
         back.load(&settings);
-        assert_eq!(back.movement_rules, MovementRules::Unrestricted);
-        // Settings with nothing saved leave the safe default alone.
+        assert_eq!(back.movement_rules, MovementRules::ServerSafe);
+        // Settings with nothing saved leave the default alone.
         let mut fresh = Options::default();
         fresh.load(&Settings::new());
-        assert_eq!(fresh.movement_rules, MovementRules::Auto);
+        assert_eq!(fresh.movement_rules, MovementRules::Unrestricted);
     }
 
     #[test]
