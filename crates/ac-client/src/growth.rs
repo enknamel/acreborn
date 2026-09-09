@@ -152,17 +152,23 @@ impl Default for Growth {
             keep_stocked: vec![("Healing Kit".into(), 2)],
             ammo_keep: 250,
             comps_keep: 40,
+            // Vendor trash only. Gear worth keeping is left alone:
+            // spelled armour and jewelry never match (see
+            // `storage_worthy`), and what is left is capped by value so
+            // that a good drop is carried home rather than sold for
+            // pocket change. Peas and their like are what a run to town
+            // is actually paid for with.
             sell: vec![
-                "type:armor".into(),
-                "type:clothing".into(),
-                "type:jewelry".into(),
-                "type:gem".into(),
-                "type:salvage".into(),
                 "type:junk".into(),
                 "type:misc".into(),
-                "type:weapon".into(),
-                "type:missile".into(),
-                "type:caster".into(),
+                "type:gem".into(),
+                "type:food".into(),
+                "type:armor value<2500".into(),
+                "type:clothing value<2500".into(),
+                "type:jewelry value<2500".into(),
+                "type:weapon value<2500".into(),
+                "type:missile value<2500".into(),
+                "type:caster value<2500".into(),
             ],
             keep: Vec::new(),
         }
@@ -455,19 +461,52 @@ pub struct SellRules<'a> {
     pub tags: &'a BTreeMap<u32, LootAction>,
 }
 
+/// Gear worth keeping rather than selling: armour, clothing or jewelry
+/// that carries spells.
+///
+/// This is the difference between loot and stock. A Hauberk of Epic
+/// Life Mastery is not worth its handful of pyreals at a vendor, it is
+/// a piece of a suit that gets built over weeks, and a rule that sold
+/// every armour above a value threshold would feed exactly that piece
+/// to a shopkeeper. So gear with spells on it is never sold by a
+/// blanket rule. The loot rules can still tag one `Sell` by hand, and
+/// that tag wins.
+pub fn storage_worthy(stats: &ItemStats) -> bool {
+    let gear = item_type::ARMOR | item_type::CLOTHING | item_type::JEWELRY;
+    stats.item_type & gear != 0 && !stats.spells.is_empty()
+}
+
 /// Whether an item is loot to sell. `ammo` says whether it goes in the
 /// ammunition slot, which the stats do not carry.
+///
+/// The order matters, and it is: what cannot be sold, then what the
+/// player said, then what the loot rules tagged, then the standing
+/// searches. Anything the searches do not name is kept -- a character
+/// that empties its pack into a vendor loses the suit it was building.
 pub fn sellable(stats: &ItemStats, ammo: bool, rules: &SellRules) -> bool {
+    // Not sellable at all.
     if stats.wielded || stats.value == 0 || ammo {
         return false;
     }
+    // The player's own word, before anything else.
+    if name_matches(&stats.name, rules.keep) {
+        return false;
+    }
+    // What the loot rules decided when the item was taken. A `Sell` tag
+    // is a decision already made, so it beats every rule below.
+    match rules.tags.get(&stats.guid) {
+        Some(LootAction::Sell) => return true,
+        Some(LootAction::Salvage | LootAction::Keep | LootAction::Skip) => return false,
+        None => {}
+    }
+    // Things a vendor should never be handed: money, the packs
+    // themselves, what spells and crafting are made of.
     let keep_types = item_type::MONEY
         | item_type::CONTAINER
         | item_type::SPELL_COMPONENTS
         | item_type::PROMISSORY_NOTE
         | item_type::TINKERING_TOOL
         | item_type::KEY
-        | item_type::FOOD
         | item_type::MANA_STONE
         | item_type::CRAFT_FLETCHING_BASE
         | item_type::CRAFT_FLETCHING_INTERMEDIATE
@@ -477,13 +516,8 @@ pub fn sellable(stats: &ItemStats, ammo: bool, rules: &SellRules) -> bool {
     if stats.item_type & keep_types != 0 {
         return false;
     }
-    if name_matches(&stats.name, rules.keep) {
+    if storage_worthy(stats) {
         return false;
-    }
-    match rules.tags.get(&stats.guid) {
-        Some(LootAction::Sell) => return true,
-        Some(LootAction::Salvage) => return false,
-        _ => {}
     }
     let weapon = stats.item_type
         & (item_type::MELEE_WEAPON | item_type::MISSILE_WEAPON | item_type::CASTER)
@@ -1636,7 +1670,7 @@ mod tests {
             false,
             &rules
         ));
-        // Money, packs, components, tools, food and ammunition stay.
+        // Money, packs, components, tools and ammunition stay.
         assert!(!sellable(
             &item("Pyreal", item_type::MONEY, 1),
             false,
@@ -1657,7 +1691,10 @@ mod tests {
             false,
             &rules
         ));
-        assert!(!sellable(&item("Bread", item_type::FOOD, 3), false, &rules));
+        // Food is what a run to town is paid for: peas and their like
+        // are picked up to be sold. Food worth keeping goes on the
+        // keep list by name, like the healing kits below.
+        assert!(sellable(&item("Peas", item_type::FOOD, 40), false, &rules));
         assert!(!sellable(
             &item("Arrow", item_type::MISSILE_WEAPON, 1),
             true,
@@ -1683,6 +1720,85 @@ mod tests {
         let mut worn = item("Leather Cap", item_type::ARMOR, 120);
         worn.wielded = true;
         assert!(!sellable(&worn, false, &rules));
+    }
+
+    #[test]
+    fn the_suit_being_built_is_not_sold_for_pocket_change() {
+        let cfg = Growth::default();
+        let keep: Vec<String> = Vec::new();
+        let rules = SellRules {
+            sell: &cfg.sell,
+            keep: &keep,
+            can_wield: None,
+            tags: &BTreeMap::new(),
+        };
+        // Plain armour off a drudge is trash and goes.
+        assert!(sellable(
+            &item("Leather Cap", item_type::ARMOR, 120),
+            false,
+            &rules
+        ));
+        // The same piece with spells on it is a piece of a suit.
+        let mut hauberk = item("Hauberk", item_type::ARMOR, 900);
+        hauberk.spells = vec!["Epic Life Magic Aptitude".into()];
+        assert!(storage_worthy(&hauberk));
+        assert!(!sellable(&hauberk, false, &rules));
+        let mut ring = item("Ring", item_type::JEWELRY, 400);
+        ring.spells = vec!["Epic Endurance".into(), "Epic Focus".into()];
+        assert!(!sellable(&ring, false, &rules));
+        // Value alone keeps a good drop out of a vendor's hands too.
+        assert!(!sellable(
+            &item("Olthoi Koujia", item_type::ARMOR, 9_000),
+            false,
+            &rules
+        ));
+    }
+
+    #[test]
+    fn what_the_loot_rules_tagged_beats_every_other_rule() {
+        let cfg = Growth::default();
+        let keep: Vec<String> = Vec::new();
+        let mut hauberk = item("Hauberk", item_type::ARMOR, 9_000);
+        hauberk.guid = 7;
+        hauberk.spells = vec!["Epic Life Magic Aptitude".into()];
+
+        // Tagged for sale by hand: it goes, storage rule or not.
+        let mut tags = BTreeMap::new();
+        tags.insert(7u32, LootAction::Sell);
+        let sell_it = SellRules {
+            sell: &cfg.sell,
+            keep: &keep,
+            can_wield: None,
+            tags: &tags,
+        };
+        assert!(sellable(&hauberk, false, &sell_it));
+
+        // Tagged to keep or salvage: it stays, search or not.
+        for action in [LootAction::Keep, LootAction::Salvage, LootAction::Skip] {
+            let mut tags = BTreeMap::new();
+            tags.insert(7u32, action);
+            let rules = SellRules {
+                sell: &cfg.sell,
+                keep: &keep,
+                can_wield: None,
+                tags: &tags,
+            };
+            let mut cap = item("Leather Cap", item_type::ARMOR, 120);
+            cap.guid = 7;
+            assert!(!sellable(&cap, false, &rules), "{action:?}");
+        }
+
+        // The player's own keep list beats even a Sell tag.
+        let keep = vec!["Hauberk".to_string()];
+        let mut tags = BTreeMap::new();
+        tags.insert(7u32, LootAction::Sell);
+        let kept = SellRules {
+            sell: &cfg.sell,
+            keep: &keep,
+            can_wield: None,
+            tags: &tags,
+        };
+        assert!(!sellable(&hauberk, false, &kept));
     }
 
     #[test]
