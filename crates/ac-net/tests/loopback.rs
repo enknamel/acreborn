@@ -300,3 +300,220 @@ fn retransmit_request_on_gap() {
     s.receive(&p2[0], t0);
     assert_eq!(s.events().len(), 3, "p2, p3, p4 delivered in order");
 }
+
+/// A session past the handshake, plus the mock server driving it.
+fn connected(ack: Duration) -> (Session, MockServer, Instant) {
+    let t0 = Instant::now();
+    let mut s = Session::new(
+        Config {
+            account: "a".into(),
+            password: "b".into(),
+            dats: vec![],
+            echo_interval: Duration::from_secs(1000),
+            ack_interval: ack,
+        },
+        t0,
+    );
+    let mut srv = MockServer::new();
+    s.login(t0);
+    s.outgoing();
+    s.receive(&srv.connect_request(), t0);
+    s.outgoing();
+    s.events();
+    (s, srv, t0)
+}
+
+fn naks(out: &[(Port, Vec<u8>)]) -> Vec<Vec<u32>> {
+    out.iter()
+        .map(|(_, dg)| Packet::parse(dg).unwrap())
+        .filter(|p| p.header.has(flags::REQUEST_RETRANSMIT))
+        .map(|p| p.optional.request_retransmit)
+        .collect()
+}
+
+/// One missing packet is not requested straight away, because it may just
+/// be reordered, but it is requested once the hole has stayed open.
+#[test]
+fn single_gap_is_requested_after_a_delay() {
+    let (mut s, mut srv, t0) = connected(Duration::from_secs(1000));
+    let p1 = srv.message(&opcode_msg(0xF7E1, &[0; 8]), 500);
+    let _p2 = srv.message(&opcode_msg(0xF7E1, &[1; 8]), 500);
+    let p3 = srv.message(&opcode_msg(0xF7E1, &[2; 8]), 500);
+    let seq2 = Header::parse(&_p2[0]).unwrap().sequence;
+
+    s.receive(&p1[0], t0);
+    s.receive(&p3[0], t0); // p2 missing: a gap of one
+    assert!(
+        naks(&s.outgoing()).is_empty(),
+        "no request on the first sight"
+    );
+
+    // Still nothing while the packet could plausibly be in flight.
+    s.poll(t0 + Duration::from_millis(100));
+    assert!(naks(&s.outgoing()).is_empty(), "asked too early");
+
+    s.poll(t0 + Duration::from_millis(300));
+    assert_eq!(
+        naks(&s.outgoing()),
+        vec![vec![seq2]],
+        "one packet requested"
+    );
+}
+
+/// Requests do not repeat faster than once a second while the hole stays
+/// open, and stop as soon as it closes.
+#[test]
+fn single_gap_requests_are_rate_limited() {
+    let (mut s, mut srv, t0) = connected(Duration::from_secs(1000));
+    let p1 = srv.message(&opcode_msg(0xF7E1, &[0; 8]), 500);
+    let p2 = srv.message(&opcode_msg(0xF7E1, &[1; 8]), 500);
+    let p3 = srv.message(&opcode_msg(0xF7E1, &[2; 8]), 500);
+    let seq2 = Header::parse(&p2[0]).unwrap().sequence;
+    s.receive(&p1[0], t0);
+    s.receive(&p3[0], t0);
+
+    let mut sent = Vec::new();
+    for ms in [300, 400, 500, 900, 1299] {
+        s.poll(t0 + Duration::from_millis(ms));
+        sent.extend(naks(&s.outgoing()));
+    }
+    assert_eq!(sent, vec![vec![seq2]], "one request in the first second");
+
+    s.poll(t0 + Duration::from_millis(1301));
+    assert_eq!(
+        naks(&s.outgoing()),
+        vec![vec![seq2]],
+        "retried after a second"
+    );
+
+    // The missing packet arrives: no more requests, and everything is
+    // delivered in order.
+    s.receive(&p2[0], t0 + Duration::from_millis(1400));
+    assert_eq!(s.events().len(), 3, "p1, p2, p3 delivered");
+    for ms in [2400, 3400, 4400] {
+        s.poll(t0 + Duration::from_millis(ms));
+        assert!(naks(&s.outgoing()).is_empty(), "asked again at {ms}ms");
+    }
+}
+
+/// A gap of two or more is loss, not reordering: ask at once, as ACE does.
+#[test]
+fn wide_gap_is_requested_immediately() {
+    let (mut s, mut srv, t0) = connected(Duration::from_secs(1000));
+    let p1 = srv.message(&opcode_msg(0xF7E1, &[0; 8]), 500);
+    let p2 = srv.message(&opcode_msg(0xF7E1, &[1; 8]), 500);
+    let _p3 = srv.message(&opcode_msg(0xF7E1, &[2; 8]), 500);
+    let p4 = srv.message(&opcode_msg(0xF7E1, &[3; 8]), 500);
+    let seq2 = Header::parse(&p2[0]).unwrap().sequence;
+    s.receive(&p1[0], t0);
+    s.receive(&p4[0], t0);
+    assert_eq!(naks(&s.outgoing()), vec![vec![seq2, seq2 + 1]]);
+}
+
+/// End to end over a link that loses, reorders and duplicates packets. The
+/// old key stream latched shut part way through a run like this and the
+/// client went deaf; every message must arrive, in order, with the session
+/// still connected at the end.
+#[test]
+fn survives_a_lossy_link() {
+    let (mut s, mut srv, t0) = connected(Duration::from_millis(0));
+    let mut rng = 0x2545_F491u32;
+    let mut roll = move || {
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        rng
+    };
+    let total = 4000u32;
+    let mut cache: std::collections::BTreeMap<u32, Vec<u8>> = std::collections::BTreeMap::new();
+    let mut delayed: Vec<(u32, Vec<u8>)> = Vec::new();
+    let mut got = 0u32;
+    let mut resent = 0u32;
+    let mut now = t0;
+
+    for i in 0..total {
+        now += Duration::from_millis(50);
+        let dgs = srv.message(&opcode_msg(0xF7E1, &i.to_le_bytes()), 500);
+        for dg in dgs {
+            let seq = Header::parse(&dg).unwrap().sequence;
+            cache.insert(seq, dg.clone());
+            match roll() % 20 {
+                0 => {}                       // lost
+                1 => delayed.push((seq, dg)), // reordered
+                2 => {
+                    s.receive(&dg, now); // duplicated
+                    s.receive(&dg, now);
+                }
+                _ => s.receive(&dg, now),
+            }
+        }
+        // Deliver anything that was held back a few packets ago.
+        if delayed.len() >= 3 {
+            for (_, dg) in delayed.drain(..) {
+                s.receive(&dg, now);
+            }
+        }
+        s.poll(now);
+        // The server answers our retransmit requests from its cache.
+        for (_, dg) in s.outgoing() {
+            let p = Packet::parse(&dg).unwrap();
+            if p.header.has(flags::REQUEST_RETRANSMIT) {
+                for want in &p.optional.request_retransmit {
+                    if let Some(orig) = cache.get(want) {
+                        let mut b = orig.clone();
+                        let was = Header::parse(&b).unwrap();
+                        let mut h = was;
+                        h.flags |= flags::RETRANSMISSION;
+                        h.checksum = h.hash().wrapping_add(was.checksum.wrapping_sub(was.hash()));
+                        h.write(&mut b[..20]);
+                        s.receive(&b, now);
+                        resent += 1;
+                    }
+                }
+            } else {
+                srv.receive(&dg);
+            }
+        }
+        for ev in s.events() {
+            if let Event::Message(m) = ev {
+                let (op, body) = messages::split(&m).unwrap();
+                assert_eq!(op, 0xF7E1);
+                assert_eq!(body[..4], got.to_le_bytes(), "messages out of order");
+                got += 1;
+            } else if let Event::Terminated(why) = ev {
+                panic!("session died at message {got}: {why}");
+            }
+        }
+    }
+    // Flush whatever is still recoverable.
+    for _ in 0..40 {
+        now += Duration::from_secs(1);
+        s.poll(now);
+        for (_, dg) in s.outgoing() {
+            let p = Packet::parse(&dg).unwrap();
+            if p.header.has(flags::REQUEST_RETRANSMIT) {
+                for want in &p.optional.request_retransmit {
+                    if let Some(orig) = cache.get(want) {
+                        let mut b = orig.clone();
+                        let was = Header::parse(&b).unwrap();
+                        let mut h = was;
+                        h.flags |= flags::RETRANSMISSION;
+                        h.checksum = h.hash().wrapping_add(was.checksum.wrapping_sub(was.hash()));
+                        h.write(&mut b[..20]);
+                        s.receive(&b, now);
+                    }
+                }
+            }
+        }
+        for ev in s.events() {
+            if let Event::Message(m) = ev {
+                let (_, body) = messages::split(&m).unwrap();
+                assert_eq!(body[..4], got.to_le_bytes(), "messages out of order");
+                got += 1;
+            }
+        }
+    }
+    assert_eq!(s.state(), State::Connected, "session survived the link");
+    assert_eq!(got, total, "every message recovered");
+    assert!(resent > 100, "the link should have needed {resent} resends");
+}
