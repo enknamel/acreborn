@@ -2497,15 +2497,45 @@ impl Client {
         self.use_on(source, target)
     }
 
-    /// The main pack has no room for another item.
-    pub fn pack_full(&self) -> bool {
-        let capacity = self
+    /// Item slots the character has, and how many are in use.
+    ///
+    /// Side packs count. A pack brings its own item slots with it, and
+    /// the server fills them by itself once the main pack is full, so
+    /// judging fullness by the main pack alone declares a character out
+    /// of room while it is carrying six empty bags.
+    ///
+    /// Pack slots are a separate count and are left out of both
+    /// numbers: a pack, and each of the five Foci, sits in one of those
+    /// (see `ac_world::pack_slot`).
+    pub fn item_slots(&self) -> (u32, u32) {
+        let mine = self
             .world
             .player()
             .map(|p| p.items_capacity)
             .filter(|c| *c > 0)
             .unwrap_or(102);
-        self.world.main_pack().count() as u32 >= capacity
+        let me = self.world.player_guid;
+        let mut capacity = mine;
+        let mut used = 0;
+        for o in self.world.inventory() {
+            let is_pack = o.item_type & ac_world::item_type::CONTAINER != 0;
+            if ac_world::pack_slot::used_by(o.weenie_class_id, is_pack) {
+                // A pack in a pack slot: its own slots are added, and it
+                // does not spend one of the character's own.
+                if o.container == me {
+                    capacity = capacity.saturating_add(o.items_capacity);
+                    continue;
+                }
+            }
+            used += 1;
+        }
+        (used, capacity)
+    }
+
+    /// There is no room for another item.
+    pub fn pack_full(&self) -> bool {
+        let (used, capacity) = self.item_slots();
+        used >= capacity
     }
 
     /// What is known about the kind of creature `guid` is.

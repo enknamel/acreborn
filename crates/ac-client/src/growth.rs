@@ -1311,16 +1311,11 @@ impl Client {
         self.autoplay.growth.mode
     }
 
-    /// Free slots in the main pack: what decides who can carry the
-    /// party's shopping.
+    /// Free item slots, side packs counted: what decides who can carry
+    /// the party's shopping.
     pub fn free_space(&self) -> u32 {
-        let capacity = self
-            .world
-            .player()
-            .map(|p| p.items_capacity)
-            .filter(|c| *c > 0)
-            .unwrap_or(102);
-        capacity.saturating_sub(self.world.main_pack().count() as u32)
+        let (used, capacity) = self.item_slots();
+        capacity.saturating_sub(used)
     }
 
     /// What the character can spend. Coin and trade notes both: a note

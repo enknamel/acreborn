@@ -16,6 +16,46 @@ pub mod motion;
 pub mod object;
 pub mod portals;
 pub mod recalls;
+/// What takes up one of the character's pack slots.
+///
+/// A character has a number of item slots (102 to start with) and a
+/// small number of *pack* slots, usually seven. A pack goes in a pack
+/// slot and brings its own item slots with it, which is how inventory
+/// grows.
+///
+/// Packs are not the only things in there. The five Foci -- the stones
+/// a caster carries so that a school's spells need no components -- take
+/// a pack slot each without being packs, which is why a mage carrying
+/// all five has two slots left for bags. They are the only items in the
+/// game that do this: the server marks them with `RequiresBackpackSlot`
+/// and nothing else has it.
+pub mod pack_slot {
+    /// The five Foci, by weenie class. Enchantment, Artifice, Verdancy,
+    /// Strife and Shadow.
+    pub const FOCI: [u32; 5] = [15268, 15269, 15270, 15271, 43173];
+
+    /// Whether this weenie is one of the Foci.
+    pub fn is_foci(wcid: u32) -> bool {
+        FOCI.contains(&wcid)
+    }
+
+    /// Whether an item takes a pack slot rather than an item slot.
+    pub fn used_by(wcid: u32, is_container: bool) -> bool {
+        is_container || is_foci(wcid)
+    }
+
+    /// What the server calls an inventory entry in the player
+    /// description: what a pack slot holds.
+    pub mod container_type {
+        /// An ordinary item, in an item slot.
+        pub const ITEM: u32 = 0;
+        /// A pack.
+        pub const CONTAINER: u32 = 1;
+        /// One of the Foci.
+        pub const FOCI: u32 = 2;
+    }
+}
+
 pub mod shops;
 pub mod social;
 pub mod stats;

@@ -48,6 +48,51 @@ pub struct Pack {
     pub capacity: u32,
 }
 
+/// What one of the character's pack slots holds.
+///
+/// Seven slots, usually, and a pack is not the only thing that fills
+/// one: each of the five Foci takes a slot too, so a caster carrying
+/// all of them has two left for bags. The empty ones are shown as well
+/// as the full, because a slot you cannot see is a slot you forget you
+/// have.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Slot {
+    /// A pack, with what is in it and what it holds.
+    Pack(Pack),
+    /// One of the Foci: a slot spent, and nothing goes in it.
+    Foci { guid: u32, name: String },
+    /// Nothing in it. Drop a pack here to put it on.
+    Empty,
+}
+
+impl Slot {
+    /// The item filling the slot, if anything is.
+    pub fn guid(&self) -> Option<u32> {
+        match self {
+            Slot::Pack(p) => Some(p.guid),
+            Slot::Foci { guid, .. } => Some(*guid),
+            Slot::Empty => None,
+        }
+    }
+}
+
+/// The pack slots in order: packs, then Foci, then whatever is spare.
+///
+/// `capacity` is what the character has; a slot count of zero before
+/// the player description arrives shows nothing rather than guessing.
+pub fn slots(packs: &[Pack], foci: &[(u32, String)], capacity: u32) -> Vec<Slot> {
+    let mut out: Vec<Slot> = packs.iter().cloned().map(Slot::Pack).collect();
+    out.extend(foci.iter().map(|(guid, name)| Slot::Foci {
+        guid: *guid,
+        name: name.clone(),
+    }));
+    // More carried than the character has room for should not happen,
+    // but a saturating count keeps a bad number from panicking here.
+    let spare = (capacity as usize).saturating_sub(out.len());
+    out.extend(std::iter::repeat_n(Slot::Empty, spare));
+    out
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InventoryView {
     pub rows: Vec<Row>,
@@ -57,7 +102,10 @@ pub struct InventoryView {
     pub main_count: u32,
     pub main_capacity: u32,
     pub packs: Vec<Pack>,
-    /// Side-pack slots used and available.
+    /// Every pack slot, filled or empty.
+    pub slots: Vec<Slot>,
+    /// Pack slots used and available. Foci count against these as well
+    /// as packs: they take a slot each without being one.
     pub pack_slots: (u32, u32),
     /// Total burden carried, and the capacity Strength gives.
     pub burden: u32,
@@ -170,6 +218,13 @@ pub fn view(c: &Client) -> Option<InventoryView> {
         .collect();
     foci.sort();
     foci.dedup();
+    // The Foci themselves, for the slots they occupy.
+    let mut carried_foci: Vec<(u32, String)> = rows
+        .iter()
+        .filter(|r| ac_world::pack_slot::is_foci(r.item.wcid) && !r.item.wielded)
+        .map(|r| (r.item.guid, r.item.name.clone()))
+        .collect();
+    carried_foci.sort_by(|a, b| a.1.cmp(&b.1));
     let unappraised = rows.iter().filter(|r| !r.stats.appraised).count();
     rows.sort_by(|a, b| a.item.name.cmp(&b.item.name));
     Some(InventoryView {
@@ -178,7 +233,12 @@ pub fn view(c: &Client) -> Option<InventoryView> {
         main_count,
         main_capacity: player.map(|p| p.items_capacity).unwrap_or(0),
         pack_slots: (
-            packs.len() as u32,
+            (packs.len() + carried_foci.len()) as u32,
+            player.map(|p| p.containers_capacity).unwrap_or(0),
+        ),
+        slots: slots(
+            &packs,
+            &carried_foci,
             player.map(|p| p.containers_capacity).unwrap_or(0),
         ),
         packs,
@@ -212,6 +272,9 @@ pub struct Actions {
     pub cancel_use: bool,
     /// Items to drop on the ground.
     pub drop: Vec<u32>,
+    /// Packs to tip out into the main pack, so a bigger one can take
+    /// the slot.
+    pub empty_pack: Vec<u32>,
 }
 
 /// The panel's own state: search line, chip, sort, folded packs.
@@ -396,6 +459,65 @@ fn draw_row(
     }
 }
 
+/// One pack slot, as a small chip under the header.
+///
+/// A pack shows how full it is and how big it is, which is what tells
+/// you whether the one in your pack is worth swapping in. A Focus shows
+/// that the slot is spent and why. An empty slot is a drop target: put
+/// a pack on it and it goes on.
+fn slot_chip(ui: &mut egui::Ui, index: usize, slot: &Slot, actions: &mut Actions) {
+    let dim = egui::Color32::from_gray(120);
+    let warm = egui::Color32::from_rgb(230, 210, 150);
+    match slot {
+        Slot::Pack(p) => {
+            let full = p.capacity > 0 && p.count >= p.capacity;
+            let colour = if full {
+                egui::Color32::from_rgb(220, 140, 120)
+            } else {
+                warm
+            };
+            let r = ui.add(
+                egui::Label::new(
+                    egui::RichText::new(format!("[{} {}/{}]", p.name, p.count, p.capacity))
+                        .color(colour)
+                        .small(),
+                )
+                .sense(egui::Sense::click()),
+            );
+            if r.clicked() {
+                actions.empty_pack.push(p.guid);
+            }
+            r.on_hover_text(
+                "Click to tip this pack out into the main pack, so a bigger one \
+                 can take the slot. Holds are shown as used/size.",
+            );
+        }
+        Slot::Foci { name, .. } => {
+            ui.add(egui::Label::new(
+                egui::RichText::new(format!("[{name}]")).color(dim).small(),
+            ))
+            .on_hover_text(
+                "A Focus takes a pack slot of its own. Carrying all five \
+                 leaves two slots for bags.",
+            );
+        }
+        Slot::Empty => {
+            let (r, _) =
+                ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new().inner_margin(1), |ui| {
+                    ui.label(egui::RichText::new("[ empty ]").color(dim).small());
+                });
+            if let Some(p) = r.response.dnd_release_payload::<ItemDrag>() {
+                // Moving a pack into the main pack is what puts it on:
+                // the server routes a pack to a pack slot by itself.
+                actions.moves.push((p.0, 0));
+            }
+            r.response
+                .on_hover_text("Empty pack slot. Drop a pack here to put it on.");
+        }
+    }
+    let _ = index;
+}
+
 /// A pack header that takes drops; returns whether it was clicked (fold).
 fn pack_header(ui: &mut egui::Ui, text: String, container: u32, actions: &mut Actions) -> bool {
     let (r, _) = ui.dnd_drop_zone::<ItemDrag, _>(egui::Frame::new().inner_margin(2), |ui| {
@@ -458,6 +580,16 @@ pub fn draw(
                 caption(ui, burden);
             });
         });
+        // The pack slots themselves, empties included: a slot you
+        // cannot see is a slot you forget you have. Drop a pack on an
+        // empty one to put it on.
+        if !v.slots.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                for (i, slot) in v.slots.iter().enumerate() {
+                    slot_chip(ui, i, slot, &mut actions);
+                }
+            });
+        }
         ui.horizontal(|ui| {
             let edit = egui::TextEdit::singleline(&mut st.search)
                 .hint_text("search: name, spell, dmg>10, al>=100, type:armor")
@@ -819,7 +951,17 @@ impl Inventory {
                     count: 2,
                     capacity: 24,
                 }],
-                pack_slots: (1, 7),
+                slots: slots(
+                    &[Pack {
+                        guid: pack,
+                        name: "Pack".into(),
+                        count: 2,
+                        capacity: 24,
+                    }],
+                    &[(0xdeadbeef, "Foci of Strife".into())],
+                    7,
+                ),
+                pack_slots: (2, 7),
                 burden,
                 burden_capacity: 15_000,
                 foci: vec!["War".into()],
@@ -931,6 +1073,26 @@ impl Plugin for Inventory {
                 };
                 c.put_in_container(item, container);
             }
+            // Tipping a pack out is how a bigger one gets the slot: a
+            // pack cannot go inside a pack, so the old one has to be
+            // emptied before it can be sold or dropped.
+            for pack in actions.empty_pack {
+                let me = c.world.player_guid.unwrap_or(0);
+                let inside: Vec<u32> = c
+                    .world
+                    .objects
+                    .values()
+                    .filter(|o| o.container == Some(pack))
+                    .map(|o| o.guid)
+                    .collect();
+                if inside.is_empty() {
+                    continue;
+                }
+                tracing::info!("tipping {} item(s) out of pack {pack:#010x}", inside.len());
+                for item in inside {
+                    c.put_in_container(item, me);
+                }
+            }
         }
     }
 
@@ -1018,5 +1180,84 @@ mod tests {
             .unwrap()
             .stats;
         assert_eq!(stat_suffix(kit, SortKey::Num(NumKey::Damage)), "");
+    }
+    #[test]
+    fn a_focus_takes_a_pack_slot_of_its_own() {
+        // The five Foci are the only items in the game that take a pack
+        // slot without being a pack. A caster carrying all five has two
+        // slots left for bags.
+        for wcid in ac_world::pack_slot::FOCI {
+            assert!(ac_world::pack_slot::is_foci(wcid));
+            assert!(ac_world::pack_slot::used_by(wcid, false), "{wcid}");
+        }
+        // A pack takes one because it is a pack.
+        assert!(ac_world::pack_slot::used_by(136, true));
+        // Everything else takes an ordinary item slot.
+        assert!(!ac_world::pack_slot::used_by(20631, false), "a taper");
+    }
+
+    fn a_pack(guid: u32, count: u32, capacity: u32) -> Pack {
+        Pack {
+            guid,
+            name: format!("Pack {guid}"),
+            count,
+            capacity,
+        }
+    }
+
+    #[test]
+    fn the_empty_pack_slots_are_shown_too() {
+        // A slot you cannot see is a slot you forget you have.
+        let s = slots(&[a_pack(1, 2, 24)], &[(9, "Foci of Strife".into())], 7);
+        assert_eq!(s.len(), 7);
+        assert!(matches!(s[0], Slot::Pack(_)));
+        assert!(matches!(s[1], Slot::Foci { .. }));
+        assert_eq!(s.iter().filter(|x| **x == Slot::Empty).count(), 5);
+    }
+
+    #[test]
+    fn a_caster_with_every_focus_has_two_slots_for_bags() {
+        let foci: Vec<(u32, String)> = ac_world::pack_slot::FOCI
+            .iter()
+            .enumerate()
+            .map(|(i, w)| (*w, format!("Foci {i}")))
+            .collect();
+        let s = slots(&[], &foci, 7);
+        assert_eq!(s.iter().filter(|x| **x == Slot::Empty).count(), 2);
+    }
+
+    #[test]
+    fn a_full_set_of_slots_offers_nowhere_to_put_another_bag() {
+        let packs: Vec<Pack> = (1..=7).map(|g| a_pack(g, 0, 24)).collect();
+        let s = slots(&packs, &[], 7);
+        assert_eq!(s.len(), 7);
+        assert!(!s.contains(&Slot::Empty), "an eighth slot appeared");
+    }
+
+    #[test]
+    fn carrying_more_than_the_slots_allow_does_not_panic() {
+        // Should not happen, but a bad capacity must not bring the
+        // panel down.
+        let packs: Vec<Pack> = (1..=9).map(|g| a_pack(g, 0, 24)).collect();
+        let s = slots(&packs, &[], 7);
+        assert_eq!(s.len(), 9);
+        assert!(!s.contains(&Slot::Empty));
+        // And before the player description arrives, nothing is shown
+        // rather than a guess.
+        assert!(slots(&[], &[], 0).is_empty());
+    }
+
+    #[test]
+    fn a_slot_says_what_is_in_it() {
+        assert_eq!(Slot::Pack(a_pack(3, 1, 24)).guid(), Some(3));
+        assert_eq!(
+            Slot::Foci {
+                guid: 4,
+                name: "Foci of Shadow".into()
+            }
+            .guid(),
+            Some(4)
+        );
+        assert_eq!(Slot::Empty.guid(), None);
     }
 }
