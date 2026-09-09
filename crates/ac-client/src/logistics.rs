@@ -158,6 +158,14 @@ pub struct Restock {
     /// Turn what is left over into trade notes rather than carrying
     /// coin, and share the notes out so everyone can pay their own way.
     pub share_money: bool,
+    /// Give up on a trip that has taken this many seconds and go back
+    /// to hunting.
+    ///
+    /// A trip can fail to finish for reasons no rule here can see: the
+    /// vendor is out of tapers, the money ran out, a character died on
+    /// the way. Without a limit the party would wait at the hunting
+    /// ground for ever, which is worse than hunting undersupplied.
+    pub give_up_after: f32,
 }
 
 impl Default for Restock {
@@ -170,6 +178,7 @@ impl Default for Restock {
             full_at: 0.9,
             float: 5_000,
             share_money: true,
+            give_up_after: 900.0,
         }
     }
 }

@@ -43,7 +43,7 @@ use std::collections::BTreeMap;
 
 use crate::autoplay::{name_matches, Doing, LootAction};
 use crate::items::{ItemStats, Query};
-use crate::logistics::{self, Supplies};
+use crate::logistics::{self, Stage, Supplies};
 use crate::Client;
 use ac_world::{equip, item_type, object_desc_flags};
 
@@ -1132,6 +1132,26 @@ impl Client {
             .collect();
         party.push(self.supplies(cfg));
         let was = self.autoplay.growth.mode;
+        // A trip that has dragged on has failed at something no rule
+        // here can see: a vendor out of tapers, a purse that ran dry, a
+        // character that died on the way. Waiting at the hunting ground
+        // for ever is worse than hunting undersupplied, so the party
+        // gives up and goes back to it.
+        let stalled = !was.hunting()
+            && policy.give_up_after > 0.0
+            && self.autoplay.growth.mode_since.is_some_and(|t| {
+                now.duration_since(t).as_secs_f32() > policy.give_up_after
+            });
+        if stalled {
+            let st = &mut self.autoplay.growth;
+            st.mode = GroupMode::Hunting;
+            st.mode_since = Some(now);
+            st.mode_because = "the trip to town took too long".to_string();
+            st.handed_over = false;
+            self.autoplay
+                .note("giving up on the trip to town and going back to hunting", now);
+            return GroupMode::Hunting;
+        }
         if let Some(switch) = decide(was, &party, &policy) {
             let st = &mut self.autoplay.growth;
             st.mode = switch.mode;
@@ -1221,14 +1241,61 @@ impl Client {
         unit.saturating_mul(need.want)
     }
 
-    /// The pack items to sell to the open vendor, which takes only some
-    /// kinds of thing. Weapons are only sold once appraised and found
-    /// beyond the character.
-    fn sale_list(&self, cfg: &Growth) -> Vec<u32> {
-        let Some(v) = self.world.open_vendor.as_ref() else {
-            return Vec::new();
-        };
+    /// The party as everyone has last described itself, this character
+    /// included. What every shared decision is worked out from.
+    pub fn party_supplies(&self, cfg: &Growth) -> Vec<Supplies> {
+        let mut party: Vec<Supplies> = self
+            .autoplay
+            .team
+            .mates
+            .iter()
+            .map(|m| m.supplies.clone())
+            .collect();
+        party.push(self.supplies(cfg));
+        party
+    }
+
+    /// Who is doing the party's shopping, when it sends one character
+    /// rather than all going.
+    pub fn quartermaster_name(&self, cfg: &Growth) -> Option<String> {
+        if self.autoplay.config.team.restock.plan != crate::logistics::Plan::Quartermaster {
+            return None;
+        }
+        crate::logistics::quartermaster(&self.party_supplies(cfg)).map(|m| m.name.clone())
+    }
+
+    /// Whether this character is the one doing the shopping.
+    pub fn is_quartermaster(&self, cfg: &Growth) -> bool {
+        let me = self.world.stats.name.as_str();
+        !me.is_empty() && self.quartermaster_name(cfg).as_deref() == Some(me)
+    }
+
+    /// Everything the character is carrying that the rules would sell,
+    /// whether or not a vendor is open. What the party hands its
+    /// quartermaster before it leaves.
+    pub fn loot_for_sale(&self, cfg: &Growth) -> Vec<u32> {
         let wielder = self.wielder();
+        let keep = self.keep_names(cfg);
+        let tags = self.autoplay.tags().clone();
+        self.world
+            .inventory()
+            .filter_map(|o| {
+                let stats = self.stats_of(o.guid)?;
+                let ammo = o.valid_locations & equip::MISSILE_AMMO != 0;
+                let rules = SellRules {
+                    sell: &cfg.sell,
+                    keep: &keep,
+                    can_wield: stats.appraised.then(|| wielder.can_wield(&stats)),
+                    tags: &tags,
+                };
+                sellable(&stats, ammo, &rules).then_some(o.guid)
+            })
+            .collect()
+    }
+
+    /// Every name that is never sold: the player's own list, whatever
+    /// is kept stocked, and whatever the loot rules always keep.
+    fn keep_names(&self, cfg: &Growth) -> Vec<String> {
         let mut keep: Vec<String> = cfg.keep.clone();
         keep.extend(cfg.keep_stocked.iter().map(|(n, _)| n.clone()));
         keep.extend(
@@ -1240,6 +1307,18 @@ impl Client {
                 .map(|(n, _)| n.clone()),
         );
         keep.extend(self.autoplay.config.loot.always.iter().cloned());
+        keep
+    }
+
+    /// The pack items to sell to the open vendor, which takes only some
+    /// kinds of thing. Weapons are only sold once appraised and found
+    /// beyond the character.
+    fn sale_list(&self, cfg: &Growth) -> Vec<u32> {
+        let Some(v) = self.world.open_vendor.as_ref() else {
+            return Vec::new();
+        };
+        let wielder = self.wielder();
+        let keep = self.keep_names(cfg);
         let tags = self.autoplay.tags().clone();
         let rules_for = |stats: &ItemStats| SellRules {
             sell: &cfg.sell,
@@ -1359,6 +1438,15 @@ impl Client {
         let reason = if together {
             match party_mode.stage() {
                 None => return false,
+                // Only the runner walks to town; the rest hold their
+                // place at the hunting ground and wait for it.
+                Some(Stage::HandOver | Stage::Away | Stage::HandOut)
+                    if self.autoplay.config.team.restock.plan
+                        == crate::logistics::Plan::Quartermaster
+                        && !self.is_quartermaster(cfg) =>
+                {
+                    return false
+                }
                 Some(_) => {
                     let because = self.autoplay.growth.mode_because.clone();
                     if because.is_empty() {

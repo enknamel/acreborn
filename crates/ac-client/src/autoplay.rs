@@ -480,6 +480,10 @@ pub struct Team {
 /// the fight comes first. Following is the follower's job.
 const FOLLOW_BREAK: f32 = 10.0;
 
+/// How often one character hands something to another. The server
+/// takes one give at a time and answers in its own time.
+const GIVE_EVERY: Duration = Duration::from_millis(700);
+
 /// How far from its leader a follower keeping `keep` metres may stray
 /// before following comes before everything else.
 pub fn follow_break(keep: f32) -> f32 {
@@ -3259,6 +3263,169 @@ impl Client {
         true
     }
 
+    /// How close two characters must stand to hand something over.
+    const REACH: f32 = 5.0;
+
+    /// Loading the quartermaster and unloading it again.
+    ///
+    /// On a quartermaster run one character carries the party's sale
+    /// loot to town and its shopping home, so there are two moments
+    /// where items change hands: everyone gives it their loot before it
+    /// leaves, and it gives everyone their order when it gets back.
+    /// Both are the same shape -- walk into reach, hand one thing over,
+    /// come back next frame for the next -- because the server takes
+    /// one give at a time.
+    ///
+    /// True when it acted, which stops the rest of the rules for this
+    /// frame: nothing else matters while the party is being loaded.
+    fn autoplay_quartermaster(&mut self, now: Instant) -> bool {
+        use crate::logistics::{Plan, Stage};
+        let team = self.autoplay.config.team.clone();
+        if !team.enabled || !team.restock.together || team.restock.plan != Plan::Quartermaster {
+            return false;
+        }
+        let Some(stage) = self.autoplay.growth.mode.stage() else {
+            return false;
+        };
+        if self
+            .autoplay
+            .last_give
+            .is_some_and(|t| now.duration_since(t) < GIVE_EVERY)
+        {
+            return false;
+        }
+        let growth = self.autoplay.config.growth.clone();
+        let Some(runner) = self.quartermaster_name(&growth) else {
+            return false;
+        };
+        let am_runner = runner == self.world.stats.name;
+        match stage {
+            Stage::HandOver if !am_runner => self.load_the_quartermaster(&runner, &growth, now),
+            Stage::HandOut if am_runner => self.unload_the_quartermaster(&growth, now),
+            _ => false,
+        }
+    }
+
+    /// Give the runner this character's sale loot, then say so.
+    fn load_the_quartermaster(
+        &mut self,
+        runner: &str,
+        growth: &crate::growth::Growth,
+        now: Instant,
+    ) -> bool {
+        if self.autoplay.growth.handed_over {
+            return false;
+        }
+        let Some(mate) = self
+            .autoplay
+            .team
+            .mates
+            .iter()
+            .find(|m| m.name == runner)
+            .cloned()
+        else {
+            return false;
+        };
+        let loot = self.loot_for_sale(growth);
+        if loot.is_empty() {
+            // Nothing to hand over: this character is loaded already.
+            self.autoplay.growth.handed_over = true;
+            return false;
+        }
+        if !self.step_into_reach(mate.world) {
+            self.autoplay
+                .say(Doing::Helping, format!("taking the loot to {runner}"));
+            return true;
+        }
+        let Some(&item) = loot.first() else {
+            return false;
+        };
+        let name = self
+            .world
+            .objects
+            .get(&item)
+            .map(|o| o.name.clone())
+            .unwrap_or_default();
+        if !self.give(mate.guid, item, None) {
+            // The server would not take it; do not jam on this item.
+            self.autoplay.growth.handed_over = true;
+            return false;
+        }
+        self.autoplay.last_give = Some(now);
+        self.autoplay
+            .say(Doing::Helping, format!("giving {name} to {runner} to sell"));
+        // Loaded once the last piece has gone.
+        self.autoplay.growth.handed_over = loot.len() == 1;
+        true
+    }
+
+    /// Give everyone what they ordered.
+    fn unload_the_quartermaster(&mut self, growth: &crate::growth::Growth, now: Instant) -> bool {
+        let party = self.party_supplies(growth);
+        // Work the whole party's split out for each thing carried, so
+        // that a short run is shared rather than filling the first
+        // order and leaving the last character with nothing.
+        for (item, _) in crate::logistics::merged_order(&party) {
+            let carried: Vec<(u32, u32, String)> = self
+                .world
+                .inventory()
+                .filter(|o| o.name.eq_ignore_ascii_case(&item))
+                .map(|o| (o.guid, o.stack_size.max(1), o.name.clone()))
+                .collect();
+            let brought: u32 = carried.iter().map(|(_, n, _)| n).sum();
+            if brought == 0 {
+                continue;
+            }
+            for (who, share) in crate::logistics::hand_out(&party, &item, brought) {
+                if who == self.world.stats.name || share == 0 {
+                    continue;
+                }
+                let Some(mate) = self
+                    .autoplay
+                    .team
+                    .mates
+                    .iter()
+                    .find(|m| m.name == who)
+                    .cloned()
+                else {
+                    continue;
+                };
+                if !self.step_into_reach(mate.world) {
+                    self.autoplay
+                        .say(Doing::Helping, format!("taking {who} their supplies"));
+                    return true;
+                }
+                let (guid, stack, name) = carried[0].clone();
+                if self.give(mate.guid, guid, Some(share.min(stack))) {
+                    self.autoplay.last_give = Some(now);
+                    self.autoplay
+                        .say(Doing::Helping, format!("giving {share} {name} to {who}"));
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Walk towards a spot until close enough to hand something over.
+    /// True once in reach.
+    fn step_into_reach(&mut self, spot: glam::Vec3) -> bool {
+        let Some(me) = self.player.as_ref().map(|p| p.world_position()) else {
+            return false;
+        };
+        if glam::Vec2::new(spot.x - me.x, spot.y - me.y).length() <= Self::REACH {
+            if self.follow.take().is_some() {
+                self.steering.reset();
+            }
+            return true;
+        }
+        self.follow = Some(crate::Follow {
+            target: spot,
+            stop: Self::REACH * 0.6,
+        });
+        false
+    }
+
     /// The things done for the team: land the debuffs on its target,
     /// recruit it into a fellowship, hand over what someone is short of,
     /// and heal whoever is worst hurt. True when it acted.
@@ -3271,6 +3438,12 @@ impl Client {
         let Some(me) = me else { return false };
 
         if self.autoplay_fellowship(now) {
+            return true;
+        }
+
+        // Loading and unloading the quartermaster comes before the rest:
+        // nothing else matters while the party is changing hands.
+        if self.autoplay_quartermaster(now) {
             return true;
         }
 
