@@ -41,6 +41,8 @@ pub struct Requests {
     pub consumed: bool,
     /// A plugin asked the host to close the client.
     pub quit: bool,
+    /// A plugin asked the host to re-pick the game data directory.
+    pub pick_data_dir: bool,
     /// Sessions to start (see [`Ctx::start_session`]); the host
     /// connects each and appends it to its sessions, in this order.
     pub start_sessions: Vec<SessionSpec>,
@@ -56,6 +58,7 @@ impl Requests {
         self.chat.is_empty()
             && self.activate.is_none()
             && !self.quit
+            && !self.pick_data_dir
             && self.start_sessions.is_empty()
             && self.stop_sessions.is_empty()
     }
@@ -196,6 +199,7 @@ impl Host {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            pick_data_dir: false,
             start_sessions: Vec::new(),
             stop_sessions: Vec::new(),
         };
@@ -209,6 +213,7 @@ impl Host {
             chat: cx.chat,
             activate: cx.activate,
             quit: cx.quit,
+            pick_data_dir: cx.pick_data_dir,
             consumed: false,
             start_sessions: cx.start_sessions,
             stop_sessions: cx.stop_sessions,
@@ -273,6 +278,7 @@ impl Host {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            pick_data_dir: false,
             start_sessions: Vec::new(),
             stop_sessions: Vec::new(),
         };
@@ -283,6 +289,7 @@ impl Host {
             chat: cx.chat,
             activate: cx.activate,
             quit: cx.quit,
+            pick_data_dir: cx.pick_data_dir,
             consumed: false,
             start_sessions: cx.start_sessions,
             stop_sessions: cx.stop_sessions,
@@ -307,6 +314,7 @@ impl Host {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            pick_data_dir: false,
             start_sessions: Vec::new(),
             stop_sessions: Vec::new(),
         };
@@ -321,6 +329,7 @@ impl Host {
             chat: cx.chat,
             activate: cx.activate,
             quit: cx.quit,
+            pick_data_dir: cx.pick_data_dir,
             consumed,
             start_sessions: cx.start_sessions,
             stop_sessions: cx.stop_sessions,
@@ -343,6 +352,7 @@ impl Host {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            pick_data_dir: false,
             start_sessions: Vec::new(),
             stop_sessions: Vec::new(),
         };
@@ -357,6 +367,7 @@ impl Host {
             chat: cx.chat,
             activate: cx.activate,
             quit: cx.quit,
+            pick_data_dir: cx.pick_data_dir,
             consumed,
             start_sessions: cx.start_sessions,
             stop_sessions: cx.stop_sessions,

@@ -2081,6 +2081,7 @@ mod tests {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            pick_data_dir: false,
             start_sessions: Vec::new(),
             stop_sessions: Vec::new(),
         };

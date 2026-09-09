@@ -241,6 +241,9 @@ pub struct Ctx<'a> {
     pub activate: Option<usize>,
     /// Ask the host to close the client (the menu's Quit).
     pub quit: bool,
+    /// Ask the host to open a folder picker for the game data directory
+    /// and remember the choice (the Options panel).
+    pub pick_data_dir: bool,
     /// Sessions to start in this process (see [`Ctx::start_session`]).
     pub start_sessions: Vec<SessionSpec>,
     /// Sessions to disconnect and drop, by index (see

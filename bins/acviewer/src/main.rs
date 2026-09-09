@@ -23,7 +23,7 @@ mod water;
 mod world_fx;
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,9 +39,11 @@ use winit::window::{Window, WindowId};
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
-    /// Directory with client_portal.dat and client_cell_1.dat (default: $AC_DATA_DIR)
+    /// Directory with client_portal.dat and client_cell_1.dat. When
+    /// omitted, the app remembers your last choice, looks in the usual
+    /// places, and otherwise opens a folder picker (default: $AC_DATA_DIR).
     #[arg(long, env = "AC_DATA_DIR")]
-    data_dir: PathBuf,
+    data_dir: Option<PathBuf>,
     /// Landblock to show, hex (e.g. A9B4 for Holtburg)
     #[arg(long)]
     landblock: Option<String>,
@@ -185,6 +187,147 @@ struct Cli {
     /// many seconds after session 1 was placed, then finish.
     #[arg(long, default_value_t = 45.0)]
     fleet_stop_after: f32,
+}
+
+impl Cli {
+    /// The resolved data directory. [`resolve_data_dir`] fills this in
+    /// before the window opens, so it is always present by the time the
+    /// app runs.
+    fn data_dir(&self) -> &Path {
+        self.data_dir
+            .as_deref()
+            .expect("data_dir is resolved in main before use")
+    }
+}
+
+/// Where the chosen data directory is remembered between launches.
+fn saved_data_dir_file() -> PathBuf {
+    ac_plugin::Settings::config_dir().join("data-dir")
+}
+
+/// A directory holds the game data when the portal DAT is inside it.
+fn valid_data_dir(dir: &Path) -> bool {
+    dir.join("client_portal.dat").is_file()
+}
+
+/// The remembered choice, if it is still a valid data directory.
+fn read_saved_data_dir() -> Option<PathBuf> {
+    let raw = std::fs::read_to_string(saved_data_dir_file()).ok()?;
+    let dir = PathBuf::from(raw.trim());
+    valid_data_dir(&dir).then_some(dir)
+}
+
+/// Remember a chosen data directory for next time.
+fn save_data_dir(dir: &Path) {
+    let file = saved_data_dir_file();
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&file, dir.to_string_lossy().as_bytes()) {
+        tracing::warn!("could not remember the data folder: {e}");
+    }
+}
+
+/// The usual places the game data sits, tried before asking.
+fn common_data_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        out.push(home.join("Downloads").join("ac_data"));
+        out.push(home.join("ac_data"));
+        out.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("acswarm")
+                .join("ac_data"),
+        );
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            out.push(dir.join("ac_data"));
+            // Inside acswarm.app: MacOS/acviewer -> Resources/ac_data.
+            out.push(dir.join("..").join("Resources").join("ac_data"));
+        }
+    }
+    out.push(ac_plugin::Settings::config_dir().join("ac_data"));
+    out
+}
+
+/// Open a native folder picker (Finder on macOS, Explorer on Windows),
+/// looping until the user picks a folder with the game data or cancels.
+/// Returns the chosen folder, or `None` if they cancelled.
+#[cfg(not(target_os = "linux"))]
+fn pick_data_dir() -> Option<PathBuf> {
+    loop {
+        let picked = rfd::FileDialog::new()
+            .set_title("Choose your Asheron's Call data folder")
+            .pick_folder()?;
+        if valid_data_dir(&picked) {
+            return Some(picked);
+        }
+        rfd::MessageDialog::new()
+            .set_title("acswarm")
+            .set_description(
+                "That folder has no client_portal.dat. Choose the folder that \
+                 holds the Asheron's Call data files (client_portal.dat and \
+                 client_cell_1.dat).",
+            )
+            .show();
+    }
+}
+
+/// Linux has no bundled native picker here; the terminal is the way in.
+#[cfg(target_os = "linux")]
+fn pick_data_dir() -> Option<PathBuf> {
+    None
+}
+
+/// Tell the user, in a dialog where there is one, that no data folder was
+/// chosen and the app cannot start.
+#[cfg(not(target_os = "linux"))]
+fn no_data_dir_notice() {
+    rfd::MessageDialog::new()
+        .set_title("acswarm")
+        .set_description(
+            "acswarm needs the Asheron's Call data files (client_portal.dat and \
+             client_cell_1.dat). Launch it again and choose the folder that holds \
+             them.",
+        )
+        .show();
+}
+
+#[cfg(target_os = "linux")]
+fn no_data_dir_notice() {}
+
+/// Settle on a data directory: an explicit choice wins; otherwise the
+/// remembered one, then the usual places, then a folder picker when a
+/// person is at the keyboard. Headless runs never prompt.
+fn resolve_data_dir(given: Option<PathBuf>, interactive: bool) -> Result<PathBuf> {
+    if let Some(dir) = given {
+        if valid_data_dir(&dir) {
+            save_data_dir(&dir);
+        }
+        return Ok(dir);
+    }
+    if let Some(dir) = read_saved_data_dir() {
+        return Ok(dir);
+    }
+    for dir in common_data_dirs() {
+        if valid_data_dir(&dir) {
+            save_data_dir(&dir);
+            return Ok(dir);
+        }
+    }
+    if interactive {
+        if let Some(dir) = pick_data_dir() {
+            save_data_dir(&dir);
+            return Ok(dir);
+        }
+        no_data_dir_notice();
+        std::process::exit(0);
+    }
+    anyhow::bail!(
+        "no data directory found: pass --data-dir or set AC_DATA_DIR (it must hold client_portal.dat)"
+    )
 }
 
 /// Parse a `--fleet-start` spec into the session the fleet panel starts
@@ -471,7 +614,26 @@ impl App {
         if r.quit {
             self.quit_requested = true;
         }
+        if r.pick_data_dir {
+            self.change_data_dir();
+        }
         self.defer_sessions(r.start_sessions, r.stop_sessions);
+    }
+
+    /// The Options panel's "Change data folder…": open the native picker,
+    /// remember the new folder, and tell the player it takes effect on the
+    /// next launch (the DAT archives are opened once at startup).
+    fn change_data_dir(&mut self) {
+        if let Some(dir) = pick_data_dir() {
+            save_data_dir(&dir);
+            let msg = format!(
+                "Data folder set to {}. Restart acswarm to load it.",
+                dir.display()
+            );
+            if let Some(ui) = &mut self.ui {
+                ui.push_chat(msg, 0);
+            }
+        }
     }
 
     fn defer_sessions(&mut self, start: Vec<ac_plugin::SessionSpec>, stop: Vec<usize>) {
@@ -524,7 +686,7 @@ impl App {
         }
         let assets = match &self.assets {
             Some(a) => a.clone(),
-            None => match ac_scene::Assets::open(&self.cli.data_dir) {
+            None => match ac_scene::Assets::open(self.cli.data_dir()) {
                 Ok(a) => {
                     let a = std::rc::Rc::new(a);
                     self.assets = Some(a.clone());
@@ -726,6 +888,18 @@ impl App {
             self.pending_switch = r.activate;
             if r.quit {
                 self.quit_requested = true;
+            }
+            if r.pick_data_dir {
+                if let Some(dir) = pick_data_dir() {
+                    save_data_dir(&dir);
+                    ui.push_chat(
+                        format!(
+                            "Data folder set to {}. Restart acswarm to load it.",
+                            dir.display()
+                        ),
+                        0,
+                    );
+                }
             }
             self.defer_sessions(r.start_sessions, r.stop_sessions);
         }
@@ -957,7 +1131,7 @@ impl App {
             .clone()
             .context("--connect needs --password")?;
         let assets = std::rc::Rc::new(
-            ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?,
+            ac_scene::Assets::open(self.cli.data_dir()).context("opening DAT archives")?,
         );
         let audio = if self.cli.mute || self.cli.screenshot.is_some() {
             None
@@ -1373,7 +1547,7 @@ impl App {
             }
             return Ok(());
         }
-        let assets = ac_scene::Assets::open(&self.cli.data_dir).context("opening DAT archives")?;
+        let assets = ac_scene::Assets::open(self.cli.data_dir()).context("opening DAT archives")?;
         if self.cli.demo_select || self.cli.demo_create {
             // The lobby with no server: daylight sky, no world; the creation
             // screen's preview model is instanced by `tick_lobby`.
@@ -1525,7 +1699,7 @@ impl ApplicationHandler for App {
             .load_settings(ac_plugin::Settings::default_path());
         let (w, h) = gpu.size();
         let mut ui = ui::Ui::new(gpu.device(), gpu.format(), Some(&window), w, h);
-        let icons = icon_loader(self.cli.data_dir.clone());
+        let icons = icon_loader(self.cli.data_dir().to_path_buf());
         ui.set_icon_loader(icons.clone());
         self.plugins.set_icon_loader(icons);
         self.ui = Some(ui);
@@ -1920,7 +2094,15 @@ fn main() -> Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("acviewer=info")),
         )
         .init();
-    let cli = Cli::parse();
+    // Finder (and some launchers) pass a `-psn_...` process-serial arg;
+    // drop it so the parser does not choke when the app is double-clicked.
+    let args = std::env::args_os().filter(|a| !a.to_string_lossy().starts_with("-psn"));
+    let mut cli = Cli::parse_from(args);
+    // No window yet: settle the data folder (remembered, then the usual
+    // places, then a picker) so a double-click opens instead of dying on a
+    // missing --data-dir. Headless `--screenshot` runs never prompt.
+    let interactive = cli.screenshot.is_none();
+    cli.data_dir = Some(resolve_data_dir(cli.data_dir.take(), interactive)?);
     if let Some(path) = cli.screenshot.clone() {
         let mut gpu = gpu::Gpu::headless(1280, 800)?;
         let mut app = App {
@@ -1976,12 +2158,12 @@ fn main() -> Result<()> {
         let perf_started = Instant::now();
         let (w, h) = gpu.size();
         let mut ui = ui::Ui::new(gpu.device(), gpu.format(), None, w, h);
-        let icons = icon_loader(app.cli.data_dir.clone());
+        let icons = icon_loader(app.cli.data_dir().to_path_buf());
         ui.set_icon_loader(icons.clone());
         app.ui = Some(ui);
         if app.cli.demo_ui {
             // Only the panels, on canned data: nothing else has a session.
-            app.plugins = plugins::demo(&app.cli.data_dir);
+            app.plugins = plugins::demo(app.cli.data_dir());
         }
         app.plugins.set_icon_loader(icons);
         app.plugins

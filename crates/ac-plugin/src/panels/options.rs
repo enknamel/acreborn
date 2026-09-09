@@ -44,6 +44,17 @@ pub struct Changes {
     pub jump_height: Option<f32>,
     /// A new draw distance, metres (0 = no limit).
     pub draw_distance: Option<f32>,
+    /// The player clicked "Change…" to re-pick the game data folder.
+    pub pick_data_dir: bool,
+}
+
+/// The remembered game data folder, for the Options panel to show.
+fn saved_data_dir() -> String {
+    std::fs::read_to_string(Settings::config_dir().join("data-dir"))
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "(not set)".to_string())
 }
 
 /// Returns the options toggled this frame with their new value. The
@@ -119,6 +130,18 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
                     changed.draw_distance = Some(dd);
                 }
             });
+        ui.separator();
+        ui.label("Game data folder");
+        ui.horizontal_wrapped(|ui| {
+            ui.monospace(saved_data_dir());
+        });
+        if ui
+            .button("Change data folder…")
+            .on_hover_text("Pick the folder holding client_portal.dat and client_cell_1.dat")
+            .clicked()
+        {
+            changed.pick_data_dir = true;
+        }
         ui.separator();
         if ui
             .button("Reset window layout")
@@ -257,6 +280,9 @@ impl Plugin for Options {
             self.draw_distance = Some(d);
             cx.board.set_local(DRAW_DISTANCE_KEY, d as f64);
         }
+        if changed.pick_data_dir {
+            cx.pick_data_dir = true;
+        }
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             for (o, on) in changed.options {
                 c.set_option(&o, on);
@@ -311,6 +337,7 @@ mod tests {
             chat: Vec::new(),
             activate: None,
             quit: false,
+            pick_data_dir: false,
             start_sessions: Vec::new(),
             stop_sessions: Vec::new(),
         };
