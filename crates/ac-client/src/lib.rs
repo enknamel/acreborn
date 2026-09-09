@@ -14,6 +14,7 @@ pub mod emotes;
 pub mod growth;
 pub mod holdings;
 pub mod items;
+pub mod logistics;
 pub mod magic;
 pub mod options;
 pub mod pathfinder;
