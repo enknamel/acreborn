@@ -375,7 +375,11 @@ click:
 1. Play as usual (`acviewer --connect HOST -a ACCOUNT -v PASSWORD`, or
    from the launcher). Open the menu, click **Fleet**, unfold
    **Sessions**.
-2. **Add an account.** Type the follower's account and password, the
+2. **Add an account.** The roster is the list of accounts remembered for
+   the server you are on, the same list the connect screen offers, so an
+   account you have logged in with is already there: click it under
+   *Remembered here* to fill the form rather than typing it again. For a
+   new one, type the follower's account and password, the
    character's name, pick its role (follower, leader, manual) and, with
    **create if missing** ticked, the template, heritage, sex and town
    to make it with when the account has no character of that name (the
@@ -400,14 +404,40 @@ click:
    account to switch the window to it, **Stop** to disconnect and drop
    it, **Remove** to forget it.
 
-The roster is kept in the settings file (`~/.config/acswarm/ui.json`,
-`fleet.roster`, one entry per account: `account`, `password`,
-`character`, `create` `{name, template, town, heritage, sex}`, `role`)
-and the leading account under `fleet.lead_account`, so on the next
-launch the rows are there and **Start all followers** brings the fleet
-back with the roles applied. **Passwords are stored in plain text**, as
-the launcher stores them: a convenience for a private server, not a
-place for a password that matters.
+#### One list of accounts, per server
+
+The fleet and the connect screen share one store, so you type an account
+once. The accounts themselves live in the login store
+(`~/.config/acswarm/servers.json`, `servers.logins`, one entry per
+account: `host` as `host:port`, `account`, `password`, `character`) with
+the servers you have added; that is what the connect screen reads and
+what the roster is built from. What the fleet adds is kept beside it in
+the settings file (`~/.config/acswarm/ui.json`, `fleet.entries`, one
+entry per server and account: `host`, `account`, `role`, `create`
+`{name, template, town, heritage, sex}`) with the leading account per
+server under `fleet.leads`. So:
+
+- The roster shows the accounts remembered for the server being played
+  (the session you are on, or the one last connected to), and only
+  those: another server's accounts are on its own roster.
+- Adding an account in the fleet offers it on the connect screen, and
+  **Remove** forgets it in both.
+- An account remembered from the connect screen shows on the roster as
+  *manual* until you give it a role, so nothing switches itself on.
+- An account remembered without its password shows *none* in the
+  Password column and will not start; type the password in the form and
+  **Add** to save it.
+
+On the next launch the rows are there and **Start all followers** brings
+the fleet back with the roles applied. **Passwords are stored in plain
+text**, as the launcher stores them: a convenience for a private server,
+not a place for a password that matters.
+
+An older build kept one global roster under `fleet.roster` with no
+server against it. The first launch that knows a server folds it into
+the login store: each account is remembered for the server that already
+knows it, else the one being played, keeping its password, character,
+role and creation rule. The old key is left in the file untouched.
 
 Under the hood a plugin asks the host for sessions through
 `Ctx::start_session(SessionSpec)` / `Ctx::stop_session(index)`
