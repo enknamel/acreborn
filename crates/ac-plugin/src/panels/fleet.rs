@@ -2609,12 +2609,13 @@ mod tests {
         ));
         // Nothing was lost: every old account is remembered somewhere,
         // with its password and character.
-        let here: Vec<&str> = servers
+        let mut here: Vec<&str> = servers
             .accounts_for("now:9000")
             .iter()
             .map(|l| l.account.as_str())
             .collect();
-        assert_eq!(here, ["typed", "fleetbot1", "acreborn7"]);
+        here.sort_unstable();
+        assert_eq!(here, ["acreborn7", "fleetbot1", "typed"]);
         assert_eq!(
             servers
                 .accounts_for("old:9000")

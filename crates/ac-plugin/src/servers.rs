@@ -60,6 +60,12 @@ pub struct Login {
     pub password: String,
     #[serde(default)]
     pub character: String,
+    /// When this account was last connected with, in seconds since the
+    /// epoch. A player with three accounts on a server wants the one
+    /// they were just playing, not the one they happened to add first,
+    /// so the newest comes back and the rest are offered newest first.
+    #[serde(default)]
+    pub used: u64,
 }
 
 /// The player's own servers and remembered logins, kept in the settings.
@@ -71,6 +77,14 @@ pub struct Servers {
     pub last_account: String,
 }
 
+/// Seconds since the epoch, or 0 if the clock is before it.
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 /// Settings keys.
 const CUSTOM_KEY: &str = "servers.custom";
 const LOGINS_KEY: &str = "servers.logins";
@@ -80,11 +94,31 @@ const LAST_ACCOUNT_KEY: &str = "servers.last_account";
 impl Servers {
     /// Read the player's servers and logins from the settings.
     pub fn load(settings: &Settings) -> Self {
-        Servers {
+        let mut s = Servers {
             custom: settings.get(CUSTOM_KEY).unwrap_or_default(),
             logins: settings.get(LOGINS_KEY).unwrap_or_default(),
             last_host: settings.get(LAST_HOST_KEY).unwrap_or_default(),
             last_account: settings.get(LAST_ACCOUNT_KEY).unwrap_or_default(),
+        };
+        s.carry_over_last_account();
+        s
+    }
+
+    /// Settings written before accounts were stamped remembered only
+    /// one last account, for one server. Give that one a stamp so the
+    /// player comes back to where they left off rather than to
+    /// whichever account happens to sort first.
+    fn carry_over_last_account(&mut self) {
+        if self.last_account.is_empty() || self.logins.iter().any(|l| l.used > 0) {
+            return;
+        }
+        let (host, account) = (self.last_host.clone(), self.last_account.clone());
+        if let Some(l) = self
+            .logins
+            .iter_mut()
+            .find(|l| l.host == host && l.account.eq_ignore_ascii_case(&account))
+        {
+            l.used = 1;
         }
     }
 
@@ -124,9 +158,23 @@ impl Servers {
         }
     }
 
-    /// The remembered accounts for a server host.
+    /// The remembered accounts for a server host, the one used most
+    /// recently first.
+    ///
+    /// Order matters here: it is what the screen offers, and what is
+    /// filled in when the server is chosen. Logins saved before this
+    /// was recorded all have the same stamp, so the account name breaks
+    /// the tie and the list at least stays put between runs.
     pub fn accounts_for(&self, host: &str) -> Vec<&Login> {
-        self.logins.iter().filter(|l| l.host == host).collect()
+        let mut out: Vec<&Login> = self.logins.iter().filter(|l| l.host == host).collect();
+        out.sort_by(|a, b| b.used.cmp(&a.used).then_with(|| a.account.cmp(&b.account)));
+        out
+    }
+
+    /// The account to fill in for a server: whichever was last used on
+    /// *that* server. `None` when none has been saved for it.
+    pub fn last_login(&self, host: &str) -> Option<&Login> {
+        self.accounts_for(host).into_iter().next()
     }
 
     /// Remember a login (or update its password/character). An empty
@@ -134,6 +182,7 @@ impl Servers {
     pub fn remember(&mut self, host: &str, account: &str, password: &str, character: &str) {
         self.last_host = host.to_string();
         self.last_account = account.to_string();
+        let now = now_secs();
         if let Some(l) = self
             .logins
             .iter_mut()
@@ -141,12 +190,14 @@ impl Servers {
         {
             l.password = password.to_string();
             l.character = character.to_string();
+            l.used = now;
         } else {
             self.logins.push(Login {
                 host: host.to_string(),
                 account: account.to_string(),
                 password: password.to_string(),
                 character: character.to_string(),
+                used: now,
             });
         }
     }
@@ -246,5 +297,124 @@ mod tests {
 
         s.forget("127.0.0.1:9000", "alice");
         assert_eq!(s.accounts_for("127.0.0.1:9000").len(), 1);
+    }
+    #[test]
+    fn each_server_remembers_its_own_last_account() {
+        // The case this exists for: several accounts on the big server,
+        // one on a test shard. Coming back to either brings up the
+        // account that was last played *there*.
+        let mut s = Servers::default();
+        for (host, who) in [
+            ("play.coldeve.ac:9000", "main"),
+            ("play.coldeve.ac:9000", "mule"),
+            ("127.0.0.1:9000", "test"),
+            ("play.coldeve.ac:9000", "alt"),
+        ] {
+            s.remember(host, who, "pw", "");
+            bump(&mut s, who);
+        }
+        assert_eq!(
+            s.last_login("play.coldeve.ac:9000").map(|l| &*l.account),
+            Some("alt")
+        );
+        assert_eq!(
+            s.last_login("127.0.0.1:9000").map(|l| &*l.account),
+            Some("test")
+        );
+        // Playing the mule again brings the mule back next time.
+        s.remember("play.coldeve.ac:9000", "mule", "pw", "");
+        bump(&mut s, "mule");
+        assert_eq!(
+            s.last_login("play.coldeve.ac:9000").map(|l| &*l.account),
+            Some("mule")
+        );
+        // And the test shard is untouched by any of it.
+        assert_eq!(
+            s.last_login("127.0.0.1:9000").map(|l| &*l.account),
+            Some("test")
+        );
+    }
+
+    /// `remember` stamps with the wall clock, which does not move
+    /// between two calls in the same millisecond; nudge the one just
+    /// written so the ordering is testable.
+    fn bump(s: &mut Servers, account: &str) {
+        let top = s.logins.iter().map(|l| l.used).max().unwrap_or(0);
+        if let Some(l) = s.logins.iter_mut().find(|l| l.account == account) {
+            l.used = top + 1;
+        }
+    }
+
+    #[test]
+    fn accounts_are_offered_newest_first() {
+        let mut s = Servers::default();
+        for who in ["one", "two", "three"] {
+            s.remember("h:9000", who, "", "");
+            bump(&mut s, who);
+        }
+        let order: Vec<&str> = s
+            .accounts_for("h:9000")
+            .iter()
+            .map(|l| &*l.account)
+            .collect();
+        assert_eq!(order, vec!["three", "two", "one"]);
+    }
+
+    #[test]
+    fn logins_saved_before_stamping_keep_a_settled_order() {
+        // An old settings file has no stamps at all. The list must not
+        // shuffle between runs, so the name breaks the tie.
+        let mut s = Servers {
+            logins: vec![
+                Login {
+                    host: "h:9000".into(),
+                    account: "zoe".into(),
+                    ..Default::default()
+                },
+                Login {
+                    host: "h:9000".into(),
+                    account: "adam".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let order: Vec<&str> = s
+            .accounts_for("h:9000")
+            .iter()
+            .map(|l| &*l.account)
+            .collect();
+        assert_eq!(order, vec!["adam", "zoe"]);
+        // But the one the old file called the last account wins, so the
+        // player comes back where they left off.
+        s.last_host = "h:9000".into();
+        s.last_account = "zoe".into();
+        s.carry_over_last_account();
+        assert_eq!(s.last_login("h:9000").map(|l| &*l.account), Some("zoe"));
+    }
+
+    #[test]
+    fn a_server_with_nothing_saved_offers_nothing() {
+        let s = Servers::default();
+        assert!(s.accounts_for("play.coldeve.ac:9000").is_empty());
+        assert!(s.last_login("play.coldeve.ac:9000").is_none());
+    }
+
+    #[test]
+    fn forgetting_one_account_leaves_the_others_on_that_server() {
+        let mut s = Servers::default();
+        s.remember("h:9000", "keep", "pw", "");
+        s.remember("h:9000", "drop", "pw", "");
+        s.remember("other:9000", "drop", "pw", "");
+        s.forget("h:9000", "drop");
+        assert_eq!(
+            s.accounts_for("h:9000")
+                .iter()
+                .map(|l| &*l.account)
+                .collect::<Vec<_>>(),
+            vec!["keep"]
+        );
+        // The same account name on another server is a different login.
+        assert_eq!(s.accounts_for("other:9000").len(), 1);
     }
 }

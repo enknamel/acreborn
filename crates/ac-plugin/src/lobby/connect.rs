@@ -47,22 +47,17 @@ impl ConnectState {
         } else {
             all.first().map(|x| x.address()).unwrap_or_default()
         };
-        let login = s
-            .logins
-            .iter()
-            .find(|l| {
-                l.host == host
-                    && (s.last_account.is_empty()
-                        || l.account.eq_ignore_ascii_case(&s.last_account))
-            })
-            .or_else(|| s.logins.iter().find(|l| l.host == host));
-        let (account, password, remember) = match login {
+        // The account last used *on this server*, not the last account
+        // used anywhere: a player with three accounts on Coldeve and
+        // one on a test shard wants the Coldeve one they were just
+        // playing, whichever server they were on before.
+        let (account, password, remember) = match s.last_login(&host) {
             Some(l) => (
                 l.account.clone(),
                 l.password.clone(),
                 !l.password.is_empty(),
             ),
-            None => (s.last_account.clone(), String::new(), false),
+            None => (String::new(), String::new(), false),
         };
         ConnectState {
             host,
@@ -79,6 +74,13 @@ impl ConnectState {
         self.account = l.account.clone();
         self.password = l.password.clone();
         self.remember = !l.password.is_empty();
+    }
+
+    /// Empty the account fields, for a server nothing is saved for.
+    fn clear_login(&mut self) {
+        self.account.clear();
+        self.password.clear();
+        self.remember = false;
     }
 }
 
@@ -119,10 +121,13 @@ pub fn draw(egui: &egui::Context, servers: &Servers, st: &mut ConnectState) -> V
                             let label = format!("{} — {}", s.name, s.address());
                             if ui.selectable_label(st.host == s.address(), label).clicked() {
                                 st.host = s.address();
-                                if let Some(l) =
-                                    servers.logins.iter().find(|l| l.host == s.address())
-                                {
-                                    st.use_login(l);
+                                match servers.last_login(&st.host) {
+                                    Some(l) => st.use_login(l),
+                                    // Nothing saved here: an empty form,
+                                    // rather than the last server's
+                                    // account sitting in it looking as
+                                    // though it belonged.
+                                    None => st.clear_login(),
                                 }
                             }
                         }
@@ -130,18 +135,38 @@ pub fn draw(egui: &egui::Context, servers: &Servers, st: &mut ConnectState) -> V
             });
 
             // Quick-pick of remembered accounts on this server.
+            // The accounts saved for this server, the one last played
+            // first, with the chosen one marked.
             let saved = servers.accounts_for(&st.host);
             if !saved.is_empty() {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("Accounts:");
+                    ui.label(if saved.len() == 1 {
+                        "Account:".to_string()
+                    } else {
+                        format!("{} accounts:", saved.len())
+                    });
                     for l in &saved {
-                        if ui.button(&l.account).clicked() {
+                        let chosen = l.account.eq_ignore_ascii_case(&st.account);
+                        let mut label = egui::RichText::new(&l.account);
+                        if chosen {
+                            label = label.strong();
+                        }
+                        let hint = if l.password.is_empty() {
+                            format!("{} (no password saved)", l.account)
+                        } else {
+                            l.account.clone()
+                        };
+                        if ui
+                            .selectable_label(chosen, label)
+                            .on_hover_text(hint)
+                            .clicked()
+                        {
                             let l = (*l).clone();
                             st.use_login(&l);
                         }
                         if ui
                             .small_button("✕")
-                            .on_hover_text("Forget this account")
+                            .on_hover_text(format!("Forget {} on this server", l.account))
                             .clicked()
                         {
                             actions.push(ConnectAction::Forget {

@@ -209,6 +209,7 @@ impl Lobby {
                     account,
                     password,
                     character: String::new(),
+                    ..Default::default()
                 });
                 // The character list will flip us to Select on arrival.
                 self.screen = Some(Screen::Select);
@@ -497,16 +498,25 @@ mod tests {
         // The fleet panel adds another while the screen holds its change.
         store::update_at(&path, |s| s.remember("h:9000", "carol", "pw3", ""));
         let merged = l.take_dirty_servers().expect("a change to write");
-        let names: Vec<&str> = merged
+        // What matters here is that nobody was written over. The order
+        // they come back in is the most recently played first, which is
+        // covered in `servers`.
+        let mut names: Vec<&str> = merged
             .accounts_for("h:9000")
             .iter()
             .map(|l| l.account.as_str())
             .collect();
-        assert_eq!(names, ["alice", "carol", "bob"], "nobody was written over");
+        names.sort_unstable();
+        assert_eq!(names, ["alice", "bob", "carol"], "nobody was written over");
         assert_eq!(merged.last_host, "h:9000");
         assert_eq!(merged.last_account, "bob");
         // alice's character survived a screen that never asks for one.
-        assert_eq!(merged.accounts_for("h:9000")[0].character, "Alys");
+        let alice = merged
+            .accounts_for("h:9000")
+            .into_iter()
+            .find(|l| l.account == "alice")
+            .expect("alice is still there");
+        assert_eq!(alice.character, "Alys");
         assert!(l.take_dirty_servers().is_none(), "taken once");
 
         // A change made while the screen sits open is read again; off
