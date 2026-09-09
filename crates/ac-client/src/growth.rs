@@ -1412,18 +1412,44 @@ impl Client {
         within: Option<f32>,
         visited: &[Vec2],
         now: Instant,
+        wanted: &[String],
     ) -> Option<(String, Vec2)> {
         let skip = &self.autoplay.growth.skip_vendors;
+        let allowed = |at: Vec2| {
+            within.is_none_or(|w| at.distance(from) <= w)
+                && !visited.iter().any(|p| p.distance(at) < 1.0)
+                && !skip
+                    .iter()
+                    .any(|(p, t)| p.distance(at) < 1.0 && now.duration_since(*t) < SKIP_VENDOR_FOR)
+        };
+        // A shop that has what the character came for is worth a longer
+        // walk than one that does not. An archer out of quarrels is not
+        // helped by the archmage next door, which is what made these
+        // runs look aimless: the nearest vendor was the only thing that
+        // decided them.
+        let stocked = ac_world::shops::all()
+            .iter()
+            .filter(|s| allowed(s.xy()))
+            .map(|s| {
+                let has = wanted.iter().filter(|w| s.stocks(w).is_some()).count();
+                (s, has)
+            })
+            .filter(|(_, has)| *has > 0)
+            .min_by(|(a, ha), (b, hb)| {
+                hb.cmp(ha)
+                    .then_with(|| a.xy().distance(from).total_cmp(&b.xy().distance(from)))
+            })
+            .map(|(s, _)| (s.name.clone(), s.xy()));
+        if stocked.is_some() {
+            return stocked;
+        }
+        // Nothing sells what is wanted, or nothing is wanted at all:
+        // any counter will do, which is the case when the trip is to
+        // empty a full pack rather than to buy something.
         ac_world::landmarks::all()
             .iter()
             .filter(|l| l.kind == ac_world::landmarks::Kind::Vendor)
-            .filter(|l| within.is_none_or(|w| l.xy().distance(from) <= w))
-            .filter(|l| !visited.iter().any(|p| p.distance(l.xy()) < 1.0))
-            .filter(|l| {
-                !skip.iter().any(|(p, t)| {
-                    p.distance(l.xy()) < 1.0 && now.duration_since(*t) < SKIP_VENDOR_FOR
-                })
-            })
+            .filter(|l| allowed(l.xy()))
             .min_by(|a, b| a.xy().distance(from).total_cmp(&b.xy().distance(from)))
             .map(|l| (l.name.clone(), l.xy()))
     }
@@ -1524,7 +1550,8 @@ impl Client {
             return false;
         };
         let me = Vec2::new(me.x, me.y);
-        let Some((vendor, at)) = self.pick_vendor(me, None, &[], now) else {
+        let shopping: Vec<String> = needs.iter().map(|n| n.name.clone()).collect();
+        let Some((vendor, at)) = self.pick_vendor(me, None, &[], now, &shopping) else {
             self.autoplay.note("no vendor to run to", now);
             self.autoplay.growth.last_run = Some(now);
             return false;
@@ -1824,8 +1851,11 @@ impl Client {
         let still_full = self.pack_full();
         let wanting = needs.iter().any(|n| n.urgent) || still_full;
         if wanting && run.stops < STOPS_PER_RUN {
+            // The next counter in the same town is chosen by what is
+            // still on the list, not by which is closest.
+            let left: Vec<String> = needs.iter().map(|n| n.name.clone()).collect();
             if let Some((vendor, at)) =
-                self.pick_vendor(run.town, Some(SAME_TOWN), &run.visited, now)
+                self.pick_vendor(run.town, Some(SAME_TOWN), &run.visited, now, &left)
             {
                 if self.grow_travel(at, now) {
                     let what = if still_full {

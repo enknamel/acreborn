@@ -16,6 +16,7 @@ pub mod motion;
 pub mod object;
 pub mod portals;
 pub mod recalls;
+pub mod shops;
 pub mod social;
 pub mod stats;
 pub mod towns;
