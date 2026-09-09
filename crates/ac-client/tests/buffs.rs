@@ -157,3 +157,60 @@ fn one_spell_per_effect_the_one_that_does_most() {
     let spells: Vec<u32> = wanted(&table, &me).iter().map(|w| w.spell).collect();
     assert_eq!(spells, vec![INCANTATION_FLAME_BANE], "{spells:?}");
 }
+
+/// A protection spell multiplies the damage taken, so the strongest is
+/// the *smallest* number: Acid Protection Self I is 0.91 and VI is 0.40.
+/// Ranking by the size of the effect picked level one of every
+/// protection, which is what a character with 613 Life Magic was
+/// casting. The level has to win.
+#[test]
+fn the_strongest_protection_is_the_highest_level_not_the_biggest_number() {
+    const ACID_PROTECTION_I: u32 = 515;
+    const ACID_PROTECTION_VI: u32 = 520;
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(dir).unwrap();
+    let table = assets.spell_table().unwrap();
+    // Offered in the order that used to win, weakest first.
+    let known = [ACID_PROTECTION_I, ACID_PROTECTION_VI];
+    let all = |_: u32| true;
+    let me = Character {
+        known: &known,
+        trained: &[],
+        stance: Stance::Melee,
+        guid: 0x5000_0001,
+        wears_armour: false,
+        usable: &all,
+        weapon_skill: None,
+    };
+    let spells: Vec<u32> = wanted(&table, &me).iter().map(|w| w.spell).collect();
+    assert_eq!(spells, vec![ACID_PROTECTION_VI], "{spells:?}");
+}
+
+/// Only the levels it can actually cast are on offer: with the sixth
+/// out of reach the fifth is wanted, not the first.
+#[test]
+fn the_highest_level_it_can_cast_is_the_one_wanted() {
+    const ACID_PROTECTION_I: u32 = 515;
+    const ACID_PROTECTION_V: u32 = 519;
+    const ACID_PROTECTION_VI: u32 = 520;
+    let Some(dir) = std::env::var_os("AC_DATA_DIR") else {
+        return;
+    };
+    let assets = Assets::open(dir).unwrap();
+    let table = assets.spell_table().unwrap();
+    let known = [ACID_PROTECTION_I, ACID_PROTECTION_V, ACID_PROTECTION_VI];
+    let not_the_sixth = |id: u32| id != ACID_PROTECTION_VI;
+    let me = Character {
+        known: &known,
+        trained: &[],
+        stance: Stance::Melee,
+        guid: 0x5000_0001,
+        wears_armour: false,
+        usable: &not_the_sixth,
+        weapon_skill: None,
+    };
+    let spells: Vec<u32> = wanted(&table, &me).iter().map(|w| w.spell).collect();
+    assert_eq!(spells, vec![ACID_PROTECTION_V], "{spells:?}");
+}

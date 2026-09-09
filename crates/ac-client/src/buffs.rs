@@ -110,7 +110,13 @@ pub fn wanted(table: &SpellTable, me: &Character) -> Vec<Want> {
         let entry =
             best.entry((fx.mod_type, fx.key, target))
                 .or_insert((spell_id, sp.category, 0.0));
-        let better = |a: (f32, u32), b: (f32, u32)| a.0 > b.0 || (a.0 == b.0 && a.1 > b.1);
+        // Levels of one buff differ only in strength, and "stronger" is
+        // not always "bigger": a protection multiplies the damage taken,
+        // so Acid Protection Self I is 0.91 and VI is 0.40, and picking
+        // the larger number picked the weakest spell known. The spell's
+        // power always rises with the level, so rank by that, and let
+        // the size of the effect settle a tie.
+        let better = |a: (f32, u32), b: (f32, u32)| a.1 > b.1 || (a.1 == b.1 && a.0 > b.0);
         let have = table.get(entry.0).map(|s| s.power).unwrap_or(0);
         if entry.2 == 0.0 || better((fx.value.abs(), sp.power), (entry.2, have)) {
             *entry = (spell_id, sp.category, fx.value.abs());
