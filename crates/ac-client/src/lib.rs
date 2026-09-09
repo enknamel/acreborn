@@ -19,6 +19,7 @@ pub mod options;
 pub mod pathfinder;
 pub mod player;
 pub mod recalls;
+pub mod reconnect;
 pub mod recovery;
 pub mod route;
 pub mod travel;
@@ -237,6 +238,11 @@ pub struct Client {
     /// (0 = the skill's own; capped at [`player::MAX_JUMP_HEIGHT`], the
     /// server's tolerance).
     pub jump_height: f32,
+    /// Which movement rules to hold the character to: by default the
+    /// game's own away from home, so `speed_boost`, `jump_height` and
+    /// flying only take effect on a server that allows them (see
+    /// [`player::MovementRules`]).
+    pub movement_rules: player::MovementRules,
     /// Appraisals received, by object guid (the last one is the panel's).
     pub appraisals: std::collections::HashMap<u32, ac_net::messages::Appraisal>,
     /// The guid of the latest appraisal and a counter bumped with each.
@@ -254,6 +260,16 @@ pub struct Client {
     pub last_click: Option<(Instant, u32)>,
     pub player: Option<player::Player>,
     pub player_setup: u32,
+    /// `disconnect` was called: this session ended on purpose and is
+    /// never reconnected (see [`reconnect`]).
+    pub quitting: bool,
+    /// Why the session ended, once the server or the network ended it.
+    pub ended: Option<String>,
+    /// The last refusal from the server as (opcode, code): a
+    /// CharacterError, AccountBoot or AccountBanned. `Event::Refused`
+    /// carries only the opcode; the code says whether coming back is
+    /// worth trying (see [`reconnect::classify_refusal`]).
+    pub last_refusal: Option<(u32, u32)>,
     /// Pending events for the driver.
     pub events: Vec<Event>,
 }
@@ -358,6 +374,7 @@ impl Client {
             dodge: dodge::State::default(),
             speed_boost: DEFAULT_SPEED_BOOST,
             jump_height: DEFAULT_JUMP_HEIGHT,
+            movement_rules: player::MovementRules::default(),
             appraisals: std::collections::HashMap::new(),
             last_appraisal: None,
             appraisal_seq: 0,
@@ -368,14 +385,36 @@ impl Client {
             last_click: None,
             player: None,
             player_setup: 0,
+            quitting: false,
+            ended: None,
+            last_refusal: None,
             events: Vec::new(),
         })
     }
 
-    /// Send a clean disconnect (flushing it immediately).
+    /// Send a clean disconnect (flushing it immediately). This marks the
+    /// session as ended on purpose: it is never reconnected.
     pub fn disconnect(&mut self, now: Instant) {
+        self.quitting = true;
         self.session.disconnect(now);
         self.flush_outgoing();
+    }
+
+    /// Why this session ended, or `None` while it is still alive.
+    ///
+    /// The net session goes to `Terminated` both loudly (a NetError or a
+    /// DISCONNECT packet, which also raise `Event::Terminated`) and
+    /// quietly (a CharacterError, which only raises `Event::Refused`),
+    /// so the state is what is asked rather than the events.
+    pub fn ending(&self) -> Option<reconnect::Ending> {
+        if self.session.state() != ac_net::session::State::Terminated {
+            return None;
+        }
+        Some(reconnect::classify(
+            self.quitting,
+            self.last_refusal,
+            self.ended.as_deref(),
+        ))
     }
 
     fn flush_outgoing(&mut self) {
@@ -424,6 +463,7 @@ impl Client {
                 }
                 Event::Terminated(why) => {
                     tracing::warn!("terminated: {why}");
+                    self.ended = Some(why.clone());
                     self.events.push(self::Event::Terminated(why));
                 }
                 Event::Message(msg) => {
@@ -625,6 +665,7 @@ impl Client {
                             let (secs, reason) =
                                 messages::parse_account_banned(body).unwrap_or((0, String::new()));
                             tracing::error!("account banned for {secs} s: {reason}");
+                            self.last_refusal = Some((op, 0));
                             self.events.push(self::Event::Refused(op));
                         }
                         opcode::CHARACTER_LOG_OFF => {
@@ -636,6 +677,7 @@ impl Client {
                                 .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
                                 .unwrap_or(0);
                             tracing::error!("server refused: {op:#06x} (code {code:#x})");
+                            self.last_refusal = Some((op, code));
                             // A refused enter (not owned, still in world,
                             // pending deletion) may be retried with another
                             // character.
@@ -947,6 +989,7 @@ impl Client {
             pl.run_rate = player::run_rate(current(&self.world.stats, ac_world::stats::skill::RUN));
             pl.speed_boost = self.speed_boost;
             pl.jump_height = self.jump_height;
+            pl.set_limits(self.movement_rules.limits(&self.config.host));
             if let Some(p) = self.pending_jump.take() {
                 if !pl.noclip {
                     pl.jump(p);
@@ -2445,14 +2488,29 @@ impl Client {
 
     /// Fly through walls and floors, or stop and drop to the ground; see
     /// [`player::Player::set_noclip`] for what the server allows.
-    pub fn set_noclip(&mut self, on: bool) {
-        if let Some(pl) = self.player.as_mut() {
-            pl.set_noclip(on);
+    /// Returns false when there is no character yet, or when the
+    /// movement rules refuse to fly here ([`Client::movement_rules`]).
+    pub fn set_noclip(&mut self, on: bool) -> bool {
+        match self.player.as_mut() {
+            Some(pl) => pl.set_noclip(on),
+            None => false,
         }
+    }
+
+    /// What the movement rules allow against the server we are
+    /// connected to.
+    pub fn movement_limits(&self) -> player::MovementLimits {
+        self.movement_rules.limits(&self.config.host)
     }
 
     pub fn noclip(&self) -> bool {
         self.player.as_ref().is_some_and(|p| p.noclip)
+    }
+
+    /// Flying was asked for and the movement rules refused it (see
+    /// [`player::Player::noclip_refused`]).
+    pub fn noclip_refused(&self) -> bool {
+        self.player.as_ref().is_some_and(|p| p.noclip_refused())
     }
 
     /// Nudge the jump being charged (see [`player::Player::adjust_charge`]).
