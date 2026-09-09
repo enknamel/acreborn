@@ -95,6 +95,15 @@ server.
   `checksum - hash32(header)`, which the flag does not change. Sending
   the old checksum makes the peer derive a key from nobody's stream,
   which on ACE burns 256 keys of its copy of our stream per attempt.
+- **Nothing may wait for ever.** A hole in the packet sequence that the
+  server explicitly refuses to fill (RejectRetransmit) is stepped over at
+  once; one that ten requests have not filled is stepped over after ten
+  seconds. A complete message waiting on a fragment that never arrives is
+  released after five seconds, or once 256 messages have piled up behind
+  it. Half-assembled multi-fragment messages and the out-of-order buffer
+  are capped. Losing a message costs a stale object; waiting for ever
+  costs the session, which stays "connected" and never processes another
+  packet.
 - **Say why a session died.** Every termination goes through one helper
   that logs the reason at warn before raising the event: net error code
   and table, CharacterError translated to a phrase, account boot, a

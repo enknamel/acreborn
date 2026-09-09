@@ -35,6 +35,19 @@ const MAX_NAK_SEQS: usize = 115;
 /// Packets held back while waiting for a hole to fill. Past this the hole
 /// is never going to close, so drop the newest rather than grow forever.
 const MAX_OUT_OF_ORDER: usize = 512;
+/// Complete messages held back waiting for an earlier fragment. Past this
+/// the missing fragment is written off and the backlog is delivered: some
+/// stale objects beat a session that never sees another message.
+const MAX_EARLY_FRAGS: usize = 256;
+/// A message held back this long is waiting on a fragment that is not
+/// coming, however quiet the connection is.
+const EARLY_FRAG_TIMEOUT: Duration = Duration::from_secs(5);
+/// A hole in the packet sequence open this long has survived ten
+/// retransmit requests. Nothing is going to fill it.
+const PACKET_GAP_TIMEOUT: Duration = Duration::from_secs(10);
+/// Half-assembled multi-fragment messages kept at once. A message that
+/// lost a piece for good would otherwise sit here forever.
+const MAX_PARTIALS: usize = 256;
 /// Checksum mismatches are warned about at most this often, with a running
 /// count, so a burst is visible in the log without a warn per packet.
 const MISMATCH_WARN_INTERVAL: Duration = Duration::from_secs(5);
@@ -124,6 +137,8 @@ pub struct Session {
     /// Encrypted packets we could not verify, and when we last said so.
     mismatches: u64,
     mismatch_warned: Option<Instant>,
+    /// When the oldest message held back for a missing fragment arrived.
+    early_since: Option<Instant>,
     /// When the server last sent us anything, for stall diagnostics.
     last_traffic: Instant,
     stall_warned: bool,
@@ -174,6 +189,7 @@ impl Session {
             gap_since: None,
             mismatches: 0,
             mismatch_warned: None,
+            early_since: None,
             last_traffic: now,
             stall_warned: false,
             connect_retry_at: None,
@@ -362,6 +378,9 @@ impl Session {
                 None => tracing::warn!("server asked for uncached seq {seq}"),
             }
         }
+        if !p.optional.reject_retransmit.is_empty() {
+            self.skip_rejected(&p.optional.reject_retransmit, now);
+        }
         if let Some(t) = p.optional.time_sync {
             self.server_time = Some((t, Instant::now()));
         }
@@ -405,9 +424,9 @@ impl Session {
             }
             return;
         }
-        self.handle_ordered(p);
+        self.handle_ordered(p, now);
         while let Some(next) = self.out_of_order.remove(&(self.last_recv + 1)) {
-            self.handle_ordered(next);
+            self.handle_ordered(next, now);
         }
         if self.out_of_order.is_empty() {
             self.gap_since = None;
@@ -421,7 +440,10 @@ impl Session {
         let Some(&top) = self.out_of_order.keys().next_back() else {
             return;
         };
-        if self.last_nak.is_some_and(|t| now - t < NAK_INTERVAL) {
+        if self
+            .last_nak
+            .is_some_and(|t| now.saturating_duration_since(t) < NAK_INTERVAL)
+        {
             return;
         }
         let want: Vec<u32> = (self.last_recv + 1..top)
@@ -450,6 +472,72 @@ impl Session {
             .push((Port::Primary, packet::build(h, &body, &[], 0)));
     }
 
+    /// The server cannot resend packets it no longer has. Those sequences
+    /// are never arriving, so step over them instead of waiting on a hole
+    /// that can never close: the in-order stream would otherwise stop dead
+    /// and the session would go silent while still looking connected.
+    fn skip_rejected(&mut self, rejected: &[u32], now: Instant) {
+        let mut skipped = 0;
+        // Only step over the head of the hole, and only forward.
+        while rejected.contains(&(self.last_recv + 1)) {
+            self.last_recv += 1;
+            skipped += 1;
+        }
+        if skipped == 0 {
+            return;
+        }
+        tracing::warn!(
+            "server cannot resend {skipped} packet(s) up to {}; skipping the hole",
+            self.last_recv
+        );
+        self.drain_ordered(now);
+    }
+
+    /// Give up on the packets missing from the front of the stream and
+    /// carry on from the oldest one we are holding.
+    fn skip_packet_gap(&mut self, now: Instant) {
+        let Some(&first) = self.out_of_order.keys().next() else {
+            self.gap_since = None;
+            return;
+        };
+        tracing::warn!(
+            "packets {}..{first} never arrived; skipping the hole",
+            self.last_recv + 1
+        );
+        self.last_recv = first - 1;
+        self.drain_ordered(now);
+    }
+
+    /// Deliver whatever is now contiguous and re-arm the gap timer.
+    fn drain_ordered(&mut self, now: Instant) {
+        self.ack_dirty = true;
+        while let Some(next) = self.out_of_order.remove(&(self.last_recv + 1)) {
+            self.handle_ordered(next, now);
+        }
+        // A hole further along starts its own clock.
+        self.gap_since = (!self.out_of_order.is_empty()).then_some(now);
+    }
+
+    /// Write off a fragment that is never going to arrive and deliver the
+    /// messages queued behind it. Losing one message beats a session that
+    /// never sees another.
+    fn skip_missing_fragment(&mut self) {
+        let Some(&first) = self.early_frags.keys().next() else {
+            return;
+        };
+        tracing::warn!(
+            "fragment {} never arrived; skipping to {first} and releasing {} messages",
+            self.next_frag,
+            self.early_frags.len()
+        );
+        self.next_frag = first;
+        while let Some(m) = self.early_frags.remove(&self.next_frag) {
+            self.deliver(m);
+            self.next_frag += 1;
+        }
+        self.early_since = None;
+    }
+
     /// Count a packet whose checksum did not verify. On a lossy link the
     /// odd one is normal; a flood means the key stream has lost the server,
     /// so report bursts with a running count rather than one warn each.
@@ -457,7 +545,7 @@ impl Session {
         self.mismatches += 1;
         if self
             .mismatch_warned
-            .is_some_and(|t| now - t < MISMATCH_WARN_INTERVAL)
+            .is_some_and(|t| now.saturating_duration_since(t) < MISMATCH_WARN_INTERVAL)
         {
             tracing::debug!("seq {seq}: encrypted checksum mismatch (key {key:#x})");
             return;
@@ -481,21 +569,28 @@ impl Session {
         self.events.push(Event::Terminated(why));
     }
 
-    fn handle_ordered(&mut self, p: Packet) {
+    fn handle_ordered(&mut self, p: Packet, now: Instant) {
         self.got_data = true;
         self.connect_retry_at = None;
         self.last_recv = p.header.sequence;
         self.ack_dirty = true;
         for f in p.fragments {
-            self.handle_fragment(f);
+            self.handle_fragment(f, now);
         }
     }
 
-    fn handle_fragment(&mut self, f: Fragment) {
+    fn handle_fragment(&mut self, f: Fragment, now: Instant) {
         let seq = f.header.sequence;
         let complete = if f.header.count <= 1 {
             Some(f.data)
         } else {
+            if self.partials.len() >= MAX_PARTIALS && !self.partials.contains_key(&seq) {
+                // A message that lost a fragment for good never completes.
+                if let Some(&oldest) = self.partials.keys().min() {
+                    tracing::debug!("dropping half-assembled message {oldest}");
+                    self.partials.remove(&oldest);
+                }
+            }
             let e = self.partials.entry(seq).or_insert_with(|| Partial {
                 count: f.header.count,
                 parts: BTreeMap::new(),
@@ -516,8 +611,17 @@ impl Session {
                 self.deliver(m);
                 self.next_frag += 1;
             }
+            if self.early_frags.is_empty() {
+                self.early_since = None;
+            }
         } else if seq > self.next_frag {
             self.early_frags.insert(seq, msg);
+            if self.early_since.is_none() {
+                self.early_since = Some(now);
+            }
+            if self.early_frags.len() > MAX_EARLY_FRAGS {
+                self.skip_missing_fragment();
+            }
         } else {
             tracing::debug!("stale fragment {seq}");
         }
@@ -565,6 +669,23 @@ impl Session {
         {
             self.request_retransmit(now);
         }
+        // Ten unanswered requests later, the missing packets are not
+        // coming. Step over them: the alternative is a session that looks
+        // connected and never processes another packet.
+        if self
+            .gap_since
+            .is_some_and(|t| now.saturating_duration_since(t) >= PACKET_GAP_TIMEOUT)
+        {
+            self.skip_packet_gap(now);
+        }
+        // A message held behind a missing fragment for this long is
+        // waiting on a packet that is never coming.
+        if self
+            .early_since
+            .is_some_and(|t| now.saturating_duration_since(t) >= EARLY_FRAG_TIMEOUT)
+        {
+            self.skip_missing_fragment();
+        }
         // The server talks constantly once we are in; silence means the
         // link or the session is gone.
         if !self.stall_warned && now.saturating_duration_since(self.last_traffic) >= STALL_WARN {
@@ -572,7 +693,7 @@ impl Session {
             tracing::warn!(
                 "no packet from the server for {:.0?}; last in-order sequence {}, \
                  {} unverified packets so far",
-                now - self.last_traffic,
+                now.saturating_duration_since(self.last_traffic),
                 self.last_recv,
                 self.mismatches
             );

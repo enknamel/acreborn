@@ -563,3 +563,92 @@ fn survives_a_lossy_link() {
     assert_eq!(got, total, "every message recovered");
     assert!(resent > 100, "the link should have needed {resent} resends");
 }
+
+/// A RejectRetransmit means those packets are gone for good. Waiting on
+/// them would stop the in-order stream dead, so the session steps over the
+/// hole and carries on.
+#[test]
+fn rejected_retransmit_steps_over_the_hole() {
+    let (mut s, mut srv, t0) = connected(Duration::from_secs(1000));
+    let p1 = srv.message(&opcode_msg(0xF7E1, &[0; 8]), 500);
+    let p2 = srv.message(&opcode_msg(0xF7E1, &[1; 8]), 500);
+    let _p3 = srv.message(&opcode_msg(0xF7E1, &[2; 8]), 500);
+    let p4 = srv.message(&opcode_msg(0xF7E1, &[3; 8]), 500);
+    let seq2 = Header::parse(&p2[0]).unwrap().sequence;
+    s.receive(&p1[0], t0);
+    s.receive(&p4[0], t0); // p2 and p3 missing
+    assert_eq!(s.events().len(), 1, "only p1 delivered");
+    assert_eq!(naks(&s.outgoing()), vec![vec![seq2, seq2 + 1]]);
+
+    // The server no longer has them.
+    srv.seq += 1;
+    let xor = srv.send_keys.next();
+    let mut body = 2u32.to_le_bytes().to_vec();
+    body.extend_from_slice(&seq2.to_le_bytes());
+    body.extend_from_slice(&(seq2 + 1).to_le_bytes());
+    let reject = packet::build(
+        Header {
+            sequence: srv.seq,
+            flags: flags::ENCRYPTED_CHECKSUM | flags::REJECT_RETRANSMIT,
+            id: 0xB,
+            ..Default::default()
+        },
+        &body,
+        &[],
+        xor,
+    );
+    s.receive(&reject, t0);
+    assert!(
+        naks(&s.outgoing()).is_empty(),
+        "still asking for a lost packet"
+    );
+
+    // The packet hole is written off, but p2 and p3 carried fragments, so
+    // the message stream is still waiting on them. It must not wait for
+    // ever: after the timeout the backlog is released.
+    let p5 = srv.message(&opcode_msg(0xF7E1, &[4; 8]), 500);
+    s.receive(&p5[0], t0 + Duration::from_millis(10));
+    assert!(
+        s.events().is_empty(),
+        "p4 and p5 are still behind the lost fragments"
+    );
+    s.poll(t0 + Duration::from_secs(1));
+    assert!(s.events().is_empty(), "released too early");
+    s.poll(t0 + Duration::from_secs(6));
+    let evs = s.events();
+    assert_eq!(evs.len(), 2, "p4 and p5 released: {evs:?}");
+    assert_eq!(s.state(), State::Connected);
+
+    // And the stream runs normally from there.
+    let p6 = srv.message(&opcode_msg(0xF7E1, &[5; 8]), 500);
+    s.receive(&p6[0], t0 + Duration::from_secs(7));
+    assert_eq!(s.events().len(), 1, "p6 delivered straight away");
+}
+
+/// Without a RejectRetransmit the same recovery happens on the timer: a
+/// fragment that never arrives must not hold the message stream shut.
+#[test]
+fn lost_fragment_releases_the_backlog_on_the_timer() {
+    let (mut s, mut srv, t0) = connected(Duration::from_secs(1000));
+    let p1 = srv.message(&opcode_msg(0xF7E1, &[0; 8]), 500);
+    let _p2 = srv.message(&opcode_msg(0xF7E1, &[1; 8]), 500);
+    let p3 = srv.message(&opcode_msg(0xF7E1, &[2; 8]), 500);
+    s.receive(&p1[0], t0);
+    assert_eq!(s.events().len(), 1);
+    s.receive(&p3[0], t0);
+    assert!(s.events().is_empty(), "p3 waits on p2");
+    // The request goes unanswered, so the packet hole is written off after
+    // ten seconds and p3's fragment then waits five more for p2's.
+    s.poll(t0 + Duration::from_secs(6));
+    assert!(s.events().is_empty(), "gave up on the packet too early");
+    s.poll(t0 + Duration::from_secs(11));
+    assert!(s.events().is_empty(), "p3 still waits on p2's fragment");
+    s.poll(t0 + Duration::from_secs(17));
+    assert_eq!(s.events().len(), 1, "p3 released once p2 is written off");
+    assert_eq!(s.state(), State::Connected);
+
+    // Normal traffic resumes.
+    let p4 = srv.message(&opcode_msg(0xF7E1, &[3; 8]), 500);
+    s.receive(&p4[0], t0 + Duration::from_secs(18));
+    assert_eq!(s.events().len(), 1, "p4 delivered straight away");
+}
