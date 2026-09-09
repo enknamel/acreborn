@@ -492,6 +492,25 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_outranks_the_reason_it_terminated_with() {
+        // The net session raises both `Terminated` (with the error's
+        // text) and `Refused` for a CharacterError. The code is what
+        // says whether coming back is worth trying, so it wins.
+        assert_eq!(
+            classify(
+                false,
+                Some((0xF659, 0x1)),
+                Some("this character is already in the world (character error 0x1)"),
+            ),
+            Ending::StillLoggedIn
+        );
+        assert!(matches!(
+            classify(false, Some((0xF659, 0xF)), Some("terminated")),
+            Ending::Fatal(_)
+        ));
+    }
+
+    #[test]
     fn still_logged_in_codes_are_the_cooldown() {
         for code in [0x1, 0x5, 0xD, 0x10] {
             assert_eq!(
