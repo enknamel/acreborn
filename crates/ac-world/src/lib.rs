@@ -320,29 +320,44 @@ pub fn landblock_origin(cell: u32) -> Vec3 {
 /// would not allow) leaves the server's position frozen while ours runs
 /// away: the gap grows and the server barely moves, so after a second
 /// echo confirms it we snap back to the server.
-fn reconcile(gap: f32, server_step: f32, moved_by_server: bool, streak: &mut u8) -> bool {
-    /// Drift the latency can explain (a run is ~6 m per quarter-second at
-    /// the fastest boosts).
-    const DRIFT: f32 = 12.0;
+fn reconcile(
+    gap: f32,
+    server_step: f32,
+    our_step: f32,
+    moved_by_server: bool,
+    streak: &mut u8,
+) -> bool {
     /// A gap this big is wrong however it arose; snap at once.
     const FAR: f32 = 40.0;
-    // The server's view barely moved: it is stuck, not just lagging.
-    let stuck = server_step < 2.0;
+    /// Past this the server is plainly not where we are. It is small on
+    /// purpose: walking into a wall the server will not let us through
+    /// strands us only a few metres away, and that still breaks casting
+    /// and looting.
+    const APART: f32 = 3.0;
+    /// We covered real ground since the last echo.
+    const MOVING: f32 = 2.0;
+    /// The server's own position barely moved: stuck, not merely lagging.
+    const STUCK: f32 = 2.0;
+    /// Echoes in a row that must agree before we snap, so one late packet
+    /// is not mistaken for a refusal.
+    const CONFIRM: u8 = 3;
+
     if moved_by_server || gap > FAR {
         *streak = 0;
-        true
-    } else if gap > DRIFT && stuck {
-        *streak = streak.saturating_add(1);
-        if *streak < 2 {
-            false
-        } else {
-            *streak = 0;
-            true
-        }
-    } else {
-        *streak = 0;
-        false
+        return true;
     }
+    // The tell is not the size of the gap but that the server is standing
+    // still while we keep moving: it has stopped taking our positions.
+    if server_step < STUCK && our_step > MOVING && gap > APART {
+        *streak = streak.saturating_add(1);
+        if *streak >= CONFIRM {
+            *streak = 0;
+            return true;
+        }
+        return false;
+    }
+    *streak = 0;
+    false
 }
 
 /// The map coordinates the game shows (42.1N, 33.6E): world position
@@ -383,6 +398,9 @@ pub struct World {
     /// ran away from it: the sign of a move the server refused, so we
     /// resync to where it says we are (see the UpdatePosition handler).
     player_echo: Option<Position>,
+    /// Where we were when that echo came, so we can tell whether we are
+    /// moving while the server stands still.
+    player_self_at_echo: Option<Position>,
     desync_streak: u8,
     /// Bumped whenever the set of drawable objects or a position changes.
     pub generation: u64,
@@ -662,10 +680,22 @@ impl World {
                                 .player_echo
                                 .map(|e| (landblock_origin(e.cell) + e.local - server_pos).length())
                                 .unwrap_or(f32::INFINITY);
+                            // How far we ourselves went since that echo: a
+                            // server standing still while we move is the
+                            // giveaway, whatever the gap.
+                            let our_step = match (o.position, self.player_self_at_echo) {
+                                (Some(cur), Some(was)) => (landblock_origin(cur.cell) + cur.local
+                                    - landblock_origin(was.cell)
+                                    - was.local)
+                                    .length(),
+                                _ => 0.0,
+                            };
                             self.player_echo = Some(up.position);
+                            self.player_self_at_echo = o.position;
                             if !reconcile(
                                 gap,
                                 server_step,
+                                our_step,
                                 moved_by_server,
                                 &mut self.desync_streak,
                             ) {
@@ -1704,42 +1734,46 @@ mod tests {
 
     #[test]
     fn normal_echoes_keep_our_prediction() {
-        // A run keeps the server a few metres behind, moving with us: we
-        // never snap, so movement stays smooth.
+        // A run keeps the server a few metres behind but moving with us,
+        // so we never snap and movement stays smooth.
         let mut streak = 0u8;
         for _ in 0..20 {
-            // gap ~5 m, server advancing ~4 m each echo.
-            assert!(!reconcile(5.0, 4.0, false, &mut streak));
+            assert!(!reconcile(5.0, 4.0, 4.0, false, &mut streak));
             assert_eq!(streak, 0);
         }
     }
 
     #[test]
-    fn a_refused_move_resyncs_after_a_second_echo() {
-        // The server froze (server_step ~0) while we ran off (gap grows).
-        // The first suspect echo waits; the second snaps us back.
+    fn standing_still_is_not_a_desync() {
+        // Nobody is moving: the server is "stuck" but so are we.
         let mut streak = 0u8;
+        for _ in 0..10 {
+            assert!(!reconcile(0.5, 0.0, 0.0, false, &mut streak));
+            assert_eq!(streak, 0);
+        }
+    }
+
+    #[test]
+    fn a_refused_move_resyncs_even_when_the_gap_is_small() {
+        // A wall the server will not let us through: it holds still a few
+        // metres away while we keep going. Three echoes confirm it.
+        let mut streak = 0u8;
+        assert!(!reconcile(4.0, 0.1, 3.0, false, &mut streak));
+        assert!(!reconcile(6.0, 0.1, 3.0, false, &mut streak));
         assert!(
-            !reconcile(18.0, 0.2, false, &mut streak),
-            "first echo waits"
-        );
-        assert_eq!(streak, 1);
-        assert!(
-            reconcile(25.0, 0.1, false, &mut streak),
-            "second echo resyncs"
+            reconcile(9.0, 0.1, 3.0, false, &mut streak),
+            "third echo resyncs"
         );
         assert_eq!(streak, 0, "streak clears after the snap");
     }
 
     #[test]
     fn a_single_late_packet_is_not_mistaken_for_a_desync() {
-        // One big-gap echo (a lag spike) followed by the server catching
-        // up: no snap, because the server kept moving.
+        // One echo looks stuck, then the server catches up: no snap.
         let mut streak = 0u8;
-        assert!(!reconcile(18.0, 0.5, false, &mut streak));
+        assert!(!reconcile(18.0, 0.5, 12.0, false, &mut streak));
         assert_eq!(streak, 1);
-        // Next echo: server advanced (caught up), small gap -> reset.
-        assert!(!reconcile(4.0, 14.0, false, &mut streak));
+        assert!(!reconcile(4.0, 14.0, 12.0, false, &mut streak));
         assert_eq!(streak, 0);
     }
 
@@ -1747,12 +1781,12 @@ mod tests {
     fn a_teleport_or_a_huge_gap_snaps_at_once() {
         let mut streak = 0u8;
         assert!(
-            reconcile(3.0, 3.0, true, &mut streak),
+            reconcile(3.0, 3.0, 3.0, true, &mut streak),
             "server teleport is taken"
         );
         let mut streak = 0u8;
         assert!(
-            reconcile(80.0, 0.0, false, &mut streak),
+            reconcile(80.0, 0.0, 5.0, false, &mut streak),
             "a huge gap snaps at once"
         );
     }

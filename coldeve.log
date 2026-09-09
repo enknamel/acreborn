@@ -1,3 +1,8 @@
+   Compiling ac-world v0.0.1 (/Users/danielwilliams/code/acswarm/crates/ac-world)
+   Compiling ac-client v0.0.1 (/Users/danielwilliams/code/acswarm/crates/ac-client)
+   Compiling ac-plugin v0.0.1 (/Users/danielwilliams/code/acswarm/crates/ac-plugin)
+   Compiling ac-script v0.0.1 (/Users/danielwilliams/code/acswarm/crates/ac-script)
+   Compiling acviewer v0.0.1 (/Users/danielwilliams/code/acswarm/bins/acviewer)
 warning: method `inject` is never used
    --> bins/acviewer/src/ui.rs:130:12
     |
@@ -10,5 +15,5 @@ warning: method `inject` is never used
     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
 
 warning: `acviewer` (bin "acviewer") generated 1 warning
-    Finished `release` profile [optimized + debuginfo] target(s) in 0.43s
+    Finished `release` profile [optimized + debuginfo] target(s) in 16.44s
      Running `target/release/acviewer --connect 'play.coldeve.ac:9000' -a rawrtherton -v rawr1234`
