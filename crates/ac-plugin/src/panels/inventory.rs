@@ -76,6 +76,25 @@ impl Slot {
     }
 }
 
+/// Foci carried more than once, as `(guid, name)`.
+///
+/// A Focus is per school, and a second one of the same school does
+/// nothing at all -- but it still takes a whole pack slot, which is the
+/// most expensive kind of slot there is. It is worth saying so; it is
+/// not worth throwing away for somebody, so this only reports.
+pub fn duplicate_foci(foci: &[(u32, String)]) -> Vec<(u32, String)> {
+    let mut seen: Vec<&str> = Vec::new();
+    let mut spare = Vec::new();
+    for (guid, name) in foci {
+        if seen.contains(&name.as_str()) {
+            spare.push((*guid, name.clone()));
+        } else {
+            seen.push(name);
+        }
+    }
+    spare
+}
+
 /// The pack slots in order: packs, then Foci, then whatever is spare.
 ///
 /// `capacity` is what the character has; a slot count of zero before
@@ -112,6 +131,8 @@ pub struct InventoryView {
     pub burden_capacity: u32,
     /// Foci carried ("War", "Life"...), for casters at a glance.
     pub foci: Vec<String>,
+    /// Foci carried twice: a pack slot spent on nothing.
+    pub spare_foci: Vec<(u32, String)>,
     pub unappraised: usize,
 }
 
@@ -241,6 +262,7 @@ pub fn view(c: &Client) -> Option<InventoryView> {
             &carried_foci,
             player.map(|p| p.containers_capacity).unwrap_or(0),
         ),
+        spare_foci: duplicate_foci(&carried_foci),
         packs,
         burden,
         burden_capacity: strength * 150,
@@ -570,6 +592,22 @@ pub fn draw(
             );
             if !v.foci.is_empty() {
                 caption(ui, format!("foci: {}", v.foci.join(", ")));
+            }
+            if !v.spare_foci.is_empty() {
+                let names: Vec<&str> = v.spare_foci.iter().map(|(_, n)| n.as_str()).collect();
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("{} spare", v.spare_foci.len()))
+                            .color(egui::Color32::from_rgb(220, 140, 120))
+                            .small(),
+                    )
+                    .sense(egui::Sense::hover()),
+                )
+                .on_hover_text(format!(
+                    "A second Focus of the same school does nothing and still takes \
+                     a pack slot: {}",
+                    names.join(", ")
+                ));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let burden = if v.burden_capacity > 0 {
@@ -965,6 +1003,7 @@ impl Inventory {
                 burden,
                 burden_capacity: 15_000,
                 foci: vec!["War".into()],
+                spare_foci: Vec::new(),
                 unappraised: 4,
             }),
             show: true,
@@ -1245,6 +1284,26 @@ mod tests {
         // And before the player description arrives, nothing is shown
         // rather than a guess.
         assert!(slots(&[], &[], 0).is_empty());
+    }
+
+    #[test]
+    fn a_second_focus_of_the_same_school_is_a_slot_wasted() {
+        let carried = vec![
+            (1, "Foci of Verdancy".to_string()),
+            (2, "Foci of Strife".to_string()),
+            (3, "Foci of Verdancy".to_string()),
+            (4, "Foci of Strife".to_string()),
+            (5, "Foci of Shadow".to_string()),
+        ];
+        let spare = duplicate_foci(&carried);
+        // The first of each school is kept; the later ones are spare.
+        assert_eq!(
+            spare.iter().map(|(g, _)| *g).collect::<Vec<_>>(),
+            vec![3, 4]
+        );
+        // One of each wastes nothing.
+        assert!(duplicate_foci(&carried[..3.min(carried.len())][..2]).is_empty());
+        assert!(duplicate_foci(&[]).is_empty());
     }
 
     #[test]
