@@ -57,6 +57,7 @@ pub enum Event {
     Connected,
     Terminated(String),
     Refused(u32),                       // CharacterError / AccountBoot opcode
+                                        // (the code is on Client::last_refusal)
     Placed { cell: u32 },               // the character stands in the world
     SpellLearned(u32), SpellForgotten(u32),
     Characters(Vec<CharacterEntry>),    // the account's list, when not auto-entering

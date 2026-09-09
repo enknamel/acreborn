@@ -45,6 +45,86 @@ only a follower's can pass `--render none` and draw no world at all, and
 `--fps` caps the frame rate of any window; see "Rendering cost" in
 [architecture.md](architecture.md).
 
+## Coming back after a drop
+
+A session ends three ways, and only one of them is worth recovering
+from. The player quits, which is a clean `Client::disconnect` and the
+end of it. The server refuses the login for a reason waiting will not
+fix (a ban, a wrong password, a character that is not on the account),
+which is also the end of it. Or the connection dies: the router
+hiccups, the server restarts, a packet storm eats the session. That
+last one is the one worth healing, and it is expensive to leave alone:
+a session that ends without a clean disconnect leaves the character
+standing in the world until the server's own timeout notices, and
+everything since the last server-side save is rolled back when it
+finally does drop.
+
+`ac_client::reconnect` is the rule. `classify` sorts an ending into
+`Quit`, `Dropped`, `StillLoggedIn` or `Fatal` from three things the
+client records: `Client::quitting` (set by `disconnect` and by a
+`/logout` the player typed), the reason on `Event::Terminated`, and
+`Client::last_refusal`, the `(opcode, code)` of the last
+`CharacterError`, `AccountBoot` or `AccountBanned`. The code is what
+matters: `Event::Refused` carries only the opcode, and it is the code
+that says whether coming back is worth trying. Codes 1, 5, 0xD and 0x10
+mean the character has not finished leaving the world; 4, 8, 0xB, 0x11,
+0x13, 0x14 and 0x15 mean the world is down, restarting or full; the
+rest are fatal.
+
+`Reconnect` is the schedule, a state machine fed the ending and the
+clock and answering `Action::Connect` when it is time to try again. It
+opens no sockets and touches no client state, so the backoff, the
+attempt cap and the cooldown are tested without a server (see the tests
+in `crates/ac-client/src/reconnect.rs`).
+
+* **Backoff.** 3 s before the first attempt, doubling each time, capped
+  at 60 s: 3, 6, 12, 24, 48, 60...
+* **Attempts.** Six by default; `--reconnect-tries N` changes it and 0
+  turns reconnection off. Getting back into the world resets the count.
+* **The login cooldown.** The server keeps the account logged in for
+  around a minute after a session ends badly, and refuses a retry inside
+  that window with `CharacterError` 1 (`Logon`). That refusal is not a
+  failed attempt: the rule waits 80 s and tries again at the same
+  attempt number, up to four times in a row, so a slow server-side
+  logout cannot burn the budget.
+* **An attempt that hangs.** One that has neither placed the character
+  nor been refused within 45 s counts as failed.
+
+The viewer does the connecting, in `App::tick_reconnect` and
+`App::reconnect_session`. A session being reconnected **keeps its place
+in `nets`**: the window goes on showing the world it was last in, the
+plugins keep the per-session state they index by that slot, and the
+fleet panel keeps its row. Only the `Client` inside is replaced, which
+is what makes an unattended fleet heal itself. The new client logs in as
+the character the old one was actually playing (the name the server
+gave, falling back to the one the config asked for), so the player lands
+back where they were rather than at the character-select screen; a
+session dropped at the select screen comes back to the select screen.
+
+What survives the swap is `reconnect::Carry`: the autoplay rules, the
+speed and jump tweaks, the missing-components setting, and which
+character to be. What deliberately does not survive is everything the
+server is about to send again or that names an object by a guid: the
+world and its objects, the character sheet, the physics body, combat
+mode, the current target, selections and appraisals, the loot and
+appraise queues, the planned route, and the walk back to a corpse.
+
+The chat log follows along, prefixed with the account for a session the
+window is not showing:
+
+```
+Connection lost (net error 0x1/0x2); reconnecting in 3 s
+Reconnecting (1 of 6)...
+The server still has the account logged in; trying again in 80 s
+Reconnecting (1 of 6)...
+Reconnected.
+```
+
+A session that gives up says `Could not reconnect after 6 tries. Log in
+again by hand.` and leaves the reason on the blackboard under
+`fleet.error.<account>`, where the fleet panel already shows it; a
+successful reconnect clears that key.
+
 ## Several processes: the launcher
 
 `aclauncher` (`bins/aclauncher`) is a small egui window: servers on the

@@ -20,7 +20,7 @@ Libraries, in dependency order (each depends only on the ones above it):
 | `ac-scene` | Assembly without a GPU: `Assets` (memoizing loader over both archives), `terrain`, `landblock`, `interior`, `scenery`, `model` (GfxObj/Setup to triangle lists), `anim`, `collision` (capsule vs. mesh, terrain sampler), `nav` (walkable-grid graph and A* per landblock), `lighting`, `particles`, `chargen`. | ac-formats |
 | `ac-net` | Wire protocol, sans-IO: `packet`, `hash32`, `isaac`, `wire` (Reader/Writer), `messages` (opcodes, parsers, builders), `session::Session` (consumes datagrams and time, produces datagrams and decoded messages; the caller owns the socket). | - |
 | `ac-world` | `World`: the object table built from server messages (`WorldObject`, `Position`, `MoveTarget`, `CommandQueue` in `motion`), `stats::PlayerStats` (the character sheet), open container and vendor state. | ac-net, ac-formats |
-| `ac-client` | `Client`: one headless game session. Owns the socket and `Session`, applies messages to its `World`, runs the character's physics (`player::Player`), runs the gameplay timers (combat, loot), and exposes every action a player can take. Reports `Event`s to whoever drives it. | ac-net, ac-world, ac-scene |
+| `ac-client` | `Client`: one headless game session. Owns the socket and `Session`, applies messages to its `World`, runs the character's physics (`player::Player`), runs the gameplay timers (combat, loot), and exposes every action a player can take. Reports `Event`s to whoever drives it. `reconnect` decides whether and when a session that ended should log back in. | ac-net, ac-world, ac-scene |
 | `ac-plugin` | `Plugin` trait, `Ctx`, `Blackboard` (named values plus a one-frame message bus), `host::Host` which fans callbacks out to every session, `icons` (item and spell icons as egui textures), and the built-in `panels` (vitals, radar, target bar, inventory, loot, vendor, skills, spellbook), each a plugin. | ac-client, egui |
 | `ac-audio` | `Audio` on top of `kira`: open the default device, play a decoded `Wave` once at a volume; sound-table lookup helpers. | ac-formats |
 
@@ -28,7 +28,7 @@ Binaries:
 
 | bin | role |
 |---|---|
-| `acviewer` | The client: wgpu renderer, egui overlay (`ui.rs`: the status line and the chat box; every other panel is a plugin), multi-session host (`Net` per session), landblock streaming, third-person camera, and the built-in plugins in `plugins/`. Also a standalone viewer for landblocks, models, particle emitters and chargen looks, and a headless `--screenshot` runner. |
+| `acviewer` | The client: wgpu renderer, egui overlay (`ui.rs`: the status line and the chat box; every other panel is a plugin), multi-session host (`Net` per session, reconnected in place when dropped), landblock streaming, third-person camera, and the built-in plugins in `plugins/`. Also a standalone viewer for landblocks, models, particle emitters and chargen looks, and a headless `--screenshot` runner. |
 | `aclauncher` | Desktop launch manager: servers and accounts in `~/.acswarm/launcher.json`, one `acviewer --connect` process per launch, logs in `~/.acswarm/logs/`. |
 | `acclient` | The older headless CLI built directly on `ac-net`/`ac-world`: log in, optionally `--create` a character, enter the world, print messages. Still the quickest way to create a character. |
 | `acdat` | DAT CLI: `info`, `ls`, `cat`, `extract`, `decode` (asset as JSON), `wav`, `manifest` and `diff` (against an ACE-generated manifest). |
