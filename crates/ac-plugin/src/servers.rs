@@ -60,6 +60,11 @@ pub struct Login {
     pub password: String,
     #[serde(default)]
     pub character: String,
+    /// The characters seen on this account the last time it was logged
+    /// into, so the screen can offer them before connecting. Names
+    /// only: everything else about a character comes from the server.
+    #[serde(default)]
+    pub characters: Vec<String>,
     /// When this account was last connected with, in seconds since the
     /// epoch. A player with three accounts on a server wants the one
     /// they were just playing, not the one they happened to add first,
@@ -197,8 +202,43 @@ impl Servers {
                 account: account.to_string(),
                 password: password.to_string(),
                 character: character.to_string(),
+                characters: Vec::new(),
                 used: now,
             });
+        }
+    }
+
+    /// Remember the characters an account has, as the server just
+    /// listed them.
+    ///
+    /// This is what lets the screen offer a character before there is a
+    /// connection to ask. The list replaces whatever was there: a
+    /// character deleted on the server should not linger in a menu. If
+    /// the account is not one that was saved, nothing is recorded --
+    /// the player did not ask to remember it.
+    pub fn note_characters(&mut self, host: &str, account: &str, names: &[String]) {
+        if let Some(l) = self
+            .logins
+            .iter_mut()
+            .find(|l| l.host == host && l.account.eq_ignore_ascii_case(account))
+        {
+            l.characters = names.to_vec();
+            // A character that is gone cannot be the one to enter with.
+            if !l.character.is_empty() && !names.iter().any(|n| n == &l.character) {
+                l.character.clear();
+            }
+        }
+    }
+
+    /// Remember which character an account enters with. Empty means
+    /// stop at the character list and choose by hand.
+    pub fn set_character(&mut self, host: &str, account: &str, character: &str) {
+        if let Some(l) = self
+            .logins
+            .iter_mut()
+            .find(|l| l.host == host && l.account.eq_ignore_ascii_case(account))
+        {
+            l.character = character.to_string();
         }
     }
 
@@ -416,5 +456,83 @@ mod tests {
         );
         // The same account name on another server is a different login.
         assert_eq!(s.accounts_for("other:9000").len(), 1);
+    }
+    #[test]
+    fn an_accounts_characters_are_remembered_for_the_menu() {
+        // The point: the screen can offer a character before there is
+        // any connection to ask.
+        let mut s = Servers::default();
+        s.remember("h:9000", "main", "pw", "");
+        s.note_characters(
+            "h:9000",
+            "MAIN",
+            &["Aldric".to_string(), "Bryn".to_string()],
+        );
+        let l = s.last_login("h:9000").unwrap();
+        assert_eq!(l.characters, ["Aldric", "Bryn"]);
+    }
+
+    #[test]
+    fn a_character_deleted_on_the_server_leaves_the_menu() {
+        let mut s = Servers::default();
+        s.remember("h:9000", "main", "pw", "Bryn");
+        s.note_characters("h:9000", "main", &["Aldric".to_string()]);
+        let l = s.last_login("h:9000").unwrap();
+        assert_eq!(l.characters, ["Aldric"]);
+        // Bryn was the one to enter with and no longer exists, so the
+        // account goes back to stopping at the character list rather
+        // than asking for someone who is gone.
+        assert_eq!(l.character, "");
+    }
+
+    #[test]
+    fn a_character_that_survives_stays_the_one_to_enter_with() {
+        let mut s = Servers::default();
+        s.remember("h:9000", "main", "pw", "Bryn");
+        s.note_characters(
+            "h:9000",
+            "main",
+            &["Aldric".to_string(), "Bryn".to_string()],
+        );
+        assert_eq!(s.last_login("h:9000").unwrap().character, "Bryn");
+    }
+
+    #[test]
+    fn characters_are_not_recorded_for_an_account_nobody_saved() {
+        // Logging in without asking to remember leaves nothing behind.
+        let mut s = Servers::default();
+        s.note_characters("h:9000", "guest", &["Someone".to_string()]);
+        assert!(s.accounts_for("h:9000").is_empty());
+    }
+
+    #[test]
+    fn choosing_a_character_sticks_to_its_own_account() {
+        let mut s = Servers::default();
+        s.remember("h:9000", "main", "pw", "");
+        s.remember("h:9000", "mule", "pw", "");
+        s.set_character("h:9000", "main", "Aldric");
+        let by = |who: &str| {
+            s.accounts_for("h:9000")
+                .into_iter()
+                .find(|l| l.account == who)
+                .map(|l| l.character.clone())
+                .unwrap()
+        };
+        assert_eq!(by("main"), "Aldric");
+        assert_eq!(by("mule"), "", "the other account was not touched");
+    }
+
+    #[test]
+    fn the_character_menu_survives_a_save_and_load() {
+        let mut s = Servers::default();
+        s.remember("h:9000", "main", "pw", "");
+        s.note_characters("h:9000", "main", &["Aldric".to_string()]);
+        s.set_character("h:9000", "main", "Aldric");
+        let mut settings = Settings::new();
+        s.save(&mut settings);
+        let back = Servers::load(&settings);
+        let l = back.last_login("h:9000").unwrap();
+        assert_eq!(l.characters, ["Aldric"]);
+        assert_eq!(l.character, "Aldric");
     }
 }

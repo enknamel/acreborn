@@ -50,6 +50,19 @@ pub enum ServerEdit {
         host: String,
         account: String,
     },
+    /// The characters the server just listed for an account.
+    Characters {
+        host: String,
+        account: String,
+        names: Vec<String>,
+    },
+    /// The character an account should enter with; empty stops at the
+    /// character list.
+    Character {
+        host: String,
+        account: String,
+        name: String,
+    },
 }
 
 impl ServerEdit {
@@ -73,6 +86,16 @@ impl ServerEdit {
                 servers.remember(&host, &account, &password, &character);
             }
             ServerEdit::Forget { host, account } => servers.forget(&host, &account),
+            ServerEdit::Characters {
+                host,
+                account,
+                names,
+            } => servers.note_characters(&host, &account, &names),
+            ServerEdit::Character {
+                host,
+                account,
+                name,
+            } => servers.set_character(&host, &account, &name),
         }
     }
 }
@@ -96,6 +119,9 @@ pub struct Lobby {
     store_seen: Option<std::time::SystemTime>,
     /// A canned character list for the offline demo (no session).
     demo: Option<SelectView>,
+    /// The server and account this session logged in as, so the
+    /// character list the server sends can be filed against it.
+    connected_as: Option<(String, String)>,
 }
 
 impl Lobby {
@@ -189,6 +215,7 @@ impl Lobby {
                 host,
                 account,
                 password,
+                character,
                 remember,
             } => {
                 // Remember the account (and the password when asked); an
@@ -204,11 +231,22 @@ impl Lobby {
                     account: account.clone(),
                     password: kept,
                 });
+                // The character chosen in the list sticks, so the next
+                // login goes straight in as the same one.
+                self.edit(ServerEdit::Character {
+                    host: host.clone(),
+                    account: account.clone(),
+                    name: character.clone(),
+                });
+                // Who we are logging in as, so the character list the
+                // server sends next can be filed against the right
+                // account.
+                self.connected_as = Some((host.clone(), account.clone()));
                 self.pending = Some(Login {
                     host,
                     account,
                     password,
-                    character: String::new(),
+                    character,
                     ..Default::default()
                 });
                 // The character list will flip us to Select on arrival.
@@ -218,6 +256,15 @@ impl Lobby {
             ConnectAction::Forget { host, account } => {
                 self.edit(ServerEdit::Forget { host, account })
             }
+            ConnectAction::SetCharacter {
+                host,
+                account,
+                name,
+            } => self.edit(ServerEdit::Character {
+                host,
+                account,
+                name,
+            }),
         }
     }
 
@@ -262,7 +309,15 @@ impl Lobby {
     /// An event of the active session.
     pub fn on_event(&mut self, ev: &Event) {
         match ev {
-            Event::Characters(_) => {
+            Event::Characters(list) => {
+                if let Some((host, account)) = self.connected_as.clone() {
+                    let names: Vec<String> = list.iter().map(|c| c.name.clone()).collect();
+                    self.edit(ServerEdit::Characters {
+                        host,
+                        account,
+                        names,
+                    });
+                }
                 if self.screen != Some(Screen::Create) {
                     self.screen = Some(Screen::Select);
                 }
@@ -487,6 +542,7 @@ mod tests {
 
         // The player connects as someone else and asks to be remembered.
         l.apply_connect(ConnectAction::Connect {
+            character: String::new(),
             host: "h:9000".into(),
             account: "bob".into(),
             password: "pw2".into(),
@@ -595,5 +651,75 @@ mod tests {
         assert_eq!(l.create.as_ref().unwrap().build.name, "Reborn");
         l.on_event(&Event::CharacterCreateFailed(3));
         assert!(l.create.as_ref().unwrap().message.is_some());
+    }
+    #[test]
+    fn logging_in_once_fills_the_character_menu() {
+        // The screen can only offer a character it has seen. The list
+        // the server sends after login is filed against the account
+        // that was used, and is there next time before connecting.
+        let path = scratch("chars");
+        let mut l = Lobby {
+            store: Some(path.clone()),
+            ..Default::default()
+        };
+        l.open_connect(store::load_at(&path));
+        l.apply_connect(ConnectAction::Connect {
+            host: "h:9000".into(),
+            account: "main".into(),
+            password: "pw".into(),
+            character: String::new(),
+            remember: true,
+        });
+        let _ = l.take_connect();
+
+        let entry = |name: &str| ac_net::messages::CharacterEntry {
+            id: 1,
+            name: name.to_string(),
+            seconds_until_deleted: 0,
+        };
+        l.on_event(&Event::Characters(vec![entry("Aldric"), entry("Bryn")]));
+
+        let saved = l.take_dirty_servers().expect("a change to write");
+        let login = saved.last_login("h:9000").expect("the account");
+        assert_eq!(login.characters, ["Aldric", "Bryn"]);
+        // Nothing was chosen to enter as, so it stops at the list.
+        assert_eq!(login.character, "");
+    }
+
+    #[test]
+    fn the_chosen_character_is_the_one_entered_as_next_time() {
+        let path = scratch("enter");
+        store::update_at(&path, |s| {
+            s.remember("h:9000", "main", "pw", "");
+            s.note_characters("h:9000", "main", &["Aldric".to_string()]);
+        });
+        let mut l = Lobby {
+            store: Some(path.clone()),
+            ..Default::default()
+        };
+        l.open_connect(store::load_at(&path));
+
+        // Picking a character in the menu sticks without connecting.
+        l.apply_connect(ConnectAction::SetCharacter {
+            host: "h:9000".into(),
+            account: "main".into(),
+            name: "Aldric".into(),
+        });
+        assert_eq!(
+            l.servers.last_login("h:9000").map(|x| x.character.clone()),
+            Some("Aldric".to_string())
+        );
+
+        // Playing that row carries the character into the login, which
+        // is what makes the client go straight in.
+        l.apply_connect(ConnectAction::Connect {
+            host: "h:9000".into(),
+            account: "main".into(),
+            password: "pw".into(),
+            character: "Aldric".into(),
+            remember: true,
+        });
+        let started = l.take_connect().expect("a login");
+        assert_eq!(started.character, "Aldric");
     }
 }

@@ -14,12 +14,21 @@ pub enum ConnectAction {
         host: String,
         account: String,
         password: String,
+        /// The character to enter the world as. Empty stops at the
+        /// character list to choose by hand.
+        character: String,
         remember: bool,
     },
     /// The player added or renamed one of their own servers.
     AddServer(Server),
     /// Forget a remembered login for (`host`, `account`).
     Forget { host: String, account: String },
+    /// The character an account should enter with from now on.
+    SetCharacter {
+        host: String,
+        account: String,
+        name: String,
+    },
 }
 
 /// The connect form's state (what is typed, and the add-server sub-form).
@@ -30,6 +39,8 @@ pub struct ConnectState {
     pub account: String,
     pub password: String,
     pub remember: bool,
+    /// The add-account form is open.
+    pub adding_account: bool,
     pub adding: bool,
     pub new_name: String,
     pub new_host: String,
@@ -135,37 +146,103 @@ pub fn draw(egui: &egui::Context, servers: &Servers, st: &mut ConnectState) -> V
             });
 
             // Quick-pick of remembered accounts on this server.
-            // The accounts saved for this server, the one last played
-            // first, with the chosen one marked.
+            ui.add_space(8.0);
+
+            // The accounts saved for this server. One row each: who it
+            // is, which character to go in as, and a button to play.
             let saved = servers.accounts_for(&st.host);
-            if !saved.is_empty() {
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(if saved.len() == 1 {
-                        "Account:".to_string()
+            if saved.is_empty() {
+                caption(ui, "No accounts saved for this server yet.");
+            } else {
+                caption(
+                    ui,
+                    if saved.len() == 1 {
+                        "1 account".to_string()
                     } else {
-                        format!("{} accounts:", saved.len())
-                    });
+                        format!("{} accounts", saved.len())
+                    },
+                );
+            }
+            // A grid, so the character menus line up however long the
+            // account names are.
+            egui::Grid::new("accounts")
+                .num_columns(4)
+                .spacing(egui::vec2(8.0, 4.0))
+                .show(ui, |ui| {
                     for l in &saved {
                         let chosen = l.account.eq_ignore_ascii_case(&st.account);
-                        let mut label = egui::RichText::new(&l.account);
+                        // The account. Clicking it makes it the one the
+                        // password box below belongs to.
+                        let mut name = egui::RichText::new(&l.account);
                         if chosen {
-                            label = label.strong();
+                            name = name.strong();
                         }
-                        let hint = if l.password.is_empty() {
-                            format!("{} (no password saved)", l.account)
-                        } else {
-                            l.account.clone()
-                        };
-                        if ui
-                            .selectable_label(chosen, label)
-                            .on_hover_text(hint)
-                            .clicked()
-                        {
+                        if ui.selectable_label(chosen, name).clicked() {
                             let l = (*l).clone();
                             st.use_login(&l);
                         }
+
+                        // Which character to enter as. The names are the
+                        // ones the server listed last time this account
+                        // logged in; an account never logged into has
+                        // none yet, and stops at the character list.
+                        let current = if l.character.is_empty() {
+                            "Choose at login".to_string()
+                        } else {
+                            l.character.clone()
+                        };
+                        egui::ComboBox::from_id_salt(("character", &l.account))
+                            .selected_text(current)
+                            .width(170.0)
+                            .show_ui(ui, |ui| {
+                                if ui
+                                    .selectable_label(l.character.is_empty(), "Choose at login")
+                                    .clicked()
+                                {
+                                    actions.push(ConnectAction::SetCharacter {
+                                        host: st.host.clone(),
+                                        account: l.account.clone(),
+                                        name: String::new(),
+                                    });
+                                }
+                                for name in &l.characters {
+                                    if ui.selectable_label(&l.character == name, name).clicked() {
+                                        actions.push(ConnectAction::SetCharacter {
+                                            host: st.host.clone(),
+                                            account: l.account.clone(),
+                                            name: name.clone(),
+                                        });
+                                    }
+                                }
+                                if l.characters.is_empty() {
+                                    caption(ui, "Log in once to list this account's characters");
+                                }
+                            });
+
+                        let known = !l.password.is_empty();
                         if ui
-                            .small_button("✕")
+                            .add_enabled(known, egui::Button::new("Play"))
+                            .on_hover_text(if l.character.is_empty() {
+                                "Log in and stop at the character list".to_string()
+                            } else {
+                                format!("Log in and enter as {}", l.character)
+                            })
+                            .on_disabled_hover_text(
+                                "No password saved for this account. Pick it, type the \
+                                 password below, and connect.",
+                            )
+                            .clicked()
+                        {
+                            actions.push(ConnectAction::Connect {
+                                host: st.host.clone(),
+                                account: l.account.clone(),
+                                password: l.password.clone(),
+                                character: l.character.clone(),
+                                remember: true,
+                            });
+                        }
+                        if ui
+                            .small_button("x")
                             .on_hover_text(format!("Forget {} on this server", l.account))
                             .clicked()
                         {
@@ -174,35 +251,65 @@ pub fn draw(egui: &egui::Context, servers: &Servers, st: &mut ConnectState) -> V
                                 account: l.account.clone(),
                             });
                         }
+                        ui.end_row();
                     }
                 });
-            }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.label("Account ");
-                ui.add(egui::TextEdit::singleline(&mut st.account).desired_width(300.0));
-            });
-            ui.horizontal(|ui| {
-                ui.label("Password");
-                ui.add(
-                    egui::TextEdit::singleline(&mut st.password)
-                        .password(true)
-                        .desired_width(300.0),
-                );
-            });
-            ui.checkbox(&mut st.remember, "Remember this account and password");
-            ui.add_space(8.0);
 
-            let ready = !st.host.is_empty() && !st.account.trim().is_empty();
-            if ui
-                .add_enabled(ready, egui::Button::new("Connect"))
-                .clicked()
-            {
-                actions.push(ConnectAction::Connect {
-                    host: st.host.clone(),
-                    account: st.account.trim().to_string(),
-                    password: st.password.clone(),
-                    remember: st.remember,
+            ui.add_space(6.0);
+            // Adding an account, or typing the password for one that
+            // was saved without it.
+            let needs_password = !st.account.trim().is_empty()
+                && saved
+                    .iter()
+                    .any(|l| l.account.eq_ignore_ascii_case(&st.account) && l.password.is_empty());
+            if !st.adding_account && !needs_password {
+                if ui.button("Add an account…").clicked() {
+                    st.adding_account = true;
+                    st.clear_login();
+                }
+            } else {
+                if needs_password && !st.adding_account {
+                    caption(ui, format!("Password for {}", st.account.trim()));
+                } else {
+                    caption(ui, "Add an account");
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Account ");
+                    ui.add(egui::TextEdit::singleline(&mut st.account).desired_width(300.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Password");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut st.password)
+                            .password(true)
+                            .desired_width(300.0),
+                    );
+                });
+                ui.checkbox(&mut st.remember, "Remember this account and password");
+                ui.horizontal(|ui| {
+                    let ready = !st.host.is_empty() && !st.account.trim().is_empty();
+                    if ui
+                        .add_enabled(ready, egui::Button::new("Connect"))
+                        .clicked()
+                    {
+                        let character = saved
+                            .iter()
+                            .find(|l| l.account.eq_ignore_ascii_case(st.account.trim()))
+                            .map(|l| l.character.clone())
+                            .unwrap_or_default();
+                        actions.push(ConnectAction::Connect {
+                            host: st.host.clone(),
+                            account: st.account.trim().to_string(),
+                            password: st.password.clone(),
+                            character,
+                            remember: st.remember,
+                        });
+                        st.adding_account = false;
+                    }
+                    if st.adding_account && ui.button("Cancel").clicked() {
+                        st.adding_account = false;
+                        st.clear_login();
+                    }
                 });
             }
 
