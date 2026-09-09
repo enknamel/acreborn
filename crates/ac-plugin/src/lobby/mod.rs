@@ -13,13 +13,14 @@
 pub mod connect;
 pub mod create;
 pub mod select;
+pub mod store;
 
 use std::rc::Rc;
 
 use ac_client::creation::{self, CharacterBuild};
 use ac_scene::Assets;
 
-use crate::servers::{Login, Servers};
+use crate::servers::{Login, Server, Servers};
 use crate::{egui, Client, Ctx, Event, Plugin};
 use connect::{ConnectAction, ConnectState};
 use create::{CreateAction, CreateState};
@@ -34,6 +35,48 @@ pub enum Screen {
     Create,
 }
 
+/// A change the connect screen made to the login store, kept until it
+/// is folded into the file (the fleet panel writes the same file, so the
+/// whole of an in-memory copy is never written over it).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ServerEdit {
+    Add(Server),
+    Remember {
+        host: String,
+        account: String,
+        password: String,
+    },
+    Forget {
+        host: String,
+        account: String,
+    },
+}
+
+impl ServerEdit {
+    /// Make this change to `servers`.
+    pub fn apply(self, servers: &mut Servers) {
+        match self {
+            ServerEdit::Add(s) => servers.add(s),
+            ServerEdit::Remember {
+                host,
+                account,
+                password,
+            } => {
+                // Keep the character the fleet panel remembered for the
+                // account; the connect screen does not ask for one.
+                let character = servers
+                    .accounts_for(&host)
+                    .into_iter()
+                    .find(|l| l.account.eq_ignore_ascii_case(&account))
+                    .map(|l| l.character.clone())
+                    .unwrap_or_default();
+                servers.remember(&host, &account, &password, &character);
+            }
+            ServerEdit::Forget { host, account } => servers.forget(&host, &account),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Lobby {
     pub screen: Option<Screen>,
@@ -44,8 +87,13 @@ pub struct Lobby {
     pub connect: ConnectState,
     /// A login the connect screen asked to start, for the host to pick up.
     pending: Option<Login>,
-    /// The servers/logins changed and should be written back to settings.
-    servers_dirty: bool,
+    /// Changes the connect screen made that are not on disk yet.
+    edits: Vec<ServerEdit>,
+    /// The login store's file, and when it was last read from: the fleet
+    /// panel writes the same file, so an open connect screen re-reads it
+    /// once it moves (see [`store`]).
+    store: Option<std::path::PathBuf>,
+    store_seen: Option<std::time::SystemTime>,
     /// A canned character list for the offline demo (no session).
     demo: Option<SelectView>,
 }
@@ -80,7 +128,30 @@ impl Lobby {
     pub fn open_connect(&mut self, servers: Servers) {
         self.connect = ConnectState::from_servers(&servers);
         self.servers = servers;
+        self.store_seen = store::changed_at(&self.store_path());
         self.screen = Some(Screen::Connect);
+    }
+
+    /// The login store's file: the usual place, or the one a test set.
+    fn store_path(&self) -> std::path::PathBuf {
+        self.store.clone().unwrap_or_else(store::path)
+    }
+
+    /// Read the login store again when it moved under us (the fleet
+    /// panel added or forgot an account), so the connect screen offers
+    /// the same accounts the fleet does. Changes of our own that are
+    /// not written yet come first, so nothing typed is lost.
+    fn refresh_servers(&mut self) {
+        if self.screen != Some(Screen::Connect) || !self.edits.is_empty() {
+            return;
+        }
+        let path = self.store_path();
+        let now = store::changed_at(&path);
+        if now == self.store_seen {
+            return;
+        }
+        self.store_seen = now;
+        self.servers = store::load_at(&path);
     }
 
     /// The login the connect screen asked to start, if any (taken once).
@@ -89,11 +160,25 @@ impl Lobby {
     }
 
     /// The servers/logins to write back, when they changed (taken once).
+    /// What is on disk is read again first and the screen's changes made
+    /// to that, so an account the fleet panel added since is kept.
     pub fn take_dirty_servers(&mut self) -> Option<Servers> {
-        self.servers_dirty.then(|| {
-            self.servers_dirty = false;
-            self.servers.clone()
-        })
+        if self.edits.is_empty() {
+            return None;
+        }
+        let merged = self.merged(store::load_at(&self.store_path()));
+        self.store_seen = store::changed_at(&self.store_path());
+        Some(merged)
+    }
+
+    /// `base` with this screen's pending changes made to it; they are
+    /// taken, and the screen's own copy becomes the result.
+    fn merged(&mut self, mut base: Servers) -> Servers {
+        for e in self.edits.drain(..) {
+            e.apply(&mut base);
+        }
+        self.servers = base.clone();
+        base
     }
 
     /// Act on the connect screen: start a login, add a server, or forget
@@ -109,9 +194,16 @@ impl Lobby {
                 // Remember the account (and the password when asked); an
                 // un-remembered account still comes back, without its
                 // password.
-                let kept = if remember { password.as_str() } else { "" };
-                self.servers.remember(&host, &account, kept, "");
-                self.servers_dirty = true;
+                let kept = if remember {
+                    password.clone()
+                } else {
+                    String::new()
+                };
+                self.edit(ServerEdit::Remember {
+                    host: host.clone(),
+                    account: account.clone(),
+                    password: kept,
+                });
                 self.pending = Some(Login {
                     host,
                     account,
@@ -121,15 +213,18 @@ impl Lobby {
                 // The character list will flip us to Select on arrival.
                 self.screen = Some(Screen::Select);
             }
-            ConnectAction::AddServer(server) => {
-                self.servers.add(server);
-                self.servers_dirty = true;
-            }
+            ConnectAction::AddServer(server) => self.edit(ServerEdit::Add(server)),
             ConnectAction::Forget { host, account } => {
-                self.servers.forget(&host, &account);
-                self.servers_dirty = true;
+                self.edit(ServerEdit::Forget { host, account })
             }
         }
+    }
+
+    /// Make a change to the login store: it shows at once, and waits
+    /// for [`Lobby::take_dirty_servers`] to reach the file.
+    fn edit(&mut self, e: ServerEdit) {
+        e.clone().apply(&mut self.servers);
+        self.edits.push(e);
     }
 
     /// The character being created, for the host's 3D preview.
@@ -341,6 +436,9 @@ impl Plugin for Lobby {
     }
 
     fn tick(&mut self, cx: &mut Ctx) {
+        if cx.index == 0 {
+            self.refresh_servers();
+        }
         if let Some(c) = cx.try_client() {
             Lobby::tick(self, c);
         }
@@ -360,6 +458,79 @@ impl Plugin for Lobby {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A scratch login store of this test's own.
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("acswarm-lobby-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir.join(store::FILE_NAME)
+    }
+
+    /// The connect screen and the fleet panel write the same file, so
+    /// what the screen changes is folded into what is on disk rather
+    /// than written over it, and the screen re-reads a change made
+    /// while it is open.
+    #[test]
+    fn connect_changes_fold_into_the_shared_login_store() {
+        let path = scratch("share");
+        // The fleet panel remembered an account before the screen opened.
+        store::update_at(&path, |s| s.remember("h:9000", "alice", "pw", "Alys"));
+        let mut l = Lobby {
+            store: Some(path.clone()),
+            ..Default::default()
+        };
+        l.open_connect(store::load_at(&path));
+        assert_eq!(l.screen, Some(Screen::Connect));
+        assert_eq!(l.connect.account, "alice", "the screen offers it");
+        assert!(l.take_dirty_servers().is_none(), "nothing changed yet");
+
+        // The player connects as someone else and asks to be remembered.
+        l.apply_connect(ConnectAction::Connect {
+            host: "h:9000".into(),
+            account: "bob".into(),
+            password: "pw2".into(),
+            remember: true,
+        });
+        assert_eq!(l.servers.accounts_for("h:9000").len(), 2, "shown at once");
+        assert_eq!(l.take_connect().map(|c| c.account).as_deref(), Some("bob"));
+
+        // The fleet panel adds another while the screen holds its change.
+        store::update_at(&path, |s| s.remember("h:9000", "carol", "pw3", ""));
+        let merged = l.take_dirty_servers().expect("a change to write");
+        let names: Vec<&str> = merged
+            .accounts_for("h:9000")
+            .iter()
+            .map(|l| l.account.as_str())
+            .collect();
+        assert_eq!(names, ["alice", "carol", "bob"], "nobody was written over");
+        assert_eq!(merged.last_host, "h:9000");
+        assert_eq!(merged.last_account, "bob");
+        // alice's character survived a screen that never asks for one.
+        assert_eq!(merged.accounts_for("h:9000")[0].character, "Alys");
+        assert!(l.take_dirty_servers().is_none(), "taken once");
+
+        // A change made while the screen sits open is read again; off
+        // the connect screen nothing is re-read.
+        store::save_at(&path, &merged).unwrap();
+        store::update_at(&path, |s| s.remember("h:9000", "dain", "pw4", ""));
+        l.store_seen = None;
+        l.refresh_servers();
+        assert_eq!(l.servers.accounts_for("h:9000").len(), 3, "on Select");
+        l.screen = Some(Screen::Connect);
+        l.refresh_servers();
+        assert_eq!(l.servers.accounts_for("h:9000").len(), 4);
+        // Forgetting one on the screen forgets it in the store.
+        l.apply_connect(ConnectAction::Forget {
+            host: "h:9000".into(),
+            account: "dain".into(),
+        });
+        let merged = l.take_dirty_servers().unwrap();
+        assert!(!merged
+            .accounts_for("h:9000")
+            .iter()
+            .any(|l| l.account == "dain"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
 
     #[test]
     fn events_drive_the_screens() {
