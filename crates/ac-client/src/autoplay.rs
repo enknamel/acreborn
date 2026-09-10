@@ -519,6 +519,16 @@ const MERGE_EVERY: Duration = Duration::from_millis(600);
 /// one rather than all at once.
 const TAKE_EVERY: Duration = Duration::from_millis(400);
 
+/// How long a monster's corpse lasts before it rots away. ACE gives an
+/// unlooted corpse no timer at all until its first heartbeat, when it
+/// takes the default of five minutes and counts down from there
+/// (`WorldObject_Decay`), so this is the whole window there is.
+const CORPSE_LIFE: Duration = Duration::from_secs(300);
+
+/// How close to rotting a corpse has to be before it is worth breaking
+/// off for. Inside this there is no second chance.
+const CORPSE_URGENT: Duration = Duration::from_secs(75);
+
 /// How far from its leader a follower keeping `keep` metres may stray
 /// before following comes before everything else.
 pub fn follow_break(keep: f32) -> f32 {
@@ -957,6 +967,9 @@ pub struct Autoplay {
     /// when the last one was asked for. The server takes one at a time.
     take_queue: Vec<u32>,
     last_take: Option<Instant>,
+    /// When each corpse was first seen, so the ones about to rot can be
+    /// emptied first. A corpse we never saw appear is taken as fresh.
+    corpse_seen: Vec<(u32, Instant)>,
     last_recruit: Option<Instant>,
     /// Where the journey after a far-off leader was bound, to plan
     /// again once it has moved on.
@@ -1796,12 +1809,31 @@ impl Client {
             return true;
         }
         // Look for one nearby that we have not emptied.
-        if self.attack_target.is_some() {
-            return false;
-        }
+        //
+        // Mid-fight the loot waits: a corpse keeps for five minutes and
+        // the thing hitting us does not. The exception is a corpse
+        // about to rot, which is worth breaking off for because there
+        // is no second chance at it.
+        let fighting = self.attack_target.is_some();
+        let pressed = fighting || self.autoplay.casting_at().is_some();
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
         let looted = self.autoplay.looted.clone();
+        // Note when each corpse turned up, so the ones running out can
+        // be emptied first. Forgotten once emptied, so the list stays
+        // the size of what is on the ground.
+        for o in self.world.objects.values() {
+            if o.object_desc_flags & ac_world::object_desc_flags::CORPSE != 0
+                && !self.autoplay.corpse_seen.iter().any(|(g, _)| *g == o.guid)
+            {
+                self.autoplay.corpse_seen.push((o.guid, now));
+            }
+        }
+        self.autoplay
+            .corpse_seen
+            .retain(|(g, t)| now.duration_since(*t) < CORPSE_LIFE * 2 && !looted.contains(g));
+        let seen_at: std::collections::BTreeMap<u32, Instant> =
+            self.autoplay.corpse_seen.iter().copied().collect();
         // Names of the players about, ours excepted: anyone in view and
         // everyone on the team.
         let my_name = self.world.stats.name.to_lowercase();
@@ -1853,10 +1885,27 @@ impl Client {
                 let d = p.distance(me);
                 (d <= 20.0).then_some((d, o.guid, o.name.clone()))
             })
-            .min_by(|a, b| a.0.total_cmp(&b.0));
-        let Some((away, guid, name)) = corpse else {
+            .map(|(d, guid, name)| {
+                let seen = seen_at.get(&guid).copied().unwrap_or(now);
+                let left = CORPSE_LIFE.saturating_sub(now.duration_since(seen));
+                (left, d, guid, name)
+            })
+            .min_by(|a, b| {
+                // The one closest to rotting first, and among the ones
+                // in no danger, the nearest.
+                let urgent = |l: Duration| l <= CORPSE_URGENT;
+                urgent(b.0)
+                    .cmp(&urgent(a.0))
+                    .then_with(|| a.1.total_cmp(&b.1))
+            });
+        let Some((left, away, guid, name)) = corpse else {
             return false;
         };
+        // Nothing is worth breaking off a fight for except a corpse
+        // that will not be there afterwards.
+        if pressed && left > CORPSE_URGENT {
+            return false;
+        }
         if self.combat {
             self.toggle_combat();
         }
@@ -4397,5 +4446,32 @@ mod loot_wait_tests {
         // corpse for ever.
         let silly = loot_wait(100_000.0);
         assert!(silly <= LOOT_TIMEOUT + std::time::Duration::from_secs(30));
+    }
+}
+
+#[cfg(test)]
+mod loot_timing_tests {
+    use super::{CORPSE_LIFE, CORPSE_URGENT};
+    use std::time::Duration;
+
+    #[test]
+    fn a_corpse_lasts_five_minutes() {
+        // ACE gives an unlooted monster corpse no timer until its first
+        // heartbeat, when it takes the default of five minutes. That is
+        // the whole window, so it is what the rules plan against.
+        assert_eq!(CORPSE_LIFE, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn breaking_off_a_fight_is_reserved_for_a_corpse_about_to_go() {
+        // Loot keeps for minutes; the thing hitting you does not. The
+        // urgency window has to be small enough that a fight is not
+        // interrupted for a corpse with plenty of time left, and big
+        // enough to actually reach one.
+        assert!(CORPSE_URGENT < CORPSE_LIFE / 3, "too eager to break off");
+        assert!(
+            CORPSE_URGENT >= Duration::from_secs(30),
+            "no time to get there"
+        );
     }
 }
