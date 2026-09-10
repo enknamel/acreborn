@@ -266,13 +266,23 @@ impl Area {
     /// with `to` and not including `from`. `None` when the two are not
     /// connected by anything the capsule can walk.
     pub fn path(&mut self, from: Vec3, to: Vec3) -> Option<Vec<Vec3>> {
+        self.path_to(from, to, false)
+    }
+
+    /// The same, saying whether the goal's height is to be believed.
+    ///
+    /// `exact_to` is for a goal that is where something actually stands
+    /// -- a vendor on the first floor -- rather than a point picked off
+    /// a coarse map. Grounding one of those asks for the floor below it
+    /// and gets a route to the floor below it.
+    pub fn path_to(&mut self, from: Vec3, to: Vec3, exact_to: bool) -> Option<Vec<Vec3>> {
         // A goal handed down from a coarser map floats above or below
         // the ground it stands on -- the overland grid is 24 m wide and
         // misses a hillside by a storey -- and a node is only found
         // within a couple of metres of the height asked for. Put both
         // ends on the ground first.
         let from = self.grounded(from);
-        let to = self.grounded(to);
+        let to = if exact_to { to } else { self.grounded(to) };
         let path = self.with_ground(|ground, nav| nav.find_path(ground, from, to));
         if path.is_some() || !self.outdoors_only {
             return path;

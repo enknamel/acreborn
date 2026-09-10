@@ -159,7 +159,7 @@ fn main() {
         for c in clients.iter_mut() {
             let pl = c.player.as_mut().unwrap();
             let me = pl.world_position();
-            let _ = pl.find_path(&assets, block, me, far);
+            let _ = pl.find_path(&assets, block, me, far, block);
         }
         if loud {
             m.phase(&format!("{label}: block nav graph (find_path)"));
@@ -177,7 +177,17 @@ fn main() {
         let now = Instant::now();
         for c in clients.iter_mut() {
             let me = c.player.as_ref().unwrap().world_position();
-            c.pathfinder.ask(me, far, cap, block, true, now);
+            c.pathfinder.ask(
+                me,
+                far,
+                cap,
+                block,
+                ac_client::pathfinder::Ends {
+                    outdoors: true,
+                    exact_to: false,
+                },
+                now,
+            );
         }
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut answered = vec![false; clients.len()];

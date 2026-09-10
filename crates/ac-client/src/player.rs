@@ -974,6 +974,7 @@ impl Player {
         block: u32,
         from: Vec3,
         to: Vec3,
+        to_cell: u32,
     ) -> Option<Vec<Vec3>> {
         let block = block & 0xFFFF_0000;
         self.collision(assets, block)?;
@@ -1015,9 +1016,19 @@ impl Player {
         let (nodes, chunks) = (nav.len(), nav.chunk_count());
         let started = Instant::now();
         // A goal from the overland grid may float a storey off the
-        // hillside; the graph only finds nodes near the height asked.
-        let to = match (b.dungeon, terrain(to.x, to.y)) {
-            (false, Some(z)) if (z - to.z).abs() > 2.0 => Vec3::new(to.x, to.y, z),
+        // hillside; the graph only finds nodes near the height asked,
+        // so such a goal is dropped onto the ground under it.
+        //
+        // Only such a goal. A goal that names an indoor cell was not
+        // guessed from a grid -- it is where something actually stands
+        // -- and its height is the whole of the answer. Dropping that
+        // one asked the graph for the ground floor and got a route to
+        // the ground floor, and the character walked in, stood under
+        // the vendor on the storey above, and stopped: a Holtburg
+        // storey is three metres and the rule fired at two.
+        let goal_outdoors = to_cell & 0xFFFF < 0x100;
+        let to = match (b.dungeon, goal_outdoors, terrain(to.x, to.y)) {
+            (false, true, Some(z)) if (z - to.z).abs() > 2.0 => Vec3::new(to.x, to.y, z),
             _ => to,
         };
         let path = nav.find_path(&ground, from, to);

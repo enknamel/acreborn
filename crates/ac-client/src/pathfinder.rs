@@ -42,6 +42,17 @@ const ANSWER_GOAL: f32 = 3.0;
 /// theirs. Each is nine blocks of collision, about 15 MB.
 const AREAS: usize = 4;
 
+/// What is known about the two ends of a walk, which is what tells a
+/// point somebody stands on from a point picked off a map.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Ends {
+    /// Both ends are outdoors: the walk should stay out of buildings.
+    pub outdoors: bool,
+    /// The goal is where something actually stands, so its height is
+    /// the answer rather than a guess to be dropped onto the ground.
+    pub exact_to: bool,
+}
+
 /// A request for a walkable route.
 #[derive(Debug, Clone)]
 struct Ask {
@@ -58,6 +69,10 @@ struct Ask {
     block: u32,
     /// Both ends are outdoors: the walk should stay out of buildings.
     outdoors: bool,
+    /// The goal is where something stands rather than a point picked
+    /// off a map, so its height is to be believed (see
+    /// `ac_scene::navarea::Area::path_to`).
+    exact_to: bool,
 }
 
 /// What the planner found.
@@ -151,9 +166,10 @@ impl Pathfinder {
         to: Vec3,
         capsule: Capsule,
         block: u32,
-        outdoors: bool,
+        ends: Ends,
         now: Instant,
     ) {
+        let Ends { outdoors, exact_to } = ends;
         if self.dead {
             return;
         }
@@ -184,6 +200,7 @@ impl Pathfinder {
                 capsule,
                 block: block & 0xFFFF_0000,
                 outdoors,
+                exact_to,
             })
             .is_err()
         {
@@ -323,7 +340,7 @@ fn plan(assets: &Assets, areas: &mut Vec<Area>, ask: &Ask) -> Answer {
                     (a.nav.min(), a.nav.max(), a.nav.spacing, a.nav.capsule);
                 a.nav = ac_scene::nav::NavGraph::new(lo, hi, spacing, &cap);
             }
-            a.path(ask.from, ask.to)
+            a.path_to(ask.from, ask.to, ask.exact_to)
         }
         None => None,
     };

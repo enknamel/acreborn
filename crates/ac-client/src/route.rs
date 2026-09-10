@@ -227,7 +227,13 @@ impl Steering {
                     far_goal,
                     player.capsule(),
                     block,
-                    player.cell & 0xFFFF < 0x100 && goal_block & 0xFFFF < 0x100,
+                    crate::pathfinder::Ends {
+                        outdoors: player.cell & 0xFFFF < 0x100 && goal_block & 0xFFFF < 0x100,
+                        // A goal in an indoor cell is where something
+                        // stands, so its height is the answer, not a
+                        // guess to be dropped onto the ground under it.
+                        exact_to: goal_block & 0xFFFF >= 0x100,
+                    },
                     now,
                 );
             }
@@ -238,7 +244,7 @@ impl Steering {
                 self.route_is_wide = false;
                 return goal;
             }
-            match player.find_path(assets, block, me, goal) {
+            match player.find_path(assets, block, me, goal, goal_block) {
                 Some(waypoints) => {
                     let origin = ac_world::landblock_origin(block);
                     let local: Vec<[f32; 3]> = waypoints
