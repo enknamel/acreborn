@@ -248,18 +248,6 @@ pub fn all() -> &'static [Shop] {
     SHOPS.get_or_init(|| parse(SELLS, BUYS))
 }
 
-/// How many shops in the world have to sell a thing before a supply
-/// plan can lean on it.
-///
-/// One is not enough. The only vendor in Dereth with a Diamond Scarab
-/// is Jeeves, who also sells Ancient Temples, dye pots and other
-/// people's keys; the only source of Chorizite is the same counter.
-/// Both of those are farmed in practice, and a character that sets off
-/// to buy one is setting off for a curiosity shop. Six is plenty --
-/// that is what stocks a Mana Scarab, and a walk across the world to
-/// an archmage for one is a walk worth making.
-const MANY_ENOUGH: usize = 2;
-
 /// How many shop placements sell this weenie class.
 pub fn placements(wcid: u32) -> usize {
     static COUNT: OnceLock<BTreeMap<u32, usize>> = OnceLock::new();
@@ -275,11 +263,23 @@ pub fn placements(wcid: u32) -> usize {
     count.get(&wcid).copied().unwrap_or(0)
 }
 
-/// Whether enough of the world sells this to plan a trip around it.
-/// What fails this is not bought but farmed, and a character short of
-/// it is short of it until something drops one (see [`MANY_ENOUGH`]).
-pub fn sold_widely(wcid: u32) -> bool {
-    placements(wcid) >= MANY_ENOUGH
+/// Whether any shop in the world sells this, and so whether a trip can
+/// be planned around it.
+///
+/// What fails this is farmed, not bought, and a character short of it
+/// is short of it until something drops one. That is the whole Void
+/// line -- Nightshade, Soulweed, Shadowroot, Bottled Rage, Kemeroi and
+/// the Dark Scarab -- and the Diamond Scarab and Chorizite besides.
+///
+/// The line is this sharp because the one counter that appeared to
+/// stock the last two is not in the data any more: Jeeves stocks one
+/// of everything and is a catalogue for testing, not a shop (see
+/// `data/vendors.sh`). What is left is the shelves players actually
+/// buy from, and everything a caster burns in quantity -- the common
+/// scarabs, the Prismatic Taper, the herbs and powders -- is on a
+/// hundred of them.
+pub fn sold_anywhere(wcid: u32) -> bool {
+    placements(wcid) > 0
 }
 
 /// What a vendor charges for a trade note, as a multiple of its face
@@ -466,35 +466,65 @@ mod tests {
                 .find(|w| w.name == name)
                 .map(|w| w.wcid)
         };
-        // Common components: every archmage has them.
-        for name in ["Lead Scarab", "Prismatic Taper", "Hawthorn"] {
+        // What a caster burns in quantity is on a hundred shelves.
+        for name in [
+            "Lead Scarab",
+            "Iron Scarab",
+            "Copper Scarab",
+            "Silver Scarab",
+            "Prismatic Taper",
+            "Hawthorn",
+            "Vervain",
+            "Myrrh",
+        ] {
             let wcid = of(name).unwrap_or_else(|| panic!("{name} is sold somewhere"));
-            assert!(placements(wcid) > 20, "{name} is common");
-            assert!(sold_widely(wcid), "{name} is bought");
+            assert!(placements(wcid) > 100, "{name} is everywhere");
+            assert!(sold_anywhere(wcid));
         }
-        // Rare but real: six counters in the world sell a Mana Scarab,
-        // and a walk across Dereth for one is a walk worth making.
+        // The dearer ones are stocked by fewer, and are still bought.
+        for (name, least) in [
+            ("Gold Scarab", 30),
+            ("Pyreal Scarab", 30),
+            ("Platinum Scarab", 20),
+        ] {
+            let wcid = of(name).unwrap_or_else(|| panic!("{name} is sold somewhere"));
+            assert!(placements(wcid) >= least, "{name}");
+            assert!(sold_anywhere(wcid));
+        }
+        // Six counters in the world sell a Mana Scarab, three of them
+        // the societies' own. A walk across Dereth for one is a walk
+        // worth making.
         let mana = of("Mana Scarab").expect("Mana Scarab is sold");
         assert_eq!(placements(mana), 6);
-        assert!(sold_widely(mana));
-        // Sold by one curiosity shop and farmed in practice.
-        for name in ["Diamond Scarab", "Chorizite"] {
-            let wcid = of(name).unwrap_or_else(|| panic!("{name} is listed"));
-            assert_eq!(placements(wcid), 1, "{name}");
-            assert!(!sold_widely(wcid), "{name} is farmed, not bought");
-        }
-        // Sold by nobody at all: the Void components.
-        for name in ["Dark Scarab", "Nightshade", "Soulweed", "Shadowroot"] {
+        assert!(sold_anywhere(mana));
+        // And these are farmed. Jeeves used to appear to stock the
+        // last two; he is a catalogue for testing and is not in the
+        // data any more.
+        for name in [
+            "Diamond Scarab",
+            "Chorizite",
+            "Dark Scarab",
+            "Nightshade",
+            "Soulweed",
+            "Shadowroot",
+            "Bottled Rage",
+            "Kemeroi",
+        ] {
             assert!(of(name).is_none(), "{name} is sold by nobody");
         }
+        assert!(
+            !all().iter().any(|s| s.name == "Jeeves"),
+            "the test catalogue is not a shop"
+        );
     }
 
     #[test]
     fn the_shops_of_dereth_read() {
         let all = all();
         // One row per placement, not per shopkeeper: the same
-        // shopkeeper stands in many towns.
-        assert_eq!(all.len(), 1_043, "shops");
+        // shopkeeper stands in many towns. One placement fewer than
+        // the world holds: Jeeves is left out (see `data/vendors.sh`).
+        assert_eq!(all.len(), 1_042, "shops");
         let names: std::collections::BTreeSet<&str> = all.iter().map(|s| s.name.as_str()).collect();
         assert!(
             names.len() < all.len(),

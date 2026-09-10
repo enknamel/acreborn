@@ -16,6 +16,13 @@
 # two towns is two sets of rows; the vendor is keyed by (wcid, cell).
 #
 # Usage: reference/scripts/data/vendors.sh > crates/ac-world/data/vendors.csv
+#
+# One weenie is left out: Jeeves (6826), who stands in the Abandoned
+# Mine and stocks one of everything -- Ancient Temples, dye pots, other
+# people's quest keys, and a hundred and nineteen things sold nowhere
+# else in the world. That is a catalogue for testing, not a shop, and a
+# character that plans a trip around it plans a trip to a place no
+# player has ever bought anything.
 set -e
 
 SQL='select distinct li.weenie_Class_Id, vn.value, hex(li.obj_Cell_Id),
@@ -23,7 +30,7 @@ SQL='select distinct li.weenie_Class_Id, vn.value, hex(li.obj_Cell_Id),
   cl.weenie_Class_Id, itn.value,
   hex(coalesce(it.value, 0) & 4294967295), coalesce(val.value, 0)
 from landblock_instance li
-join weenie v on v.class_Id = li.weenie_Class_Id and v.type = 12
+join weenie v on v.class_Id = li.weenie_Class_Id and v.type = 12 and v.class_Id <> 6826
 join weenie_properties_string vn
   on vn.object_Id = v.class_Id and vn.type = 1
 join weenie_properties_create_list cl

@@ -20,6 +20,7 @@ pub mod options;
 pub mod pack;
 pub mod pathfinder;
 pub mod player;
+pub mod profile;
 pub mod recalls;
 pub mod reconnect;
 pub mod recovery;

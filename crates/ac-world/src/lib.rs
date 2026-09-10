@@ -16,6 +16,7 @@ pub mod material;
 pub mod motion;
 pub mod object;
 pub mod portals;
+pub mod properties;
 pub mod recalls;
 /// What takes up one of the character's pack slots.
 ///

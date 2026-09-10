@@ -13,6 +13,7 @@ ac-world = { path = "../ac-world" }
 glam = "0.30"
 serde.workspace = true
 serde_json = "1"
+regex.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

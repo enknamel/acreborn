@@ -190,6 +190,7 @@ impl Client {
         if code == 0x0402 {
             self.travel_recall_fizzled();
         }
+        self.loot_refused(code);
     }
 
     /// The world position of the nearest object of an item type in

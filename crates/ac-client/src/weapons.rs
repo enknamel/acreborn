@@ -92,6 +92,10 @@ impl Wielder {
             .unwrap_or(0)
     }
 
+    pub fn advancement_of(&self, id: u32) -> u32 {
+        self.advancement(id)
+    }
+
     fn advancement(&self, id: u32) -> u32 {
         self.skills
             .iter()

@@ -60,6 +60,11 @@ const REACH_PROGRESS: f32 = 1.0;
 /// Walking towards something for this long without getting closer is
 /// not walking towards it any more.
 const REACH_GIVE_UP: Duration = Duration::from_secs(20);
+/// How long a corpse that would not open is left alone before it is
+/// tried again. A corpse is locked to the group that killed it until
+/// it has rotted past half its life -- a couple of minutes -- so this
+/// is roughly how long it takes for that to change.
+const SHELVED_FOR: Duration = Duration::from_secs(45);
 /// How long a corpse may stay open before the character gives up on
 /// it. Emptying one takes a second or two; anything past this is an
 /// item the server will not hand over, and standing there asking for
@@ -965,6 +970,15 @@ pub struct Autoplay {
     corpse: Option<(u32, Instant, Duration, u32)>,
     /// Corpses already emptied.
     pub(crate) looted: Vec<u32>,
+    /// Corpses that would not open, and when they last refused. A
+    /// corpse is locked to the group that killed it until it has rotted
+    /// a while, so this is a "later", not a "never".
+    pub(crate) shelved: Vec<(u32, Instant)>,
+    /// Weenie classes the server has refused to hand over for a reason
+    /// that will not change today -- a thing that can only be had so
+    /// many times a day. Asking again on the next corpse would get the
+    /// same answer.
+    pub(crate) refused_kinds: Vec<u32>,
     /// The corpse being walked to, if the looting set the walk going.
     /// A follower is walking after its leader with the same machinery,
     /// and that walk is not ours to cancel.
@@ -1727,8 +1741,32 @@ impl Client {
             .is_some_and(|s| s.advancement >= sac::TRAINED)
     }
 
-    /// Open the corpse of something we killed and take what is worth
-    /// taking. True while looting.
+    /// The server has refused something with `code`. When the reason is
+    /// one that will not change today -- a thing that can only be had
+    /// so many times a day -- the *kind* of thing is remembered, not
+    /// the one on this corpse: the next corpse's copy would be refused
+    /// for the same reason, and asking again is a round trip spent to
+    /// be told no twice.
+    pub(crate) fn loot_refused(&mut self, code: u32) {
+        // YouHaveSolvedThisQuestTooRecently / TooManyTimes: what gates
+        // the once-a-day drops.
+        if !matches!(code, 0x043E | 0x043F) {
+            return;
+        }
+        let Some(&guid) = self.autoplay.take_queue.first() else {
+            return;
+        };
+        let Some(o) = self.world.objects.get(&guid) else {
+            return;
+        };
+        let (wcid, name) = (o.weenie_class_id, o.name.clone());
+        if wcid != 0 && !self.autoplay.refused_kinds.contains(&wcid) {
+            tracing::info!("autoplay: {name} is not to be had again today; leaving its kind");
+            self.autoplay.refused_kinds.push(wcid);
+        }
+        self.autoplay.take_queue.retain(|g| *g != guid);
+    }
+
     /// Let go of a walk toward a corpse, wherever that corpse has been
     /// let go of. Nothing else is steering here, so leaving the walk
     /// running would carry the character off to a body it has already
@@ -1739,6 +1777,8 @@ impl Client {
         }
     }
 
+    /// Open the corpse of something we killed and take what is worth
+    /// taking. True while looting.
     fn autoplay_loot(&mut self, now: Instant) -> bool {
         if !self.autoplay.config.loot.enabled {
             return false;
@@ -1784,8 +1824,16 @@ impl Client {
                     self.autoplay.corpse = Some((guid, now, allow, tries + 1));
                     return true;
                 }
-                tracing::info!("autoplay: corpse {guid:#010x} did not open after {tries} tries");
-                self.autoplay.looted.push(guid);
+                // Not "done with": set aside. A corpse belongs to
+                // whoever killed it until it has rotted a while, so one
+                // that will not open now may well open later, and
+                // writing it off for good leaves a boss's loot on the
+                // floor. It is tried again while it is still there.
+                tracing::info!(
+                    "autoplay: corpse {guid:#010x} will not open yet; trying again later"
+                );
+                self.autoplay.shelved.retain(|(g, _)| *g != guid);
+                self.autoplay.shelved.push((guid, now));
                 return false;
             }
             let open = self.world.open_container.clone();
@@ -1849,6 +1897,11 @@ impl Client {
                     let Some(stats) = self.stats_of(*g) else {
                         continue;
                     };
+                    // A kind the server has already said no to today is
+                    // not asked for again (see `loot_refused`).
+                    if self.autoplay.refused_kinds.contains(&stats.wcid) {
+                        continue;
+                    }
                     let action = if own_corpse {
                         LootAction::Keep
                     } else {
@@ -1933,6 +1986,13 @@ impl Client {
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
         let looted = self.autoplay.looted.clone();
+        // A corpse set aside for being locked is tried again once the
+        // wait is up; one that has gone is forgotten.
+        let here: std::collections::BTreeSet<u32> = self.world.objects.keys().copied().collect();
+        self.autoplay
+            .shelved
+            .retain(|(g, t)| here.contains(g) && now.duration_since(*t) < SHELVED_FOR);
+        let shelved: Vec<u32> = self.autoplay.shelved.iter().map(|(g, _)| *g).collect();
         // Note when each corpse turned up, so the ones running out can
         // be emptied first. Forgotten once emptied, so the list stays
         // the size of what is on the ground.
@@ -1987,7 +2047,7 @@ impl Client {
             .objects
             .values()
             .filter(|o| o.object_desc_flags & ac_world::object_desc_flags::CORPSE != 0)
-            .filter(|o| !looted.contains(&o.guid))
+            .filter(|o| !looted.contains(&o.guid) && !shelved.contains(&o.guid))
             // Another player's corpse is theirs: a teammate's gear taken
             // off their body is not loot, whatever the filters say. Our
             // own is emptied for everything on it (see below): the wand

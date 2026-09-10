@@ -1579,7 +1579,7 @@ impl Client {
                         let keep = targets.get(&id).copied().unwrap_or(cfg.tapers_keep);
                         let c = carried.iter().find(|c| c.component_id == id);
                         let have = c.map_or(0, |c| c.count);
-                        let buyable = ac_world::shops::sold_widely(wcid);
+                        let buyable = ac_world::shops::sold_anywhere(wcid);
                         if have < keep {
                             // What it is called in the client's own
                             // component table, which is what a vendor

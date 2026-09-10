@@ -19,7 +19,7 @@ set -e
 SQL='
 select v.class_Id, hex(li.obj_Cell_Id), "society", wpi.value
 from weenie_properties_int wpi
-join weenie v on v.class_Id = wpi.object_Id and v.type = 12
+join weenie v on v.class_Id = wpi.object_Id and v.type = 12 and v.class_Id <> 6826
 join landblock_instance li on li.weenie_Class_Id = v.class_Id
 where wpi.type = 281
 union all
@@ -38,7 +38,7 @@ from (
   group by lb
 ) g
 join landblock_instance li on hex(li.obj_Cell_Id >> 16) = g.lb
-join weenie v on v.class_Id = li.weenie_Class_Id and v.type = 12
+join weenie v on v.class_Id = li.weenie_Class_Id and v.type = 12 and v.class_Id <> 6826
 where g.gated = g.portals;'
 
 cat <<'HEADER'

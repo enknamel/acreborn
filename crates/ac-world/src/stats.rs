@@ -110,10 +110,12 @@ pub mod skill {
     pub const MANA_CONVERSION: u32 = 16;
     pub const HEALING: u32 = 21;
     pub const JUMP: u32 = 22;
+    pub const LOCKPICK: u32 = 23;
     pub const RUN: u32 = 24;
     pub const LIFE_MAGIC: u32 = 33;
     pub const WAR_MAGIC: u32 = 34;
     pub const FLETCHING: u32 = 37;
+    pub const SALVAGING: u32 = 40;
     pub const MISSILE_WEAPONS: u32 = 47;
 }
 

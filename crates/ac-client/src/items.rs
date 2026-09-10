@@ -8,6 +8,7 @@
 use crate::Client;
 use ac_net::messages::Appraisal;
 use ac_world::{item_type, WorldObject};
+use serde::{Deserialize, Serialize};
 
 /// The broad kind of an item, from its ItemType bits, as one word.
 pub fn kind_name(item_type: u32) -> &'static str {
@@ -444,7 +445,7 @@ impl ItemStats {
         self.valid_locations & slot != 0
     }
 
-    fn matches_term(&self, t: &Term) -> bool {
+    pub fn matches_term(&self, t: &Term) -> bool {
         let has = |hay: &str, needle: &str| hay.to_lowercase().contains(needle);
         match t {
             Term::Word(w) => {
@@ -470,7 +471,7 @@ impl ItemStats {
 /// A cantrip's tier, read off the front of its name ("Epic Strength",
 /// "Legendary Life Magic Aptitude"): what an item's spell list says, not
 /// what is cast.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Tier {
     Minor,
     Moderate,
@@ -586,7 +587,7 @@ pub fn slot_mask(word: &str) -> Option<u32> {
 }
 
 /// Numeric fields a query can compare and a list can sort by.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NumKey {
     Damage,
     Armor,
@@ -674,7 +675,7 @@ impl NumKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Op {
     Lt,
     Le,
@@ -684,7 +685,19 @@ pub enum Op {
 }
 
 impl Op {
-    fn test(self, x: f64, v: f64) -> bool {
+    /// The comparison in words, for anything that shows a rule to a
+    /// person rather than running it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Op::Lt => "is under",
+            Op::Le => "is at most",
+            Op::Gt => "is over",
+            Op::Ge => "is at least",
+            Op::Eq => "is",
+        }
+    }
+
+    pub fn test(self, x: f64, v: f64) -> bool {
         match self {
             Op::Lt => x < v,
             Op::Le => x <= v,
@@ -696,7 +709,7 @@ impl Op {
 }
 
 /// One term of a query.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Term {
     /// Matches the name, material, kind, a spell name or a slot word. A
     /// quoted phrase (`"epic life magic"`) is one word, spaces and all.
