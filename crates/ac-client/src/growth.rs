@@ -1096,23 +1096,49 @@ impl Client {
         if let Some(h) = st.hunting_at {
             skip.push(h);
         }
-        // A ground the player named is where the party hunts, whatever
-        // the level rules would have chosen. A follower still takes the
-        // leader's, so naming one on the leader moves everybody.
+        // A ground the player named is where the party hunts. Not the
+        // nearest one that suits its level: a place is hunted for its
+        // loot, its money, its trophies, and none of that is the level
+        // table's business. A follower takes its leader's ground the
+        // same way, so naming one on the leader moves everybody.
         let pinned = (cfg.hunt_at != 0)
             .then(|| ac_world::hunting::at(cfg.hunt_at))
             .flatten()
             .map(|g| (g.landblock, g.at, g.name.clone()));
+        let named = pinned.is_some();
         if let Some((lb, at, name)) = pinned.or_else(|| self.party_ground()) {
-            if self.autoplay.growth.hunting_at != Some(lb) && self.grow_travel(at, now) {
-                let st = &mut self.autoplay.growth;
-                st.bound = Some((lb, at, name.clone()));
-                st.bound_since = Some(now);
-                st.idle_since = None;
-                self.autoplay
-                    .say(Doing::Traveling, format!("rejoining the party at {name}"));
-                return true;
+            if self.autoplay.growth.hunting_at != Some(lb) {
+                if self.grow_travel(at, now) {
+                    let st = &mut self.autoplay.growth;
+                    st.bound = Some((lb, at, name.clone()));
+                    st.bound_since = Some(now);
+                    st.idle_since = None;
+                    self.autoplay
+                        .say(Doing::Traveling, format!("on the way to {name}"));
+                    return true;
+                }
+                if named {
+                    // Asked for somewhere it cannot plan a way to. Say
+                    // so and try again later; picking somewhere else
+                    // would be answering a question nobody asked.
+                    self.autoplay.note(
+                        format!("cannot find a way to {name} from here; will try again"),
+                        now,
+                    );
+                    self.autoplay.growth.idle_since = Some(now);
+                    self.autoplay.growth.next_hunt = Some(now + RETRY_AFTER);
+                    return false;
+                }
+            } else if named {
+                // Standing on the named ground: this is where we hunt,
+                // and nothing below gets to move us on.
+                self.autoplay.growth.hunting_at = Some(lb);
             }
+        }
+        if named {
+            // The player named this ground. Whatever the tactic makes
+            // of a quiet spell, it does not get to go somewhere else.
+            return false;
         }
         let Some(g) = ac_world::hunting::nearest_for(level as u32, cfg.level_margin, me, &skip)
         else {
@@ -2615,6 +2641,26 @@ mod tests {
         assert_eq!(notes_for_bill(0, 1_000_000, &held), vec![1, 2]);
         // And with no notes at all, nothing.
         assert!(notes_for_bill(0, 1_000, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_named_ground_is_not_judged_on_level() {
+        // Hunting a place is about its loot, its money, its trophies.
+        // A ground the player named must not be refused because the
+        // level table disapproves, and `suits` is the only thing that
+        // would refuse it.
+        let ground = ac_world::hunting::all()
+            .iter()
+            .find(|g| g.max_level < 50)
+            .expect("a low-level ground");
+        // Far too low for a level 275 character by the usual rule...
+        assert!(!ground.suits(275, 8));
+        // ...but naming it is a landblock id, and looking one up asks
+        // nothing about levels.
+        assert_eq!(
+            ac_world::hunting::at(ground.landblock).map(|g| g.landblock),
+            Some(ground.landblock)
+        );
     }
 
     #[test]
