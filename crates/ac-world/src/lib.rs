@@ -8,6 +8,7 @@ pub mod allegiance;
 pub mod buffs;
 pub mod elements;
 pub mod fletching;
+pub mod gems;
 pub mod housing;
 pub mod hunting;
 pub mod landmarks;

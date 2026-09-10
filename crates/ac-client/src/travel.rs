@@ -200,6 +200,10 @@ impl Client {
         let level = self.world.stats.level.max(1) as u32;
         let mut refused = self.travel.refused.clone();
         let prefs = self.travel.prefs;
+        // Portal gems in the pack are ways to get somewhere too, and
+        // unlike a recall they need no skill or components: carrying one
+        // is the whole requirement.
+        let gems: Vec<trip::Gem> = self.carried_gems();
         let recalls: Vec<trip::Recall> = if prefs.use_recalls {
             let out = self.travel.refused_recalls.clone();
             self.castable_recalls()
@@ -217,7 +221,7 @@ impl Client {
         // that one. This holds for the journey being planned only.
         let mut planned = None;
         for _ in 0..3 {
-            let Some(t) = trip::plan_with_recalls(
+            let Some(t) = trip::plan_with_recalls_and_gems(
                 Vec2::new(me.x, me.y),
                 cell,
                 goal,
@@ -225,6 +229,7 @@ impl Client {
                 &[],
                 &refused,
                 &recalls,
+                &gems,
                 prefs,
             ) else {
                 break;
@@ -285,7 +290,9 @@ impl Client {
                                     .and_then(|p| p.refusal(level))
                                     .map(|r| format!("{name} {r}"))
                             }
-                            Step::Walk(_) | Step::Recall { .. } => None,
+                            // A gem needs nothing of the character but
+                            // carrying it, so it can never be refused.
+                            Step::Walk(_) | Step::Recall { .. } | Step::Gem { .. } => None,
                         })
                         .next();
                     match asks {
@@ -371,6 +378,40 @@ impl Client {
             self.travel.restart_waypoint();
             return true;
         }
+        // A gem is used where it stands. The usual kind puts a portal
+        // in front of the character, which the next step walks into;
+        // the rare kind carries them off itself. Either way the step is
+        // done once they are somewhere else, the same as a recall.
+        if let Step::Gem {
+            name,
+            guid,
+            summons,
+            ..
+        } = &step
+        {
+            let (name, guid, summons) = (name.clone(), *guid, *summons);
+            tracing::info!(
+                "travel: step {} ({name:?}, {})",
+                self.travel.step,
+                if summons {
+                    "summons a portal"
+                } else {
+                    "carries us off"
+                }
+            );
+            self.travel.portal_from = Some(pl_cell & 0xFFFF_0000);
+            self.travel.portal_since = None;
+            self.travel.last_hop = None;
+            self.travel.step_since = Some(Instant::now());
+            self.travel.step_best = f32::INFINITY;
+            self.travel.step_target = None;
+            self.travel.step_cell = None;
+            self.travel.step_block = None;
+            self.travel.route = None;
+            self.travel.restart_waypoint();
+            self.interact(guid);
+            return true;
+        }
         let (target, label, mouth_cell) = match &step {
             Step::Walk(p) => (*p, "walk".to_string(), None),
             Step::Portal {
@@ -379,7 +420,9 @@ impl Client {
                 mouth_cell,
                 ..
             } => (*mouth, format!("portal {name:?}"), Some(*mouth_cell)),
-            Step::Recall { .. } => return true,
+            // A recall is cast, and a gem is used, by the step driver
+            // rather than walked to: nothing to aim at.
+            Step::Recall { .. } | Step::Gem { .. } => return true,
         };
         self.travel.portal_from = mouth_cell.map(|_| pl_cell & 0xFFFF_0000);
         self.travel.portal_since = None;
@@ -569,7 +612,7 @@ impl Client {
     fn travel_portal(&self) -> Option<(String, Vec2)> {
         match self.travel.trip.as_ref()?.steps.get(self.travel.step)? {
             Step::Portal { name, mouth, .. } => Some((name.clone(), *mouth)),
-            Step::Walk(_) | Step::Recall { .. } => None,
+            Step::Walk(_) | Step::Recall { .. } | Step::Gem { .. } => None,
         }
     }
 
@@ -577,7 +620,7 @@ impl Client {
     pub(crate) fn travel_recall_spell(&self) -> Option<u32> {
         match self.travel.trip.as_ref()?.steps.get(self.travel.step)? {
             Step::Recall { spell, .. } => Some(*spell),
-            Step::Walk(_) | Step::Portal { .. } => None,
+            Step::Walk(_) | Step::Portal { .. } | Step::Gem { .. } => None,
         }
     }
 

@@ -34,6 +34,9 @@ fn main() {
                     ac_world::trip::Step::Walk(p) => {
                         println!("  walk to {}", ac_world::towns::map_of(*p).0)
                     }
+                    ac_world::trip::Step::Gem { name, exit, .. } => {
+                        println!("  use {name:?} -> {:?}", ac_world::towns::map_of(*exit))
+                    }
                     ac_world::trip::Step::Portal {
                         name, mouth, exit, ..
                     } => println!(

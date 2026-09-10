@@ -52,11 +52,37 @@ pub struct Recall {
     pub exit_cell: u32,
 }
 
+/// A portal gem the character is carrying, and where using it lands
+/// them. The same shape as a [`Recall`] and used the same way, except
+/// that the gem is spent: a journey uses each one once.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Gem {
+    /// The carried item, so the caller knows which one to use.
+    pub guid: u32,
+    pub name: String,
+    pub exit: Vec2,
+    pub exit_cell: u32,
+    /// Whether using it summons a portal to walk into, or moves the
+    /// character itself. Nearly all of them summon, which is two
+    /// actions rather than one and is priced as such.
+    pub summons: bool,
+}
+
 /// One step of a journey.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Step {
     /// Walk to this world position.
     Walk(Vec2),
+    /// Use a carried portal gem and come out at its exit. Most gems
+    /// summon a portal that then has to be walked into; a few move the
+    /// character themselves.
+    Gem {
+        guid: u32,
+        name: String,
+        exit: Vec2,
+        exit_cell: u32,
+        summons: bool,
+    },
     /// Walk into this portal's mouth and come out at its exit.
     Portal {
         name: String,
@@ -81,7 +107,7 @@ impl Step {
     pub fn end(&self) -> Vec2 {
         match self {
             Step::Walk(p) => *p,
-            Step::Portal { exit, .. } | Step::Recall { exit, .. } => *exit,
+            Step::Portal { exit, .. } | Step::Recall { exit, .. } | Step::Gem { exit, .. } => *exit,
         }
     }
 
@@ -94,6 +120,9 @@ impl Step {
                 exit, exit_cell, ..
             }
             | Step::Recall {
+                exit, exit_cell, ..
+            }
+            | Step::Gem {
                 exit, exit_cell, ..
             } => Some((*exit, *exit_cell)),
         }
@@ -327,6 +356,7 @@ pub fn plan_with(
 enum Edge {
     Portal(usize),
     Recall(usize),
+    Gem(usize),
 }
 
 /// [`plan_with`] for a character that can cast `recalls` right now
@@ -345,6 +375,35 @@ pub fn plan_with_recalls(
     quests_done: &[String],
     avoid: &[Vec2],
     recalls: &[Recall],
+    prefs: Prefs,
+) -> Option<Trip> {
+    plan_with_recalls_and_gems(
+        from,
+        from_cell,
+        goal,
+        level,
+        quests_done,
+        avoid,
+        recalls,
+        &[],
+        prefs,
+    )
+}
+
+/// [`plan_with_recalls`] for a character also carrying portal gems. A
+/// gem is a hop from the start to where it lands, like a recall, and
+/// like a recall a journey can go on from there. It costs the same as a
+/// recall to use and is spent when it is.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_with_recalls_and_gems(
+    from: Vec2,
+    from_cell: u32,
+    goal: Vec2,
+    level: u32,
+    quests_done: &[String],
+    avoid: &[Vec2],
+    recalls: &[Recall],
+    gems: &[Gem],
     prefs: Prefs,
 ) -> Option<Trip> {
     let recalls: &[Recall] = if prefs.use_recalls { recalls } else { &[] };
@@ -432,6 +491,33 @@ pub fn plan_with_recalls(
                 });
             }
         }
+        // Use a carried gem: from the start, for the same reason a
+        // recall is. A gem is spent, so each is offered once.
+        if q.idx == 0 {
+            for (gi, g) in gems.iter().enumerate() {
+                // Using it, and for the usual kind walking into the
+                // portal it puts in front of you.
+                let mut next = q.cost + prefs.recall_seconds;
+                if g.summons {
+                    next += prefs.portal_seconds;
+                }
+                if best.map(|(b, _)| next >= b).unwrap_or(false) {
+                    continue;
+                }
+                nodes.push(Node {
+                    at: g.exit,
+                    cell: g.exit_cell,
+                });
+                came.push(Some((q.idx, Edge::Gem(gi))));
+                cost.push(next);
+                let idx = nodes.len() - 1;
+                queue.push(Queued {
+                    cost: next,
+                    est: next + walk_seconds(g.exit, goal),
+                    idx,
+                });
+            }
+        }
         // Take a portal whose mouth we can reach from here.
         for (pi, p) in portals.iter().enumerate() {
             if seen_portal[pi] {
@@ -500,6 +586,16 @@ pub fn plan_with_recalls(
                     name: r.name.clone(),
                     exit: r.exit,
                     exit_cell: r.exit_cell,
+                }
+            }
+            Edge::Gem(gi) => {
+                let g = &gems[gi];
+                Step::Gem {
+                    guid: g.guid,
+                    name: g.name.clone(),
+                    exit: g.exit,
+                    exit_cell: g.exit_cell,
+                    summons: g.summons,
                 }
             }
         });
@@ -728,5 +824,109 @@ mod tests {
         let sea = Vec2::new(0x60 as f32 * 192.0, 0x70 as f32 * 192.0);
         let trip = plan(from, 0xA9B4_0019, sea);
         assert!(trip.is_none(), "planned a trip to the sea: {trip:?}");
+    }
+    #[test]
+    fn a_carried_gem_is_a_way_to_get_there() {
+        // A gem in the pack is a hop straight to where it lands, and a
+        // journey goes on from there: the whole point, since a gem
+        // rarely drops you exactly on the spot you wanted.
+        let goal = Vec2::new(1_691.0, 1_757.0);
+        let gem = Gem {
+            guid: 0x8000_0001,
+            name: "Somewhere Portal Gem".into(),
+            exit: Vec2::new(1_739.0, 957.0),
+            exit_cell: 0x0904_0008,
+            summons: true,
+        };
+        let far = Vec2::new(32_532.0, 34_567.0);
+        // On foot it is hopeless: half the world away.
+        assert!(
+            plan_with_recalls(far, 0xA9B4_0019, goal, 275, &[], &[], &[], Prefs::default())
+                .is_none()
+        );
+        // With the gem it is one hop and a walk.
+        let trip = plan_with_recalls_and_gems(
+            far,
+            0xA9B4_0019,
+            goal,
+            275,
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&gem),
+            Prefs::default(),
+        )
+        .expect("a way there");
+        assert!(
+            trip.steps
+                .iter()
+                .any(|s| matches!(s, Step::Gem { guid, .. } if *guid == gem.guid)),
+            "{:?}",
+            trip.steps
+        );
+        // And it ends where we asked, not where the gem dropped us.
+        assert_eq!(trip.steps.last().map(|s| s.end()), Some(goal));
+    }
+
+    #[test]
+    fn a_gem_that_lands_no_nearer_is_not_used() {
+        // Using one up for nothing is worse than walking.
+        let here = Vec2::new(1_700.0, 1_700.0);
+        let goal = Vec2::new(1_720.0, 1_720.0);
+        let gem = Gem {
+            guid: 1,
+            name: "Wrong Way Gem".into(),
+            exit: Vec2::new(30_000.0, 30_000.0),
+            exit_cell: 0x1234_0001,
+            summons: true,
+        };
+        let trip = plan_with_recalls_and_gems(
+            here,
+            0x0904_0008,
+            goal,
+            275,
+            &[],
+            &[],
+            &[],
+            std::slice::from_ref(&gem),
+            Prefs::default(),
+        )
+        .expect("a short walk");
+        assert!(
+            !trip.steps.iter().any(|s| matches!(s, Step::Gem { .. })),
+            "{:?}",
+            trip.steps
+        );
+    }
+    #[test]
+    fn a_gem_that_summons_costs_more_than_one_that_moves_you() {
+        // Summoning puts a portal in front of you and you still have to
+        // walk into it. Priced the same, a planner would reach for the
+        // slower one as readily as the quicker.
+        let far = Vec2::new(32_532.0, 34_567.0);
+        let goal = Vec2::new(1_691.0, 1_757.0);
+        let make = |summons| Gem {
+            guid: 1,
+            name: "A Gem".into(),
+            exit: Vec2::new(1_739.0, 957.0),
+            exit_cell: 0x0904_0008,
+            summons,
+        };
+        let cost = |summons| {
+            plan_with_recalls_and_gems(
+                far,
+                0xA9B4_0019,
+                goal,
+                275,
+                &[],
+                &[],
+                &[],
+                &[make(summons)],
+                Prefs::default(),
+            )
+            .expect("a way there")
+            .seconds
+        };
+        assert!(cost(true) > cost(false), "summoning was not dearer");
     }
 }

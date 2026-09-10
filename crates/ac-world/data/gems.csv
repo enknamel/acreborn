@@ -1,0 +1,493 @@
+# Portal gems: what a carried gem does when it is used.
+# wcid,name,cell,x,y,z,spell
+# Cells are hex; the x/y/z are local to the cell's landblock. Using the
+# Nearly every gem casts Summon Portal (157): it puts a portal in front
+# of you which you then walk into, so using one costs the use and the
+# portal. The handful casting something else teleport on use. `spell` is
+# what it casts, so the two can be told apart.
+# Regenerate with reference/scripts/data/gems.sh (reads the ACE world
+# database, the community's reconstruction of retail's server data).
+26059,Adams' Beach Portal Gem,3DC7001B,74.9,65.1,0,157
+26060,Adept's Domain Portal Gem,51A3001C,73.6,87.9,38.7,157
+27772,Adjanite Gem,634B0483,70,-130,0,157
+26061,Adventurer's Haven Cottages Portal Gem,AC810024,101.2,91,28,157
+26062,Ahr-Zona Portal Gem,9664001B,95.5,69,14.3,157
+10974,Ahruenga Portal Gem,FB90009,43,8.6,0,157
+26063,Aimaru Plains Cottages Portal Gem,DD5C0012,66.6,45.3,19.6,157
+8973,Al-Arqas Portal Gem,8F58003B,183.9,60.2,9.3,157
+26064,Al-Arqis Cottages Portal Gem,7C700003,18,53.7,10,157
+26066,Al-Hatar Settlement Portal Gem,96540003,22,54.4,10,157
+26067,Al-Kasan Settlement Portal Gem,8B550030,127.7,175.3,15.8,157
+26068,Al-Mar Oasis Portal Gem,94440025,113.6,110.6,14.5,157
+26069,Al-Nosaj Portal Gem,9170001B,76.4,55.7,13.4,157
+26065,Alfreth Ridge Cottages Portal Gem,8C98001C,80.5,91.7,124,157
+26070,Aloria Portal Gem,5EBE001B,78.8,65.9,22,157
+26071,Alvador Portal Gem,B2D40016,64.9,121.6,62.4,157
+26072,Amarand Villas Portal Gem,73AF001F,87.9,160.4,110,157
+26073,Anadil Portal Gem,7AD6001B,88.8,61.3,203.7,157
+30805,Ancient Temple,594D03E2,60,-50,0,157
+30812,Antiquated Compass,D070014,63.7,84.1,52.3,157
+26074,Aqalah Portal Gem,7C760005,18.4,115.4,10.9,157
+26075,Ardent Realm Portal Gem,A84D002D,129.3,110.8,28,157
+26076,Ariake Portal Gem,DF6A0035,148.9,110,2,157
+26077,Arida Butte Portal Gem,AD62003E,183.1,127.4,53.5,157
+26078,Arqasanti Portal Gem,9260001D,93.5,114.2,13.3,157
+26079,Arrak Portal Gem,8573000C,45.1,93,14,157
+26080,Arrowdale Cottages Portal Gem,D9D00024,100.1,86.6,35.1,157
+26081,Artifice Cottages Portal Gem,8F15001D,78.6,106.8,297.6,157
+26082,Asandra Cottages Portal Gem,5DC60025,103.3,115.6,60,157
+26083,Asbel Domain Portal Gem,B17E0013,56.1,56.6,25.3,157
+26084,Auralla Settlement Portal Gem,46C0001B,83.2,66.8,8,157
+26085,Auroch Pasture Estates Portal Gem,A09C0025,115.8,99.8,66.7,157
+26086,Avatania Cottages Portal Gem,9938000B,40.5,65.1,40,157
+26087,Axefall Glen Portal Gem,4CA50025,109.5,112.1,45.4,157
+26088,Ayn Tayan Portal Gem,C44E002E,126.5,125.9,29.4,157
+26089,Azaroth Cottages Portal Gem,58E80025,99,104.8,6.5,157
+26090,Bandit Road Villas Portal Gem,B6D80003,6.2,69.2,19.5,157
+26091,Baron's Domain Portal Gem,AED0001D,94.1,101.3,46.2,157
+26092,Bay of Sands Portal Gem,79810005,15.8,111.5,0.7,157
+26093,Beach Pass Villas Portal Gem,D6BA001E,93.2,124.4,42,157
+27769,Beholding Adjanite Gem,634B0478,60,-130,0,157
+26094,Bellig Mesa Cottages Portal Gem,9791002F,124.8,147.4,56.4,157
+26095,Bhah Dhah Villas Portal Gem,A04B0040,188.3,183.2,112,157
+30800,Black Glass Array,2D2F0034,147.5,78.6,47.1,157
+26096,Blackmire Edge Cottages Portal Gem,B95C003E,185.7,121.4,10.5,157
+26097,Blazing Wand Villas Portal Gem,7AA2002B,134.1,67.3,69.9,157
+26098,Bleached Skull Wastes Settlement Portal Gem,8B6D001B,79.9,57.6,10.7,157
+26099,Bleak Valley Portal Gem,B3C20023,112.8,68.6,155.3,157
+30801,Blood Fang Jewel,2E43000C,33,80,7.5,157
+26100,Bluewater Cottages Portal Gem,E1660021,109.7,4.8,0,157
+26101,Brazenn Domain Portal Gem,4ADB0024,107.3,91.6,76.4,157
+26102,Bretslef Cottages Portal Gem,ADD40015,52.7,112.9,71,157
+26103,Brigand Sands Cottages Portal Gem,9E330023,97.2,51.2,46.1,157
+26104,Brigands Bay Settlement Portal Gem,A60F000D,29.2,117,16.8,157
+26105,Bright Blade Cottages Portal Gem,7E9F001D,85.6,102.9,94,157
+26106,Broadacre Cottages Portal Gem,CE700033,158.5,53,41.6,157
+26107,Broken Haft Vale Portal Gem,C4D9001D,83.7,118,82,157
+26108,Broken Sword Bethel Settlement Portal Gem,AD6A003B,186.3,69.1,27.8,157
+26109,Bucolic Villas Portal Gem,92B30039,181.3,12.6,87.7,157
+30811,Burning Veil,9090003,1.3,54.1,14,157
+26110,Cactus Acres Portal Gem,9E74001A,76.8,37.5,26.5,157
+26111,Caerlin Cottages Portal Gem,41C4001C,90.3,89.1,14.5,157
+26112,Cape Feirgard Cottages Portal Gem,D1A50029,134.5,18.2,4.6,157
+30806,Cavernous Olthoi Chasm,5D4D0360,40,-106,-12,157
+26113,Celcynd Cottages Portal Gem,8BF20036,160.9,131.7,2.8,157
+26114,Celdiseth's Beach Settlement Portal Gem,A4EB000F,36.8,163.6,0.7,157
+8974,Celdiseth's Portal Gem,9AEB001E,76,141,20,157
+38723,Celestial Hand Stronghold Portal Gem,B70294,110,-20,0,157
+26115,Charbone Ridge Portal Gem,A57F001A,85,43.5,56.9,157
+26116,Charnhold Portal Gem,84B0001D,95.7,113.4,90,157
+26117,Chi Zou Cottages Portal Gem,D65A003F,168.9,163.3,19.9,157
+26118,Cliffside Overlook Portal Gem,E53F0026,0,0,0,157
+26119,Colier View Hill Portal Gem,B2C90025,111.6,113.5,145.7,157
+29444,Corcima Castle Copper Ward Portal Gem,3FE7000B,36.2,71.5,160,157
+29445,Corcima Castle Gold Ward Portal Gem,40E6002A,121.8,35.6,160,157
+29446,Corcima Castle Platinum Ward Portal Gem,40E80024,96.7,87.2,200,157
+29447,Corcima Castle Silver Ward Portal Gem,41E70036,157.9,121.2,160,157
+30799,Corrupted Skull,5030101,84.2,36.9,225,157
+73067,Count Dardante's Island Portal Gem,4FF1001A,84.5,43.2,84,157
+26120,Cragstone Farms Portal Gem,B598003D,172.1,118.2,43.3,157
+26121,Crescent Lane Cottages Portal Gem,D26D001A,76.4,45.1,44,157
+26122,Crescent Ridge Cottages Portal Gem,E53F0026,0,0,0,157
+31667,Crypt of Adhorix Portal Gem,3802F4,230,-60,0,157
+26123,Dagger Vale Portal Gem,A3E7001D,77.6,107.5,55.5,157
+26124,Dame Tolani Villas Portal Gem,5EB40025,108.1,104.9,24.7,157
+26125,Darasa Villas Portal Gem,74AB0025,101,107.8,80,157
+26126,Darawyll Village Portal Gem,B28B0013,60.1,61.2,21.1,157
+32939,Dark Monolith Caverns,8A0125,19.3,-19.3,0,157
+32940,Dark Monolith Caverns,8A0125,19.3,-19.3,0,157
+36499,Dark Monolith Caverns,8A0125,19.3,-19.3,0,157
+27387,Dark Monolith,60490326,50,-112.9,0.1,157
+27388,Dark Towers,1E290015,54.4,102.2,94,157
+36500,Dark Towers,1E290015,54.4,102.2,94,157
+27770,Decorated Adjanite Gem,634B044A,50,-130,0,157
+27389,Deep Caverns,60490326,50,-112.9,0.1,157
+26127,Deepvale Cottages Portal Gem,61AC001C,72.8,78.1,42,157
+26128,Defiant Prey Cottages Portal Gem,82C7001E,83,123.9,97.7,157
+26129,Demonsbane Cottages Portal Gem,A78A001D,94.2,113.9,32,157
+26130,Desert Boundary Cottages Portal Gem,74880003,2.8,50.1,60,157
+26131,Desert Mirage Cottages Portal Gem,906C0024,117.5,80.2,18,157
+26132,Desert Vanguard Cottages Portal Gem,8E48000D,31.4,108.4,14,157
+30803,Desolate Seed,9040008,11.4,188.6,87.7,157
+26133,Desolation Beach  Portal Gem,49E60004,19.4,80.5,0,157
+26134,Devana Portal Gem,A97D001B,76.1,70.7,18,157
+26135,Dillo Butte Settlement Portal Gem,9C8D0033,150,66.8,108.4,157
+26137,Dire's Edge Portal Gem,3B9C002B,125.9,53.8,54,157
+26136,Dires' Door Estates Portal Gem,6AE10011,61.8,11.9,58,157
+26138,Direvale Villas Portal Gem,63A8002D,121,119.3,56,157
+26139,Djebel al-Nar Cottages Portal Gem,9A6B000B,47.6,63.6,60,157
+26140,Djinaya Wind Cottages Portal Gem,8D630015,59.7,113.5,9.6,157
+26141,Dovetail Valley Villas Portal Gem,8C9D0026,102.8,132.3,89,157
+26142,Driftwood Cottages Portal Gem,E53F0026,0,0,0,157
+27390,Drudge Fight,614B0112,52.3,-2.8,0,157
+36501,Drudge Fight,614B0112,52.3,-2.8,0,157
+26143,Dry Bone Manors Portal Gem,965A003D,179.3,109.7,10.2,157
+26144,Dryreach Beach Cottages Portal Gem,DF6F003C,173.8,76.2,0,157
+26145,Dryreach Beach Manors Portal Gem,DE7A0035,148.4,114.5,4,157
+26146,Drytree Settlement Portal Gem,A274001C,79.7,81.3,38,157
+26147,Dunes End Cottages Portal Gem,98440011,67.1,5.4,20.5,157
+26148,Durglen Portal Gem,85B40015,65.6,109.4,83.4,157
+26149,East Al-Jalima Villas Portal Gem,95890021,106.7,14.5,38.4,157
+26150,East Arwic Cottages Portal Gem,E53F0026,0,0,0,157
+26152,East Danby Portal Gem,619E0025,98.8,99.3,10,157
+26153,East Esper Valley  Portal Gem,A2DA0019,74,5.3,54,157
+26154,East Lytelthorpe Settlement Portal Gem,C77F0036,162.4,132.4,30.4,157
+26155,East Morntide Settlement Portal Gem,6CAB0025,112,97,49,157
+26156,East Morntide Villas Portal Gem,6FAF0025,107,99.2,94.2,157
+26157,East Plateau Villa Portal Gem,E53F0026,0,0,0,157
+26158,East Rithwic Estates Portal Gem,D28C0014,67.6,88,28.4,157
+26159,East Sawato Cottages Portal Gem,C2580018,68.7,182.4,12,157
+26160,East Sawato Settlement Portal Gem,CF5C0018,69.3,182.4,20,157
+26161,East Span Way Settlement Portal Gem,BBA8003D,180.5,101.2,74,157
+26162,Eaves of Tiofor Settlement Portal Gem,96A80021,118.4,14.5,32.3,157
+26163,Ebbing Tide Villas Portal Gem,91320023,115.6,62.2,2,157
+38724,Eldrytch Web Stronghold Portal Gem,B80294,110,-20,0,157
+26164,Embara Portal Gem,68A1002A,133.5,40.8,30.9,157
+26165,Empyrean Fields Cottages Portal Gem,B54F0026,100.4,123.3,5.7,157
+26166,Empyrean Shore Villas Portal Gem,4DE70006,10.5,129.1,0.1,157
+26167,Enchanter's Meadow Portal Gem,AD860025,102.5,110.4,25.3,157
+27771,Entrancing Adjanite Gem,634B0410,30,-130,0,157
+26168,Eotensfang Cottages Portal Gem,CBB20016,59.8,136.7,212.6,157
+26169,Erevana Villas Portal Gem,AB380023,111.9,71.9,58.7,157
+26170,Evensong Settlement Portal Gem,B2B30014,69.1,91.4,116.5,157
+26171,Explorer's Villas Portal Gem,D1CC001B,95.2,71.3,39.9,157
+27768,Eye of the Depths,634B043E,40,-130,0,157
+26172,Fadsahil Settlement Portal Gem,48BC0024,99.9,92.4,38.8,157
+8975,Fadsahil's Portal Gem,8E4C0015,60,104,10,157
+26174,Far Claw Villas Portal Gem,C9C30034,160.8,88.9,22,157
+26175,Far Horizon Cottages Portal Gem,7CF3001D,85.9,98.1,82,157
+26173,Faranar Foothills Portal Gem,B26C002C,139.7,94.2,24.5,157
+53356,Farmer's Basement Portal Gem,596A010C,40,-20,0.1,1637
+26176,Fearnot Valley Cottages Portal Gem,679D0025,102.4,99.7,28.9,157
+26177,Filos' Font Cottages Portal Gem,CE90002A,124.8,44.9,28,157
+26178,Firedew Portal Gem,8CB9002D,124.3,99.9,85.5,157
+26179,Firesong Cottages Portal Gem,5EAF0024,106.9,75,74,157
+26180,Font Alpa Portal Gem,D5310025,116.3,104.3,90,157
+26181,Forgotten Hills Portal Gem,AE910029,138.5,12.8,38.5,157
+31861,Fort Tethana Portal Gem,2681001D,77.7,108.1,240,157
+26182,Four Towers Settlement Portal Gem,868E0020,93.2,186.5,118.9,157
+26183,Frosty Dale Cottages Portal Gem,87E0001C,94.2,81.4,92.2,157
+26184,Gaerwel Edge Settlement Portal Gem,CE870003,3.9,56.4,22.3,157
+52810,Gear Knight Invasion Area Portal Gem,21700031,145.5,14.4,178,157
+26185,Genem Causland Portal Gem,70AA0024,106.4,89.2,54.6,157
+26186,Gharu'n Victory Villas Portal Gem,6F950024,99.9,93,38,157
+26187,Glenden Hills East Settlement Portal Gem,A6A7000E,40,125.7,127.9,157
+26188,Glenden Hills North Settlement Portal Gem,A0AB003A,176.7,44.1,68.3,157
+26189,Glystaene Cottages Portal Gem,A4CF0015,63.5,104.6,141.4,157
+27386,Gold Hill Ruins,6F9A0006,1.4,122.3,204.8,157
+36498,Gold Hill Ruins,6F9A0006,1.4,122.3,204.8,157
+26190,Gredaline Villas Portal Gem,A7340023,105.8,60.8,75.5,157
+26191,Greenswath Portal Gem,9E88000E,28.1,129.4,21.8,157
+26192,Greenvale Settlement Portal Gem,8DE30024,99.4,79.4,42.5,157
+10975,Habitat Portal Gem,2930210,1.7,-87.7,-12,157
+26193,Haliana Portal Gem,CBDA002F,128.5,154.8,4.7,157
+26194,Hamud Cottages Portal Gem,9264001C,83.4,88.9,13.4,157
+26195,Hand-on-Sword Cottages Portal Gem,D6BE0024,111.7,93.8,106,157
+26196,Harmonious Blade Cottages Portal Gem,63A2001D,83.9,110.1,54,157
+26197,Helms Villas Portal Gem,809B0011,61.5,14.5,240,157
+26198,Hermit Hill Cottages Portal Gem,A5910026,111.4,125.1,47.9,157
+26199,Hero's Vale Portal Gem,46A5002E,131.4,125,57.1,157
+26200,Hidden Valley Portal Gem,67C90025,115.4,104.7,71.3,157
+26201,Highland Manors Portal Gem,94CE0024,113.1,92.6,220,157
+8976,Holtburg Portal Gem,A9B40019,84,7.1,94,157
+26202,Holtburg Wilderness Settlement Portal Gem,BAB2001B,84.8,69.4,85.8,157
+26203,Hopevale Portal Gem,54A80024,103.5,80.1,74,157
+52812,Hoshino Fortress Portal Gem,49E4002B,139.7,60.1,12,157
+26204,Howling Wolf Villas Portal Gem,95A30022,101.6,29.4,40,157
+26205,Ianna Portal Gem,86C00010,41.9,184.1,119.7,157
+26208,Ice's Edge Cottages Portal Gem,6ACF0024,99.9,90,188,157
+26206,Icecliff Cottages Portal Gem,E53F0026,0,0,0,157
+26207,Iceea Hills Estates Portal Gem,A49F003E,180.4,133.2,121.3,157
+26209,Ijaniya  Portal Gem,85560002,5.3,41.5,14.4,157
+26210,Ikama Cottages Portal Gem,AB340025,96.7,108.8,58.1,157
+26211,Imuth Maer Cottages Portal Gem,CB6B0015,59.6,106.8,64.3,157
+26212,Inquisitor's Dale Cottages Portal Gem,55A0001C,84.2,90.6,42,157
+14915,Invitation Ithaenc Cathedral,F618000C,40,89,182,157
+14914,Invitation Plateau,49B80024,104.3,86.2,0.2,157
+14913,Invitation Wedding Hall,115017B,70,-50,6,157
+44074,Invitation to Master Fletchers,A1A30020,89.4,189.6,66,157
+26213,Ishilai Inlet Settlement Portal Gem,BF19003D,171.5,115.9,99.3,157
+26214,Ishilai Inlet Villas Portal Gem,BF150035,165,107.5,136,157
+26215,Ispan Hill Portal Gem,A2C1001A,78.2,28.4,105.6,157
+26216,Isparian Flame Estates Portal Gem,D1D00026,101,124.6,61.6,157
+26217,Jackcat Canyon Portal Gem,8A7F0003,20.9,56.8,60,157
+26218,Jai-Tan Dale Portal Gem,C946001C,76.9,85.2,140.1,157
+26219,Janaa Ridge Settlement Portal Gem,9B760016,50.8,125.6,28,157
+26220,Jasmine Meadow Portal Gem,BD47001D,80.9,102.1,37.5,157
+26221,Jenshi Cottages Portal Gem,B779000D,45.5,97.4,24,157
+26222,Jeweled Thorn Estates Portal Gem,D7C2001D,76,98,131.9,157
+26224,Jhalalabhan Portal Gem,E53F0026,0,0,0,157
+26226,Jin-Lai Stronghold Portal Gem,CB760004,14.4,87.2,22,157
+26225,Jinianshi Portal Gem,B55D0026,110.6,0.3,21.6,157
+26227,Kanasa Portal Gem,AC3F002D,134,101.1,46.7,157
+8551,Kelderam's Path,2B702F1,70,-60,0,2028
+26228,Kelnen Village Portal Gem,B3450012,59.6,35,28,157
+26229,King Pwyll Square Portal Gem,AD8B0024,99.9,88.5,34,157
+26230,Kuyiza Portal Gem,B252001D,75.3,100.3,37.6,157
+26231,Lady Maila Estates Portal Gem,45DC0024,101.9,94.2,30.6,157
+27391,Lair of The Homunculus,634A03D4,97.2,-77.2,0,157
+36503,Lair of The Homunculus,634A03D4,97.2,-77.2,0,157
+26232,Laiti's Villa Portal Gem,6AD3001F,77.3,159.9,154.7,157
+26233,Lake Blessed Cottages Portal Gem,C7940003,8.4,61.9,2,157
+26234,Lake NemuelSettlement Portal Gem,7FCD0028,103.7,182.2,152.6,157
+26235,Lake Thrasyl Cottages Portal Gem,B425001C,78.9,82.6,131.8,157
+26236,Lanadryll Cottages Portal Gem,80AE0016,64.7,128.9,124,157
+26237,Land Bridge Villas Portal Gem,83120034,165.3,91.3,350,157
+26238,Last-Stop-Before-Dires Villas Portal Gem,459C0024,119,77.3,29.9,157
+26239,Leafdawning Settlement Portal Gem,C18F0025,110.7,116.9,11.7,157
+26245,Li-Po Cottages Portal Gem,B957002E,120.2,123.1,38,157
+26240,Liang Chi Settlement Portal Gem,B374002A,127.5,30.1,25.6,157
+26241,Lightbringer Dale Cottages Portal Gem,69E50016,68.6,141.1,25.8,157
+26242,Lilyglen Cottages Portal Gem,A3BB003C,182,77.7,32,157
+26243,Lin Kiln Park Portal Gem,D6420024,96.7,88.4,218.5,157
+26244,Linvak Tukal Foothills Settlement Portal Gem,A618002C,133,77.4,150.6,157
+27091,Linvak Tukal Portal Gem,A21E001A,83,38,560.4,157
+26246,Lithaenean Cottages Portal Gem,52C10010,35.3,172.8,0,157
+26247,Lo-Han Portal Gem,C1540015,65.8,101.4,27,157
+26248,Lord Cambarth Villas Portal Gem,71E4001E,86.1,132.4,197.2,157
+26249,Loredane Villas Portal Gem,6F8B0021,108.7,13.5,4.2,157
+26250,Lost Realm Cottages Portal Gem,A097001D,75,100,40.1,157
+26251,Lost Wish Cottages Portal Gem,CEB1001C,81.4,78.9,91.6,157
+26252,Lugian Meadows Settlement Portal Gem,D1220033,157.5,56.9,68.5,157
+26253,Lyceum View Cottages Portal Gem,E53F0026,0,0,0,157
+8977,Lytelthorpe Portal Gem,C0800007,11.7,155.6,33,157
+26254,Maedew Portal Gem,D0740003,19.6,66.7,28,157
+26255,Mage's Pass Portal Gem,C13D0024,98.7,90.8,46,157
+26256,Mahara Cottages Portal Gem,923B002C,127.9,74.5,68.2,157
+26257,Maitland  Portal Gem,879F0033,152.1,55.8,120.7,157
+26258,Majestic Hill Cottages Portal Gem,8AA60029,140.6,9.5,100,157
+26259,Majestic Saddle Cottages Portal Gem,63B00017,65.1,146.6,95.7,157
+27385,Map of Auberean,60490326,50,-112.9,0.1,157
+26260,Mattekar Slopes Cottages Portal Gem,A529002C,136.5,89.1,183.6,157
+26261,Maythen Geroyu Villas Portal Gem,A0920015,54.7,98,45.3,157
+26262,Meditation Meadow Portal Gem,E941001E,91.6,130.4,46.2,157
+26263,Meerthus Square Portal Gem,B0980012,69.3,34.8,60,157
+26264,Merak Portal Gem,51A00025,113.4,108.9,32.9,157
+26265,Meridian Cottages Portal Gem,C3870037,150.2,148.1,30.9,157
+52809,Mhoire Forge Portal Gem,482D0104,86.8,137.6,-14.8,157
+26266,Midhill Cottages Portal Gem,81E9001D,89.8,113.4,118.4,157
+26267,Midsong Cottages Portal Gem,7D7E003E,175.3,135.8,32.9,157
+26268,Mimiana Villas Portal Gem,7A9E0026,102,129.8,89.5,157
+26269,Mire Hill Portal Gem,CB640024,99.8,77.1,14.4,157
+26223,Mirthless Dale Portal Gem,4A9C0024,103.7,91,54,157
+26270,Mistdweller Villas Portal Gem,91A5002E,135.7,123.8,20.7,157
+26271,Monument Sands Settlement Portal Gem,93500019,88,22.7,18.6,157
+26272,Morntide Ascent Cottages Portal Gem,6CA70025,104.9,96.1,85.5,157
+26273,Mosswart Place Cottages Portal Gem,DB630016,67.1,127.5,32,157
+26274,Mountain Keep Cottages Portal Gem,ABBE0023,119.9,58.6,99.1,157
+26275,Mountain Retreat Cottages Portal Gem,7EC80025,108.4,101.6,95.9,157
+26276,Mountain Ridge Abodes Portal Gem,9BAA0025,108.4,113,122.6,157
+26277,Mt Sylph View Cottages Portal Gem,91890004,17.1,78.6,108,157
+32924,Mukkir Nest Portal Gem,4C0495,110.9,-78.9,0,157
+36505,Mukkir Nest Portal Gem,4C0495,110.9,-78.9,0,157
+26278,Musansayn Portal Gem,8E840037,165.3,166,60,157
+26280,Nal Wadi Cottages Portal Gem,99850012,66,36.2,39.5,157
+26279,Nalib Cavana Settlement Portal Gem,5FA60025,109.1,105.7,97.6,157
+26281,Nan-Zari Portal Gem,EE420003,14.9,53.7,34.3,157
+8978,Nanto Portal Gem,E63E0022,97,37.7,74.5,157
+26282,Naqut Dreams Villas Portal Gem,8D73002E,127.2,136.3,11.2,157
+26283,Narsys Portal Gem,DA6B0026,112.5,135.6,26.6,157
+26284,Narziz Cottages Portal Gem,A8670021,98.4,7.2,40.6,157
+52807,Neftet Portal Gem,8763000E,40.5,129.3,8,157
+26285,Neu Gerz Villas Portal Gem,C6760025,104.3,101.7,19.5,157
+26286,New Cannthalo Portal Gem,C7D2001D,78.2,116.5,59.5,157
+26287,New Colier Portal Gem,A6CB001F,82.5,154.6,56.9,157
+26288,New Nesortania Portal Gem,8CC2001C,77,87.1,56,157
+26289,New Suntik Portal Gem,84960030,135.2,183.3,124,157
+26290,Neydisa Village Portal Gem,9CD80009,25.6,5.1,71.6,157
+26291,Nidal-Taraq Villas Portal Gem,69920025,103,98.8,25.4,157
+30400,Niffis Fighting Pits,3019E,112,-0.8,0.5,157
+36504,Niffis Fighting Pits,3019E,112,-0.8,0.5,157
+26292,Norstead Portal Gem,C0DD0030,127.8,182.8,4.3,157
+26293,North Adjamaer Cottages Portal Gem,C220001C,78.4,88.6,44.9,157
+26294,North Baishi Cottages Portal Gem,CE470022,107.5,43.4,44.6,157
+26295,North Eastham Meadow Portal Gem,CA9C0031,149.6,7.7,5.5,157
+26297,North Lytelthorpe Villas Portal Gem,BC87002C,127.3,80.2,24,157
+26298,North Pass Hollow Cottages Portal Gem,85C4001C,92.7,76.2,74,157
+26300,North Sawato Villas Portal Gem,C5660016,58.9,134.2,72.9,157
+26301,North Uziz Settlement Portal Gem,A4640031,158.4,14.3,18,157
+26303,North Yanshi Plains Settlement Portal Gem,BB790020,86,179.6,28,157
+26304,North Yaraq Villas Portal Gem,7C6C0006,4.2,123.2,11.7,157
+26296,Northfire Estates Portal Gem,5CE7001B,95.1,57.2,37.2,157
+26299,Northreach Portal Gem,ABE7002C,130.3,89.1,0.1,157
+26302,Northwater Cottages Portal Gem,78F40007,20.9,157.8,2.3,157
+26305,Norvale Portal Gem,C0D90024,110.5,81.5,99.6,157
+26306,Oboro Portal Gem,B141002B,132.4,53.5,35,157
+26307,Ong-Hau Village Portal Gem,EC450025,108.7,117.6,22,157
+26308,Osric Cottages Portal Gem,B286001B,81.6,65.7,40.1,157
+27392,Oubliette,6349022C,50,-90,0,157
+36502,Oubliette,6349022C,50,-90,0,157
+26319,P'rnelle Acres Portal Gem,CBD60024,103.8,90.1,33.9,157
+26309,Palm-of-Stone Villas Portal Gem,A08D001A,78.7,39.5,55.4,157
+52805,Paradox-touched Olthoi Portal Gem,C4B60002,20.8,28,318,157
+26310,Patron's Honor Cottages Portal Gem,A1DD001D,91.3,112.1,122.7,157
+26311,Pavanne Vale Freehold Portal Gem,91EC0028,107,171.5,20,157
+26312,Peril's Edge Cottages Portal Gem,419C001D,74.4,117.2,96,157
+26313,Pillars-on-the-Sea Cottages Portal Gem,8A480014,65.3,82.5,1.8,157
+26314,Pine Deep Portal Gem,4BC8001E,73.4,122.7,6,157
+26315,Pine Hillock Settlement Portal Gem,91B8002D,127.1,102.7,67.6,157
+26316,Plainsview Cottages Portal Gem,A738002B,133.2,65.2,45.1,157
+26317,Plateau Hollow Settlement Portal Gem,4EAC0022,113.1,36,80,157
+26318,Point Tremblant Portal Gem,88F70017,58.7,158.7,0,157
+26320,Prosper River Headwaters Portal Gem,98C6002B,122,58.9,27.9,157
+26322,Qalaba'r Seaside Villas Portal Gem,912A0030,139.6,171.5,-0.1,157
+26321,Qalabar Oasis Settlement Portal Gem,9A2C002C,135.5,91.2,110.6,157
+38725,Radiant Blood Stronghold Portal Gem,B90294,110,-20,0,157
+26323,Rahvard Square Portal Gem,4DC00025,111.6,111.6,8,157
+26324,Redrock Cottages Portal Gem,9B960032,161.2,32.8,35.8,157
+32081,Redspire Portal Gem,17B2002A,132.6,25.8,44,157
+26325,Regina Cottages Portal Gem,66C30024,99.3,95.4,82,157
+27393,Relic,60490326,50,-112.9,0.1,157
+26326,Rending Talon Cottages Portal Gem,5AB0001D,91,107.6,56.4,157
+27394,Resting Place,614C029B,110,-170,0,157
+36506,Resting Place,614C029B,110,-170,0,157
+26327,Rethux Vale Portal Gem,68A50024,119.3,81.7,38,157
+26328,Return of Mumiyah Cottages Portal Gem,8477002C,132,75.1,13,157
+26329,Reviled Maw Cottages Portal Gem,80AA0014,70.7,93,84,157
+26330,Rhynntal Cottages Portal Gem,4EBA0013,58.2,65.9,47.6,157
+26331,Ring of Crystals Estates Portal Gem,BF430015,67.6,98.6,42,157
+8979,Rithwic Portal Gem,C98C0028,113.7,190.3,22,157
+26332,Riverbend Cottages Portal Gem,D07B0011,68.8,12.5,16,157
+26333,Rivermouth Villas Portal Gem,40BF0030,126.5,174.3,7.5,157
+26334,Ro-Nan Portal Gem,AB30002D,123.7,108.5,70.7,157
+52803,Rynthid Portal Gem,3032001C,83.3,89.2,132,157
+26335,Rytheran Dale Portal Gem,52B8001C,75.5,75.5,52,157
+26336,Sai-Nan Portal Gem,DD470026,112,123.9,33,157
+26337,Samsur Butte Cottages Portal Gem,92770033,157,64.7,60.6,157
+8980,Samsur Portal Gem,977B000C,25.8,73.9,0,157
+26340,San-Chin Portal Gem,D5630014,69.1,90.9,33.8,157
+26338,Sanai Portal Gem,68970024,105.4,92.1,16.8,157
+26339,Sanam Batal Villas Portal Gem,70A60024,98.7,77.5,46,157
+30268,Sanamar Portal Gem,33D90015,59.1,100.3,52,157
+26341,Sand Kings Cottages Portal Gem,956E0003,16.8,56.9,15.5,157
+26343,Sand Shallow Cottages Portal Gem,806F0026,101.8,120.3,17.1,157
+26342,Sand's Edge Portal Gem,A586003D,176.1,117.5,22.7,157
+26344,Sands-of-the-Skull Cottages Portal Gem,9C4D001D,88.9,106.3,10.3,157
+26345,Sawato Foothills Settlement Portal Gem,CE570027,114.4,148.5,31.5,157
+26346,Scimitar Lake Cottages Portal Gem,AE130024,98.1,86.1,146.2,157
+26347,Sclavavania Portal Gem,D1640019,76.6,19,6,157
+26348,Seaview Ridge Cottages Portal Gem,6EED002E,121.9,140.8,66.1,157
+26349,Secluded Valley Cottages Portal Gem,D3C0001B,84.3,52.1,99.1,157
+30808,Seething Skull,C090101,84.5,84.8,85,157
+26350,Sennon Valley Retreat Portal Gem,CFC0001C,92.8,83.8,0,157
+8782,Sepulcher of the Hopeslayer Portal Gem,2B002A8,276.6,-67.7,72,2040
+26351,Serpent Hills Settlement Portal Gem,8E400003,7,60.9,13.5,157
+30857,Sezzherei's Lair,23011A,77.2,-6.9,0,157
+30810,Shadow Cursed Totem,70F0107,132,108.2,218,157
+30831,Shadow Lugian Stronghold Portal Gem,1A8E0329,11.3,153.4,208.4,157
+26352,Shaky Ledge Cottages Portal Gem,89CD0035,151.5,109,121.3,157
+26353,Shara Portal Gem,B53B0014,67.7,78.3,40.2,157
+26354,Sharvale Portal Gem,7792001A,84.4,42.7,56.1,157
+26355,Shian-To Cottages Portal Gem,DF4C000C,47.3,83.5,23,157
+26356,Shield of Ispar Villas Portal Gem,AC4D0024,102.4,88.6,9.8,157
+26357,Shield of Valor Cottages Portal Gem,55A40023,97.9,70.5,58.4,157
+26358,Shore Vista Cottages Portal Gem,6B8E0024,109.9,74.5,29.7,157
+26359,Shou-Zin Portal Gem,D5510005,21.7,117.3,46.5,157
+8981,Shoushi Portal Gem,DA55001D,84.8,99,20,157
+8982,Shoyanen's Portal Gem,EA30002A,126.5,37,121,157
+26360,Siege Road Settlement Portal Gem,D47E0030,140.3,171.4,22,157
+26361,Siege Road Villas Portal Gem,D1830022,100.5,40.5,24.6,157
+30046,Silyun Portal Gem,26EC003D,175.9,110.3,80,157
+26362,Simda'r Villas Portal Gem,94190031,161.2,17.6,340,157
+30804,Singularity Caul Asylum,6045026F,60,-100,0,157
+26363,Slidara Cottages Portal Gem,E53F0026,0,0,0,157
+26364,Slinker Meadows Portal Gem,CA830024,107.4,84.7,31.9,157
+26365,Sliver-of-BlueCottages Portal Gem,42AA000F,28.3,161.3,71.4,157
+26366,Snakehead Portal Gem,C46C003D,171.2,105.9,49.2,157
+26367,Snowy Valley Portal Gem,74EA0019,76.6,20.4,109.3,157
+26368,Solstice Hill Portal Gem,A998001D,77.5,110.4,73.2,157
+26369,Soltan Villas Portal Gem,929E0024,119.6,90,110,157
+32933,Son of Pooky's Den,9701DA,0.3,-30.3,-12,157
+36507,Son of Pooky's Den,9701DA,0.3,-30.3,-12,157
+26370,Sonel Portal Gem,52DF0013,58.8,62.1,64.1,157
+26371,Songview Portal Gem,97CB0024,104.3,80.9,143.1,157
+26372,Sonpay Portal Gem,AB48001D,75.4,105.1,26,157
+30802,Soul Chalice,2A10166,260,0,-36,157
+26373,South Adjamaer Cottages Portal Gem,C51A001E,84.8,138.7,57.5,157
+26374,South Beach Pass Villas Portal Gem,D1AB0018,66.2,178.3,65.2,157
+26377,South Hebian-To Cottages Portal Gem,E348003C,183.2,84,22.7,157
+26378,South Hebian-To Estates Portal Gem,E7460016,53.4,132.2,42.9,157
+26379,South Khayyaban Cottages Portal Gem,A23D0006,6.5,122.3,68,157
+26380,South Lytelthorpe  Portal Gem,C27C0035,157.2,111,38.2,157
+26381,South Shoushi Villas Portal Gem,D64C0006,20.4,127.3,35.7,157
+26382,South Siege Villas Portal Gem,DA6F001D,73,107.2,23.9,157
+26383,South Uzis Villas Portal Gem,A4540005,20.8,97.5,56.1,157
+26384,South Victory Harbor Portal Gem,BC950012,69.3,45.2,26,157
+26386,South Yaraq Cottages Portal Gem,815E0012,61.9,29.3,0,157
+26375,Southeast Arwic Settlement Portal Gem,CAA30003,18.7,69.6,38,157
+26376,Southern Park Portal Gem,AD20002E,126.1,138.9,159.8,157
+26385,Southwest Hebian-To Settlement Portal Gem,EC49001D,90,99.1,32,157
+26387,Spire Hills Settlement Portal Gem,B13B0029,123.3,20.2,32.6,157
+26389,Stone Face Oasis Villas Portal Gem,9A810024,116.8,84,44,157
+26390,Stone Hollow Portal Gem,E53F0026,0,0,0,157
+26393,Stone Scar Settlement Portal Gem,9385002E,138.6,128.3,33.3,157
+26394,Stone Scythe Stronghold Portal Gem,56AC0021,100,15.8,84.7,157
+26395,Stone Triad Dell Portal Gem,80E1002B,134.6,51,92.4,157
+26388,Stonebend Cottages Portal Gem,9B910036,154.6,141.6,29.8,157
+26391,Stoneport Villas Portal Gem,E25F002B,140.8,61.7,0,157
+26392,Stonerune Cottages Portal Gem,89C90012,63.1,38.5,104.9,157
+26396,Stormbrow Portal Gem,9414002B,123.1,69,286,157
+26397,Stormtree Villas Portal Gem,53C50024,98.4,82.5,58.3,157
+26398,Strathelar's Watch Cottages Portal Gem,C7980003,13,68.3,8,157
+26399,Swamp Temple Place Portal Gem,B661003D,183.6,116.4,22,157
+26400,Sweet Maple Cottages Portal Gem,53E40024,98.1,84,27.7,157
+26401,Taklihuan Settlement Portal Gem,B04F0021,114.5,18.8,5.5,157
+26402,Tanshi Portal Gem,D346001A,92.6,29.6,40,157
+26403,Taralla Portal Gem,ACA6002D,140,100.2,151.7,157
+26404,Tarn Vinara Villas Portal Gem,5FA2002E,132.4,125.8,42,157
+26405,Tattered Ridge Portal Gem,B634003C,179.7,81.9,176.9,157
+26406,Tharesun Portal Gem,86F1000D,40,119,73.1,157
+26407,Thasali Cottages Portal Gem,995B0034,149.1,79.1,20,157
+30807,The Orphanage,65480290,90,-80,0.5,157
+26408,Thyrinn Cant Cottages Portal Gem,65E50024,107.1,86.6,58.3,157
+26409,Tia-Leh Homestead Portal Gem,5BA2001B,87.7,65.8,54.6,157
+26410,Tinkelo Hold Villas Portal Gem,AC950021,110.2,21,81.1,157
+26411,Tiofor Deeps Portal Gem,78B20023,111.7,63.8,89.3,157
+26413,Tou-Tou Penninsula Cottages Portal Gem,F24F0024,117.2,90.7,20,157
+26412,Tou-Tou Road Villas Portal Gem,F14A0006,18,130.3,30.8,157
+43020,Town Network Portal Gem,70145,70,-80,0,157
+26414,Tri-Ridge Portal Gem,E53F0026,0,0,0,157
+26415,Tusker Notch Portal Gem,84AC0024,108.7,89,104.1,157
+26416,Two Hills Cottages Portal Gem,56B0002C,127.6,94.1,76.9,157
+26417,Tyrrin Cottages Portal Gem,5AB40024,98.5,95.3,60.1,157
+26418,Unified Heart Villas Portal Gem,9390002C,123.6,79.8,30,157
+26419,Verena Portal Gem,61CA0026,103.8,124.5,67.2,157
+26420,Vesayan Overlook Portal Gem,E02A003C,183.3,76.2,124,157
+26421,Village Quan Portal Gem,CE680026,100.8,130.1,59.7,157
+26422,Villalabar Portal Gem,96330027,103.8,147.6,40,157
+32126,Vissidal Island Portal Gem,C8E2002A,136,42,0,157
+26423,Vulture's Eye Villas Portal Gem,A06E0022,114.6,27.6,26,157
+30809,Warrior's Emblem,C14B0007,16.4,159.7,20.6,157
+26151,West Baishi Settlement Portal Gem,C641001A,77.5,27.7,63.1,157
+26424,West Holtburg Villas Portal Gem,B2B90005,15.8,114.3,118.8,157
+26425,West Mayoi Mountain Villas Portal Gem,DB330021,113.8,13.4,170.5,157
+26426,West Norstead Portal Gem,B1DD0026,104.2,140.5,2.3,157
+26427,West Rithwic Estates Portal Gem,BB8E0023,103.8,68.1,48.3,157
+26429,West Uziz Settlement Portal Gem,9B5F0031,162.8,11.8,22.5,157
+26430,West Yanshi Namoon Portal Gem,B2640029,128.1,15.7,22.7,157
+26431,West Zaikhal Freehold Portal Gem,73940025,110.5,116,76,157
+26428,Westshore Cottages Portal Gem,3ECC0003,22.2,63,0,157
+26432,Whispering Pines Cottages Portal Gem,90AA0011,63.7,10.3,43.7,157
+26433,Wi Badlands Settlement Portal Gem,8C5F001E,81.4,125.5,14.9,157
+26434,Wilomine Villas Portal Gem,42AE000C,45.2,89.1,26.8,157
+26435,Windrune Cottages Portal Gem,83CD001E,92,137.6,151.1,157
+26436,Wisp Lake Cottages Portal Gem,7DE8001C,87.7,87.3,34.1,157
+27395,Wizard's Lab,60490326,50,-112.9,0.1,157
+26437,Wolfenvale Portal Gem,5BA6001B,93.2,57.7,48.5,157
+26438,Woodsbane Cottages Portal Gem,96B6001B,90.5,55.1,148,157
+26439,Woodshore Cottages Portal Gem,48E0000E,28.4,137.7,40.2,157
+26639,Xarabydun Portal Summoning Gem,934B0021,108.3,6.1,18.1,157
+26440,Xinh Portal Gem,CA1D002C,134.6,87.2,78.7,157
+26441,Yanshi Namoon North Portal Gem,B667003E,176.4,122.6,18,157
+8983,Yanshi Portal Gem,B46F001E,75.2,124.1,34.7,157
+8984,Yaraq Portal Gem,7D64000D,31.9,104.6,11.9,157
+26442,Yee Villas Portal Gem,52AB0014,67.5,84.1,100.3,157
+26443,Yinar Portal Gem,A9730005,16.3,113.9,30.6,157
+26444,Yukikaze  Portal Gem,BA250026,98.5,138,221.5,157
+26445,Yushad Ridge Cottages Portal Gem,9C70003C,171.5,75.8,24.6,157
+26446,Zabool Overlook Settlement Portal Gem,9B9B0037,165.8,162.1,76,157
+26447,Zaikhal Hills Villas Portal Gem,E53F0026,0,0,0,157
+26448,Zatara Portal Gem,ABDE0024,113.4,84.3,14.9,157
+26449,Zin-Dai Portal Gem,B953002C,126.2,81.9,18.3,157
+26450,Zoe's Place Portal Gem,E53F0026,0,0,0,157
+26451,Zon-Atara Portal Gem,E53F0026,0,0,0,157

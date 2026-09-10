@@ -58,6 +58,28 @@ impl Client {
         out
     }
 
+    /// The portal gems in the pack, as ways to get somewhere.
+    ///
+    /// A gem needs no skill, no components and no mana: carrying it is
+    /// the whole requirement, which makes it the cheapest hop a
+    /// character has and often the only one to a place with no portal
+    /// near it. It is spent when used, so a journey uses each once.
+    pub fn carried_gems(&self) -> Vec<ac_world::trip::Gem> {
+        self.world
+            .inventory()
+            .filter_map(|o| {
+                let g = ac_world::gems::of(o.weenie_class_id)?;
+                Some(ac_world::trip::Gem {
+                    guid: o.guid,
+                    name: g.name.clone(),
+                    exit: g.xy(),
+                    exit_cell: g.cell,
+                    summons: g.how() == ac_world::gems::Use::Summons,
+                })
+            })
+            .collect()
+    }
+
     /// Where a recall spell would land the character, if known: for a
     /// map, or a script deciding whether to cast it.
     pub fn recall_destination(&self, spell: u32) -> Option<Position> {

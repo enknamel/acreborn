@@ -19,3 +19,39 @@ dist/
 # line, so they must never be committed: one was, and the password had
 # to be changed.
 *.log
+
+# Editors and IDEs. Project files are one person's setup, not the
+# project's: a committed .idea sent every other machine someone else's
+# module paths.
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.fleet/
+.zed/
+
+# macOS and other desktop litter
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# Credentials and local overrides. Nothing here belongs to anyone but
+# the machine it is on.
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.keychain
+
+# Build and profiling leftovers
+/dist/
+*.profraw
+*.profdata
+perf.data*
+flamegraph.svg
+
