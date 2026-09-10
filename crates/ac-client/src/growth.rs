@@ -155,6 +155,17 @@ pub struct Growth {
     /// quarter.
     #[serde(alias = "comps_keep")]
     pub tapers_keep: u32,
+    /// Quest flags this character has earned, for the counters that
+    /// ask for one (the Rossu Morta and Whispering Blade chapter
+    /// houses, the Academy stores, and so on -- see
+    /// `ac_world::shops::Gate`).
+    ///
+    /// The server never tells a client which quests it has done, so
+    /// this is the player's word for it. Empty means those doors are
+    /// treated as shut, which costs a walk to the next counter rather
+    /// than a walk to a door that will not open. Society membership is
+    /// not listed here: the character carries that itself.
+    pub gates_open: Vec<String>,
     /// Sell what matches any of these searches (the inventory's
     /// language: `type:armor`, `value<50`).
     pub sell: Vec<String>,
@@ -175,6 +186,7 @@ impl Default for Growth {
             keep_stocked: vec![("Healing Kit".into(), 2)],
             ammo_keep: 250,
             tapers_keep: 1000,
+            gates_open: Vec::new(),
             // Vendor trash only. Gear worth keeping is left alone:
             // spelled armour and jewelry never match (see
             // `storage_worthy`), and what is left is capped by value so
@@ -2054,6 +2066,12 @@ impl Client {
         visited: &[Vec2],
         now: Instant,
     ) -> Option<(String, Vec2, Forecast)> {
+        // Counters this character can actually trade at. A society's
+        // archmage is a very good archmage and no use at all to
+        // somebody else's society, and a chapter house behind a quest
+        // portal is a journey to a door that will not open.
+        let society = self.society();
+        let quests = cfg.gates_open.clone();
         let skip = &self.autoplay.growth.skip_vendors;
         let allowed = |at: Vec2| {
             within.is_none_or(|w| at.distance(from) <= w)
@@ -2089,6 +2107,7 @@ impl Client {
             let best = ac_world::shops::all()
                 .iter()
                 .filter(|s| allowed(s.xy()) && s.xy().distance(from) <= ring)
+                .filter(|s| s.open_to(society, &quests))
                 .map(|s| (s, forecast(s, &wants, purse, &salables)))
                 .filter(|(_, f)| f.worth_going())
                 .min_by(|(a, fa), (b, fb)| {
@@ -2143,6 +2162,22 @@ impl Client {
         let n = self.grow_needs(cfg);
         self.autoplay.growth.needs_seen = Some((now, n.clone()));
         n
+    }
+
+    /// Which society this character belongs to, as `Faction1Bits`: 1
+    /// the Celestial Hand, 2 the Eldrytch Web, 4 the Radiant Blood, 0
+    /// none. The server sends it with the rest of the character's
+    /// properties, so this is knowledge rather than the player's word
+    /// for it -- and it is what the societies' own counters ask for.
+    pub fn society(&self) -> u32 {
+        const FACTION1_BITS: u32 = 281;
+        self.world
+            .stats
+            .ints
+            .iter()
+            .find(|(k, _)| *k == FACTION1_BITS)
+            .map(|(_, v)| (*v).max(0) as u32)
+            .unwrap_or(0)
     }
 
     /// Whether the character is stuck: short of something it needs to
@@ -3138,6 +3173,7 @@ mod tests {
             max_value: 0,
             buy_rate: 0.5,
             sell_rate: 2.0,
+            gate: None,
         }
     }
 
@@ -3148,6 +3184,25 @@ mod tests {
             value,
             stack,
         }
+    }
+
+    #[test]
+    fn a_counter_behind_a_door_is_not_planned_around() {
+        use ac_world::shops::Gate;
+        let mut hall = shop(
+            "Vermilia the Archmage",
+            vec![ware(37155, "Mana Scarab", 15_000)],
+        );
+        hall.gate = Some(Gate::Society(4));
+        // A very good archmage, and no use at all to anyone else's
+        // society or to nobody's.
+        assert!(hall.open_to(4, &[]));
+        assert!(!hall.open_to(2, &[]));
+        assert!(!hall.open_to(0, &[]));
+        let mut chapter = shop("Rossu Morta Quartermaster", vec![]);
+        chapter.gate = Some(Gate::Quest("RossuMortaChapterhouse_Flag".into()));
+        assert!(!chapter.open_to(4, &[]), "no society opens a quest door");
+        assert!(chapter.open_to(0, &["rossumortachapterhouse_flag".to_string()]));
     }
 
     #[test]

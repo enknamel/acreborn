@@ -31,6 +31,43 @@ pub struct Ware {
     pub value: u32,
 }
 
+/// What stands between a character and a counter.
+///
+/// Most shops are open to anyone who can walk to the door. These are
+/// not, and a party that plans around them plans a journey to a door
+/// that will not open.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Gate {
+    /// Belong to this society. The number is the `Faction1Bits` the
+    /// vendor asks for, which is the same property the character
+    /// carries: 1 the Celestial Hand, 2 the Eldrytch Web, 4 the
+    /// Radiant Blood.
+    Society(u32),
+    /// Have this quest flag. Every portal into the place the vendor
+    /// stands in asks for it, so the quest is the way in.
+    Quest(String),
+}
+
+impl Gate {
+    /// Said in words, for the log and for whoever is reading it.
+    pub fn tell(&self) -> String {
+        match self {
+            Gate::Society(bits) => format!("{} membership", society_name(*bits)),
+            Gate::Quest(q) => format!("the {q} quest"),
+        }
+    }
+}
+
+/// The society these `Faction1Bits` mean.
+pub fn society_name(bits: u32) -> &'static str {
+    match bits {
+        1 => "Celestial Hand",
+        2 => "Eldrytch Web",
+        4 => "Radiant Blood",
+        _ => "a society",
+    }
+}
+
 /// A shop: one vendor, where it stands, and what it deals in.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shop {
@@ -51,6 +88,9 @@ pub struct Shop {
     /// It pays `value * buy_rate` and charges `value * sell_rate`.
     pub buy_rate: f32,
     pub sell_rate: f32,
+    /// What a character must be or have done to trade here, if
+    /// anything. See [`Gate`].
+    pub gate: Option<Gate>,
 }
 
 impl Shop {
@@ -102,10 +142,26 @@ impl Shop {
     pub fn charges_for(&self, ware: &Ware) -> u32 {
         (ware.value as f32 * self.sell_rate).round().max(1.0) as u32
     }
+
+    /// Whether a character carrying these society bits and these quest
+    /// flags can trade here. An ungated shop is open to everyone.
+    ///
+    /// A gate nobody has proved they can pass is treated as shut. That
+    /// way round is the cheap mistake: walking past a society archmage
+    /// costs a walk to the next one, and walking to a door that will
+    /// not open costs the trip and the trip back.
+    pub fn open_to(&self, society: u32, quests: &[String]) -> bool {
+        match &self.gate {
+            None => true,
+            Some(Gate::Society(bits)) => society & bits != 0,
+            Some(Gate::Quest(q)) => quests.iter().any(|f| f.eq_ignore_ascii_case(q)),
+        }
+    }
 }
 
 const SELLS: &str = include_str!("../data/vendors.csv");
 const BUYS: &str = include_str!("../data/vendor_buys.csv");
+const GATES: &str = include_str!("../data/gates.csv");
 
 fn rows(text: &str, fields: usize) -> impl Iterator<Item = Vec<&str>> {
     text.lines()
@@ -149,8 +205,24 @@ fn parse(sells: &str, buys: &str) -> Vec<Shop> {
                 max_value: int(f[8]).unwrap_or(0),
                 buy_rate: num(f[9]).unwrap_or(1.0),
                 sell_rate: num(f[10]).unwrap_or(1.0),
+                gate: None,
             },
         );
+    }
+    // What stands in the way of the few counters that are not simply
+    // open (see `data/gates.sh`).
+    for f in rows(GATES, 4) {
+        let (Some(wcid), Some(cell)) = (int(f[0]), hex(f[1])) else {
+            continue;
+        };
+        let gate = match f[2].trim() {
+            "society" => int(f[3]).map(Gate::Society),
+            "quest" => Some(Gate::Quest(f[3].trim().to_string())),
+            _ => None,
+        };
+        if let (Some(shop), Some(gate)) = (shops.get_mut(&(wcid, cell)), gate) {
+            shop.gate = Some(gate);
+        }
     }
     for f in rows(sells, 10) {
         let (Some(vendor), Some(cell), Some(wcid)) = (int(f[0]), hex(f[2]), int(f[6])) else {
@@ -341,6 +413,51 @@ mod tests {
     }
 
     #[test]
+    fn a_gated_counter_is_shut_until_it_is_earned() {
+        let gated: Vec<&Shop> = all().iter().filter(|s| s.gate.is_some()).collect();
+        // Nine society placements in the three chapter halls, and the
+        // handful of shops behind quest-only portals.
+        assert!(gated.len() >= 20, "gated shops: {}", gated.len());
+        let society = |name: &str| {
+            gated
+                .iter()
+                .find(|s| s.name == name)
+                .unwrap_or_else(|| panic!("{name} is gated"))
+        };
+        // The Radiant Blood's archmage: a very good one, and shut to
+        // everyone else.
+        let vermilia = society("Vermilia the Archmage");
+        assert_eq!(vermilia.gate, Some(Gate::Society(4)));
+        assert!(vermilia.open_to(4, &[]), "a Radiant Blood member");
+        assert!(!vermilia.open_to(1, &[]), "the Celestial Hand");
+        assert!(!vermilia.open_to(0, &[]), "nobody");
+        assert_eq!(
+            vermilia.gate.as_ref().unwrap().tell(),
+            "Radiant Blood membership"
+        );
+        // Its Mana Scarab is real, but three of the six counters that
+        // sell one are the three societies' own.
+        assert!(vermilia.stocks("Mana Scarab").is_some());
+        // A quest gate opens on the flag and nothing else.
+        let quest = gated
+            .iter()
+            .find(|s| matches!(&s.gate, Some(Gate::Quest(_))))
+            .expect("a quest-gated shop");
+        let Some(Gate::Quest(flag)) = quest.gate.clone() else {
+            unreachable!()
+        };
+        assert!(quest.open_to(0, std::slice::from_ref(&flag)));
+        assert!(
+            quest.open_to(0, &[flag.to_uppercase()]),
+            "case does not matter"
+        );
+        assert!(!quest.open_to(7, &[]), "no society opens a quest door");
+        // Everything else is open to anyone who can walk there.
+        let open = all().iter().filter(|s| s.gate.is_none()).count();
+        assert!(open > 1_000, "open shops: {open}");
+    }
+
+    #[test]
     fn what_is_farmed_is_told_from_what_is_bought() {
         let of = |name: &str| {
             all()
@@ -472,6 +589,7 @@ mod tests {
             max_value: 1000,
             buy_rate: 0.5,
             sell_rate: 2.0,
+            gate: None,
         };
         // A kind it does not take.
         assert_eq!(shop.pays_for(food, 100), None);

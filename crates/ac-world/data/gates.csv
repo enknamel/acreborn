@@ -1,0 +1,27 @@
+# Vendors you cannot simply walk up to, and what stands in the way.
+# A society row's requirement is the Faction1Bits the character must
+# carry; a quest row's is the flag the portals in ask for.
+# vendor_wcid,cell,kind,requirement
+2047,BE900102,quest,fachubtrothyrsrestportal_flag
+11409,28E01C7,quest,PortalPalenqualPermissionGiven
+12718,8004032A,quest,SeniorGuardComplete
+12718,8703032A,quest,SeniorGuardComplete
+12718,8C04032A,quest,SeniorGuardComplete
+30997,80040278,quest,SeniorGuardComplete
+30997,87030278,quest,SeniorGuardComplete
+30997,8C040278,quest,SeniorGuardComplete
+33000,810124,quest,WhisperingBladeChapterhouse_Flag
+33001,810135,quest,WhisperingBladeChapterhouse_Flag
+33002,81012D,quest,WhisperingBladeChapterhouse_Flag
+33021,80012D,quest,RossuMortaChapterhouse_Flag
+38574,B7026B,society,1
+38575,B8026B,society,2
+38576,B9026B,society,4
+38687,B7026A,society,1
+38688,B7026A,society,1
+38689,B8026A,society,2
+38690,B8026A,society,2
+38691,B9026A,society,4
+38692,B9026A,society,4
+41730,800133,quest,RossuMortaChapterhouse_Flag
+41731,810133,quest,WhisperingBladeChapterhouse_Flag
