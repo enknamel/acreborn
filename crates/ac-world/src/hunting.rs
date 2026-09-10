@@ -34,6 +34,98 @@ pub struct Ground {
 /// hunting ground: one chicken behind a house is not worth a journey.
 pub const LEAST_SPAWNS: u32 = 2;
 
+/// How to hunt a piece of ground.
+///
+/// Grounds are not alike and the same behaviour does not suit them. A
+/// few spawn hard enough that a character standing still is never
+/// idle, and walking about there only takes it away from the fight.
+/// Most need covering on foot to turn anything up. A thin one is
+/// emptied in a few minutes and is worth leaving.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Tactic {
+    /// Work it out from how busy the ground is. The usual choice.
+    #[default]
+    Auto,
+    /// Hold the spot and let them come.
+    Camp,
+    /// Walk a circuit of the ground, and keep walking it.
+    Patrol,
+    /// Walk it, and once it is quiet go and find another.
+    Sweep,
+}
+
+impl Tactic {
+    pub const ALL: [Tactic; 4] = [Tactic::Auto, Tactic::Camp, Tactic::Patrol, Tactic::Sweep];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Tactic::Auto => "to suit the ground",
+            Tactic::Camp => "hold the spot",
+            Tactic::Patrol => "walk the ground",
+            Tactic::Sweep => "clear it, then move on",
+        }
+    }
+}
+
+/// A ground with at least this many spawn entries keeps a character
+/// busy standing still: they arrive faster than they can be killed.
+///
+/// Chosen against the table rather than guessed. Across the 991
+/// grounds the middle is 7 entries and the top tenth begins at 30, so
+/// this cut takes the busiest 14% -- the handful of places that really
+/// are a queue -- and leaves the rest to be walked.
+pub const CROWDED: u32 = 24;
+
+/// Below this there is not enough to be worth staying for once what is
+/// there has been killed. Just over half of all grounds are this thin.
+pub const THIN: u32 = 8;
+
+impl Ground {
+    /// What [`Tactic::Auto`] settles on for this ground, from how many
+    /// spawn entries its generators hold.
+    pub fn suggested_tactic(&self) -> Tactic {
+        if self.count >= CROWDED {
+            Tactic::Camp
+        } else if self.count < THIN {
+            Tactic::Sweep
+        } else {
+            Tactic::Patrol
+        }
+    }
+}
+
+/// The tactic to actually use: the one asked for, or the one the
+/// ground suggests when that is [`Tactic::Auto`]. Without a ground
+/// (nothing known about where we stand) `Auto` walks, which turns
+/// something up either way.
+pub fn tactic_for(asked: Tactic, ground: Option<&Ground>) -> Tactic {
+    match asked {
+        Tactic::Auto => ground.map_or(Tactic::Patrol, |g| g.suggested_tactic()),
+        chosen => chosen,
+    }
+}
+
+/// Grounds whose most common creature's name contains `needle`, or
+/// whose landblock is written in it (`"A9B4"`), nearest `from` first.
+///
+/// This is what a player types to say where the party should hunt.
+pub fn search(needle: &str, from: Vec2) -> Vec<&'static Ground> {
+    let needle = needle.trim().to_lowercase();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let as_block = u32::from_str_radix(needle.trim_start_matches("0x"), 16).ok();
+    let mut v: Vec<&Ground> = all()
+        .iter()
+        .filter(|g| {
+            g.name.to_lowercase().contains(&needle)
+                || as_block.is_some_and(|b| g.landblock >> 16 == b || g.landblock == b)
+        })
+        .collect();
+    v.sort_by(|a, b| a.at.distance(from).total_cmp(&b.at.distance(from)));
+    v
+}
+
 impl Ground {
     /// Whether a character of `level` should hunt here, allowing
     /// `margin` levels either way: what spawns most must be within the
@@ -218,6 +310,81 @@ mod tests {
         assert_eq!(
             v[0].at,
             Vec2::new(0xA9 as f32 * 192.0 + 74.0, 0xB2 as f32 * 192.0 + 83.0)
+        );
+    }
+    #[test]
+    fn a_crowded_ground_is_worth_standing_still_on() {
+        let busy = Ground {
+            landblock: 0xA9B4_0000,
+            at: Vec2::ZERO,
+            count: 40,
+            min_level: 1,
+            max_level: 10,
+            level: 5,
+            name: "Drudge".into(),
+        };
+        assert_eq!(busy.suggested_tactic(), Tactic::Camp);
+        // A middling one needs covering on foot.
+        let middling = Ground {
+            count: 12,
+            ..busy.clone()
+        };
+        assert_eq!(middling.suggested_tactic(), Tactic::Patrol);
+        // A thin one is emptied and left.
+        let thin = Ground {
+            count: 3,
+            ..busy.clone()
+        };
+        assert_eq!(thin.suggested_tactic(), Tactic::Sweep);
+    }
+
+    #[test]
+    fn asking_for_a_tactic_beats_the_suggestion() {
+        let busy = Ground {
+            landblock: 1,
+            at: Vec2::ZERO,
+            count: 40,
+            min_level: 1,
+            max_level: 10,
+            level: 5,
+            name: "Drudge".into(),
+        };
+        assert_eq!(tactic_for(Tactic::Auto, Some(&busy)), Tactic::Camp);
+        assert_eq!(tactic_for(Tactic::Patrol, Some(&busy)), Tactic::Patrol);
+        assert_eq!(tactic_for(Tactic::Sweep, Some(&busy)), Tactic::Sweep);
+        // Nothing known about where we stand: walking turns something
+        // up either way.
+        assert_eq!(tactic_for(Tactic::Auto, None), Tactic::Patrol);
+        assert_eq!(tactic_for(Tactic::Camp, None), Tactic::Camp);
+    }
+
+    #[test]
+    fn a_ground_can_be_found_by_name_or_by_landblock() {
+        let from = Vec2::ZERO;
+        // Every ground names the creature that spawns most often.
+        let named = search("drudge", from);
+        assert!(!named.is_empty(), "no drudge ground anywhere");
+        // Nearest first.
+        for pair in named.windows(2) {
+            assert!(pair[0].at.distance(from) <= pair[1].at.distance(from));
+        }
+        // And by landblock, the way a player reads it off the map.
+        let block = named[0].landblock >> 16;
+        let by_block = search(&format!("{block:04X}"), from);
+        assert!(
+            by_block.iter().any(|g| g.landblock == named[0].landblock),
+            "{block:04X} did not find its own ground"
+        );
+        assert!(search("", from).is_empty());
+    }
+
+    #[test]
+    fn a_landblock_with_no_spawns_is_not_a_ground() {
+        assert!(at(0xFFFF_0000).is_none());
+        let some = all().first().expect("a ground");
+        assert_eq!(
+            at(some.landblock).map(|g| g.landblock),
+            Some(some.landblock)
         );
     }
 }

@@ -121,6 +121,13 @@ pub struct Growth {
     /// How many levels either side of the character's a ground may be
     /// (see `ac_world::hunting::Ground::suits`).
     pub level_margin: u32,
+    /// Hunt this landblock and no other, 0 to pick whatever suits.
+    /// A party follows its leader's choice.
+    #[serde(default)]
+    pub hunt_at: u32,
+    /// How to hunt the ground once there.
+    #[serde(default)]
+    pub tactic: ac_world::hunting::Tactic,
     /// Seconds with nothing to fight before moving on.
     pub idle_before_move: f32,
     /// Walk to a vendor when the pack is full or supplies are short.
@@ -148,6 +155,8 @@ impl Default for Growth {
             auto_xp: true,
             hunt_grounds: true,
             level_margin: 8,
+            hunt_at: 0,
+            tactic: ac_world::hunting::Tactic::default(),
             idle_before_move: 60.0,
             town_runs: true,
             keep_stocked: vec![("Healing Kit".into(), 2)],
@@ -1013,9 +1022,34 @@ impl Client {
         if self.autoplay.growth.next_hunt.is_some_and(|t| now < t) {
             return false;
         }
-        // On a ground with nothing in sight, look about first.
-        if self.autoplay.growth.hunting_at == Some(here) && self.autoplay.growth.roams < ROAMS {
-            let n = self.autoplay.growth.roams;
+        // What to do on a ground with nothing in sight depends on the
+        // ground. A few spawn hard enough that standing still is never
+        // idle and walking away only leaves the fight; most need
+        // covering on foot; a thin one is worth leaving once it is
+        // quiet.
+        let tactic = ac_world::hunting::tactic_for(cfg.tactic, ac_world::hunting::at(here << 16));
+        if tactic == ac_world::hunting::Tactic::Camp
+            && self.autoplay.growth.hunting_at == Some(here)
+        {
+            // Hold the spot. Saying so once is enough; repeating it
+            // every frame would drown the log.
+            if self.autoplay.doing != Doing::Idle {
+                self.autoplay
+                    .say(Doing::Idle, "holding the spot; they come to us");
+            }
+            self.autoplay.growth.idle_since = Some(now);
+            return false;
+        }
+        // Patrol keeps walking the ground; only Sweep gives up on it.
+        let roams_allowed = if tactic == ac_world::hunting::Tactic::Patrol {
+            u32::MAX
+        } else {
+            ROAMS
+        };
+        if self.autoplay.growth.hunting_at == Some(here)
+            && self.autoplay.growth.roams < roams_allowed
+        {
+            let n = self.autoplay.growth.roams % ROAMS;
             let angle = (n as f32 + 0.5) * std::f32::consts::TAU / ROAMS as f32;
             let origin = ac_world::landblock_origin(cell);
             let goal = (me + Vec2::new(angle.cos(), angle.sin()) * ROAM).clamp(
@@ -1040,10 +1074,14 @@ impl Client {
         if let Some(h) = st.hunting_at {
             skip.push(h);
         }
-        // On a team, the party's ground comes before any this
-        // character would pick for itself: four characters leaving town
-        // from four different shops would otherwise go four ways.
-        if let Some((lb, at, name)) = self.party_ground() {
+        // A ground the player named is where the party hunts, whatever
+        // the level rules would have chosen. A follower still takes the
+        // leader's, so naming one on the leader moves everybody.
+        let pinned = (cfg.hunt_at != 0)
+            .then(|| ac_world::hunting::at(cfg.hunt_at))
+            .flatten()
+            .map(|g| (g.landblock, g.at, g.name.clone()));
+        if let Some((lb, at, name)) = pinned.or_else(|| self.party_ground()) {
             if self.autoplay.growth.hunting_at != Some(lb) && self.grow_travel(at, now) {
                 let st = &mut self.autoplay.growth;
                 st.bound = Some((lb, at, name.clone()));

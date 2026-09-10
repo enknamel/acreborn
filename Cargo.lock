@@ -130,6 +130,7 @@ dependencies = [
  "ac-formats",
  "ac-net",
  "glam 0.30.10",
+ "serde",
  "thiserror 2.0.20",
  "tracing",
 ]

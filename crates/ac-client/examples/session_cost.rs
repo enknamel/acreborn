@@ -129,7 +129,8 @@ fn main() {
         let lb =
             ac_formats::landblock::CellLandblock::parse(lb_id, &assets.cell.read(lb_id).unwrap())
                 .unwrap();
-        let sampler = ac_scene::scenery::TerrainSampler::new(&lb, &region.land_defs.land_height_table);
+        let sampler =
+            ac_scene::scenery::TerrainSampler::new(&lb, &region.land_defs.land_height_table);
         let local = |x: f32, y: f32| {
             let z = sampler.height_at(Vec3::new(x, y, 0.0)).unwrap_or(0.0);
             Vec3::new(x, y, z)
@@ -250,11 +251,20 @@ fn main() {
     let marginal_rss = (after.0 as f64 - warm.0 as f64) / n as f64;
     let marginal_fp = (after.1 as f64 - warm.1 as f64) / n as f64;
     println!();
-    println!("process, warm and empty:  rss {:>7.1} MB   footprint {:>7.1} MB",
-        warm.0 as f64 / 1024.0, warm.1 as f64 / 1024.0);
-    println!("each further session:     rss {:>7.2} MB   footprint {:>7.2} MB",
-        marginal_rss / 1024.0, marginal_fp / 1024.0);
-    println!("idle tick:                {:.1} us per session", per_tick * 1e6);
+    println!(
+        "process, warm and empty:  rss {:>7.1} MB   footprint {:>7.1} MB",
+        warm.0 as f64 / 1024.0,
+        warm.1 as f64 / 1024.0
+    );
+    println!(
+        "each further session:     rss {:>7.2} MB   footprint {:>7.2} MB",
+        marginal_rss / 1024.0,
+        marginal_fp / 1024.0
+    );
+    println!(
+        "idle tick:                {:.1} us per session",
+        per_tick * 1e6
+    );
     // Deliberately no "and so you could run N thousand of them". These
     // sessions never hear from a server, so they carry no objects, no
     // landblocks and no scenery -- the parts that grow with play. This

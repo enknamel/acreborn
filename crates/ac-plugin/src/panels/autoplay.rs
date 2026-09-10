@@ -45,6 +45,9 @@ pub struct AutoplayView {
     pub counts: Vec<usize>,
     /// Who salvages for the team ("" when nobody carries an Ust).
     pub salvager: String,
+    /// Where the character stands, so a ground search can put the
+    /// nearest first.
+    pub at: glam::Vec2,
 }
 
 /// How many of `items` each search matches. A blank or meaningless
@@ -745,6 +748,80 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     );
                 ui.checkbox(&mut cfg.growth.hunt_grounds, "go to a hunting ground that suits")
                     .on_hover_text("Move on when nothing worth fighting is about");
+
+                // Where the party hunts, and how it hunts there.
+                let here = ac_world::hunting::at(cfg.growth.hunt_at);
+                ui.horizontal(|ui| {
+                    ui.label("hunt at");
+                    let chosen = match here {
+                        Some(g) => format!("{} ({:04X})", g.name, g.landblock >> 16),
+                        None => "anywhere that suits".to_string(),
+                    };
+                    egui::ComboBox::from_id_salt("autoplay.hunt_at")
+                        .selected_text(chosen)
+                        .width(230.0)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(cfg.growth.hunt_at == 0, "anywhere that suits")
+                                .clicked()
+                            {
+                                cfg.growth.hunt_at = 0;
+                            }
+                            caption(ui, "search by creature or landblock");
+                            ui.add(
+                                egui::TextEdit::singleline(drafts.get("autoplay.hunt_search"))
+                                    .hint_text("drudge, or A9B4")
+                                    .desired_width(210.0),
+                            );
+                            let needle = drafts.get("autoplay.hunt_search").clone();
+                            for g in ac_world::hunting::search(&needle, v.at)
+                                .into_iter()
+                                .take(20)
+                            {
+                                let label = format!(
+                                    "{} ({:04X}) lvl {}-{}, {} spawns",
+                                    g.name,
+                                    g.landblock >> 16,
+                                    g.min_level,
+                                    g.max_level,
+                                    g.count
+                                );
+                                if ui
+                                    .selectable_label(cfg.growth.hunt_at == g.landblock, label)
+                                    .clicked()
+                                {
+                                    cfg.growth.hunt_at = g.landblock;
+                                }
+                            }
+                        });
+                })
+                .response
+                .on_hover_text(
+                    "Pin the party to one place. The leader's choice is the \
+                     party's, so everyone goes there. Left on 'anywhere that \
+                     suits', a ground is picked by level and distance.",
+                );
+                ui.horizontal(|ui| {
+                    ui.label("and hunt it by");
+                    egui::ComboBox::from_id_salt("autoplay.tactic")
+                        .selected_text(cfg.growth.tactic.label())
+                        .width(190.0)
+                        .show_ui(ui, |ui| {
+                            for t in ac_world::hunting::Tactic::ALL {
+                                ui.selectable_value(&mut cfg.growth.tactic, t, t.label());
+                            }
+                        });
+                });
+                if let Some(g) = here {
+                    caption(
+                        ui,
+                        format!(
+                            "{} spawn points; on its own this ground would be {}",
+                            g.count,
+                            g.suggested_tactic().label()
+                        ),
+                    );
+                }
                 ui.checkbox(&mut cfg.growth.town_runs, "run to town for supplies")
                     .on_hover_text("Sell the loot, buy what is short, when the pack fills up");
                 ui.horizontal(|ui| {
@@ -867,6 +944,14 @@ pub fn view(c: &Client) -> AutoplayView {
         doing: c.autoplay.doing.label().to_string(),
         status: c.autoplay.status.clone(),
         salvager: c.best_salvager().map(|(n, _)| n).unwrap_or_default(),
+        at: c
+            .player
+            .as_ref()
+            .map(|p| {
+                let w = p.world_position();
+                glam::Vec2::new(w.x, w.y)
+            })
+            .unwrap_or_default(),
     }
 }
 
@@ -937,6 +1022,7 @@ impl Autoplay {
                 status: "fighting Drudge Skulker".into(),
                 counts,
                 salvager: "Brannoc".into(),
+                at: glam::Vec2::ZERO,
             }),
             show: true,
             saved: config,
@@ -1257,6 +1343,33 @@ mod tests {
         // existing player quietly loses it.
         let old: Loot = serde_json::from_str(r#"{"enabled":true,"rules":[],"always":[],"never":[],"appraise":true,"salvage":true,"hand_off":true}"#).unwrap();
         assert!(old.tidy_pack);
+    }
+
+    #[test]
+    fn where_and_how_to_hunt_is_remembered() {
+        use ac_world::hunting::Tactic;
+        // Out of the box: anywhere that suits, hunted to suit.
+        let out = Config::default().growth;
+        assert_eq!(out.hunt_at, 0);
+        assert_eq!(out.tactic, Tactic::Auto);
+
+        let mut p = Autoplay::default();
+        p.saved.growth.hunt_at = 0xA9B4_0000;
+        p.saved.growth.tactic = Tactic::Camp;
+        let mut settings = Settings::new();
+        p.save(&mut settings);
+        let mut back = Autoplay::default();
+        back.load(&settings);
+        assert_eq!(back.saved.growth.hunt_at, 0xA9B4_0000);
+        assert_eq!(back.saved.growth.tactic, Tactic::Camp);
+    }
+
+    #[test]
+    fn a_rules_file_written_before_tactics_existed_still_loads() {
+        let old: ac_client::growth::Growth =
+            serde_json::from_str(r#"{"auto_xp":true,"hunt_grounds":true}"#).unwrap();
+        assert_eq!(old.hunt_at, 0, "no ground pinned");
+        assert_eq!(old.tactic, ac_world::hunting::Tactic::Auto);
     }
 
     #[test]
