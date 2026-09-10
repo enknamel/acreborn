@@ -1081,6 +1081,46 @@ mod tests {
     }
 
     #[test]
+    fn an_edit_is_live_at_once_and_written_a_moment_later() {
+        let dir = std::env::temp_dir().join(format!("acswarm-writes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let library = Library::default();
+        library.open(&dir);
+
+        // A profile nobody has seen is written straight away, so that
+        // the file exists to be found and shared.
+        let mut profile = Profile {
+            name: "notes".into(),
+            note: "first".into(),
+            rules: Vec::new(),
+        };
+        library.put(profile.clone()).expect("saved");
+        assert_eq!(Profile::load(&dir, "notes").expect("on disk").note, "first");
+
+        // Typing in it is live at once...
+        profile.note = "a much longer note, typed a letter at a time".into();
+        library.put(profile.clone()).expect("held");
+        assert_eq!(library.get("notes").expect("live").note, profile.note);
+        // ...and has not gone to the disk yet, which is the point: a
+        // file write per keystroke is what this avoids.
+        assert_eq!(
+            Profile::load(&dir, "notes").expect("still there").note,
+            "first"
+        );
+
+        // It catches up.
+        library.flush_all();
+        assert_eq!(
+            Profile::load(&dir, "notes").expect("caught up").note,
+            profile.note
+        );
+        // And a flush with nothing waiting does nothing at all.
+        library.flush();
+        library.flush_all();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_rule_switched_off_is_off_for_everybody_at_once() {
         let dir = std::env::temp_dir().join(format!("acswarm-library-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -1118,7 +1158,9 @@ mod tests {
         assert_eq!(look(), Some(Verdict::None));
 
         // And it is on the disk that way, for the next time the app
-        // starts and for whoever it is sent to.
+        // starts and for whoever it is sent to -- once the writing has
+        // caught up with the editing.
+        library.flush_all();
         assert_eq!(library.reload(), 1);
         assert_eq!(look(), Some(Verdict::None));
         assert_eq!(library.names(), vec!["party".to_string()]);
@@ -1171,7 +1213,19 @@ mod tests {
 pub struct Library {
     dir: std::sync::RwLock<PathBuf>,
     by_name: std::sync::RwLock<std::collections::BTreeMap<String, std::sync::Arc<Profile>>>,
+    /// Profiles changed but not yet written, and when each was last
+    /// written. See [`Library::put`].
+    unwritten: std::sync::Mutex<std::collections::BTreeMap<String, std::time::Instant>>,
 }
+
+/// How long a profile may sit changed-but-unwritten.
+///
+/// Being live and being saved are different things. An edit has to
+/// reach every character at once, which is memory and costs nothing;
+/// it does not have to reach the disk at once, and writing the file on
+/// every keystroke of a rule's name would. So the shelf is updated the
+/// moment anything changes and the file follows a moment later.
+const WRITE_AFTER: std::time::Duration = std::time::Duration::from_millis(750);
 
 impl Library {
     /// The one every session shares. A test that wants its own makes
@@ -1252,22 +1306,101 @@ impl Library {
             .collect()
     }
 
-    /// Write a profile out and put it in front of every character at
-    /// once. This is what an editor calls when anything changes, a
-    /// rule being switched off included.
+    /// Put a profile in front of every character at once, and write it
+    /// out shortly afterwards.
+    ///
+    /// This is what an editor calls when anything changes, a rule being
+    /// switched off included, so it is called on every keystroke of a
+    /// rule's name. The change is live immediately -- that is the point
+    /// of it -- but the file is left for [`Library::flush`] a moment
+    /// later, unless the profile is new, in which case it is written at
+    /// once so that the file exists.
     pub fn put(&self, profile: Profile) -> std::io::Result<()> {
-        let dir = self.dir();
-        profile.save(&dir)?;
+        let name = profile.name.clone();
+        let is_new = !self
+            .by_name
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&name);
         self.by_name
             .write()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(profile.name.clone(), std::sync::Arc::new(profile));
+            .insert(name.clone(), std::sync::Arc::new(profile));
+        if is_new {
+            return self.write_out(&name);
+        }
+        self.unwritten
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(name)
+            .or_insert_with(std::time::Instant::now);
         Ok(())
+    }
+
+    /// Write out anything changed and left long enough. Called once a
+    /// frame; almost always a lock and a look at the clock.
+    pub fn flush(&self) {
+        let due: Vec<String> = {
+            let waiting = self.unwritten.lock().unwrap_or_else(|e| e.into_inner());
+            if waiting.is_empty() {
+                return;
+            }
+            let now = std::time::Instant::now();
+            waiting
+                .iter()
+                .filter(|(_, since)| now.duration_since(**since) >= WRITE_AFTER)
+                .map(|(name, _)| name.clone())
+                .collect()
+        };
+        for name in due {
+            if let Err(e) = self.write_out(&name) {
+                tracing::warn!("cannot write loot profile {name}: {e}");
+            }
+        }
+    }
+
+    /// Write everything outstanding, whatever the clock says: for
+    /// shutting down, where a moment later never comes.
+    pub fn flush_all(&self) {
+        let due: Vec<String> = self
+            .unwritten
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        for name in due {
+            if let Err(e) = self.write_out(&name) {
+                tracing::warn!("cannot write loot profile {name}: {e}");
+            }
+        }
+    }
+
+    fn write_out(&self, name: &str) -> std::io::Result<()> {
+        let dir = self.dir();
+        let profile = self
+            .by_name
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+            .cloned();
+        self.unwritten
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(name);
+        match profile {
+            Some(p) => p.save(&dir).map(|_| ()),
+            None => Ok(()),
+        }
     }
 
     /// Forget one and delete its file.
     pub fn remove(&self, name: &str) -> std::io::Result<()> {
         let dir = self.dir();
+        self.unwritten
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(name.trim());
         self.by_name
             .write()
             .unwrap_or_else(|e| e.into_inner())

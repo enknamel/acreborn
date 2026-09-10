@@ -179,6 +179,11 @@ impl Host {
         dt: f32,
         now: Instant,
     ) -> Requests {
+        // Anything the profile editor changed a moment ago goes to
+        // disk now. The change itself was live the instant it was made
+        // (see `profile::Library::put`); this is only the file
+        // catching up.
+        ac_client::profile::Library::shared().flush();
         for ev in events {
             if let Event::Autoplay { doing, text } = ev {
                 let name = clients

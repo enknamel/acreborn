@@ -871,9 +871,45 @@ pub fn storage_worthy(stats: &ItemStats) -> bool {
 /// player said, then what the loot rules tagged, then the standing
 /// searches. Anything the searches do not name is kept -- a character
 /// that empties its pack into a vendor loses the suit it was building.
+/// Things that never go over a counter, whatever any rule, profile or
+/// tag says.
+///
+/// A rule is a policy and this is not: it is the difference between a
+/// character that can be trusted with its own pack and one that has to
+/// be watched. Tinkering is spent on an item and cannot be got back;
+/// an inscription is somebody's writing; equipped gear is what the
+/// character fights and lives in; and an item the server has flagged
+/// unsellable will be refused anyway, so offering it is a wasted round
+/// trip and, worse, a chance to get stuck on it.
+pub fn never_sell(stats: &ItemStats) -> bool {
+    stats.wielded || stats.tinks > 0 || stats.inscribed || stats.unsellable || stats.value == 0
+}
+
+/// The same, for an item the character is actually carrying: a pack
+/// with anything in it is refused by the server and would take its
+/// contents with it if it were not.
+pub fn never_sell_carried(stats: &ItemStats, holds_anything: bool) -> bool {
+    never_sell(stats) || (stats.item_type & item_type::CONTAINER != 0 && holds_anything)
+}
+
+/// Why an item is one of those, for the log.
+pub fn never_sell_because(stats: &ItemStats) -> &'static str {
+    if stats.wielded {
+        "it is equipped"
+    } else if stats.tinks > 0 {
+        "it has been tinkered"
+    } else if stats.inscribed {
+        "it is inscribed"
+    } else if stats.unsellable {
+        "no vendor will take it"
+    } else {
+        "it is worth nothing"
+    }
+}
+
 pub fn sellable(stats: &ItemStats, ammo: bool, rules: &SellRules) -> bool {
     // Not sellable at all.
-    if stats.wielded || stats.value == 0 || ammo {
+    if never_sell(stats) || ammo {
         return false;
     }
     // The player's own word, before anything else.
@@ -2029,12 +2065,22 @@ impl Client {
             .filter_map(|o| {
                 let stats = self.stats_of(o.guid)?;
                 let ammo = o.valid_locations & equip::MISSILE_AMMO != 0;
+                // A pack with things in it is not loot to be sold; the
+                // server refuses it, and it holds the character's
+                // belongings.
+                let holds_anything = self
+                    .world
+                    .objects
+                    .values()
+                    .any(|it| it.container == Some(o.guid));
+                if never_sell_carried(&stats, holds_anything) {
+                    return None;
+                }
                 let sells = match &vendor {
                     Some(p) => {
-                        // Wielded gear and ammunition are never handed
-                        // over whatever a rule says: a character that
-                        // sells its bow cannot shoot.
-                        !stats.wielded
+                        // A profile does not get past the things that
+                        // never go over a counter (see `never_sell`).
+                        !never_sell(&stats)
                             && !ammo
                             && matches!(
                                 p.judge(
@@ -2903,6 +2949,65 @@ mod tests {
             value,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn what_is_never_sold_is_never_sold() {
+        let cfg = Growth::default();
+        let sell_everything = vec!["value>0".to_string()];
+        let rules = SellRules {
+            sell: &sell_everything,
+            keep: &[],
+            can_wield: Some(false),
+            tags: &BTreeMap::new(),
+        };
+        // A rule that says "sell anything" still does not sell these.
+        let plain = item("Copper Pea", item_type::MISC, 40);
+        assert!(sellable(&plain, false, &rules), "the control");
+
+        let mut tinkered = plain.clone();
+        tinkered.tinks = 1;
+        assert!(!sellable(&tinkered, false, &rules));
+        assert_eq!(never_sell_because(&tinkered), "it has been tinkered");
+
+        let mut inscribed = plain.clone();
+        inscribed.inscribed = true;
+        assert!(!sellable(&inscribed, false, &rules));
+        assert_eq!(never_sell_because(&inscribed), "it is inscribed");
+
+        let mut worn = plain.clone();
+        worn.wielded = true;
+        assert!(!sellable(&worn, false, &rules));
+        assert_eq!(never_sell_because(&worn), "it is equipped");
+
+        // The server's own word: offering one of these is a refusal
+        // waiting to happen, and a refusal is what gets a character
+        // stuck at a counter.
+        let mut refused = plain.clone();
+        refused.unsellable = true;
+        assert!(!sellable(&refused, false, &rules));
+        assert_eq!(never_sell_because(&refused), "no vendor will take it");
+
+        // And a tag put on by hand does not get past them either: the
+        // loot rules' "sell this" is a policy, and these are not.
+        let mut tags = BTreeMap::new();
+        tags.insert(tinkered.guid, LootAction::Sell);
+        let tagged = SellRules {
+            sell: &cfg.sell,
+            keep: &[],
+            can_wield: Some(false),
+            tags: &tags,
+        };
+        assert!(!sellable(&tinkered, false, &tagged));
+
+        // A pack is only loot when it is empty. One with anything in
+        // it takes the character's belongings with it, and the server
+        // refuses it besides.
+        let sack = item("Sack", item_type::CONTAINER, 65);
+        assert!(never_sell_carried(&sack, true), "a full sack stays");
+        assert!(!never_sell_carried(&sack, false), "an empty one may go");
+        // The rule is about packs, not about everything carried.
+        assert!(!never_sell_carried(&plain, true));
     }
 
     #[test]

@@ -83,9 +83,10 @@ pub fn default_dir() -> PathBuf {
     Settings::config_dir().join("profiles")
 }
 
-/// The library's folder, opened at [`default_dir`] the first time it is
-/// wanted. Nothing else in the client sets it, so the editor is what
-/// decides where a shared profile is dropped.
+/// The library's folder. The host opens it as it reads the settings, so
+/// this is the fallback for a run that never did (a tool, a test): a
+/// library with nowhere to write would drop profiles in the working
+/// directory, which is nobody's idea of where they live.
 fn dir_of(library: &Library) -> PathBuf {
     let dir = library.dir();
     if !dir.as_os_str().is_empty() {
@@ -715,6 +716,7 @@ fn ask_row(ui: &mut egui::Ui, salt: &str, ask: &mut Ask, editor: &mut Editor) {
                 op,
                 value,
             } => {
+                let was = *kind;
                 egui::ComboBox::from_id_salt(format!("{salt}.propkind"))
                     .selected_text(kind.kind().label())
                     .width(92.0)
@@ -723,6 +725,12 @@ fn ask_row(ui: &mut egui::Ui, salt: &str, ask: &mut Ask, editor: &mut Editor) {
                             ui.selectable_value(kind, k, k.kind().label());
                         }
                     });
+                // The same number means a different property in each
+                // bag, so the property is chosen again rather than
+                // quietly becoming another one.
+                if *kind != was {
+                    *id = 0;
+                }
                 prop_picker(ui, &format!("{salt}.prop"), kind.kind(), id, editor);
                 op_box(ui, &format!("{salt}.op"), op);
                 ui.add(egui::DragValue::new(value).speed(1.0));
@@ -1221,6 +1229,13 @@ pub fn draw(egui: &egui::Context, v: &ProfilesView, editor: &mut Editor) -> Acti
     a
 }
 
+/// Whether two profile names would land in the same file. They differ
+/// as names -- the library holds them apart -- but a disk that does not
+/// mind the case of a file name holds only one of them.
+fn same_file(a: &str, b: &str) -> bool {
+    profile::tidy_name(a).eq_ignore_ascii_case(&profile::tidy_name(b))
+}
+
 /// Show the folder in the file manager, so a profile can be copied out
 /// or dropped in without a file dialog.
 fn reveal(dir: &std::path::Path) -> std::io::Result<()> {
@@ -1383,18 +1398,29 @@ impl LootProfiles {
             self.put(&library, p);
         }
         if let Some((from, to)) = a.rename {
-            // Written under the new name first: a rename that fails
-            // half way leaves the profile where it was rather than
-            // nowhere.
             if let Some(p) = library.get(&from) {
                 let mut moved = (*p).clone();
                 moved.name = to.clone();
-                self.put(&library, moved);
-                if self.editor.status.is_empty() {
-                    if let Err(e) = library.remove(&from) {
-                        tracing::warn!("loot profiles: {e}");
-                        self.editor.status = format!("renamed, but the old file stayed: {e}");
+                if same_file(&from, &to) {
+                    // "rares" to "Rares" is one file on a disk that
+                    // does not mind the case, so the old name goes
+                    // first: writing first and deleting after would
+                    // delete what was just written.
+                    let _ = library.remove(&from);
+                    self.put(&library, moved);
+                } else {
+                    // Written under the new name first, so a rename
+                    // that fails half way leaves the profile where it
+                    // was rather than nowhere.
+                    self.put(&library, moved);
+                    if self.editor.status.is_empty() {
+                        if let Err(e) = library.remove(&from) {
+                            tracing::warn!("loot profiles: {e}");
+                            self.editor.status = format!("renamed, but the old file stayed: {e}");
+                        }
                     }
+                }
+                if self.editor.status.is_empty() {
                     self.chosen = to;
                     self.editor.open_rule = None;
                 }
@@ -1442,6 +1468,13 @@ impl Plugin for LootProfiles {
         }
         if !self.show {
             return;
+        }
+        // The shelf seeds itself with a starter profile, so the editor
+        // opens on something to read rather than on an empty page.
+        if matches!(self.source, Source::Live) && self.chosen.is_empty() {
+            if let Some(first) = Self::library(cx).names().first() {
+                self.chosen = first.clone();
+            }
         }
         let chosen = self.chosen.clone();
         let v = match &self.source {
@@ -1586,6 +1619,13 @@ mod tests {
             .trial
             .iter()
             .any(|t| matches!(t.verdict, Verdict::NeedsId(_))));
+    }
+
+    #[test]
+    fn a_rename_that_is_only_a_change_of_case_is_the_same_file() {
+        assert!(same_file("rares", "Rares"));
+        assert!(same_file("mage/archer", "mage-archer"));
+        assert!(!same_file("Rares", "Rares 2"));
     }
 
     #[test]

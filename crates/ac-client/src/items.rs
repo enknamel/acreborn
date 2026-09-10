@@ -115,6 +115,14 @@ pub struct ItemStats {
     pub tinks: u32,
     pub bonded: bool,
     pub attuned: bool,
+    /// Somebody has written on it. An inscription is a person's, not
+    /// the item's, and a vendor is not where it should end up.
+    pub inscribed: bool,
+    /// The server says it will not take this over a counter at all:
+    /// `IsSellable` false, or `Retained`, which is the flag a player
+    /// puts on a thing to stop exactly this. Quest items, the
+    /// Academy's bread, tokens.
+    pub unsellable: bool,
 }
 
 /// Damage type bits as words ("Slashing, Fire").
@@ -303,6 +311,19 @@ impl ItemStats {
         self.tinks = a.int(171).unwrap_or(0).max(0) as u32;
         self.bonded = a.int(33).unwrap_or(0) != 0;
         self.attuned = a.int(114).unwrap_or(0) != 0;
+        self.inscribed = a
+            .strings
+            .iter()
+            .any(|(k, v)| *k == 7 && !v.trim().is_empty());
+        // Absent means sellable: only the things a vendor refuses
+        // carry `IsSellable`, and they carry it as false. `Retained`
+        // is the other way round -- present and true is the player
+        // saying "not this one" -- and the server refuses it just the
+        // same.
+        self.unsellable = a
+            .bools
+            .iter()
+            .any(|(k, v)| (*k == 69 && !*v) || (*k == 91 && *v));
         self.spells = a.spells.iter().map(|s| spell_name(*s)).collect();
         self.with_launcher_guess()
     }
