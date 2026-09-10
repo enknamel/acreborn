@@ -1558,8 +1558,20 @@ impl App {
                 player::Input::default()
             }
         });
+        // The player touching the movement keys takes the character
+        // back. Nothing the client was doing on its own -- a journey, a
+        // walk to a corpse, following someone -- gets to keep steering
+        // while a hand is on the keys. Autoplay is the exception: it is
+        // switched on to be in charge, and turning it off is how you
+        // take the character back for good.
+        let steering = input
+            .as_ref()
+            .is_some_and(|i| i.forward != 0.0 || i.strafe != 0.0 || i.climb != 0.0 || i.jump);
         let count = self.nets.len();
         let net = self.nets.get_mut(i)?;
+        if steering && !net.client.autoplay.config.enabled {
+            net.client.stop_moving_by_itself();
+        }
         let frame = net.client.tick(input, self.frame_dt, now);
         let events = net.client.drain_events();
         for ev in &events {

@@ -189,6 +189,13 @@ pub fn note_price(face: u32) -> u32 {
     ((NOTE_MARKUP * face as f32) - 0.1).ceil().max(1.0) as u32
 }
 
+/// The 250,000 trade note, which players call the MMD after the Roman
+/// numeral printed on it: notes are denominated in hundreds of pyreals,
+/// and 250,000 over 100 is 2,500, which is MMD. It is the only
+/// denomination worth buying to carry money in, so it is the only one
+/// bought.
+pub const MMD: u32 = 20630;
+
 /// Every trade note in the world, largest face value first.
 pub fn trade_notes() -> &'static [Ware] {
     static NOTES: OnceLock<Vec<Ware>> = OnceLock::new();

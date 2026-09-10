@@ -531,22 +531,28 @@ fn vendor_rings(within: Option<f32>) -> Vec<f32> {
 /// bought is kept back as coin first and only the rest is converted.
 ///
 /// `reserve` is the coin to keep: the shopping still to do, plus
-/// whatever float the rules say to carry. Returns `(stock guid, how
-/// many)` per note, largest face value first.
+/// whatever float the rules say to carry.
 ///
-/// The largest is the 250,000, which players call the MMD after the
-/// Roman numeral printed on it: notes are denominated in hundreds of
-/// pyreals, and 250,000 over 100 is 2,500, which is MMD.
+/// Only MMDs are bought: the 250,000 note, named for the Roman numeral
+/// printed on it, since notes are denominated in hundreds of pyreals
+/// and 250,000 over 100 is 2,500. Every note costs the same fifteen
+/// percent, so a smaller one buys less carrying for the same fee.
 fn notes_to_buy(purse: u32, reserve: u32, stock: &[Stock]) -> Vec<(u32, u32)> {
     let Some(mut spare) = purse.checked_sub(reserve) else {
         return Vec::new();
     };
+    // Only the MMD. The point of a note is to carry money in as few
+    // items as possible, and a smaller denomination does that worse for
+    // the same fifteen percent: buying a spread of them is strictly
+    // worse than buying the big one and leaving the remainder as coin.
     let mut notes: Vec<&Stock> = stock
         .iter()
-        .filter(|s| s.item_type & item_type::PROMISSORY_NOTE != 0 && s.price > 0)
+        .filter(|s| {
+            s.item_type & item_type::PROMISSORY_NOTE != 0
+                && s.wcid == ac_world::shops::MMD
+                && s.price > 0
+        })
         .collect();
-    // Largest first: the point is to carry the money in as few items as
-    // it will go into.
     notes.sort_by_key(|s| std::cmp::Reverse(s.price));
     let mut out = Vec::new();
     for note in notes {
@@ -664,6 +670,17 @@ pub fn sellable(stats: &ItemStats, ammo: bool, rules: &SellRules) -> bool {
         let q = Query::parse(f);
         !q.is_empty() && stats.matches(&q)
     })
+}
+
+impl State {
+    /// Let go of any journey the growth rules were part-way through.
+    /// Used when the player takes the character back (see
+    /// `Client::stop_moving_by_itself`).
+    pub fn let_go(&mut self) {
+        self.bound = None;
+        self.bound_since = None;
+        self.after_out = None;
+    }
 }
 
 impl Client {
@@ -2608,7 +2625,8 @@ mod tests {
         Stock {
             guid,
             name: format!("Trade Note ({face})"),
-            wcid: 2600 + guid,
+            // Only the MMD is ever bought, so a test note is one.
+            wcid: ac_world::shops::MMD,
             item_type: item_type::PROMISSORY_NOTE,
             price: ac_world::shops::note_price(face),
             stack: None,
@@ -2699,11 +2717,11 @@ mod tests {
     #[test]
     fn the_takings_become_notes_once_the_shopping_is_paid_for() {
         // 250,000 face costs 287,500; 100,000 face costs 115,000.
-        let shelf = vec![note(1, 250_000), note(2, 100_000), note(3, 1_000)];
+        let shelf = vec![note(1, 250_000)];
         // A purse of 400,000 with 50,000 still to spend leaves 350,000:
         // one big note, then what fits after it.
         let plan = notes_to_buy(400_000, 50_000, &shelf);
-        assert_eq!(plan[0].0, 1, "the biggest note first");
+        assert_eq!(plan[0].0, 1, "the MMD");
         assert_eq!(plan[0].1, 1);
         let spent: u32 = plan
             .iter()
@@ -2728,6 +2746,21 @@ mod tests {
     }
 
     #[test]
+    fn only_the_mmd_is_bought() {
+        // Every note costs the same fifteen percent, so a smaller one
+        // buys less carrying for the same fee. A shelf of small notes
+        // is not worth converting into.
+        let mut small = note(5, 1_000);
+        small.wcid = 2623;
+        assert!(notes_to_buy(500_000, 0, &[small]).is_empty());
+        // With the MMD there too, that is what is taken.
+        let mut small = note(5, 1_000);
+        small.wcid = 2623;
+        let plan = notes_to_buy(500_000, 0, &[small, note(6, 250_000)]);
+        assert_eq!(plan.iter().map(|(g, _)| *g).collect::<Vec<_>>(), vec![6]);
+    }
+
+    #[test]
     fn no_more_notes_are_bought_than_fit_in_a_stack() {
         // A trade note stacks 250 to a slot, so a purse that could buy
         // thousands of the small ones still buys one stack.
@@ -2738,7 +2771,7 @@ mod tests {
 
     #[test]
     fn a_shop_that_has_only_a_few_notes_left_sells_only_those() {
-        let mut small = note(1, 100_000);
+        let mut small = note(1, 250_000);
         small.stack = Some(2);
         let shelf = vec![small];
         let plan = notes_to_buy(1_000_000, 0, &shelf);

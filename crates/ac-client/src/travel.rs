@@ -592,6 +592,26 @@ impl Client {
         self.travel.goal
     }
 
+    /// Give the character back to whoever is at the keyboard.
+    ///
+    /// Everything the client does that moves someone on its own: the
+    /// journey it was walking, the route it was following, the person
+    /// it was keeping up with, the corpse it was closing on. A hand on
+    /// the movement keys means none of that gets to steer, and a client
+    /// that keeps pulling against the player is worse than one that
+    /// does nothing.
+    pub fn stop_moving_by_itself(&mut self) {
+        let was_busy = self.travel.trip.is_some() || self.follow.is_some();
+        self.cancel_travel();
+        if self.follow.take().is_some() {
+            self.steering.reset();
+        }
+        self.autoplay.growth.let_go();
+        if was_busy {
+            tracing::info!("travel: the player is steering; letting go");
+        }
+    }
+
     pub fn cancel_travel(&mut self) {
         if self.travel.trip.take().is_some() {
             tracing::info!("travel: cancelled");

@@ -514,6 +514,11 @@ const GIVE_EVERY: Duration = Duration::from_millis(700);
 /// at a time and answers in its own time.
 const MERGE_EVERY: Duration = Duration::from_millis(600);
 
+/// How often one item is taken from a corpse. The server moves one at a
+/// time and refuses the rest as "you're too busy", so they go one by
+/// one rather than all at once.
+const TAKE_EVERY: Duration = Duration::from_millis(400);
+
 /// How far from its leader a follower keeping `keep` metres may stray
 /// before following comes before everything else.
 pub fn follow_break(keep: f32) -> f32 {
@@ -948,6 +953,10 @@ pub struct Autoplay {
     last_debuff: Option<Instant>,
     last_give: Option<Instant>,
     last_merge: Option<Instant>,
+    /// Items decided on but not yet taken from the open corpse, and
+    /// when the last one was asked for. The server takes one at a time.
+    take_queue: Vec<u32>,
+    last_take: Option<Instant>,
     last_recruit: Option<Instant>,
     /// Where the journey after a far-off leader was bound, to plan
     /// again once it has moved on.
@@ -1713,11 +1722,13 @@ impl Client {
                 self.autoplay.appraising = false;
                 return false;
             }
-            let mut took = 0;
-            for g in &items {
-                let Some(stats) = self.stats_of(*g) else {
-                    continue;
-                };
+            // Decide once, then take them one at a time. The server
+            // does one move at a time and refuses the rest as "you're
+            // too busy", queueing at most one; asking for eight at once
+            // got one item and seven refusals, and closing the corpse
+            // straight afterwards left the rest with nowhere to be
+            // found. So the wanted items become a queue.
+            if self.autoplay.take_queue.is_empty() && self.autoplay.last_take.is_none() {
                 let own_corpse = self
                     .world
                     .open_container
@@ -1727,24 +1738,61 @@ impl Client {
                         let me = self.world.stats.name.to_lowercase();
                         !me.is_empty() && o.name.to_lowercase() == format!("corpse of {me}")
                     });
-                let action = if own_corpse {
-                    LootAction::Keep
-                } else {
-                    loot_action(&stats, &cfg)
-                };
-                if action.takes() {
-                    tracing::info!("autoplay: taking {} ({})", stats.name, action.label());
-                    self.take(*g);
-                    self.autoplay.tag(*g, action);
-                    took += 1;
+                let mut queue = Vec::new();
+                for g in &items {
+                    let Some(stats) = self.stats_of(*g) else {
+                        continue;
+                    };
+                    let action = if own_corpse {
+                        LootAction::Keep
+                    } else {
+                        loot_action(&stats, &cfg)
+                    };
+                    if action.takes() {
+                        tracing::info!("autoplay: taking {} ({})", stats.name, action.label());
+                        self.autoplay.tag(*g, action);
+                        queue.push(*g);
+                    }
                 }
+                if queue.is_empty() {
+                    self.close_container();
+                    self.autoplay.looted.push(guid);
+                    self.autoplay.corpse = None;
+                    self.autoplay.appraising = false;
+                    self.autoplay.say(Doing::Looting, "nothing worth taking");
+                    return true;
+                }
+                self.autoplay.take_queue = queue;
             }
+            // Whatever has left the corpse is done with.
+            let still: Vec<u32> = self.autoplay.take_queue.clone();
+            self.autoplay.take_queue = still
+                .into_iter()
+                .filter(|g| items.contains(g) && !self.world.is_carried(*g))
+                .collect();
+            if let Some(next) = self.autoplay.take_queue.first().copied() {
+                let ready = self
+                    .autoplay
+                    .last_take
+                    .is_none_or(|t| now.duration_since(t) >= TAKE_EVERY);
+                if ready {
+                    self.take(next);
+                    self.autoplay.last_take = Some(now);
+                }
+                return true;
+            }
+            let what = self
+                .world
+                .objects
+                .get(&guid)
+                .map(|o| o.name.clone())
+                .unwrap_or_else(|| "the corpse".to_string());
             self.close_container();
             self.autoplay.looted.push(guid);
             self.autoplay.corpse = None;
             self.autoplay.appraising = false;
-            self.autoplay
-                .say(Doing::Looting, format!("took {took} item(s)"));
+            self.autoplay.last_take = None;
+            self.autoplay.say(Doing::Looting, format!("emptied {what}"));
             return true;
         }
         // Look for one nearby that we have not emptied.
