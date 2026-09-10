@@ -1027,7 +1027,7 @@ impl Client {
         // idle and walking away only leaves the fight; most need
         // covering on foot; a thin one is worth leaving once it is
         // quiet.
-        let tactic = ac_world::hunting::tactic_for(cfg.tactic, ac_world::hunting::at(here << 16));
+        let tactic = ac_world::hunting::tactic_for(cfg.tactic, ac_world::hunting::at(here));
         if tactic == ac_world::hunting::Tactic::Camp
             && self.autoplay.growth.hunting_at == Some(here)
         {

@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn a_crowded_ground_is_worth_standing_still_on() {
         let busy = Ground {
-            landblock: 0xA9B4_0000,
+            landblock: 0xA9B4,
             at: Vec2::ZERO,
             count: 40,
             min_level: 1,

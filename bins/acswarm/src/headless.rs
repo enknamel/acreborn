@@ -268,6 +268,17 @@ pub fn run(cli: crate::Cli) -> Result<()> {
     host.register(Box::new(ac_script::ScriptPlugin::new(
         ac_script::default_dir(),
     )));
+    // The rules set up in the window are the rules a windowless session
+    // should play by: which ground to hunt, how to hunt it, what to keep
+    // stocked. Without this a headless session ran on the defaults and
+    // there was no way to tell it otherwise.
+    if !cli.no_settings {
+        host.load_settings(
+            cli.settings
+                .clone()
+                .unwrap_or_else(ac_plugin::Settings::default_path),
+        );
+    }
     let period = Duration::from_secs_f64(1.0 / cli.tick_hz as f64);
     println!(
         "headless: {} session(s) to {}, {} Hz ({} ms per tick), {} scripted line(s), {}",

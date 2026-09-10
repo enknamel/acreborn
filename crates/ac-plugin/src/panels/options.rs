@@ -10,6 +10,8 @@ use ac_client::player::MovementRules;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OptionsView {
+    /// The log filter in force, as a `tracing` line.
+    pub log_filter: String,
     /// (option, enabled) in panel order.
     pub rows: Vec<(CharacterOption, bool)>,
     /// The client-side run speed multiplier, times 100 (so the view can
@@ -35,9 +37,12 @@ pub const MOVEMENT_RULES_KEY: &str = "options.movement_rules";
 /// Blackboard key the draw distance is published on, metres as a number
 /// (0 = no limit); the viewer reads it each frame.
 pub const DRAW_DISTANCE_KEY: &str = "render.draw_distance";
+/// Which log lines reach the terminal, as a `tracing` filter line.
+pub const LOG_FILTER_KEY: &str = "log.filter";
 
 pub fn view(c: &Client) -> OptionsView {
     OptionsView {
+        log_filter: String::new(),
         rows: OPTIONS.iter().map(|o| (*o, c.option_enabled(o))).collect(),
         speed_boost_pct: (c.speed_boost * 100.0).round() as u32,
         jump_height_cm: (c.jump_height * 100.0).round() as u32,
@@ -62,6 +67,8 @@ pub struct Changes {
     pub movement_rules: Option<MovementRules>,
     /// The player clicked "Change…" to re-pick the game data folder.
     pub pick_data_dir: bool,
+    /// A new log filter line, for the host to apply and remember.
+    pub log_filter: Option<String>,
 }
 
 /// The remembered game data folder, for the Options panel to show.
@@ -213,6 +220,56 @@ pub fn draw(egui: &egui::Context, v: &OptionsView) -> Changes {
             changed.pick_data_dir = true;
         }
         ui.separator();
+        // Logging. Each part of the client can be turned up on its own,
+        // which is how you watch one thing misbehave without drowning
+        // in everything else.
+        ui.label("Logging");
+        super::caption(ui, "what reaches the terminal, per part of the client");
+        let filter = v.log_filter.clone();
+        let mut next: Option<String> = None;
+        ui.horizontal(|ui| {
+            ui.label("everything else");
+            let base = crate::logging::base_of(&filter);
+            egui::ComboBox::from_id_salt("log.base")
+                .selected_text(&base)
+                .width(90.0)
+                .show_ui(ui, |ui| {
+                    for lvl in crate::logging::LEVELS {
+                        if ui.selectable_label(base == *lvl, *lvl).clicked() {
+                            next = Some(crate::logging::with_base(&filter, lvl));
+                        }
+                    }
+                });
+        });
+        for (system, what) in crate::logging::SYSTEMS {
+            ui.horizontal(|ui| {
+                ui.add_sized(
+                    egui::vec2(96.0, 18.0),
+                    egui::Label::new(egui::RichText::new(*system).small()),
+                )
+                .on_hover_text(*what);
+                let now = crate::logging::level_of(&filter, system);
+                let shown = now.clone().unwrap_or_else(|| "(default)".to_string());
+                egui::ComboBox::from_id_salt(("log", system))
+                    .selected_text(shown)
+                    .width(90.0)
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_label(now.is_none(), "(default)").clicked() {
+                            next = Some(crate::logging::with_level(&filter, system, None));
+                        }
+                        for lvl in crate::logging::LEVELS {
+                            let on = now.as_deref() == Some(*lvl);
+                            if ui.selectable_label(on, *lvl).clicked() {
+                                next = Some(crate::logging::with_level(&filter, system, Some(lvl)));
+                            }
+                        }
+                    });
+            });
+        }
+        super::caption(ui, &filter);
+        changed.log_filter = next;
+
+        ui.separator();
         if ui
             .button("Reset window layout")
             .on_hover_text("Put every panel back where it opens by default")
@@ -247,6 +304,9 @@ pub struct Options {
     /// [`MovementRules::Unrestricted`], so the player's own run, jump and
     /// flying settings apply until they ask to be held to the rules.
     movement_rules: MovementRules,
+    /// Which log lines reach the terminal, as a `tracing` filter line.
+    /// Empty means the app's default.
+    log_filter: String,
     /// Whether the rules were holding the character back last tick, so
     /// a change can be said once in the chat log.
     was_safe: Option<bool>,
@@ -257,7 +317,9 @@ pub struct Options {
 impl Options {
     pub fn demo() -> Self {
         Options {
+            log_filter: crate::logging::DEFAULT.to_string(),
             source: Source::Demo(OptionsView {
+                log_filter: crate::logging::DEFAULT.to_string(),
                 rows: OPTIONS
                     .iter()
                     .enumerate()
@@ -302,10 +364,14 @@ impl Plugin for Options {
         if let Some(r) = settings.get::<MovementRules>(MOVEMENT_RULES_KEY) {
             self.movement_rules = r;
         }
+        if let Some(f) = settings.get::<String>(LOG_FILTER_KEY) {
+            self.log_filter = f;
+        }
     }
 
     fn save(&self, settings: &mut Settings) {
         settings.set("options.show", self.show);
+        settings.set(LOG_FILTER_KEY, &self.log_filter);
         if let Some(b) = self.speed_boost {
             settings.set("options.speed_boost", b);
         }
@@ -400,6 +466,9 @@ impl Plugin for Options {
                 .map(|x| x as f32);
             v.draw_distance_m = on_board.or(self.draw_distance).unwrap_or(0.0).round() as u32;
         }
+        if v.log_filter.is_empty() {
+            v.log_filter = self.log_filter.clone();
+        }
         let changed = draw(egui, &v);
         if super::closed("options") {
             self.show = false;
@@ -410,6 +479,12 @@ impl Plugin for Options {
         }
         if changed.pick_data_dir {
             cx.pick_data_dir = true;
+        }
+        if let Some(f) = changed.log_filter {
+            // The app owns the filter; the board carries the new line to
+            // it, and the panel remembers it for next time.
+            self.log_filter = f.clone();
+            cx.board.set_local(LOG_FILTER_KEY, f);
         }
         if let (Source::Live, Some(c)) = (&self.source, cx.try_client()) {
             for (o, on) in changed.options {

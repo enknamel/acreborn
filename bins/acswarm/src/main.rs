@@ -11,6 +11,7 @@
 mod camera;
 mod gpu;
 mod headless;
+mod logging;
 mod particles;
 mod perf;
 mod scene;
@@ -99,6 +100,13 @@ struct Cli {
     /// Headless: print every chat line the server sends.
     #[arg(long)]
     log_chat: bool,
+    /// Play by the rules in this settings file rather than the usual
+    /// one (`~/.config/acswarm/ui.json`, or `$ACSWARM_CONFIG_DIR`).
+    #[arg(long)]
+    settings: Option<PathBuf>,
+    /// Ignore the settings file and play by the defaults.
+    #[arg(long)]
+    no_settings: bool,
     /// For every session without a character of this name: create one
     /// from the CharGen table (see --heritage, --gender, --template,
     /// --start-area) and enter the world with it.
@@ -730,6 +738,20 @@ impl App {
         }
         if r.quit {
             self.quit_requested = true;
+        }
+        // A new log filter chosen in the options panel.
+        let chosen: Option<String> = self
+            .plugins
+            .board
+            .get(ac_plugin::panels::options::LOG_FILTER_KEY)
+            .and_then(|v| v.as_str().map(str::to_string));
+        if let Some(f) = chosen {
+            if f != logging::current() {
+                match logging::set(&f) {
+                    Ok(()) => tracing::info!("log filter: {f}"),
+                    Err(e) => tracing::warn!("log filter {f:?}: {e}"),
+                }
+            }
         }
         if r.pick_data_dir {
             self.change_data_dir();
@@ -2421,12 +2443,13 @@ fn parse_look(assets: &ac_scene::Assets, spec: &str) -> Result<ac_scene::chargen
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("acswarm=info")),
-        )
-        .init();
+    // Reloadable, so the log can be turned up on one subsystem while
+    // the app runs (see the Logging section of the options panel).
+    // What was chosen last time is in the settings, which live beside
+    // the data folder and can be read before any of it is open.
+    let saved: Option<String> = ac_plugin::Settings::load(&ac_plugin::Settings::default_path())
+        .get(ac_plugin::panels::options::LOG_FILTER_KEY);
+    logging::init(saved.as_deref());
     // Finder (and some launchers) pass a `-psn_...` process-serial arg;
     // drop it so the parser does not choke when the app is double-clicked.
     let args = std::env::args_os().filter(|a| !a.to_string_lossy().starts_with("-psn"));
