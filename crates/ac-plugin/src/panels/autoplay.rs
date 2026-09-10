@@ -1080,11 +1080,17 @@ impl Plugin for Autoplay {
         }
         let saved = self.saved.clone();
         let i = cx.index;
-        if !self.applied.insert(i) {
+        if self.applied.contains(&i) {
             return;
         }
+        // Marked as done only once it actually reached the session. It
+        // used to be marked first, so a tick where the client was not
+        // yet there threw the rules away and never tried again: a
+        // headless run would silently play by the defaults, and whether
+        // it did came down to timing.
         if let Some(c) = cx.try_client() {
             c.autoplay.config = saved;
+            self.applied.insert(i);
         }
     }
 
