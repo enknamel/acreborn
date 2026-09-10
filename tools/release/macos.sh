@@ -51,6 +51,22 @@ APP=$DIST/acswarm.app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 sed "s/VERSION/$VERSION/g" tools/release/Info.plist > "$APP/Contents/Info.plist"
 cp "$BIN_DIR/acviewer" "$APP/Contents/MacOS/acviewer"
+
+# The app icon. macOS does not round an icon's corners for you, so the
+# source already carries its own rounded alpha; iconutil only wants the
+# sizes.
+ICONSET="$(mktemp -d)/acswarm.iconset"
+mkdir -p "$ICONSET"
+for size in 16 32 64 128 256 512; do
+  sips -z $size $size tools/release/appicon.png \
+    --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  sips -z $((size * 2)) $((size * 2)) tools/release/appicon.png \
+    --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+# 1024 is the @2x of 512 and has no 1x of its own.
+rm -f "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_64x64@2x.png"
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/acswarm.icns"
+echo "icon: $(du -h "$APP/Contents/Resources/acswarm.icns" | cut -f1)"
 for b in acbot acclient aclauncher; do cp "$BIN_DIR/$b" "$DIST/$b"; done
 cp -R scripts "$DIST/scripts"
 cp LICENSE README.md "$DIST/"
