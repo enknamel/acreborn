@@ -89,6 +89,10 @@ const SETTLE: Duration = Duration::from_secs(5);
 /// Least time between two town runs. A run that could sell nothing
 /// leaves the pack as full as it found it, and the next is not until
 /// this has passed.
+/// How long to leave it after a trip to town that bought and sold
+/// nothing. Long enough that a character which cannot afford what it
+/// needs goes back to earning instead of shuttling between counters.
+const FUTILE_RUN_WAIT: Duration = Duration::from_secs(300);
 const RUN_EVERY: Duration = Duration::from_secs(8 * 60);
 /// Most vendors visited in one run.
 const STOPS_PER_RUN: u32 = 3;
@@ -325,8 +329,13 @@ pub struct State {
     /// This character has given the quartermaster its sale loot and its
     /// order. Cleared whenever the mode changes.
     pub handed_over: bool,
+    /// Something was actually bought on the run in progress.
+    pub bought_anything: bool,
     /// How many trips the quartermaster has made this time out.
     pub round: u32,
+    /// The last run to town ended without buying or selling anything.
+    /// Another one straight away would do the same, so it waits.
+    pub run_was_futile: bool,
     last_raise: Option<Instant>,
     /// The pool as it stood when the last rank was bought, and when.
     raise_pending: Option<(i64, Instant)>,
@@ -1463,9 +1472,12 @@ impl Client {
             holding_orders: self.holding_orders(),
             bill: needs.iter().map(|n| self.rough_cost(n)).sum(),
             purse: self.spendable(),
-            // Short of something, and nothing left to pay for it with.
-            // The trip has given what it can; the rest is earned.
-            broke: !needs.is_empty() && self.spendable() == 0,
+            // Short of something the trip cannot supply: either nothing
+            // left to pay with, or a trip that came back with nothing,
+            // which says the same thing about this town. Either way the
+            // character is done shopping and goes back to earning.
+            broke: !needs.is_empty()
+                && (self.spendable() == 0 || self.autoplay.growth.run_was_futile),
             free_space: self.free_space(),
             order: needs
                 .iter()
@@ -1813,13 +1825,25 @@ impl Client {
         // apply: it would leave the rest waiting at the hunting ground
         // for nothing. The retry delay still holds, since it means a
         // vendor could not be reached at all.
+        // The party having agreed to shop lifts the throttle that stops
+        // a lone character wearing a path to the vendor -- but not when
+        // the last trip came back with nothing. Without that a party
+        // that cannot buy what it needs walks between counters for ever.
         let party_restocking = !self.autoplay.growth.mode.hunting();
-        if !party_restocking
-            && self
-                .autoplay
-                .growth
-                .last_run
-                .is_some_and(|t| now.duration_since(t) < RUN_EVERY)
+        let wait = if party_restocking {
+            if self.autoplay.growth.run_was_futile {
+                FUTILE_RUN_WAIT
+            } else {
+                Duration::ZERO
+            }
+        } else {
+            RUN_EVERY
+        };
+        if self
+            .autoplay
+            .growth
+            .last_run
+            .is_some_and(|t| now.duration_since(t) < wait)
         {
             return false;
         }
@@ -2179,6 +2203,9 @@ impl Client {
                     );
                 }
                 let mut bought = Vec::new();
+                if !orders.is_empty() {
+                    self.autoplay.growth.bought_anything = true;
+                }
                 for (guid, amount) in &orders {
                     self.buy_amount(*guid, *amount);
                     let name = stock
@@ -2287,7 +2314,13 @@ impl Client {
                 self.autoplay.growth.skip_vendors.push((at, now));
             }
         }
+        // A trip that neither bought nor sold anything achieved
+        // nothing, and starting another at once achieves nothing again:
+        // that is the running back and forth between vendors for ever.
+        let futile = run.sold == 0 && !self.autoplay.growth.bought_anything;
         let st = &mut self.autoplay.growth;
+        st.run_was_futile = futile;
+        st.bought_anything = false;
         st.last_run = Some(now);
         st.run = None;
         st.needs.clear();

@@ -984,4 +984,22 @@ mod tests {
         assert_eq!(s.mode, GroupMode::Hunting);
         assert!(still_shopping(&party).is_empty());
     }
+    #[test]
+    fn a_trip_that_came_back_with_nothing_ends_the_shopping() {
+        // The loop this exists for: a character that cannot buy what it
+        // needs walked between counters for ever, because being short
+        // kept the party shopping and shopping never made it less short.
+        let cfg = qm_cfg();
+        let mut party = [mate("Aldric", 0.2)];
+        party[0].stocked = false;
+        // Still hopeful: it has money and has not tried yet.
+        party[0].purse = 50_000;
+        assert_eq!(decide(SHOPPING, &party, &cfg, 0), None);
+        // Tried, got nothing: that is the answer, and it goes hunting.
+        party[0].broke = true;
+        assert_eq!(
+            decide(SHOPPING, &party, &cfg, 0).map(|s| s.mode),
+            Some(GroupMode::Hunting)
+        );
+    }
 }
