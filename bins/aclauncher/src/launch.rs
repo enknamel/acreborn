@@ -40,7 +40,7 @@ impl Launch {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Options {
     pub character: Option<String>,
-    /// Headless: adds `--mute` (and `--headless` once acviewer has it).
+    /// Headless: adds `--mute` (and `--headless` once acswarm has it).
     pub headless: bool,
     /// Join the local cross-process bus (`--bus`).
     pub bus: bool,
@@ -57,21 +57,21 @@ pub fn client_binary(config: &Config) -> Vec<String> {
     default_client_binary(std::env::current_exe().ok().as_deref())
 }
 
-/// The default client: `acviewer` next to `launcher_exe` if it exists,
-/// else `cargo run -p acviewer --`.
+/// The default client: `acswarm` next to `launcher_exe` if it exists,
+/// else `cargo run -p acswarm --`.
 pub fn default_client_binary(launcher_exe: Option<&Path>) -> Vec<String> {
     if let Some(dir) = launcher_exe.and_then(Path::parent) {
         let name = if cfg!(windows) {
-            "acviewer.exe"
+            "acswarm.exe"
         } else {
-            "acviewer"
+            "acswarm"
         };
         let sibling = dir.join(name);
         if sibling.is_file() {
             return vec![sibling.to_string_lossy().into_owned()];
         }
     }
-    ["cargo", "run", "-p", "acviewer", "--"]
+    ["cargo", "run", "-p", "acswarm", "--"]
         .into_iter()
         .map(String::from)
         .collect()
@@ -97,7 +97,7 @@ pub fn build_launch(
 ) -> Launch {
     let (program, lead) = match binary.split_first() {
         Some((p, rest)) => (p.clone(), rest.to_vec()),
-        None => ("acviewer".to_string(), Vec::new()),
+        None => ("acswarm".to_string(), Vec::new()),
     };
     let mut args = lead;
     args.push("--data-dir".into());
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn builds_basic_command() {
         let (server, account) = fixtures();
-        let bin = vec!["/opt/acviewer".to_string()];
+        let bin = vec!["/opt/acswarm".to_string()];
         let l = build_launch(
             &bin,
             Path::new("/data"),
@@ -269,7 +269,7 @@ mod tests {
             &account,
             &Options::default(),
         );
-        assert_eq!(l.program, "/opt/acviewer");
+        assert_eq!(l.program, "/opt/acswarm");
         assert_eq!(
             l.args,
             vec![
@@ -286,14 +286,14 @@ mod tests {
         assert_eq!(l.cwd, None);
         assert_eq!(
             l.display(),
-            "/opt/acviewer --data-dir /data --connect 127.0.0.1:9000 -a alice -v \"pa ss\""
+            "/opt/acswarm --data-dir /data --connect 127.0.0.1:9000 -a alice -v \"pa ss\""
         );
     }
 
     #[test]
     fn character_and_headless() {
         let (server, account) = fixtures();
-        let bin = vec!["acviewer".to_string()];
+        let bin = vec!["acswarm".to_string()];
         let opts = Options {
             character: Some(" Alice One ".into()),
             headless: true,
@@ -321,7 +321,7 @@ mod tests {
     fn cargo_fallback_keeps_leading_args_and_sets_cwd() {
         let (server, account) = fixtures();
         let bin = default_client_binary(Some(Path::new("/nonexistent/dir/aclauncher")));
-        assert_eq!(bin, ["cargo", "run", "-p", "acviewer", "--"]);
+        assert_eq!(bin, ["cargo", "run", "-p", "acswarm", "--"]);
         let l = build_launch(
             &bin,
             Path::new("/data"),
@@ -330,21 +330,21 @@ mod tests {
             &Options::default(),
         );
         assert_eq!(l.program, "cargo");
-        assert_eq!(&l.args[..5], ["run", "-p", "acviewer", "--", "--data-dir"]);
+        assert_eq!(&l.args[..5], ["run", "-p", "acswarm", "--", "--data-dir"]);
         let cwd = l.cwd.expect("cwd for cargo");
         assert!(cwd.join("Cargo.toml").is_file(), "{}", cwd.display());
         assert!(cwd.join("bins").join("aclauncher").is_dir());
     }
 
     #[test]
-    fn sibling_acviewer_is_preferred() {
+    fn sibling_acswarm_is_preferred() {
         let dir = std::env::temp_dir().join(format!("aclauncher-bin-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let name = if cfg!(windows) {
-            "acviewer.exe"
+            "acswarm.exe"
         } else {
-            "acviewer"
+            "acswarm"
         };
         fs::write(dir.join(name), b"").unwrap();
         let bin = default_client_binary(Some(&dir.join("aclauncher")));
@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn configured_binary_wins() {
         let cfg = Config {
-            client_binary: vec!["/x/acviewer".into(), "--verbose".into()],
+            client_binary: vec!["/x/acswarm".into(), "--verbose".into()],
             ..Config::default()
         };
         assert_eq!(client_binary(&cfg), cfg.client_binary);

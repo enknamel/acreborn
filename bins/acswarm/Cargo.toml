@@ -1,6 +1,6 @@
 [package]
-name = "acviewer"
-description = "Landblock and model viewer"
+name = "acswarm"
+description = "The acswarm client: play, or run many sessions headless"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -27,7 +27,7 @@ cargo run -p plugin-template -- --bus   # also join the cross-process bus
 cargo test -p plugin-template
 ```
 
-The runner builds a `Host` with no session (the way `acviewer --demo-ui`
+The runner builds a `Host` with no session (the way `acswarm --demo-ui`
 runs the panels), feeds the plugin a chat line and an autoplay event,
 presses F7, types `/hello Asheron`, draws the panel through a headless
 egui, and writes the settings file:
@@ -43,7 +43,7 @@ settings written at /Users/you/.config/acswarm/ui.json
 ```
 
 Set `ACSWARM_CONFIG_DIR` to write the settings somewhere else. With
-`--bus` and an `acbot --bus` or `acviewer --bus` running, the runner
+`--bus` and an `acbot --bus` or `acswarm --bus` running, the runner
 also prints what their characters are doing (the `autoplay.event`
 topic) and they hear the greeting.
 
@@ -53,10 +53,10 @@ topic) and they hear the greeting.
    through `examples/*`; a copy under `examples/` or `crates/` is picked
    up the same way). Rename the package in `Cargo.toml` and the type in
    `lib.rs`.
-2. Add the crate to `bins/acviewer/Cargo.toml` (and `bins/acbot/Cargo.toml`
+2. Add the crate to `bins/acswarm/Cargo.toml` (and `bins/acbot/Cargo.toml`
    for headless runs) and one line to each binary's host setup:
    `host.register(Box::new(my_plugin::MyPlugin::new()))` in
-   `bins/acviewer/src/plugins/mod.rs` (`builtin`) and `bins/acbot/src/main.rs`.
+   `bins/acswarm/src/plugins/mod.rs` (`builtin`) and `bins/acbot/src/main.rs`.
    Register after the panels if the plugin should not take their keys.
 3. Rebuild; F7 and `/hello` work in the viewer, `/hello` in acbot.
 

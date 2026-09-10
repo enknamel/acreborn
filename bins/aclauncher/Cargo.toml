@@ -1,6 +1,6 @@
 [package]
 name = "aclauncher"
-description = "Launch manager: servers, accounts, and acviewer processes"
+description = "Launch manager: servers, accounts, and acswarm processes"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -28,8 +28,8 @@ Binaries:
 
 | bin | role |
 |---|---|
-| `acviewer` | The client: wgpu renderer, egui overlay (`ui.rs`: the status line and the chat box; every other panel is a plugin), multi-session host (`Net` per session, reconnected in place when dropped), landblock streaming, third-person camera, and the built-in plugins in `plugins/`. Also a standalone viewer for landblocks, models, particle emitters and chargen looks, and a headless `--screenshot` runner. |
-| `aclauncher` | Desktop launch manager: servers and accounts in `~/.acswarm/launcher.json`, one `acviewer --connect` process per launch, logs in `~/.acswarm/logs/`. |
+| `acswarm` | The client: wgpu renderer, egui overlay (`ui.rs`: the status line and the chat box; every other panel is a plugin), multi-session host (`Net` per session, reconnected in place when dropped), landblock streaming, third-person camera, and the built-in plugins in `plugins/`. Also a standalone viewer for landblocks, models, particle emitters and chargen looks, and a headless `--screenshot` runner. |
+| `aclauncher` | Desktop launch manager: servers and accounts in `~/.acswarm/launcher.json`, one `acswarm --connect` process per launch, logs in `~/.acswarm/logs/`. |
 | `acclient` | The older headless CLI built directly on `ac-net`/`ac-world`: log in, optionally `--create` a character, enter the world, print messages. Still the quickest way to create a character. |
 | `acdat` | DAT CLI: `info`, `ls`, `cat`, `extract`, `decode` (asset as JSON), `wav`, `manifest` and `diff` (against an ACE-generated manifest). |
 
@@ -46,7 +46,7 @@ client_portal.dat / client_cell_1.dat
         |
         +----------------------------+
         |                            |
-   ac-client::player (physics)   acviewer::scene (GPU batches)
+   ac-client::player (physics)   acswarm::scene (GPU batches)
 
 UDP <-> ac-net::Session <-> ac-client::Client::tick <-> ac-world::World
                                    |
@@ -76,7 +76,7 @@ shared and what is per session:
   `gpu_meshes`, `palettes`, motion `tables`, particle `fx` and
   `loaded_blocks` live on the `App`, so sessions in the same place share
   one copy of its meshes and materials.
-* **Per session** (`acviewer`'s `Net`): the `ac_client::Client` (socket,
+* **Per session** (`acswarm`'s `Net`): the `ac_client::Client` (socket,
   `Session`, `World`, `Player` with its collision and navigation graphs,
   combat, loot and route state), plus the animation and picking state of
   the objects it sees (`anims`, `pickables`).
@@ -96,7 +96,7 @@ it emits; the UI has no private channel to the server. The panels
 themselves (vitals, radar, target bar, inventory, loot, vendor, skills,
 spellbook) are plugins in `ac_plugin::panels`: each reads `cx.client()`
 and turns its clicks into `client.buy/sell/take/interact/cast`, so they
-double as examples and can be swapped for your own. `acviewer` keeps only
+double as examples and can be swapped for your own. `acswarm` keeps only
 the status line and the chat box; `apply_ui_commands` sends chat lines to
 `client.say` or to the plugins' `/commands`, and `tick_client` turns
 `Event::Chat`/`Sound`/`Placed` into chat lines, audio and a scene rebuild.
@@ -107,7 +107,7 @@ person can do at the keyboard a plugin can do programmatically, and the
 
 ## One frame in the viewer
 
-`App::window_event(RedrawRequested)` in `bins/acviewer/src/main.rs`:
+`App::window_event(RedrawRequested)` in `bins/acswarm/src/main.rs`:
 
 1. **Input**: winit key and mouse events were collected since the last
    frame. egui gets first refusal (typing in the chat box); then
@@ -149,7 +149,7 @@ person can do at the keyboard a plugin can do programmatically, and the
 
 ## Headless testing
 
-`acviewer --screenshot out.png` renders one frame without a window. With
+`acswarm --screenshot out.png` renders one frame without a window. With
 `--connect` it becomes a scripted session (`main()` in `main.rs`): the same
 `App` and `tick_net` run in a loop with a 1 ms sleep until the character is
 placed, then a small state machine drives actions on timers and the frame
@@ -173,7 +173,7 @@ is written when they settle:
 Together with `tools/ace/up.sh` (a local ACE in Docker) this is the
 integration test: a scene is set up with admin commands (`@create 7`,
 `@ci 314`, `@smite all`, `@telepoi holtburg`), the client acts, and the
-PNG plus the `RUST_LOG=acviewer=debug` log are checked. Unit tests that
+PNG plus the `RUST_LOG=acswarm=debug` log are checked. Unit tests that
 need the archives skip themselves when `AC_DATA_DIR` is unset; golden
 files for the DAT reader and ISAAC live in `tests/golden/`.
 
@@ -181,7 +181,7 @@ files for the DAT reader and ISAAC live in `tests/golden/`.
 
 The goal is speed and low resource use, not fidelity: one rendered
 session and up to nine followers in one process must fit on an ordinary
-machine. What the renderer does about it, in `bins/acviewer/src/gpu.rs`
+machine. What the renderer does about it, in `bins/acswarm/src/gpu.rs`
 and the frame loop in `main.rs`:
 
 * **Only the active session touches the GPU.** Landblocks stream, objects

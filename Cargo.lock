@@ -176,7 +176,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "acviewer"
+name = "acswarm"
 version = "0.0.3"
 dependencies = [
  "ac-audio",

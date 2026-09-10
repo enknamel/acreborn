@@ -68,7 +68,7 @@ simulation.
 
 Only the active session holds GPU state. Switching sessions drops the
 old one's pickables and animation players and re-instances the new one
-on the next frame (`bins/acviewer/src/main.rs`, `switch_to`), so the
+on the next frame (`bins/acswarm/src/main.rs`, `switch_to`), so the
 window costs one session's worth of GPU whatever else is running
 alongside it.
 

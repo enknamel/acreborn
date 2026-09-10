@@ -6,7 +6,7 @@ state, scripts versus plugins versus processes, testing) see
 [sdk.md](sdk.md); for a plugin to copy, `examples/plugin-template`.
 
 A plugin is a plain Rust type implementing `ac_plugin::Plugin`, registered
-with the `Host` in `bins/acviewer/src/plugins/mod.rs`. It sees every
+with the `Host` in `bins/acswarm/src/plugins/mod.rs`. It sees every
 session in the process through `Ctx`, can call any `ac_client::Client`
 method, draw egui panels, take keys, and handle `/commands`. Plugins in
 different sessions coordinate through the shared `Blackboard`.
@@ -214,7 +214,7 @@ pub struct Message { pub from: usize, pub topic: String, pub value: Value }
 
 ## Registering a plugin
 
-`bins/acviewer/src/plugins/mod.rs`:
+`bins/acswarm/src/plugins/mod.rs`:
 
 ```rust
 pub mod autoheal;
@@ -319,7 +319,7 @@ panel back at its default position.
 
 A panel's data comes from a `Source<View>`: `Live` (the session) or
 `Demo(view)` (canned data whose actions are dropped). `Panel::demo()`
-constructors feed `acviewer --screenshot --demo-ui`, which registers
+constructors feed `acswarm --screenshot --demo-ui`, which registers
 `panels::demo(assets)` instead of `builtin()` and renders the overlay with
 no server; `Ctx::try_client()` is `None` there. To replace a panel,
 register your own plugin instead of it in `builtin()`; the skills panel
@@ -407,14 +407,14 @@ no session) and driven by `ac_client::creation`:
   the list while the client enters the world.
 * `Lobby` (`lobby::Lobby`) holds both screens, follows the events
   (`Characters` opens the list, `Placed` hides everything) and implements
-  `Plugin`, but acviewer owns it directly rather than registering it: the
+  `Plugin`, but acswarm owns it directly rather than registering it: the
   viewer reads `Lobby::preview()` (the build being edited) every frame and
   draws the model beside the creation window with the `--chargen` path
   (`ac_scene::chargen::describe` → `instances_for` →
   `set_player_instances`), turning slowly or by right-drag. Clothing is
   sent but not previewed.
 
-`acviewer --demo-select` and `--demo-create` show the two screens with no
+`acswarm --demo-select` and `--demo-create` show the two screens with no
 server (three sample characters; the real CharGen table and the 3D
 preview). With `--screenshot out.png` they render one frame headlessly, and
 `--press ArrowRight,ArrowRight` first steps the creation screen to the
@@ -423,7 +423,7 @@ pane you want to see.
 ## Worked example: auto-heal
 
 Casts Heal Self when health drops under half, at most every four seconds;
-`/autoheal` toggles it. Save as `bins/acviewer/src/plugins/autoheal.rs`
+`/autoheal` toggles it. Save as `bins/acswarm/src/plugins/autoheal.rs`
 and register it as above. (This file type-checks against the current
 crates.)
 

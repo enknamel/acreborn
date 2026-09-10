@@ -1,7 +1,7 @@
 //! A local cross-process message bus.
 //!
 //! Plugins in one process share a blackboard; processes started separately
-//! (by `aclauncher`, or several `acbot`/`acviewer` by hand) cannot see each
+//! (by `aclauncher`, or several `acbot`/`acswarm` by hand) cannot see each
 //! other. This crate links them: one process hosts a tiny hub
 //! ([`BusServer`]) on loopback TCP and every process, the hub's included,
 //! talks to it through a [`BusClient`]. The hub fans every post out to

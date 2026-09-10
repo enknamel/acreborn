@@ -464,7 +464,7 @@ impl Gpu {
         tracing::info!("adapter: {:?}", adapter.get_info().name);
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                label: Some("acviewer"),
+                label: Some("acswarm"),
                 ..Default::default()
             }))?;
         let mut config = match &surface {

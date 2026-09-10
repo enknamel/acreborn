@@ -7,7 +7,7 @@ play against the [ACE](https://github.com/ACEmulator/ACE) server emulator.
 
 Status: **Phase 4** (world). The DAT reader is verified byte-for-byte
 against ACE; thirteen asset types decode every file in both archives;
-`acviewer` renders outdoor landblocks with scenery, interiors and models,
+`acswarm` renders outdoor landblocks with scenery, interiors and models,
 and in `--connect` mode logs in to a local ACE server and walks your
 character around the live world with server-accepted movement, with a
 chat overlay for talking to the server and other players.
@@ -27,12 +27,12 @@ cargo run --release -p acdat -- $AC_DATA_DIR/client_portal.dat ls --kind GfxObj 
 cargo run --release -p acdat -- $AC_DATA_DIR/client_cell_1.dat cat A9B4FFFF | xxd | head
 cargo run --release -p acdat -- $AC_DATA_DIR/client_portal.dat decode 13000000   # Region as JSON
 
-cargo run --release -p acviewer -- --landblock A9B4 --radius 1      # fly around Holtburg
-cargo run --release -p acviewer -- --model 02000001                 # inspect a Setup
-cargo run --release -p acviewer -- --emitter 3200026E --screenshot torch.png   # a particle emitter (or a 0x33 script, or a Setup's default script)
-cargo run --release -p acviewer -- --landblock A9B4 --screenshot out.png   # headless render
+cargo run --release -p acswarm -- --landblock A9B4 --radius 1      # fly around Holtburg
+cargo run --release -p acswarm -- --model 02000001                 # inspect a Setup
+cargo run --release -p acswarm -- --emitter 3200026E --screenshot torch.png   # a particle emitter (or a 0x33 script, or a Setup's default script)
+cargo run --release -p acswarm -- --landblock A9B4 --screenshot out.png   # headless render
 # a new character from the CharGen table: race,gender,hair,eyes,nose,mouth,skin[,hair_color,eye_color]
-cargo run --release -p acviewer -- --chargen aluvian,m,3,0,0,0,0.5 --camera 0,0.8,1.62,180,0 --screenshot face.png
+cargo run --release -p acswarm -- --chargen aluvian,m,3,0,0,0,0.5 --camera 0,0.8,1.62,180,0 --screenshot face.png
 ```
 
 `--chargen` dresses the race's Setup (or `--model`) the way the server would
@@ -161,10 +161,10 @@ cargo run --release -p acclient -- -h 127.0.0.1 -a myaccount -v mypassword --cre
 # then to the game's own commands (/lifestone, /die, /house, /tell Name,
 # text, /emote, /afk), and anything else to the server as @command
 # (/acehelp lists those).
-cargo run --release -p acviewer -- --connect 127.0.0.1 -a myaccount -v mypassword
+cargo run --release -p acswarm -- --connect 127.0.0.1 -a myaccount -v mypassword
 # several characters in one window: --client ACCOUNT:PASSWORD[:CHARACTER]
 # per extra session; Tab (or /switch N) picks the one shown and steered
-cargo run --release -p acviewer -- --connect 127.0.0.1 -a alice -v pw1 --client bob:pw2:Bob
+cargo run --release -p acswarm -- --connect 127.0.0.1 -a alice -v pw1 --client bob:pw2:Bob
 ```
 
 ## Launcher
@@ -189,7 +189,7 @@ Each launch spawns a separate client process:
 
 with its output appended to `~/.acswarm/logs/<account>.log`. Nothing is
 killed when an account is removed or the launcher exits. "Launch headless"
-adds `--mute` (and will add `--headless` once acviewer has it). "Add /
+adds `--mute` (and will add `--headless` once acswarm has it). "Add /
 create" is just adding an account: ACE creates it on the first login.
 
 The config lives in `~/.acswarm/launcher.json`:
@@ -207,8 +207,8 @@ The config lives in `~/.acswarm/launcher.json`:
 ```
 
 `client_binary` is the program plus leading arguments; empty means the
-`acviewer` next to the launcher binary if there is one, else
-`cargo run -p acviewer --` from the workspace root. **Passwords are stored
+`acswarm` next to the launcher binary if there is one, else
+`cargo run -p acswarm --` from the workspace root. **Passwords are stored
 in plain text** in this file; it is only as private as your home directory.
 
 ## Headless sessions (acbot)
@@ -246,12 +246,12 @@ particles, chargen), `crates/ac-net` (protocol, sans-IO session),
 `crates/ac-client` (headless game session: connect, tick, actions, events,
 player physics), `crates/ac-plugin` (`Plugin` trait, `Ctx`, blackboard and
 bus, host, the console and party plugins), `crates/ac-audio` (sound
-playback), `bins/acdat` (CLI), `bins/acviewer` (wgpu viewer and
+playback), `bins/acdat` (CLI), `bins/acswarm` (wgpu viewer and
 multi-session client), `bins/acbot` (headless multi-session runner),
 `bins/aclauncher` (launch manager), `bins/acclient` (old headless CLI).
 See `docs/architecture.md`.
 
-Debugging aids: `RUST_LOG=acviewer=debug`, `ACV_HIDE_STATIC=1` (draw only
+Debugging aids: `RUST_LOG=acswarm=debug`, `ACV_HIDE_STATIC=1` (draw only
 server objects), and in connected `--screenshot` mode `--walk`, `--say`,
 `--click x,y`, `--use NAME`, `--attack NAME`, `--loot [NAME]`, `--buy NAME`,
 `--sell NAME`, `--cast NAME`, `--jump`, `--snap-at SECS` and `--camera` to

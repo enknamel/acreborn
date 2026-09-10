@@ -18,7 +18,7 @@ pub struct Server {
 }
 
 impl Server {
-    /// The `host:port` form `acviewer --connect` takes.
+    /// The `host:port` form `acswarm --connect` takes.
     pub fn address(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
@@ -54,9 +54,9 @@ pub struct Config {
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
     /// The client program and any leading arguments, e.g.
-    /// `["/path/to/acviewer"]` or `["cargo", "run", "-p", "acviewer", "--"]`.
-    /// Empty (the default) means: the `acviewer` next to the launcher
-    /// binary if there is one, else `cargo run -p acviewer --`.
+    /// `["/path/to/acswarm"]` or `["cargo", "run", "-p", "acswarm", "--"]`.
+    /// Empty (the default) means: the `acswarm` next to the launcher
+    /// binary if there is one, else `cargo run -p acswarm --`.
     #[serde(default)]
     pub client_binary: Vec<String>,
     /// The plain-text password notice has been shown and dismissed.
@@ -248,7 +248,7 @@ mod tests {
             "cargo".into(),
             "run".into(),
             "-p".into(),
-            "acviewer".into(),
+            "acswarm".into(),
             "--".into(),
         ];
         cfg.password_notice_dismissed = true;

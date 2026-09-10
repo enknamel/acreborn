@@ -28,7 +28,7 @@ if (( ! UNSIGNED )); then
 fi
 echo "version $VERSION, signing as: ${SIGN_ID:-(unsigned)}"
 
-BINS=(acviewer)
+BINS=(acswarm)
 if (( UNIVERSAL )); then
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
   for t in aarch64-apple-darwin x86_64-apple-darwin; do
@@ -50,7 +50,7 @@ rm -rf "$DIST" && mkdir -p "$DIST"
 APP=$DIST/acswarm.app
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 sed "s/VERSION/$VERSION/g" tools/release/Info.plist > "$APP/Contents/Info.plist"
-cp "$BIN_DIR/acviewer" "$APP/Contents/MacOS/acviewer"
+cp "$BIN_DIR/acswarm" "$APP/Contents/MacOS/acswarm"
 
 # The app icon. macOS does not round an icon's corners for you, so the
 # source already carries its own rounded alpha; iconutil only wants the
@@ -81,7 +81,7 @@ if (( UNSIGNED )); then
 else
   sign() { codesign --force --options runtime --timestamp \
              --entitlements tools/release/entitlements.plist --sign "$SIGN_ID" "$1"; }
-  sign "$APP/Contents/MacOS/acviewer"
+  sign "$APP/Contents/MacOS/acswarm"
   sign "$APP"
   codesign --verify --deep --strict --verbose=2 "$APP"
   spctl --assess --type execute --verbose=2 "$APP" || echo "(spctl needs notarization to pass; see --notarize)"

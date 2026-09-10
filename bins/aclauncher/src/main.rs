@@ -1,7 +1,7 @@
-//! `aclauncher`: a small desktop launch manager for `acviewer`.
+//! `aclauncher`: a small desktop launch manager for `acswarm`.
 //!
 //! Keeps servers and accounts in `~/.acswarm/launcher.json` and spawns one
-//! `acviewer --connect` process per launch, logging each to
+//! `acswarm --connect` process per launch, logging each to
 //! `~/.acswarm/logs/<account>.log`.
 
 mod app;
@@ -14,7 +14,7 @@ use anyhow::{bail, Result};
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(about = "Launch manager for acviewer")]
+#[command(about = "Launch manager for acswarm")]
 struct Cli {
     /// Config file (default: ~/.acswarm/launcher.json)
     #[arg(long)]

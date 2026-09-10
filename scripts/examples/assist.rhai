@@ -6,7 +6,7 @@
 // then gone. `msg.from` is the posting session's index, so a session can
 // ignore its own posts. Sessions are numbered from 0.
 //
-// Run several sessions (aclauncher, or acviewer with several accounts),
+// Run several sessions (several accounts in one acswarm),
 // put this file in every session's script directory (it is one process, so
 // once is enough), and attack something in the active session: the others
 // join in.

@@ -7,7 +7,7 @@
 //
 // Run the followers as extra sessions, and put every process on the
 // bus so they hear each other:
-//   acviewer --connect 127.0.0.1:9000 -a ACCOUNT -v PASS --bus
+//   acswarm --connect 127.0.0.1:9000 -a ACCOUNT -v PASS --bus
 //   acbot --connect 127.0.0.1 --client BOT1:PASS --client BOT2:PASS \
 //         --bus --script follow.txt
 // with follow.txt holding the one line `/follow`.

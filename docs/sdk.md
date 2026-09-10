@@ -6,7 +6,7 @@ over:
 
 | Surface | Lives in | Runs | Hot reload | UI | Language |
 | --- | --- | --- | --- | --- | --- |
-| **Rhai script** | `~/.acswarm/scripts/*.rhai` | inside every `acviewer`/`acbot` process, once per session per frame | yes, within a second of saving | no panels; chat log lines and `/commands` | Rhai |
+| **Rhai script** | `~/.acswarm/scripts/*.rhai` | inside every `acswarm`/`acbot` process, once per session per frame | yes, within a second of saving | no panels; chat log lines and `/commands` | Rhai |
 | **Rust plugin** | a crate depending on `ac-plugin`, registered with the `Host` | inside the process, with the full `ac_client::Client` in hand | no (rebuild) | egui panels, keys, `/commands`, settings | Rust |
 | **Separate process** | anything that speaks JSON lines over loopback TCP | on its own, next to the game processes | its own affair | its own affair | any |
 
@@ -21,7 +21,7 @@ The building blocks:
   script can call (the `Api` trait), `bridge.rs` is its live
   implementation over `Ctx`, `testing.rs` runs scripts without a server.
   `scripts/examples/README.md` is the reference.
-* `crates/ac-bus`: the cross-process hub; `--bus` on `acbot`/`acviewer`
+* `crates/ac-bus`: the cross-process hub; `--bus` on `acbot`/`acswarm`
   joins it. `docs/multi-session.md` ("Cross-process bus") is the
   reference.
 * `examples/plugin-template`: a Rust plugin with a panel, a key, a
@@ -105,7 +105,7 @@ Things the built-in panels do that yours can too:
   `keys::ACTIONS` and ask `keys::bound("inventory", key)`; a plugin
   outside the crate compares against its own `egui::Key`, as above.
 * **Register it.** Add `host.register(Box::new(Counter::default()))` to
-  `bins/acviewer/src/plugins/mod.rs` (`builtin`) and, if it should run
+  `bins/acswarm/src/plugins/mod.rs` (`builtin`) and, if it should run
   headless too, to `bins/acbot/src/main.rs` next to the others. Order
   matters for keys: the first plugin to return `true` takes the key.
 * **Try it without a server.** `examples/plugin-template` drives a host
@@ -402,7 +402,7 @@ harness below.
 **As a Rust plugin.** Copy `examples/plugin-template` to a crate of your
 own (a workspace member under `examples/` or `crates/`), keep the
 `ac-plugin` dependency, and register your type in
-`bins/acviewer/src/plugins/mod.rs` and `bins/acbot/src/main.rs`. Panels
+`bins/acswarm/src/plugins/mod.rs` and `bins/acbot/src/main.rs`. Panels
 go before the console so they see keys first. A plugin never needs to
 touch the binaries beyond that one line.
 

@@ -7,7 +7,7 @@
 //! preview of the character being created from [`Lobby::preview`].
 //!
 //! Both screens are the same shape as the panels (`view` / `draw` /
-//! state) and have a demo mode with no session: `acviewer --demo-select`
+//! state) and have a demo mode with no session: `acswarm --demo-select`
 //! and `--demo-create`.
 
 pub mod connect;

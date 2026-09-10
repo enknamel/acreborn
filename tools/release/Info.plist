@@ -8,7 +8,7 @@
     <key>CFBundleVersion</key>         <string>VERSION</string>
     <key>CFBundleShortVersionString</key> <string>VERSION</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
-    <key>CFBundleExecutable</key>      <string>acviewer</string>
+    <key>CFBundleExecutable</key>      <string>acswarm</string>
     <key>CFBundleIconFile</key>        <string>acswarm</string>
     <key>LSMinimumSystemVersion</key>  <string>12.0</string>
     <key>NSHighResolutionCapable</key> <true/>

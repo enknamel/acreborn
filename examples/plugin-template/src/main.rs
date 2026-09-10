@@ -1,5 +1,5 @@
 //! An offline runner for the template plugin: a plugin host with no
-//! session, the way `acviewer --demo-ui` runs the panels, driven for a
+//! session, the way `acswarm --demo-ui` runs the panels, driven for a
 //! few frames from the command line. It feeds the plugin a chat line and
 //! an autoplay event, presses its key, types its command, draws its panel
 //! through a headless egui, and writes the settings file, so every hook
@@ -10,7 +10,7 @@
 //! ```
 //!
 //! With `--bus` the host joins the local cross-process bus (or hosts
-//! it), so an `acbot --bus` or `acviewer --bus` running alongside hears
+//! it), so an `acbot --bus` or `acswarm --bus` running alongside hears
 //! the greeting on the `template.hello` topic and this runner prints
 //! what they post on `autoplay.event`.
 

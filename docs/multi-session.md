@@ -1,13 +1,13 @@
 # Running several clients
 
-Two ways: several sessions inside one `acviewer` process, or several
+Two ways: several sessions inside one `acswarm` process, or several
 processes started by `aclauncher`. They compose: the launcher starts
 processes, each of which may hold several sessions.
 
 ## Several sessions in one process
 
 ```
-cargo run --release -p acviewer -- --connect 127.0.0.1 -a alice -v pw1 --character Alice \
+cargo run --release -p acswarm -- --connect 127.0.0.1 -a alice -v pw1 --character Alice \
     --client bob:pw2:Bob --client carol:pw3
 ```
 
@@ -150,7 +150,7 @@ the rest join it, see below) and **Frame cap** adds `--fps N`. Both are
 saved in `launcher.json` (`share_bus`, `fps`).
 
 with stdout/stderr appended to `~/.acswarm/logs/<account>.log`.
-"Launch headless" adds `--mute` (and will add `--headless` once acviewer
+"Launch headless" adds `--mute` (and will add `--headless` once acswarm
 has it). The launcher never kills children on its own: removing an account
 or closing the window leaves them running; Kill all is explicit.
 
@@ -170,22 +170,22 @@ on every change:
 ```
 
 `client_binary` is the program plus leading arguments (`["/path/to/
-acviewer"]` or `["cargo","run","-p","acviewer","--"]`); empty means the
-`acviewer` next to the launcher binary if there is one, else `cargo run -p
-acviewer --` from the workspace root. Passwords are plain text. "Add /
+acswarm"]` or `["cargo","run","-p","acswarm","--"]`); empty means the
+`acswarm` next to the launcher binary if there is one, else `cargo run -p
+acswarm --` from the workspace root. Passwords are plain text. "Add /
 create" only adds an account: ACE creates it on first login, and
 `acclient --create NAME` makes the first character.
 
 ## Cross-process bus
 
 Sessions in one process share the plugin blackboard (`docs/plugins.md`);
-processes do not, so a party split across several `acviewer`/`acbot`
+processes do not, so a party split across several `acswarm`/`acbot`
 processes could not coordinate. `--bus [ADDR]` links them through
 `crates/ac-bus`, a local hub on loopback TCP:
 
 ```
 cargo run -p acbot -- --connect HOST --client alice:pw1 --bus
-cargo run -p acviewer -- --connect HOST -a bob -v pw2 --bus          # joins alice's hub
+cargo run -p acswarm -- --connect HOST -a bob -v pw2 --bus          # joins alice's hub
 ACSWARM_BUS=127.0.0.1:9600 cargo run -p acbot -- ... --bus          # another bus
 ```
 
@@ -361,7 +361,7 @@ works it out itself from the totals it has seen, a sample every 5 s
 kept for 15 minutes, and quotes nothing for a character it has watched
 less than 30 s. A process that goes quiet for 6 s drops off the panel.
 
-`acviewer --demo-ui` opens the panel on four sample characters (two
+`acswarm --demo-ui` opens the panel on four sample characters (two
 here, two in a process called `bob`, one of them dead), with a roster
 of three accounts under them.
 
@@ -372,7 +372,7 @@ line. The Fleet panel's **Sessions** section starts them from the
 client being played, and remembers them, so the next launch is one
 click:
 
-1. Play as usual (`acviewer --connect HOST -a ACCOUNT -v PASSWORD`, or
+1. Play as usual (`acswarm --connect HOST -a ACCOUNT -v PASSWORD`, or
    from the launcher). Open the menu, click **Fleet**, unfold
    **Sessions**.
 2. **Add an account.** The roster is the list of accounts remembered for
@@ -452,14 +452,14 @@ the same way and ignores stops with a warning. A script or the command
 line drives the same path through two blackboard keys: `fleet.start`
 (a session spec or a list of them, each added to the roster and
 started) and `fleet.stop` (an account or a list); with `--bus`, add
-`"process": NAME` so only that process acts. `acviewer --fleet-start
+`"process": NAME` so only that process acts. `acswarm --fleet-start
 ACCOUNT:PASSWORD:CHARACTER[:TEMPLATE[:TOWN[:HERITAGE[:SEX]]]]` (headless,
 with `--screenshot`) sets `fleet.start` once session 1 is placed and
 `fleet.stop` `--fleet-stop-after` seconds later, which is how the flow
 is tested:
 
 ```
-acviewer --connect 127.0.0.1:9000 -a LEADER -v PASSWORD --mute --screenshot out.png \
+acswarm --connect 127.0.0.1:9000 -a LEADER -v PASSWORD --mute --screenshot out.png \
     --fleet-start fleetbot1:testpass:"Fleetbot One":bow:holtburg --fleet-stop-after 45
 ```
 
@@ -603,7 +603,7 @@ file-backed archive pages.
   private footprint of the whole process with 16 sessions is 69 MB.
   The earlier `vmmap` figures for the windowed viewer (graphics
   allocations 11-15 MB, heap 50-80 MB, process footprint 230-440 MB) are
-  in addition to this for `acviewer`.
+  in addition to this for `acswarm`.
 * **Audio.** One `ac_audio::Audio` device per process, cloned into every
   session; only the active session's sounds play. `--mute` skips opening
   the device (and `--screenshot` implies it).
@@ -648,4 +648,4 @@ file-backed archive pages.
 * One window, one active view: there is no split screen. Run several
   launcher processes for several windows.
 * The launcher's "Launch headless" only mutes; a truly windowless
-  `acviewer --headless` does not exist yet.
+  `acswarm --headless` does not exist yet.

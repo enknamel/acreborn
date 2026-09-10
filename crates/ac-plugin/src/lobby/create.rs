@@ -1,7 +1,7 @@
 //! Character creation: a [`CharacterBuild`] edited over five steps
 //! (heritage and sex, appearance, attributes, skills, name and town) with
 //! the rules from `ac_client::creation`. The 3D preview of the look is
-//! drawn by the host (acviewer reads [`CreateState::build`]).
+//! drawn by the host (acswarm reads [`CreateState::build`]).
 
 use std::rc::Rc;
 

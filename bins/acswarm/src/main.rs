@@ -1,9 +1,9 @@
-//! acviewer: fly around a landblock or inspect a model.
+//! acswarm: fly around a landblock or inspect a model.
 //!
-//!   acviewer --landblock A9B4 [--radius 1]
-//!   acviewer --model 02000001
-//!   acviewer --emitter 32000273            # simulate an emitter's particles
-//!   acviewer --chargen aluvian,m,3,0,0,0,0.5     # a dressed-up human head
+//!   acswarm --landblock A9B4 [--radius 1]
+//!   acswarm --model 02000001
+//!   acswarm --emitter 32000273            # simulate an emitter's particles
+//!   acswarm --chargen aluvian,m,3,0,0,0,0.5     # a dressed-up human head
 //!
 //! Controls: right mouse drag to look, WASD to move, Q/E down/up,
 //! Shift to go faster, Escape for the menu (which quits).
@@ -220,7 +220,7 @@ struct Cli {
     #[arg(long)]
     demo_connect: bool,
     /// Join the local cross-process bus so plugins here and in other
-    /// acviewer/acbot processes share posts and values: HOST:PORT or PORT
+    /// acswarm/acbot processes share posts and values: HOST:PORT or PORT
     /// (default 127.0.0.1:9500, or $ACSWARM_BUS). The first process up
     /// hosts it.
     #[arg(long, num_args = 0..=1, default_missing_value = "")]
@@ -299,7 +299,7 @@ fn common_data_dirs() -> Vec<PathBuf> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             out.push(dir.join("ac_data"));
-            // Inside acswarm.app: MacOS/acviewer -> Resources/ac_data.
+            // Inside acswarm.app: MacOS/acswarm -> Resources/ac_data.
             out.push(dir.join("..").join("Resources").join("ac_data"));
         }
     }
@@ -2008,7 +2008,7 @@ impl ApplicationHandler for App {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("acviewer")
+            .with_title("acswarm")
             .with_inner_size(winit::dpi::LogicalSize::new(1280, 800));
         let window = Arc::new(event_loop.create_window(attrs).expect("window"));
         let mut gpu = gpu::Gpu::new(window.clone()).expect("gpu");
@@ -2424,7 +2424,7 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("acviewer=info")),
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("acswarm=info")),
         )
         .init();
     // Finder (and some launchers) pass a `-psn_...` process-serial arg;

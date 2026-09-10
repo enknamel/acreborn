@@ -14,3 +14,8 @@
 # agent worktrees
 .claude/worktrees/
 dist/
+
+# Session logs. These carry account names and passwords on the command
+# line, so they must never be committed: one was, and the password had
+# to be changed.
+*.log
