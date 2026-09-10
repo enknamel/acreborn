@@ -692,7 +692,7 @@ impl Client {
                 // Or the buff rule is holding the mana back (its own
                 // gate, mirrored): the walk is not worth waiting on a
                 // mana bar for.
-                let reserve = self.world.stats.vital_max(2) as f32 * cfg.keep_mana;
+                let reserve = self.world.stats.vital_max_current(2) as f32 * cfg.keep_mana;
                 let cost = self
                     .assets
                     .spell_table()

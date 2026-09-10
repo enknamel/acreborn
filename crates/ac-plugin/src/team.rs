@@ -227,7 +227,7 @@ pub struct Team {
 /// A vital (0 health, 1 stamina, 2 mana) as a fraction of its maximum,
 /// 1.0 when the sheet has not arrived.
 pub fn vital_fraction(stats: &ac_world::stats::PlayerStats, i: usize) -> f32 {
-    let max = stats.vital_max(i);
+    let max = stats.vital_max_current(i);
     if max == 0 {
         return 1.0;
     }

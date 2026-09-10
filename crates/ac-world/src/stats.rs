@@ -571,13 +571,46 @@ impl PlayerStats {
     /// SecondaryAttributeTable (0x0E000003): health = endurance / 2,
     /// stamina = endurance, mana = self, each plus ranks.
     pub fn vital_max(&self, i: usize) -> u32 {
-        let attr = match i {
-            0 => (self.attributes[1].value() as f32 / 2.0).round() as u32,
-            1 => self.attributes[1].value(),
-            _ => self.attributes[5].value(),
+        self.vital_max_with(i, false)
+    }
+
+    /// The maximum as it stands right now, enchantments counted.
+    ///
+    /// Health and Stamina are built on Endurance and Mana on Self, so a
+    /// buff on those raises the maximum; the vital can also be buffed
+    /// directly, which is what a Vitality or Rejuvenation does. Reading
+    /// the maximum unbuffed while the current value is the buffed one
+    /// makes a healthy character read over 100%, and anything comparing
+    /// the two -- when to heal, when to break off -- never fires.
+    pub fn vital_max_current(&self, i: usize) -> u32 {
+        self.vital_max_with(i, true)
+    }
+
+    fn vital_max_with(&self, i: usize, buffed: bool) -> u32 {
+        // Health and Stamina come from Endurance (2), Mana from Self (6).
+        let attr_id = if i == 2 { 6 } else { 2 };
+        let attr = if buffed {
+            self.attribute_current(attr_id)
+        } else {
+            self.attribute_value(attr_id)
+        };
+        // Health is half of Endurance, the other two the whole of theirs.
+        let attr = if i == 0 {
+            (attr as f32 / 2.0).round() as u32
+        } else {
+            attr
         };
         let v = &self.vitals[i];
-        v.base + v.ranks + attr
+        let base = v.base + v.ranks + attr;
+        if !buffed {
+            return base;
+        }
+        // The vital's own enchantments, keyed by the max's property id
+        // (1 MaxHealth, 3 MaxStamina, 5 MaxMana).
+        let key = (i as u32) * 2 + 1;
+        let m = self.enchantment_multiplier(enchantment_type::SECOND_ATTRIBUTE, key);
+        let a = self.enchantment_additive(enchantment_type::SECOND_ATTRIBUTE, key);
+        ((base as f32 * m).round() as i32 + a).max(0) as u32
     }
 
     /// Current value of a PropertyAttribute id (1 Strength .. 6 Self).
@@ -1977,4 +2010,61 @@ mod tests {
         assert_eq!(skill_name(99), "Unknown");
         assert_eq!(sac_name(sac::SPECIALIZED), "specialized");
     }
+    #[test]
+    fn a_buffed_character_is_not_over_full() {
+        // The bug this exists for: a buffed character read 283/128,
+        // because the current value counted the buff and the maximum
+        // did not. Anything comparing the two -- when to heal, when to
+        // break off -- then never fired.
+        let mut st = PlayerStats::default();
+        // Endurance 100 unbuffed, Self 100.
+        st.attributes[1].base = 100;
+        st.attributes[5].base = 100;
+        st.vitals[0].base = 10; // health
+        st.vitals[1].base = 10; // stamina
+        st.vitals[2].base = 10; // mana
+        // Health is half of Endurance, the others the whole.
+        assert_eq!(st.vital_max(0), 10 + 50);
+        assert_eq!(st.vital_max(1), 10 + 100);
+        assert_eq!(st.vital_max(2), 10 + 100);
+        // Unbuffed, the two agree.
+        assert_eq!(st.vital_max_current(0), st.vital_max(0));
+
+        // Now buff Endurance by 100: health and stamina both rise, mana
+        // does not.
+        st.enchantments.push(Enchantment {
+            category: 1,
+            stat_mod_type: enchantment_type::ATTRIBUTE | enchantment_type::ADDITIVE,
+            stat_mod_key: 2, // Endurance
+            stat_mod_value: 100.0,
+            duration: -1.0,
+            ..Default::default()
+        });
+        assert_eq!(st.vital_max_current(0), 10 + 100, "health follows Endurance");
+        assert_eq!(st.vital_max_current(1), 10 + 200, "stamina follows it too");
+        assert_eq!(st.vital_max_current(2), 10 + 100, "mana does not");
+    }
+
+    #[test]
+    fn a_vital_can_be_buffed_directly() {
+        // What a Vitality does: it raises the maximum itself rather
+        // than the attribute under it.
+        let mut st = PlayerStats::default();
+        st.attributes[1].base = 100;
+        st.vitals[0].base = 10;
+        let plain = st.vital_max_current(0);
+        st.enchantments.push(Enchantment {
+            category: 2,
+            stat_mod_type: enchantment_type::SECOND_ATTRIBUTE | enchantment_type::ADDITIVE,
+            stat_mod_key: 1, // MaxHealth
+            stat_mod_value: 40.0,
+            duration: -1.0,
+            ..Default::default()
+        });
+        assert_eq!(st.vital_max_current(0), plain + 40);
+        // And the unbuffed reading is untouched, which is what the
+        // character sheet's own numbers are built from.
+        assert_eq!(st.vital_max(0), plain);
+    }
+
 }

@@ -170,7 +170,7 @@ impl Session {
         let health = if st.name.is_empty() {
             "-".to_string()
         } else {
-            format!("{}/{}", st.vitals[0].current, st.vital_max(0))
+            format!("{}/{}", st.vitals[0].current, st.vital_max_current(0))
         };
         let target = c
             .attack_target

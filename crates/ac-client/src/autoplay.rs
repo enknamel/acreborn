@@ -1049,7 +1049,7 @@ impl Client {
     /// Health as a fraction of its maximum, 1.0 when unknown.
     pub fn health_fraction(&self) -> f32 {
         let stats = &self.world.stats;
-        let max = stats.vital_max(0);
+        let max = stats.vital_max_current(0);
         if max == 0 {
             return 1.0;
         }
@@ -1183,7 +1183,7 @@ impl Client {
             return false;
         }
         let frac = |i: usize| {
-            let max = self.world.stats.vital_max(i).max(1) as f32;
+            let max = self.world.stats.vital_max_current(i).max(1) as f32;
             self.world.stats.vitals[i].current as f32 / max
         };
         let (stamina, mana) = (frac(1), frac(2));
@@ -3914,7 +3914,7 @@ impl Client {
 
     /// The maximum of a vital (0 health, 1 stamina, 2 mana).
     fn vital_max_of(&self, i: usize) -> u32 {
-        self.world.stats.vital_max(i)
+        self.world.stats.vital_max_current(i)
     }
 
     /// Take up again the weapon put down for an urgent buff, once no

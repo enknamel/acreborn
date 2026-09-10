@@ -135,7 +135,7 @@ pub fn view(c: &Client) -> Option<SkillsView> {
         .enumerate()
         .map(|(i, name)| StatRow {
             name,
-            value: st.vital_max(i),
+            value: st.vital_max_current(i),
             ranks: st.vitals[i].ranks,
             raise_xp: c.vital_raise_cost(i).xp(),
         })

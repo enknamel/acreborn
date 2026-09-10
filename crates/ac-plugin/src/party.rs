@@ -236,7 +236,7 @@ impl Party {
                     level: stats.level,
                     health: (
                         stats.vitals.first().map(|v| v.current).unwrap_or(0),
-                        stats.vital_max(0),
+                        stats.vital_max_current(0),
                     ),
                     distance: match (leader_pos, position_of(c)) {
                         (Some(l), Some(m)) => Some(flat_distance(l, m)),

@@ -1744,7 +1744,7 @@ impl Client {
         }
         let mut vitals = [0u32; 3];
         for (i, v) in vitals.iter_mut().enumerate() {
-            *v = stats.vital_max(i);
+            *v = stats.vital_max_current(i);
         }
         crate::weapons::Wielder {
             level: stats.level.max(0) as u32,

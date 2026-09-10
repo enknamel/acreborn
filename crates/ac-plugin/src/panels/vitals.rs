@@ -44,7 +44,7 @@ pub fn view(c: &Client) -> Option<VitalsView> {
             .map(|i| VitalBar {
                 name: ac_world::stats::VITAL_NAMES[i],
                 current: st.vitals[i].current,
-                max: st.vital_max(i),
+                max: st.vital_max_current(i),
             })
             .collect(),
     })
