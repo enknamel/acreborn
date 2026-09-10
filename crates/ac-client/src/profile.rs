@@ -860,6 +860,60 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_switched_off_is_off_for_everybody_at_once() {
+        let dir = std::env::temp_dir().join(format!("acswarm-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let library = Library::default();
+        library.open(&dir);
+
+        let mut profile = Profile {
+            name: "party".into(),
+            note: String::new(),
+            rules: vec![rule(
+                "peas",
+                LootAction::Sell,
+                vec![Ask::Item(Term::Word("pea".into()))],
+            )],
+        };
+        library.put(profile.clone()).expect("saved");
+
+        // Two characters, both reading the same profile by name.
+        let me = me(50, &[]);
+        let pea = item("Copper Pea", item_type::MISC, 40);
+        let look = || {
+            library
+                .get("party")
+                .map(|p| p.judge(&pea, None, &me, "anyone", 0))
+        };
+        assert!(matches!(
+            look(),
+            Some(Verdict::Decided(LootAction::Sell, _))
+        ));
+
+        // The player switches the rule off. Nobody re-reads anything
+        // and nobody is told; the next item judged is judged anew.
+        profile.rules[0].on = false;
+        library.put(profile).expect("saved again");
+        assert_eq!(look(), Some(Verdict::None));
+
+        // And it is on the disk that way, for the next time the app
+        // starts and for whoever it is sent to.
+        assert_eq!(library.reload(), 1);
+        assert_eq!(look(), Some(Verdict::None));
+        assert_eq!(library.names(), vec!["party".to_string()]);
+
+        // A character told to use no profile has none, which is not an
+        // error.
+        assert!(library.get("").is_none());
+        assert!(library.get("no such profile").is_none());
+
+        library.remove("party").expect("removed");
+        assert!(library.get("party").is_none());
+        assert!(Profile::list(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_profile_is_a_file_that_can_be_handed_to_a_friend() {
         let dir = std::env::temp_dir().join(format!("acswarm-profiles-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -881,5 +935,109 @@ mod tests {
         assert_eq!(tidy_name("mage/archer"), "mage-archer");
         assert_eq!(tidy_name("   "), "profile");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// Every profile in one place, shared by every character in the
+/// process.
+///
+/// A player toggling a rule expects it to take effect everywhere at
+/// once -- on the character they are watching and on the eleven others
+/// working the same ground -- so nothing keeps a copy. A profile is
+/// looked up by name each time it is used; saving one replaces it here
+/// and the next item judged, by anybody, is judged by the new rules.
+#[derive(Debug, Default)]
+pub struct Library {
+    dir: std::sync::RwLock<PathBuf>,
+    by_name: std::sync::RwLock<std::collections::BTreeMap<String, std::sync::Arc<Profile>>>,
+}
+
+impl Library {
+    /// The one every session shares. A test that wants its own makes
+    /// one with [`Library::default`].
+    pub fn shared() -> std::sync::Arc<Library> {
+        static SHARED: std::sync::OnceLock<std::sync::Arc<Library>> = std::sync::OnceLock::new();
+        SHARED.get_or_init(Default::default).clone()
+    }
+
+    /// Where the files live. Setting it reads them.
+    pub fn open(&self, dir: impl Into<PathBuf>) -> usize {
+        *self.dir.write().unwrap_or_else(|e| e.into_inner()) = dir.into();
+        self.reload()
+    }
+
+    pub fn dir(&self) -> PathBuf {
+        self.dir.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Read every profile in the directory, replacing what is held.
+    /// Returns how many were read. One that will not parse is logged
+    /// and left out rather than taking the rest down with it.
+    pub fn reload(&self) -> usize {
+        let dir = self.dir();
+        let mut found = std::collections::BTreeMap::new();
+        for name in Profile::list(&dir) {
+            match Profile::load(&dir, &name) {
+                Ok(p) => {
+                    found.insert(p.name.clone(), std::sync::Arc::new(p));
+                }
+                Err(e) => tracing::warn!("loot profile {name}: {e}"),
+            }
+        }
+        let n = found.len();
+        *self.by_name.write().unwrap_or_else(|e| e.into_inner()) = found;
+        n
+    }
+
+    /// The profile of this name, if there is one. An empty name is no
+    /// profile rather than an error: that is a character told to use
+    /// none.
+    pub fn get(&self, name: &str) -> Option<std::sync::Arc<Profile>> {
+        let name = name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        self.by_name
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+            .cloned()
+    }
+
+    /// What is on the shelf, in order.
+    pub fn names(&self) -> Vec<String> {
+        self.by_name
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// Write a profile out and put it in front of every character at
+    /// once. This is what an editor calls when anything changes, a
+    /// rule being switched off included.
+    pub fn put(&self, profile: Profile) -> std::io::Result<()> {
+        let dir = self.dir();
+        profile.save(&dir)?;
+        self.by_name
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(profile.name.clone(), std::sync::Arc::new(profile));
+        Ok(())
+    }
+
+    /// Forget one and delete its file.
+    pub fn remove(&self, name: &str) -> std::io::Result<()> {
+        let dir = self.dir();
+        self.by_name
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(name.trim());
+        let path = Profile::path_of(&dir, name);
+        match std::fs::remove_file(path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        }
     }
 }
