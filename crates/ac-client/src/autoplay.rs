@@ -55,6 +55,11 @@ const TAKE_TRIES: u32 = 3;
 /// How many goes at handing the same thing over before the party is
 /// let on without it.
 const GIVE_TRIES: u32 = 6;
+/// Coming this much closer (metres) counts as getting somewhere.
+const REACH_PROGRESS: f32 = 1.0;
+/// Walking towards something for this long without getting closer is
+/// not walking towards it any more.
+const REACH_GIVE_UP: Duration = Duration::from_secs(20);
 /// How long a corpse may stay open before the character gives up on
 /// it. Emptying one takes a second or two; anything past this is an
 /// item the server will not hand over, and standing there asking for
@@ -996,6 +1001,9 @@ pub struct Autoplay {
     /// How many goes at the hand-over in progress. Cleared whenever one
     /// lands or the party's mind changes.
     give_tries: u32,
+    /// The spot being walked to, how close it has been got to, and when
+    /// that last improved. See `Client::reaching_too_long`.
+    reaching: Option<(glam::Vec3, f32, Instant)>,
     last_merge: Option<Instant>,
     /// Items decided on but not yet taken from the open corpse, and
     /// when the last one was asked for. The server takes one at a time.
@@ -3731,43 +3739,30 @@ impl Client {
             return false;
         }
         if !self.step_into_reach(mate.world) {
+            if self.reaching_too_long(mate.world, now) {
+                // Cannot get to them -- a wall, a different building,
+                // a floor above. The party is not held up over it.
+                self.autoplay.growth.handed_over = true;
+                self.autoplay
+                    .note(format!("cannot get to {runner} to hand over"), now);
+                return false;
+            }
             self.autoplay
                 .say(Doing::Helping, format!("taking the loot to {runner}"));
             return true;
         }
         if let Some((purse, amount)) = coin {
-            let whole = self
-                .world
-                .objects
-                .get(&purse)
-                .map_or(1, |o| o.stack_size.max(1));
-            // Part of a stack cannot be handed over as it stands. The
-            // server takes whole objects, and a give of part of one is
-            // dropped without a word -- which is what four hundred and
-            // ninety-six unanswered gives of eighteen thousand pyreals
-            // looked like. So count the money out first, into a stack
-            // of its own, and hand that over.
-            let piece = if amount >= whole {
-                Some(purse)
-            } else {
-                self.coin_piece(amount)
-            };
-            match piece {
-                Some(g) => {
-                    if self.give(mate.guid, g, None) {
-                        self.autoplay.last_give = Some(now);
-                        self.autoplay.give_tries = 0;
-                        self.autoplay.say(
-                            Doing::Helping,
-                            format!("giving {runner} {amount} pyreals to shop with"),
-                        );
-                        return true;
-                    }
+            // Part of a stack cannot be handed over as it stands: the
+            // money is counted out first (see `hand_stack`).
+            match self.hand_stack(mate.guid, purse, amount, now) {
+                Some(true) => {
+                    self.autoplay.say(
+                        Doing::Helping,
+                        format!("giving {runner} {amount} pyreals to shop with"),
+                    );
+                    return true;
                 }
-                None if self.autoplay.give_tries < GIVE_TRIES => {
-                    self.autoplay.give_tries += 1;
-                    self.split_stack(purse, None, amount);
-                    self.autoplay.last_give = Some(now);
+                None => {
                     self.autoplay.say(
                         Doing::Helping,
                         format!("counting out {amount} pyreals for {runner}"),
@@ -3776,7 +3771,7 @@ impl Client {
                 }
                 // The money will not come apart. The loot still can go,
                 // and the runner may have enough of its own.
-                None => {}
+                Some(false) => {}
             }
         }
         let Some(&item) = loot.first() else {
@@ -3803,13 +3798,57 @@ impl Client {
         true
     }
 
-    /// A carried stack of coin of exactly this many, which is what a
-    /// split leaves behind: the piece counted out to hand over.
-    fn coin_piece(&self, amount: u32) -> Option<u32> {
+    /// A carried stack of this weenie holding exactly this many, which
+    /// is what a split leaves behind: the piece counted out to hand
+    /// over. `None` for the weenie matches anything of the right size.
+    fn piece_of(&self, wcid: Option<u32>, amount: u32) -> Option<u32> {
         self.world
             .inventory()
-            .find(|o| o.item_type & ac_world::item_type::MONEY != 0 && o.stack_size == amount)
+            .find(|o| {
+                o.stack_size == amount
+                    && match wcid {
+                        Some(w) => o.weenie_class_id == w,
+                        None => o.item_type & ac_world::item_type::MONEY != 0,
+                    }
+            })
             .map(|o| o.guid)
+    }
+
+    /// Hand `amount` out of a carried `stack` to a teammate.
+    ///
+    /// The server takes whole objects: a give of part of a stack goes
+    /// into the void unanswered. So anything short of the whole stack
+    /// is counted out into a stack of its own first, and that is what
+    /// changes hands. `None` while the counting-out is still going on,
+    /// `Some(true)` when a give went out, `Some(false)` when the thing
+    /// will not come apart and the party should get on without it.
+    fn hand_stack(&mut self, to: u32, stack: u32, amount: u32, now: Instant) -> Option<bool> {
+        let (whole, wcid) = self
+            .world
+            .objects
+            .get(&stack)
+            .map(|o| (o.stack_size.max(1), o.weenie_class_id))
+            .unwrap_or((1, 0));
+        let piece = if amount >= whole {
+            Some(stack)
+        } else {
+            self.piece_of(Some(wcid), amount)
+        };
+        if let Some(g) = piece {
+            if self.give(to, g, None) {
+                self.autoplay.last_give = Some(now);
+                self.autoplay.give_tries = 0;
+                return Some(true);
+            }
+            return Some(false);
+        }
+        if self.autoplay.give_tries >= GIVE_TRIES {
+            return Some(false);
+        }
+        self.autoplay.give_tries += 1;
+        self.split_stack(stack, None, amount);
+        self.autoplay.last_give = Some(now);
+        None
     }
 
     /// Give everyone what they ordered.
@@ -3844,16 +3883,31 @@ impl Client {
                     continue;
                 };
                 if !self.step_into_reach(mate.world) {
+                    if self.reaching_too_long(mate.world, now) {
+                        self.autoplay
+                            .note(format!("cannot get to {who} to hand out"), now);
+                        continue;
+                    }
                     self.autoplay
                         .say(Doing::Helping, format!("taking {who} their supplies"));
                     return true;
                 }
                 let (guid, stack, name) = carried[0].clone();
-                if self.give(mate.guid, guid, Some(share.min(stack))) {
-                    self.autoplay.last_give = Some(now);
-                    self.autoplay
-                        .say(Doing::Helping, format!("giving {share} {name} to {who}"));
-                    return true;
+                let share = share.min(stack);
+                match self.hand_stack(mate.guid, guid, share, now) {
+                    Some(true) => {
+                        self.autoplay
+                            .say(Doing::Helping, format!("giving {share} {name} to {who}"));
+                        return true;
+                    }
+                    None => {
+                        self.autoplay.say(
+                            Doing::Helping,
+                            format!("counting out {share} {name} for {who}"),
+                        );
+                        return true;
+                    }
+                    Some(false) => continue,
                 }
             }
         }
@@ -3887,6 +3941,7 @@ impl Client {
             return false;
         };
         if glam::Vec2::new(spot.x - me.x, spot.y - me.y).length() <= Self::REACH {
+            self.autoplay.reaching = None;
             if self.follow.take().is_some() {
                 self.steering.reset();
             }
@@ -3897,6 +3952,38 @@ impl Client {
             stop: Self::REACH * 0.6,
         });
         false
+    }
+
+    /// Whether walking to `spot` has gone on too long to be walking any
+    /// more. Indoors a counter can stand behind a wall the steering
+    /// cannot get round, and a teammate can be in the next building;
+    /// without this the character presses towards it for ever.
+    ///
+    /// The clock starts when a new spot is aimed at and is reset by any
+    /// real progress towards it, so a long walk is fine and a stopped
+    /// one is not.
+    fn reaching_too_long(&mut self, spot: glam::Vec3, now: Instant) -> bool {
+        let Some(me) = self.player.as_ref().map(|p| p.world_position()) else {
+            return false;
+        };
+        let away = glam::Vec2::new(spot.x - me.x, spot.y - me.y).length();
+        match self.autoplay.reaching {
+            Some((at, best, since)) if at.distance(spot) < 1.0 => {
+                if away < best - REACH_PROGRESS {
+                    self.autoplay.reaching = Some((spot, away, now));
+                    return false;
+                }
+                if now.duration_since(since) > REACH_GIVE_UP {
+                    self.autoplay.reaching = None;
+                    return true;
+                }
+                false
+            }
+            _ => {
+                self.autoplay.reaching = Some((spot, away, now));
+                false
+            }
+        }
     }
 
     /// The things done for the team: land the debuffs on its target,
