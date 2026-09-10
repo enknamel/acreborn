@@ -50,8 +50,8 @@ impl Capsule {
 impl Default for Capsule {
     fn default() -> Self {
         Capsule {
-            radius: 0.4,
-            height: 1.7,
+            radius: 0.48,
+            height: 1.835,
             step_up: 0.6,
             step_down: 1.5,
         }
