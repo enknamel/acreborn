@@ -3,9 +3,9 @@
 #
 #   tools/release/macos.sh [VERSION] [--notarize] [--universal]
 #
-# Produces dist/acswarm-VERSION-macos.dmg holding acswarm.app (the
-# viewer), an Applications shortcut to drag it onto, and the
-# command-line tools beside it. Signing uses the
+# Produces dist/acswarm-VERSION-macos.dmg holding acswarm.app and an
+# Applications shortcut to drag it onto, and nothing else. Signing uses
+# the
 # "Developer ID Application" identity in the login keychain (set
 # SIGN_ID to pick one). Notarization needs credentials stored once with
 #   xcrun notarytool store-credentials acswarm --apple-id YOU@EXAMPLE \
@@ -67,8 +67,12 @@ done
 rm -f "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_64x64@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/acswarm.icns"
 echo "icon: $(du -h "$APP/Contents/Resources/acswarm.icns" | cut -f1)"
-cp -R scripts "$DIST/scripts"
-cp LICENSE README.md "$DIST/"
+# The disk image holds the app and the Applications alias, nothing else:
+# drag one onto the other, which is what a Mac user expects. Everything
+# that used to sit beside it lives inside the bundle now, where the
+# licence has to be anyway for the GPL to travel with the binary.
+cp LICENSE README.md "$APP/Contents/Resources/"
+cp -R scripts "$APP/Contents/Resources/scripts"
 
 # Sign: every Mach-O, inside out, with the hardened runtime and a
 # secure timestamp (both needed by notarization).
