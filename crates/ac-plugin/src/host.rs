@@ -113,7 +113,7 @@ impl Host {
         // and sees an edit to one the moment it is made.
         if let Some(dir) = self.settings_path.as_ref().and_then(|p| p.parent()) {
             let dir = dir.join("profiles");
-            let n = ac_client::profile::Library::shared().open(&dir);
+            let n = ac_client::profile::Library::shared().open_or_start(&dir);
             tracing::info!(path = %dir.display(), profiles = n, "loot profiles loaded");
         }
         panels::restore_positions(self.settings.get("windows").unwrap_or_default());

@@ -536,6 +536,117 @@ impl Profile {
     }
 }
 
+impl Profile {
+    /// A profile to start from: what a character would take if nobody
+    /// had told it anything.
+    ///
+    /// Ordered the way a profile should be -- the rules that need
+    /// nothing from the server first, so that most of a corpse is
+    /// settled before anything is identified -- and meant to be edited
+    /// rather than obeyed. Every rule in it is one a player would
+    /// recognise.
+    pub fn starter() -> Profile {
+        let word = |w: &str| Ask::Item(Term::Word(w.into()));
+        let kind = |k: &str| Ask::Item(Term::Kind(k.into()));
+        let num = |k: NumKey, op: Op, v: f64| Ask::Item(Term::Num(k, op, v));
+        Profile {
+            name: "Starter".into(),
+            note: "A place to start: money and components kept, vendor \
+                   trash sold, the good things looked over."
+                .into(),
+            rules: vec![
+                Rule {
+                    name: "money".into(),
+                    action: LootAction::Keep,
+                    all: vec![kind("money")],
+                    ..Default::default()
+                },
+                Rule {
+                    name: "trade notes".into(),
+                    action: LootAction::Keep,
+                    all: vec![kind("note")],
+                    ..Default::default()
+                },
+                Rule {
+                    name: "spell components".into(),
+                    action: LootAction::Keep,
+                    all: vec![kind("comps")],
+                    ..Default::default()
+                },
+                Rule {
+                    name: "healing kits, a few".into(),
+                    action: LootAction::Keep,
+                    all: vec![word("healing kit")],
+                    keep_up_to: Some(4),
+                    ..Default::default()
+                },
+                // Peas are what a run to town is paid for with.
+                Rule {
+                    name: "peas to sell".into(),
+                    action: LootAction::Sell,
+                    all: vec![word("pea")],
+                    ..Default::default()
+                },
+                Rule {
+                    name: "gems to sell".into(),
+                    action: LootAction::Sell,
+                    all: vec![kind("gem"), num(NumKey::Value, Op::Ge, 100.0)],
+                    ..Default::default()
+                },
+                // Salvage is judged on what it is made of and how well,
+                // both of which come with the item.
+                Rule {
+                    name: "good salvage".into(),
+                    action: LootAction::Salvage,
+                    all: vec![kind("salvage"), num(NumKey::Workmanship, Op::Ge, 8.0)],
+                    ..Default::default()
+                },
+                // Nothing below this is worth a slot, and saying so
+                // early keeps the rules under it from asking the server
+                // about junk.
+                Rule {
+                    name: "nothing cheap".into(),
+                    action: LootAction::Skip,
+                    all: vec![num(NumKey::Value, Op::Le, 250.0)],
+                    ..Default::default()
+                },
+                // From here down the server has to be asked. Every one
+                // of these is about a thing worth a round trip.
+                Rule {
+                    name: "anything legendary".into(),
+                    action: LootAction::Keep,
+                    all: vec![Ask::Spell {
+                        op: TextOp::Like,
+                        value: "^Legendary ".into(),
+                    }],
+                    ..Default::default()
+                },
+                Rule {
+                    name: "anything epic".into(),
+                    action: LootAction::Keep,
+                    all: vec![Ask::Spell {
+                        op: TextOp::Like,
+                        value: "^Epic ".into(),
+                    }],
+                    ..Default::default()
+                },
+                Rule {
+                    name: "armour worth wearing".into(),
+                    action: LootAction::Keep,
+                    all: vec![kind("armor"), num(NumKey::Armor, Op::Ge, 250.0)],
+                    ..Default::default()
+                },
+                Rule {
+                    name: "the rest, to the counter".into(),
+                    action: LootAction::Sell,
+                    all: vec![num(NumKey::Value, Op::Ge, 1_000.0)],
+                    ..Default::default()
+                },
+            ],
+        }
+    }
+}
+
 /// A name safe to use as a file name: what a player types, less the
 /// characters a path cannot hold.
 pub fn tidy_name(name: &str) -> String {
@@ -860,6 +971,61 @@ mod tests {
     }
 
     #[test]
+    fn the_starter_profile_is_one_a_player_would_recognise() {
+        let p = Profile::starter();
+        let me = me(50, &[]);
+        let keeps = |name: &str, kind: u32, value: u32| {
+            matches!(
+                p.judge_test(&item(name, kind, value), &me, "Aldric", 0),
+                Verdict::Decided(LootAction::Keep, _)
+            )
+        };
+        let sells = |name: &str, kind: u32, value: u32| {
+            matches!(
+                p.judge_test(&item(name, kind, value), &me, "Aldric", 0),
+                Verdict::Decided(LootAction::Sell, _)
+            )
+        };
+        assert!(keeps("Pyreal", item_type::MONEY, 1_000));
+        assert!(keeps(
+            "Trade Note (50,000)",
+            item_type::PROMISSORY_NOTE,
+            50_000
+        ));
+        assert!(keeps("Prismatic Taper", item_type::SPELL_COMPONENTS, 5));
+        assert!(sells("Copper Pea", item_type::MISC, 40));
+        assert!(sells("Ruby", item_type::GEM, 9_000));
+        // Junk is dismissed without the server being asked about it,
+        // and the rule that dismisses it comes before every rule that
+        // would have needed asking.
+        let junk = item("Quartz", item_type::GEM, 20);
+        assert!(matches!(
+            p.judge_test(&junk, &me, "Aldric", 0),
+            Verdict::Decided(LootAction::Skip, _)
+        ));
+        // A stack cap holds.
+        let kit = item("Healing Kit", item_type::MISC, 100);
+        assert!(matches!(
+            p.judge_test(&kit, &me, "Aldric", 0),
+            Verdict::Decided(LootAction::Keep, _)
+        ));
+        assert!(!matches!(
+            p.judge_test(&kit, &me, "Aldric", 4),
+            Verdict::Decided(LootAction::Keep, _)
+        ));
+        // Something dear enough to be worth a look is looked at rather
+        // than guessed about.
+        let plate = item("Platemail Hauberk", item_type::ARMOR, 4_000);
+        assert!(matches!(
+            p.judge_test(&plate, &me, "Aldric", 0),
+            Verdict::NeedsId(_)
+        ));
+        // And the profile does need the server sometimes, which is the
+        // point of the ordering rather than a fault in it.
+        assert!(p.needs_id());
+    }
+
+    #[test]
     fn the_cheap_rules_settle_most_of_a_corpse_without_asking_the_server() {
         // The shape of a profile a player would actually write: the
         // dear things first, judged on worth alone, and the fussy rule
@@ -1023,6 +1189,23 @@ impl Library {
 
     pub fn dir(&self) -> PathBuf {
         self.dir.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Read the shelf, and put a starter profile on it when it is
+    /// bare. A player opening the editor for the first time should
+    /// find something to read and change rather than a blank page.
+    pub fn open_or_start(&self, dir: impl Into<PathBuf>) -> usize {
+        let n = self.open(dir);
+        if n > 0 {
+            return n;
+        }
+        match self.put(Profile::starter()) {
+            Ok(()) => 1,
+            Err(e) => {
+                tracing::warn!("cannot write a starter loot profile: {e}");
+                0
+            }
+        }
     }
 
     /// Read every profile in the directory, replacing what is held.
