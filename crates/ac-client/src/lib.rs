@@ -248,6 +248,10 @@ pub struct Client {
     pub movement_rules: player::MovementRules,
     /// Appraisals received, by object guid (the last one is the panel's).
     pub appraisals: std::collections::HashMap<u32, ac_net::messages::Appraisal>,
+    /// The loot profiles, shared with every other session in the
+    /// process: a rule switched off is off for all of them at once
+    /// (see [`profile::Library`]).
+    pub profiles: std::sync::Arc<profile::Library>,
     /// The guid of the latest appraisal and a counter bumped with each.
     pub last_appraisal: Option<u32>,
     pub appraisal_seq: u64,
@@ -325,6 +329,7 @@ impl Client {
         tracing::info!("connecting to {primary} as {}", config.account);
         let pathfinder = pathfinder::Pathfinder::new(&assets);
         Ok(Client {
+            profiles: profile::Library::shared(),
             config,
             socket,
             primary,

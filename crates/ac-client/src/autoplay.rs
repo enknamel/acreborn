@@ -405,6 +405,15 @@ pub struct Loot {
     /// not wasted on the change left by buying and looting.
     #[serde(default = "yes")]
     pub tidy_pack: bool,
+    /// The loot profile this character reads, by name (see
+    /// `crate::profile`). Empty falls back to `rules` below, which is
+    /// what a character had before profiles existed.
+    #[serde(default)]
+    pub profile: String,
+    /// The profile that decides what goes to a vendor. Empty falls back
+    /// to the older `growth.sell` searches.
+    #[serde(default)]
+    pub vendor_profile: String,
 }
 
 /// Serde's default for a switch that is on unless it was turned off.
@@ -424,6 +433,8 @@ impl Default for Loot {
             salvage: true,
             hand_off: true,
             tidy_pack: true,
+            profile: String::new(),
+            vendor_profile: String::new(),
         }
     }
 }
@@ -826,6 +837,35 @@ pub fn loot_action(stats: &crate::items::ItemStats, l: &Loot) -> LootAction {
         })
         .map(|r| r.action)
         .unwrap_or(LootAction::Skip)
+}
+
+/// What the loot rules make of an item, and whether they can say yet.
+///
+/// The profile named in the config decides when there is one; a
+/// character with no profile falls back to the searches it had before
+/// profiles existed, which never ask for an appraisal they have not
+/// already been given.
+pub fn judge_loot(
+    stats: &crate::items::ItemStats,
+    id: Option<&ac_net::messages::Appraisal>,
+    l: &Loot,
+    library: &crate::profile::Library,
+    me: &crate::weapons::Wielder,
+    my_name: &str,
+    held: u32,
+) -> crate::profile::Verdict {
+    use crate::profile::Verdict;
+    // The player's own word comes first, whatever any rule says.
+    if name_matches(&stats.name, &l.never) {
+        return Verdict::Decided(LootAction::Skip, "never take these".into());
+    }
+    if name_matches(&stats.name, &l.always) {
+        return Verdict::Decided(LootAction::Keep, "always take these".into());
+    }
+    match library.get(&l.profile) {
+        Some(p) => p.judge(stats, id, me, my_name, held),
+        None => Verdict::Decided(loot_action(stats, l), "the loot rules".into()),
+    }
 }
 
 /// Whether an item that turned up in the pack (given, bought, made)
@@ -1741,6 +1781,65 @@ impl Client {
             .is_some_and(|s| s.advancement >= sac::TRAINED)
     }
 
+    /// How many of the same weenie are already carried, for the rules
+    /// that stop at a number.
+    fn already_carried(&self, wcid: u32) -> u32 {
+        self.world
+            .inventory()
+            .filter(|o| o.weenie_class_id == wcid)
+            .map(|o| o.stack_size.max(1))
+            .sum()
+    }
+
+    /// What the rules say to do with an item, now.
+    fn loot_verdict(&self, stats: &crate::items::ItemStats, cfg: &Loot) -> LootAction {
+        use crate::profile::Verdict;
+        let me = self.wielder();
+        let name = self.world.stats.name.clone();
+        let held = self.already_carried(stats.wcid);
+        match judge_loot(
+            stats,
+            self.appraisals.get(&stats.guid),
+            cfg,
+            &self.profiles,
+            &me,
+            &name,
+            held,
+        ) {
+            Verdict::Decided(action, _) => action,
+            // Still cannot say, because the server was never asked (the
+            // appraising is switched off, or it would not answer). A
+            // rule that cannot be judged has not claimed anything.
+            Verdict::NeedsId(_) | Verdict::None => LootAction::Skip,
+        }
+    }
+
+    /// Which of a corpse's items have to be identified before the rules
+    /// can say anything about them. Everything else is already decided.
+    fn loot_to_look_over(&self, items: &[u32], cfg: &Loot) -> Vec<u32> {
+        use crate::profile::Verdict;
+        let me = self.wielder();
+        let name = self.world.stats.name.clone();
+        items
+            .iter()
+            .copied()
+            .filter(|g| !self.appraisals.contains_key(g))
+            .filter(|g| {
+                let Some(stats) = self.stats_of(*g) else {
+                    return false;
+                };
+                if self.autoplay.refused_kinds.contains(&stats.wcid) {
+                    return false;
+                }
+                let held = self.already_carried(stats.wcid);
+                matches!(
+                    judge_loot(&stats, None, cfg, &self.profiles, &me, &name, held),
+                    Verdict::NeedsId(_)
+                )
+            })
+            .collect()
+    }
+
     /// The server has refused something with `code`. When the reason is
     /// one that will not change today -- a thing that can only be had
     /// so many times a day -- the *kind* of thing is remembered, not
@@ -1845,18 +1944,25 @@ impl Client {
                 return true;
             }
             let cfg = self.autoplay.config.loot.clone();
-            // The stat rules need the numbers first.
-            let needs = cfg.needs_appraisal();
-            if cfg.appraise && needs && !self.autoplay.appraising {
-                let missing: Vec<u32> = items
-                    .iter()
-                    .copied()
-                    .filter(|g| !self.appraisals.contains_key(g))
-                    .collect();
+            // Ask the server about the ones -- and only the ones -- whose
+            // fate cannot be settled without it.
+            //
+            // An identify is a round trip each, and on a corpse of eight
+            // that is eight of them before anything is picked up. So
+            // every item is judged cheaply first and only those that
+            // came back "cannot say yet" are asked about. A profile
+            // whose early rules ask about name, kind and worth empties
+            // a corpse without a single one.
+            if cfg.appraise && !self.autoplay.appraising {
+                let missing = self.loot_to_look_over(&items, &cfg);
                 if !missing.is_empty() {
+                    let n = missing.len();
                     self.appraise_many(missing);
                     self.autoplay.appraising = true;
-                    self.autoplay.say(Doing::Looting, "looking over the loot");
+                    self.autoplay.say(
+                        Doing::Looting,
+                        format!("looking over {n} of {} item(s)", items.len()),
+                    );
                     return true;
                 }
             }
@@ -1903,9 +2009,12 @@ impl Client {
                         continue;
                     }
                     let action = if own_corpse {
+                        // Our own body: everything on it is ours, and
+                        // the wand and the components on it are what
+                        // the character needs to fight again.
                         LootAction::Keep
                     } else {
-                        loot_action(&stats, &cfg)
+                        self.loot_verdict(&stats, &cfg)
                     };
                     if action.takes() {
                         tracing::info!("autoplay: taking {} ({})", stats.name, action.label());

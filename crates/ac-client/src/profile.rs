@@ -860,6 +860,61 @@ mod tests {
     }
 
     #[test]
+    fn the_cheap_rules_settle_most_of_a_corpse_without_asking_the_server() {
+        // The shape of a profile a player would actually write: the
+        // dear things first, judged on worth alone, and the fussy rule
+        // that needs the numbers last.
+        let profile = Profile {
+            name: "tuned".into(),
+            note: String::new(),
+            rules: vec![
+                rule(
+                    "peas",
+                    LootAction::Sell,
+                    vec![Ask::Item(Term::Word("pea".into()))],
+                ),
+                rule(
+                    "nothing cheap",
+                    LootAction::Skip,
+                    vec![Ask::Item(Term::Num(NumKey::Value, Op::Le, 100.0))],
+                ),
+                rule(
+                    "armour with a legendary on it",
+                    LootAction::Keep,
+                    vec![
+                        Ask::Item(Term::Kind("armor".into())),
+                        Ask::Spell {
+                            op: TextOp::Like,
+                            value: "^Legendary ".into(),
+                        },
+                    ],
+                ),
+            ],
+        };
+        let me = me(50, &[]);
+        let corpse = [
+            item("Copper Pea", item_type::MISC, 40),
+            item("Quartz", item_type::GEM, 20),
+            item("Platemail Hauberk", item_type::ARMOR, 4_000),
+        ];
+        let verdicts: Vec<Verdict> = corpse
+            .iter()
+            .map(|it| profile.judge_test(it, &me, "Aldric", 0))
+            .collect();
+        // The pea is claimed by the first rule and the quartz by the
+        // second, both without the server being asked anything.
+        assert!(matches!(verdicts[0], Verdict::Decided(LootAction::Sell, _)));
+        assert!(matches!(verdicts[1], Verdict::Decided(LootAction::Skip, _)));
+        // Only the hauberk needs looking over.
+        assert!(matches!(verdicts[2], Verdict::NeedsId(_)));
+        let to_look_over = verdicts
+            .iter()
+            .filter(|v| matches!(v, Verdict::NeedsId(_)))
+            .count();
+        assert_eq!(to_look_over, 1, "one round trip, not three");
+    }
+
+    #[test]
     fn a_rule_switched_off_is_off_for_everybody_at_once() {
         let dir = std::env::temp_dir().join(format!("acswarm-library-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

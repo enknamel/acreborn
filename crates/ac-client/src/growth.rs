@@ -2015,6 +2015,13 @@ impl Client {
             can_wield: stats.appraised.then(|| wielder.can_wield(stats)),
             tags: &tags,
         };
+        // The vendor profile, when the character has been given one.
+        // It answers the same question the searches do -- does this go
+        // to the counter -- but it can ask about anything the server
+        // says of the item, and about the character holding it.
+        let loot = &self.autoplay.config.loot;
+        let vendor = self.profiles.get(&loot.vendor_profile);
+        let my_name = self.world.stats.name.clone();
         let unsellable = &self.autoplay.growth.unsellable;
         self.world
             .inventory()
@@ -2022,7 +2029,27 @@ impl Client {
             .filter_map(|o| {
                 let stats = self.stats_of(o.guid)?;
                 let ammo = o.valid_locations & equip::MISSILE_AMMO != 0;
-                sellable(&stats, ammo, &rules_for(&stats)).then_some(Salable {
+                let sells = match &vendor {
+                    Some(p) => {
+                        // Wielded gear and ammunition are never handed
+                        // over whatever a rule says: a character that
+                        // sells its bow cannot shoot.
+                        !stats.wielded
+                            && !ammo
+                            && matches!(
+                                p.judge(
+                                    &stats,
+                                    self.appraisals.get(&o.guid),
+                                    &wielder,
+                                    &my_name,
+                                    0
+                                ),
+                                crate::profile::Verdict::Decided(LootAction::Sell, _)
+                            )
+                    }
+                    None => sellable(&stats, ammo, &rules_for(&stats)),
+                };
+                sells.then_some(Salable {
                     guid: o.guid,
                     item_type: o.item_type,
                     value: o.value,

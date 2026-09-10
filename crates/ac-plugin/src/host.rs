@@ -107,6 +107,15 @@ impl Host {
             "settings loaded"
         );
         self.settings_path = Some(path);
+        // The loot profiles live beside the settings, one file each, so
+        // that sharing one is sending a file. Opening the shelf here
+        // means every session in this process reads the same profiles
+        // and sees an edit to one the moment it is made.
+        if let Some(dir) = self.settings_path.as_ref().and_then(|p| p.parent()) {
+            let dir = dir.join("profiles");
+            let n = ac_client::profile::Library::shared().open(&dir);
+            tracing::info!(path = %dir.display(), profiles = n, "loot profiles loaded");
+        }
         panels::restore_positions(self.settings.get("windows").unwrap_or_default());
         for p in &mut self.plugins {
             p.load(&self.settings);
