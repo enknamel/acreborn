@@ -336,6 +336,12 @@ pub struct State {
     /// The last run to town ended without buying or selling anything.
     /// Another one straight away would do the same, so it waits.
     pub run_was_futile: bool,
+    /// The character has given up, in town. Out of money, with nothing
+    /// left to sell and too short of supplies to go on hunting, it
+    /// stops where the shops are -- which is where the money and the
+    /// goods are, and where whoever is watching can put it right --
+    /// rather than walk back to a hunting ground it cannot work.
+    pub stopped_in_town: bool,
     last_raise: Option<Instant>,
     /// The pool as it stood when the last rank was bought, and when.
     raise_pending: Option<(i64, Instant)>,
@@ -423,6 +429,186 @@ pub struct Stock {
     pub price: u32,
     /// How many it has; `None` for unlimited.
     pub stack: Option<u32>,
+}
+
+/// `haystack` contains `needle`, ignoring ASCII case; `needle` is
+/// already lowercase.
+///
+/// Written out rather than lowercasing both sides, which allocates:
+/// choosing which shop to walk to compares every need against every
+/// ware of a thousand counters.
+fn contains_fold(haystack: &str, needle: &str) -> bool {
+    let (h, n) = (haystack.as_bytes(), needle.as_bytes());
+    if n.is_empty() || n.len() > h.len() {
+        return false;
+    }
+    h.windows(n.len())
+        .any(|w| w.iter().zip(n).all(|(a, b)| a.eq_ignore_ascii_case(b)))
+}
+
+/// Something in the pack the rules allow to be sold, before any one
+/// counter's tastes are applied to it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Salable {
+    pub guid: u32,
+    /// `ac_world::item_type` bits.
+    pub item_type: u32,
+    /// What one is worth.
+    pub value: u32,
+    pub stack: u32,
+}
+
+impl Salable {
+    /// Whether a counter that buys `item_types` between `min_value` and
+    /// `max_value` (a maximum of 0 being no maximum) would take it.
+    fn taken_by(&self, item_types: u32, min_value: u32, max_value: u32) -> bool {
+        self.item_type & item_types != 0
+            && self.value >= min_value
+            && (max_value == 0 || self.value <= max_value)
+    }
+}
+
+/// What a trip to one shop is expected to achieve, worked out from the
+/// shop lists before the character sets off.
+///
+/// A run to town costs minutes of hunting, so it is worth knowing in
+/// advance whether the counter has what the character came for and
+/// whether there is money enough to pay for it. Without it the party
+/// does what it used to: walk to a shop, find nothing it can afford,
+/// and walk to the next one, for ever.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Forecast {
+    /// The shop, for the log.
+    pub shop: String,
+    /// Needs it has on the shelf, and needs it has not.
+    pub stocks: Vec<String>,
+    pub missing: Vec<String>,
+    /// What the needs it stocks would cost in full at its prices.
+    pub bill: u32,
+    /// The least one of anything wanted costs here; 0 when it stocks
+    /// nothing that is wanted.
+    pub cheapest: u32,
+    /// Coin and notes in hand.
+    pub purse: u32,
+    /// What it would pay for what the character means to sell, and how
+    /// many things that is.
+    pub takings: u32,
+    pub selling: usize,
+}
+
+impl Forecast {
+    /// What there is to spend once the selling is done.
+    pub fn funds(&self) -> u32 {
+        self.purse.saturating_add(self.takings)
+    }
+
+    /// Whether the trip fills the whole order.
+    pub fn covers_it(&self) -> bool {
+        self.missing.is_empty() && !self.stocks.is_empty() && self.funds() >= self.bill
+    }
+
+    /// Whether the trip achieves anything at all: something to sell, or
+    /// one thing it wants that it can pay for. Buying part of an order
+    /// counts -- a mage that can afford half its tapers is a mage that
+    /// can keep casting -- but buying none of it does not.
+    pub fn worth_going(&self) -> bool {
+        self.selling > 0 || (self.cheapest > 0 && self.funds() >= self.cheapest)
+    }
+
+    /// Said aloud, so whoever is watching knows why the party did or
+    /// did not set off.
+    pub fn tell(&self) -> String {
+        let asked = self.stocks.len() + self.missing.len();
+        let mut out = format!("{} of {asked} on the shelf", self.stocks.len());
+        if self.bill > 0 {
+            out.push_str(&format!(", {} to buy", self.bill));
+        }
+        out.push_str(&format!(", {} in hand", self.purse));
+        if self.selling > 0 {
+            out.push_str(&format!(", {} for {} item(s)", self.takings, self.selling));
+        }
+        if !self.missing.is_empty() {
+            out.push_str(&format!("; no {}", self.missing.join(", ")));
+        }
+        out
+    }
+}
+
+/// The cheapest ware on this shelf that answers the need, if any.
+fn shop_ware<'a>(
+    shop: &'a ac_world::shops::Shop,
+    need: &Need,
+    needle: &str,
+) -> Option<&'a ac_world::shops::Ware> {
+    shop.sells
+        .iter()
+        .filter(|w| match &need.kind {
+            NeedKind::Named(_) => contains_fold(&w.name, needle),
+            NeedKind::Ammo(kind) => ammo_stock(&w.name, *kind),
+            NeedKind::Component(wcid) => w.wcid == *wcid,
+        })
+        .min_by_key(|w| w.value)
+}
+
+/// What a trip to `shop` would buy, cost and fetch. `wants` is the
+/// needs paired with their names already folded, since this is asked of
+/// every counter in range.
+fn forecast(
+    shop: &ac_world::shops::Shop,
+    wants: &[(&Need, String)],
+    purse: u32,
+    salables: &[Salable],
+) -> Forecast {
+    let mut f = Forecast {
+        shop: shop.name.clone(),
+        purse,
+        ..Default::default()
+    };
+    for (need, needle) in wants {
+        match shop_ware(shop, need, needle) {
+            Some(w) => {
+                let unit = shop.charges_for(w).max(1);
+                f.bill = f.bill.saturating_add(unit.saturating_mul(need.want));
+                f.cheapest = if f.cheapest == 0 {
+                    unit
+                } else {
+                    f.cheapest.min(unit)
+                };
+                f.stocks.push(need.name.clone());
+            }
+            None => f.missing.push(need.name.clone()),
+        }
+    }
+    for it in salables
+        .iter()
+        .filter(|it| it.taken_by(shop.buys, shop.min_value, shop.max_value))
+    {
+        if let Some(paid) = shop.pays_for(it.item_type, it.value) {
+            f.selling += 1;
+            f.takings = f
+                .takings
+                .saturating_add(paid.saturating_mul(it.stack.max(1)));
+        }
+    }
+    f
+}
+
+/// What filling a need would cost at prices on this shelf, or `None`
+/// if this counter has no line that matches it. Prices off the shelf
+/// rather than off the pack: a character that has run right out of
+/// something carries none of it to read a price from, and that is
+/// exactly when it most needs to know what the trip will cost.
+fn shelf_price(need: &Need, stock: &[Stock]) -> Option<u32> {
+    stock
+        .iter()
+        .filter(|s| match &need.kind {
+            NeedKind::Named(n) => s.name.to_lowercase().contains(&n.to_lowercase()),
+            NeedKind::Ammo(kind) => ammo_stock(&s.name, *kind),
+            NeedKind::Component(wcid) => s.wcid == *wcid,
+        })
+        .filter(|s| s.price > 0)
+        .min_by_key(|s| s.price)
+        .map(|s| s.price.saturating_mul(need.want))
 }
 
 /// What the character wants from the stock of a vendor, and can pay
@@ -717,8 +903,13 @@ impl Client {
             return true;
         }
         // A party that has stopped to restock does not wander off to a
-        // new hunting ground in the middle of it.
-        if cfg.hunt_grounds && mode.hunting() && self.grow_hunt(now, &cfg) {
+        // new hunting ground in the middle of it, and nor does one that
+        // has given up and stopped in town.
+        if cfg.hunt_grounds
+            && mode.hunting()
+            && !self.autoplay.growth.stopped_in_town
+            && self.grow_hunt(now, &cfg)
+        {
             return true;
         }
         false
@@ -1487,6 +1678,14 @@ impl Client {
         }
     }
 
+    /// What filling a need would cost at this counter, from the prices
+    /// on the shelf. Falls back to what the character is carrying is
+    /// worth, and then to nothing, so a need nobody here sells does not
+    /// pretend to a price.
+    fn shelf_cost(&self, need: &Need, stock: &[Stock]) -> u32 {
+        shelf_price(need, stock).unwrap_or_else(|| self.rough_cost(need))
+    }
+
     /// Roughly what filling a need will cost, for working out who has
     /// to be handed money before the party can shop. A vendor sells
     /// above an item's own value, so this is an underestimate rather
@@ -1707,6 +1906,24 @@ impl Client {
         let Some(v) = self.world.open_vendor.as_ref() else {
             return Vec::new();
         };
+        // The vendor buys some kinds of thing, within a range of values
+        // (a range of 0 is no range at all).
+        self.salables(cfg, Some(v.vendor))
+            .into_iter()
+            .filter(|it| it.taken_by(v.item_types, v.min_value, v.max_value))
+            .map(|it| it.guid)
+            .collect()
+    }
+
+    /// Everything in the pack the selling rules allow to go, before any
+    /// one counter's tastes are applied to it.
+    ///
+    /// [`Self::sale_list`] narrows this to the vendor standing in front
+    /// of the character; a forecast narrows it to a shop the character
+    /// has not walked to yet, which is how a trip is judged before it is
+    /// started. `refused` names the vendor whose earlier refusals are
+    /// remembered, and is `None` when the shop is only being imagined.
+    fn salables(&self, cfg: &Growth, refused: Option<u32>) -> Vec<Salable> {
         let wielder = self.wielder();
         let keep = self.keep_names(cfg);
         let tags = self.autoplay.tags().clone();
@@ -1717,19 +1934,18 @@ impl Client {
             tags: &tags,
         };
         let unsellable = &self.autoplay.growth.unsellable;
-        let vendor = v.vendor;
-        // The vendor buys some kinds of thing, within a range of values
-        // (a range of 0 is no range at all).
-        let in_range =
-            |value: u32| value >= v.min_value && (v.max_value == 0 || value <= v.max_value);
         self.world
             .inventory()
-            .filter(|o| o.item_type & v.item_types != 0 && in_range(o.value))
-            .filter(|o| !unsellable.contains(&(vendor, o.guid)))
+            .filter(|o| refused.is_none_or(|v| !unsellable.contains(&(v, o.guid))))
             .filter_map(|o| {
                 let stats = self.stats_of(o.guid)?;
                 let ammo = o.valid_locations & equip::MISSILE_AMMO != 0;
-                sellable(&stats, ammo, &rules_for(&stats)).then_some(o.guid)
+                sellable(&stats, ammo, &rules_for(&stats)).then_some(Salable {
+                    guid: o.guid,
+                    item_type: o.item_type,
+                    value: o.value,
+                    stack: o.stack_size.max(1),
+                })
             })
             .collect()
     }
@@ -1752,16 +1968,22 @@ impl Client {
             .collect()
     }
 
-    /// The nearest vendor to `from` that is not being avoided and not
-    /// in `visited`, within `within` metres when given.
+    /// The best vendor to walk to from `from`: not one being avoided,
+    /// not one in `visited`, within `within` metres when given, and --
+    /// this is the point of it -- one the trip is known in advance to
+    /// achieve something at.
+    ///
+    /// Comes back with the forecast it was chosen on, so the caller can
+    /// decide whether to set off at all and can say why.
     fn pick_vendor(
         &self,
+        cfg: &Growth,
+        needs: &[Need],
         from: Vec2,
         within: Option<f32>,
         visited: &[Vec2],
         now: Instant,
-        wanted: &[String],
-    ) -> Option<(String, Vec2)> {
+    ) -> Option<(String, Vec2, Forecast)> {
         let skip = &self.autoplay.growth.skip_vendors;
         let allowed = |at: Vec2| {
             within.is_none_or(|w| at.distance(from) <= w)
@@ -1770,6 +1992,22 @@ impl Client {
                     .iter()
                     .any(|(p, t)| p.distance(at) < 1.0 && now.duration_since(*t) < SKIP_VENDOR_FOR)
         };
+        // Worked out once for the whole search rather than per shop:
+        // this walks every counter in range.
+        let wants: Vec<(&Need, String)> = needs
+            .iter()
+            .filter(|n| n.want > 0)
+            .map(|n| {
+                let needle = match &n.kind {
+                    NeedKind::Named(t) => t.trim().to_lowercase(),
+                    _ => String::new(),
+                };
+                (n, needle)
+            })
+            .collect();
+        let purse = self.spendable();
+        let salables = self.salables(cfg, None);
+
         // A shop that has what the character came for is worth a longer
         // walk than one that does not: an archer out of quarrels is not
         // helped by the archmage next door. But only so much longer.
@@ -1781,29 +2019,73 @@ impl Client {
             let best = ac_world::shops::all()
                 .iter()
                 .filter(|s| allowed(s.xy()) && s.xy().distance(from) <= ring)
-                .map(|s| {
-                    let has = wanted.iter().filter(|w| s.stocks(w).is_some()).count();
-                    (s, has)
-                })
-                .filter(|(_, has)| *has > 0)
-                .min_by(|(a, ha), (b, hb)| {
-                    hb.cmp(ha)
+                .map(|s| (s, forecast(s, &wants, purse, &salables)))
+                .filter(|(_, f)| f.worth_going())
+                .min_by(|(a, fa), (b, fb)| {
+                    // The whole order in one stop beats part of it, more
+                    // of the order beats less, and the nearer counter
+                    // settles a tie.
+                    fb.covers_it()
+                        .cmp(&fa.covers_it())
+                        .then_with(|| fb.stocks.len().cmp(&fa.stocks.len()))
                         .then_with(|| a.xy().distance(from).total_cmp(&b.xy().distance(from)))
                 })
-                .map(|(s, _)| (s.name.clone(), s.xy()));
+                .map(|(s, f)| (s.name.clone(), s.xy(), f));
             if best.is_some() {
                 return best;
             }
         }
-        // Nothing sells what is wanted, or nothing is wanted at all:
-        // any counter will do, which is the case when the trip is to
-        // empty a full pack rather than to buy something.
+        // Nothing sells what is wanted, nothing is wanted at all, or
+        // there is no money for any of it: any counter will do, which is
+        // the case when the trip is to empty a full pack rather than to
+        // buy something. The forecast comes back saying as much, and the
+        // caller decides whether that is reason enough to walk.
         ac_world::landmarks::all()
             .iter()
             .filter(|l| l.kind == ac_world::landmarks::Kind::Vendor)
             .filter(|l| allowed(l.xy()))
             .min_by(|a, b| a.xy().distance(from).total_cmp(&b.xy().distance(from)))
-            .map(|l| (l.name.clone(), l.xy()))
+            .map(|l| {
+                let look = Forecast {
+                    shop: l.name.clone(),
+                    missing: wants.iter().map(|(n, _)| n.name.clone()).collect(),
+                    purse,
+                    ..Default::default()
+                };
+                (l.name.clone(), l.xy(), look)
+            })
+    }
+
+    /// What the character is short of, worked out afresh at most once
+    /// every [`NEEDS_EVERY`]. Counting the pack is not free and the
+    /// answer does not change between frames.
+    fn needs_now(&mut self, now: Instant, cfg: &Growth) -> Vec<Need> {
+        if let Some(n) = self
+            .autoplay
+            .growth
+            .needs_seen
+            .as_ref()
+            .filter(|(t, _)| now.duration_since(*t) < NEEDS_EVERY)
+            .map(|(_, n)| n.clone())
+        {
+            return n;
+        }
+        let n = self.grow_needs(cfg);
+        self.autoplay.growth.needs_seen = Some((now, n.clone()));
+        n
+    }
+
+    /// Whether the character is stuck: short of something it needs to
+    /// go on hunting, with no money to buy it and nothing left to sell.
+    ///
+    /// This is the one thing it gives up over, and giving up means
+    /// stopping in town rather than going back to the hunt: without
+    /// supplies there is nothing to earn out there, and the shops,
+    /// the party and the player are all here.
+    fn stranded(&self, needs: &[Need], cfg: &Growth) -> bool {
+        needs.iter().any(|n| n.urgent)
+            && self.spendable() == 0
+            && self.salables(cfg, None).is_empty()
     }
 
     /// Start a run when one is due, or carry the current one on. True
@@ -1811,6 +2093,22 @@ impl Client {
     fn grow_town_run(&mut self, now: Instant, cfg: &Growth) -> bool {
         if self.autoplay.growth.run.is_some() {
             return self.grow_run_step(now, cfg);
+        }
+        // Stopped in town for want of money: it stays put. Something
+        // has to change from outside -- coin or goods handed over, a
+        // quartermaster's delivery -- and when it does it picks the
+        // shopping straight back up.
+        if self.autoplay.growth.stopped_in_town {
+            let needs = self.needs_now(now, cfg);
+            if self.stranded(&needs, cfg) {
+                return false;
+            }
+            let st = &mut self.autoplay.growth;
+            st.stopped_in_town = false;
+            st.run_was_futile = false;
+            st.last_run = None;
+            self.autoplay
+                .note("something to spend again: shopping", now);
         }
         // Not while anything else is going on.
         if self.attack_target.is_some()
@@ -1851,21 +2149,7 @@ impl Client {
             return false;
         }
         let full = self.pack_full();
-        let fresh = self
-            .autoplay
-            .growth
-            .needs_seen
-            .as_ref()
-            .filter(|(t, _)| now.duration_since(*t) < NEEDS_EVERY)
-            .map(|(_, n)| n.clone());
-        let needs = match fresh {
-            Some(n) => n,
-            None => {
-                let n = self.grow_needs(cfg);
-                self.autoplay.growth.needs_seen = Some((now, n.clone()));
-                n
-            }
-        };
+        let needs = self.needs_now(now, cfg);
         // On a team that restocks together, the party's mode decides:
         // one character does not walk off to a vendor while the rest
         // are fighting, and none of them stays behind when the party
@@ -1914,12 +2198,33 @@ impl Client {
             return false;
         };
         let me = Vec2::new(me.x, me.y);
-        let shopping: Vec<String> = needs.iter().map(|n| n.name.clone()).collect();
-        let Some((vendor, at)) = self.pick_vendor(me, None, &[], now, &shopping) else {
+        let Some((vendor, at, look)) = self.pick_vendor(cfg, &needs, me, None, &[], now) else {
             self.autoplay.note("no vendor to run to", now);
             self.autoplay.growth.last_run = Some(now);
             return false;
         };
+        // Know before setting off whether the trip can achieve anything.
+        // A counter with nothing the character needs, or nothing it can
+        // pay for, is a walk to town and back for its own sake -- and
+        // repeated, it is the party pacing between vendors for ever.
+        //
+        // Two reasons override it. A full pack is its own errand: that
+        // trip is to empty it, not to buy. And a character with nothing
+        // to spend and nothing to sell goes anyway, because town is
+        // where it stops: see [`Self::stranded`].
+        if !full && !look.worth_going() && !self.stranded(&needs, cfg) {
+            self.autoplay.note(
+                format!("not worth a trip to {vendor}: {}", look.tell()),
+                now,
+            );
+            let st = &mut self.autoplay.growth;
+            st.last_run = Some(now);
+            // Nothing to buy and nothing to sell is exactly what a
+            // futile run comes home with, and the party reads it the
+            // same way: this one is broke, carry on without it.
+            st.run_was_futile = true;
+            return false;
+        }
         if !self.grow_travel(at, now) {
             // Not the next one straight away: a character somewhere no
             // journey can start from would try every vendor in the
@@ -1947,7 +2252,11 @@ impl Client {
         });
         self.autoplay.say(
             Doing::Shopping,
-            format!("{reason}: going to {vendor} ({})", about(at.distance(me))),
+            format!(
+                "{reason}: going to {vendor} ({}) -- {}",
+                about(at.distance(me)),
+                look.tell()
+            ),
         );
         true
     }
@@ -2226,7 +2535,18 @@ impl Client {
                     .filter_map(|(g, a)| stock.iter().find(|s| s.guid == *g).map(|s| s.price * a))
                     .sum();
                 if self.autoplay.config.team.restock.share_money {
-                    let still_to_buy: u32 = needs.iter().map(|n| self.rough_cost(n)).sum();
+                    // What the rest of the shopping will cost, priced
+                    // off the shelf in front of us rather than off what
+                    // the character happens to be carrying: a character
+                    // that has run out of something carries none of it,
+                    // so the carried price was zero and the reserve was
+                    // nothing. It converted the money it was about to
+                    // need into notes and then could not pay.
+                    let still_to_buy: u32 = needs
+                        .iter()
+                        .map(|n| self.shelf_cost(n, &stock))
+                        .sum::<u32>()
+                        .saturating_sub(spent);
                     let reserve = spent
                         .saturating_add(still_to_buy)
                         .saturating_add(self.autoplay.config.team.restock.float);
@@ -2282,19 +2602,22 @@ impl Client {
         let wanting = needs.iter().any(|n| n.urgent) || still_full;
         if wanting && run.stops < STOPS_PER_RUN {
             // The next counter in the same town is chosen by what is
-            // still on the list, not by which is closest.
-            let left: Vec<String> = needs.iter().map(|n| n.name.clone()).collect();
-            if let Some((vendor, at)) =
-                self.pick_vendor(run.town, Some(SAME_TOWN), &run.visited, now, &left)
+            // still on the list, not by which is closest -- and only
+            // when there is reason to think it can help. A full pack is
+            // reason enough on its own: that stop is to empty it.
+            if let Some((vendor, at, look)) =
+                self.pick_vendor(cfg, &needs, run.town, Some(SAME_TOWN), &run.visited, now)
             {
-                if self.grow_travel(at, now) {
+                if (still_full || look.worth_going()) && self.grow_travel(at, now) {
                     let what = if still_full {
                         "the rest of the loot"
                     } else {
                         "the rest"
                     };
-                    self.autoplay
-                        .say(Doing::Shopping, format!("on to {vendor} for {what}"));
+                    self.autoplay.say(
+                        Doing::Shopping,
+                        format!("on to {vendor} for {what} -- {}", look.tell()),
+                    );
                     let mut visited = run.visited;
                     visited.push(at);
                     self.autoplay.growth.run = Some(Run {
@@ -2311,6 +2634,11 @@ impl Client {
                     });
                     return true;
                 }
+                // Either no journey could be planned to it or it was
+                // judged no help; either way, leave it alone for a
+                // while rather than choose it again next frame.
+                self.autoplay
+                    .note(format!("skipping {vendor}: {}", look.tell()), now);
                 self.autoplay.growth.skip_vendors.push((at, now));
             }
         }
@@ -2330,6 +2658,28 @@ impl Client {
         let full = if still_full { ", pack still full" } else { "" };
         self.autoplay
             .note(format!("town run done: sold {sold} item(s){full}"), now);
+        // The one thing worth giving up over, and this is what giving
+        // up looks like: stay in town. Walking back to the hunting
+        // ground without the supplies to work it would only mean
+        // walking straight back again.
+        if self.stranded(&needs, cfg) {
+            let short: Vec<&str> = needs
+                .iter()
+                .filter(|n| n.urgent)
+                .map(|n| n.name.as_str())
+                .collect();
+            self.autoplay.growth.stopped_in_town = true;
+            self.autoplay.growth.bound = None;
+            self.autoplay.growth.bound_since = None;
+            self.autoplay.say(
+                Doing::Shopping,
+                format!(
+                    "out of money and short of {} -- stopping in town",
+                    short.join(", ")
+                ),
+            );
+            return false;
+        }
         // Back to the hunting ground.
         if let Some(lb) = self.autoplay.growth.hunting_at {
             if let Some(g) = ac_world::hunting::at(lb) {
@@ -2652,6 +3002,143 @@ mod tests {
             price,
             stack,
         }
+    }
+
+    fn ware(wcid: u32, name: &str, value: u32) -> ac_world::shops::Ware {
+        ac_world::shops::Ware {
+            wcid,
+            name: name.into(),
+            item_type: ac_world::item_type::SPELL_COMPONENTS,
+            value,
+        }
+    }
+
+    fn shop(name: &str, sells: Vec<ac_world::shops::Ware>) -> ac_world::shops::Shop {
+        ac_world::shops::Shop {
+            wcid: 1,
+            name: name.into(),
+            cell: 0x0001_0001,
+            at: glam::Vec3::ZERO,
+            sells,
+            buys: ac_world::item_type::GEM,
+            min_value: 10,
+            max_value: 0,
+            buy_rate: 0.5,
+            sell_rate: 2.0,
+        }
+    }
+
+    fn salable(guid: u32, item_type: u32, value: u32, stack: u32) -> Salable {
+        Salable {
+            guid,
+            item_type,
+            value,
+            stack,
+        }
+    }
+
+    #[test]
+    fn a_price_is_read_off_the_shelf_not_out_of_the_pack() {
+        // The character has run right out of tapers, so there is none
+        // in the pack to read a price from -- and that is precisely the
+        // moment it needs to know what the trip will cost. The shelf
+        // has the answer.
+        let want = need(NeedKind::Component(691), 300);
+        let shelf = [
+            stock(1, "Prismatic Taper", 691, 15, None),
+            stock(2, "Lead Scarab", 690, 40, None),
+        ];
+        assert_eq!(shelf_price(&want, &shelf), Some(300 * 15));
+        // The cheapest matching line sets the price.
+        let two = [
+            stock(1, "Prismatic Taper", 691, 22, None),
+            stock(3, "Prismatic Taper", 691, 15, None),
+        ];
+        assert_eq!(shelf_price(&want, &two), Some(300 * 15));
+        // A counter that does not sell it has no price to give, and
+        // says so rather than answering nothing.
+        assert_eq!(
+            shelf_price(&want, &[stock(2, "Lead Scarab", 690, 40, None)]),
+            None
+        );
+        assert_eq!(shelf_price(&want, &[]), None);
+        // Nor does a free line, which is a vendor row we cannot read.
+        assert_eq!(
+            shelf_price(&want, &[stock(1, "Prismatic Taper", 691, 0, None)]),
+            None
+        );
+    }
+
+    #[test]
+    fn case_folds_without_allocating() {
+        assert!(contains_fold("Prismatic Taper", "taper"));
+        assert!(contains_fold("PRISMATIC TAPER", "prismatic"));
+        assert!(!contains_fold("Lead Scarab", "taper"));
+        assert!(!contains_fold("Tap", "taper"));
+        assert!(!contains_fold("anything", ""));
+    }
+
+    #[test]
+    fn a_trip_is_judged_before_it_is_walked() {
+        let mut tapers = need(NeedKind::Component(691), 100);
+        tapers.name = "Prismatic Taper".into();
+        let mut scarabs = need(NeedKind::Component(690), 20);
+        scarabs.name = "Lead Scarab".into();
+        let needs = [tapers, scarabs];
+        let wants: Vec<(&Need, String)> = needs.iter().map(|n| (n, String::new())).collect();
+
+        let mage = shop(
+            "Archmage",
+            vec![
+                ware(691, "Prismatic Taper", 5),
+                ware(690, "Lead Scarab", 30),
+            ],
+        );
+        let smith = shop("Blacksmith", vec![ware(20630, "Trade Note", 250)]);
+
+        // Money in hand, everything on the shelf: the whole order in one
+        // stop, and the trip is worth walking.
+        let rich = forecast(&mage, &wants, 10_000, &[]);
+        assert_eq!(rich.bill, 100 * 10 + 20 * 60);
+        assert_eq!(rich.cheapest, 10);
+        assert!(rich.missing.is_empty());
+        assert!(rich.covers_it());
+        assert!(rich.worth_going());
+
+        // Enough for some of it is still worth walking: a mage that can
+        // afford half its tapers is a mage that can keep casting.
+        let thin = forecast(&mage, &wants, 50, &[]);
+        assert!(!thin.covers_it());
+        assert!(thin.worth_going());
+
+        // Not a copper, and nothing to sell: the trip buys nothing and
+        // is not made.
+        let broke = forecast(&mage, &wants, 0, &[]);
+        assert_eq!(broke.funds(), 0);
+        assert!(!broke.worth_going());
+
+        // Unless there is something to sell, which pays for the rest.
+        // The gem is worth 400 and the shop pays half, per item in the
+        // stack.
+        let loot = [salable(9, ac_world::item_type::GEM, 400, 3)];
+        let selling = forecast(&mage, &wants, 0, &loot);
+        assert_eq!(selling.takings, 200 * 3);
+        assert_eq!(selling.selling, 1);
+        assert!(selling.worth_going());
+        // What it will not buy does not count towards the trip.
+        let armour = [salable(9, ac_world::item_type::ARMOR, 400, 1)];
+        assert_eq!(forecast(&mage, &wants, 0, &armour).takings, 0);
+        // Nor does what is beneath its notice.
+        let trinket = [salable(9, ac_world::item_type::GEM, 5, 1)];
+        assert_eq!(forecast(&mage, &wants, 0, &trinket).takings, 0);
+
+        // A counter that stocks none of it is no help however rich the
+        // character is.
+        let wrong = forecast(&smith, &wants, 100_000, &[]);
+        assert_eq!(wrong.cheapest, 0);
+        assert_eq!(wrong.missing.len(), 2);
+        assert!(!wrong.covers_it());
+        assert!(!wrong.worth_going());
     }
 
     fn note(guid: u32, face: u32) -> Stock {
