@@ -70,6 +70,11 @@ pub const ACTIONS: &[Action] = &[
         default: None,
     },
     Action {
+        id: "loot_profiles",
+        label: "Loot profiles",
+        default: None,
+    },
+    Action {
         id: "fleet",
         label: "Fleet",
         default: None,

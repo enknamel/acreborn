@@ -52,6 +52,18 @@ const LOOT_TIMEOUT: Duration = Duration::from_millis(2500);
 const LOOT_TRIES: u32 = 3;
 /// How many times to ask for one item before leaving it where it is.
 const TAKE_TRIES: u32 = 3;
+/// How long to leave a kind of thing alone after the server says it
+/// cannot be had yet, and the longest that wait ever grows to.
+///
+/// The server never says when the wait is up, so this is a guess that
+/// corrects itself: each refusal doubles it. Guessing short is the
+/// cheap mistake -- an ask that fails is one message and four hundred
+/// milliseconds, and it happens at most once per corpse -- while
+/// guessing long means walking past a thing that came back hours ago.
+/// A session can run for days, so nothing is ever given up on for
+/// good.
+const REFUSED_AGAIN_IN: Duration = Duration::from_secs(30 * 60);
+const REFUSED_AT_MOST: Duration = Duration::from_secs(4 * 60 * 60);
 /// How many goes at handing the same thing over before the party is
 /// let on without it.
 const GIVE_TRIES: u32 = 6;
@@ -1014,11 +1026,10 @@ pub struct Autoplay {
     /// corpse is locked to the group that killed it until it has rotted
     /// a while, so this is a "later", not a "never".
     pub(crate) shelved: Vec<(u32, Instant)>,
-    /// Weenie classes the server has refused to hand over for a reason
-    /// that will not change today -- a thing that can only be had so
-    /// many times a day. Asking again on the next corpse would get the
-    /// same answer.
-    pub(crate) refused_kinds: Vec<u32>,
+    /// Weenie classes the server has refused to hand over because they
+    /// can only be had so often: `(weenie, when it last refused, how
+    /// long to wait)`. See `Client::loot_refused`.
+    pub(crate) refused_kinds: Vec<(u32, Instant, Duration)>,
     /// The corpse being walked to, if the looting set the walk going.
     /// A follower is walking after its leader with the same machinery,
     /// and that walk is not ours to cancel.
@@ -1816,7 +1827,7 @@ impl Client {
 
     /// Which of a corpse's items have to be identified before the rules
     /// can say anything about them. Everything else is already decided.
-    fn loot_to_look_over(&self, items: &[u32], cfg: &Loot) -> Vec<u32> {
+    fn loot_to_look_over(&self, items: &[u32], cfg: &Loot, now: Instant) -> Vec<u32> {
         use crate::profile::Verdict;
         let me = self.wielder();
         let name = self.world.stats.name.clone();
@@ -1828,7 +1839,7 @@ impl Client {
                 let Some(stats) = self.stats_of(*g) else {
                     return false;
                 };
-                if self.autoplay.refused_kinds.contains(&stats.wcid) {
+                if self.refused_lately(stats.wcid, now) {
                     return false;
                 }
                 let held = self.already_carried(stats.wcid);
@@ -1848,10 +1859,12 @@ impl Client {
     /// be told no twice.
     pub(crate) fn loot_refused(&mut self, code: u32) {
         // YouHaveSolvedThisQuestTooRecently / TooManyTimes: what gates
-        // the once-a-day drops.
-        if !matches!(code, 0x043E | 0x043F) {
-            return;
-        }
+        // the drops that can only be had so often.
+        let first = match code {
+            0x043E => REFUSED_AGAIN_IN,
+            0x043F => REFUSED_AGAIN_IN * 4,
+            _ => return,
+        };
         let Some(&guid) = self.autoplay.take_queue.first() else {
             return;
         };
@@ -1859,11 +1872,43 @@ impl Client {
             return;
         };
         let (wcid, name) = (o.weenie_class_id, o.name.clone());
-        if wcid != 0 && !self.autoplay.refused_kinds.contains(&wcid) {
-            tracing::info!("autoplay: {name} is not to be had again today; leaving its kind");
-            self.autoplay.refused_kinds.push(wcid);
+        if wcid != 0 {
+            let now = Instant::now();
+            // Each refusal doubles the wait, to a ceiling. A cooldown
+            // of an hour is picked up within the hour; a daily one
+            // costs a handful of wasted asks a day, which is nothing
+            // against missing the thing for a day.
+            let wait = match self
+                .autoplay
+                .refused_kinds
+                .iter_mut()
+                .find(|(w, ..)| *w == wcid)
+            {
+                Some((_, at, wait)) => {
+                    *at = now;
+                    *wait = (*wait * 2).min(REFUSED_AT_MOST);
+                    *wait
+                }
+                None => {
+                    self.autoplay.refused_kinds.push((wcid, now, first));
+                    first
+                }
+            };
+            tracing::info!(
+                "autoplay: {name} cannot be had yet; leaving its kind for {} minutes",
+                wait.as_secs() / 60
+            );
         }
         self.autoplay.take_queue.retain(|g| *g != guid);
+    }
+
+    /// Whether this kind of thing is still inside the wait a refusal
+    /// put on it.
+    fn refused_lately(&self, wcid: u32, now: Instant) -> bool {
+        self.autoplay
+            .refused_kinds
+            .iter()
+            .any(|(w, at, wait)| *w == wcid && now.duration_since(*at) < *wait)
     }
 
     /// Let go of a walk toward a corpse, wherever that corpse has been
@@ -1954,7 +1999,7 @@ impl Client {
             // whose early rules ask about name, kind and worth empties
             // a corpse without a single one.
             if cfg.appraise && !self.autoplay.appraising {
-                let missing = self.loot_to_look_over(&items, &cfg);
+                let missing = self.loot_to_look_over(&items, &cfg, now);
                 if !missing.is_empty() {
                     let n = missing.len();
                     self.appraise_many(missing);
@@ -2003,9 +2048,10 @@ impl Client {
                     let Some(stats) = self.stats_of(*g) else {
                         continue;
                     };
-                    // A kind the server has already said no to today is
-                    // not asked for again (see `loot_refused`).
-                    if self.autoplay.refused_kinds.contains(&stats.wcid) {
+                    // A kind the server has lately said cannot be had
+                    // yet is left alone for a while (see
+                    // `loot_refused`).
+                    if self.refused_lately(stats.wcid, now) {
                         continue;
                     }
                     let action = if own_corpse {
@@ -4576,6 +4622,28 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_refusal_is_a_wait_that_doubles_rather_than_a_grudge() {
+        // What `loot_refused` does to the list, without a client to
+        // hang it on: the wait starts modest, doubles with each
+        // refusal, and stops growing at the ceiling.
+        let mut wait = REFUSED_AGAIN_IN;
+        assert_eq!(wait, Duration::from_secs(30 * 60));
+        for _ in 0..10 {
+            wait = (wait * 2).min(REFUSED_AT_MOST);
+        }
+        assert_eq!(wait, REFUSED_AT_MOST, "the wait has a ceiling");
+        assert!(
+            REFUSED_AT_MOST < Duration::from_secs(24 * 60 * 60),
+            "a day's cooldown is retried several times a day, not once"
+        );
+        // A max-solves refusal starts further out than a cooldown, but
+        // it is still a wait: max solves can be raised, and a session
+        // can outlive the reason.
+        assert_eq!(REFUSED_AGAIN_IN * 4, Duration::from_secs(2 * 60 * 60));
+        assert!(REFUSED_AGAIN_IN * 4 <= REFUSED_AT_MOST);
+    }
+
     use super::*;
     use crate::items::ItemStats;
 

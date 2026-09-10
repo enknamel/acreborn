@@ -36,6 +36,7 @@ pub mod holdings;
 pub mod housing;
 pub mod inventory;
 pub mod loot;
+pub mod loot_profiles;
 pub mod map;
 pub mod menu;
 pub mod nameplates;
@@ -489,6 +490,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(components::Components::default()),
         Box::new(buffs::Buffs::default()),
         Box::new(autoplay::Autoplay::default()),
+        Box::new(loot_profiles::LootProfiles::default()),
         Box::new(fleet::Fleet::default()),
         Box::new(holdings::Holdings::default()),
         Box::new(menu::Menu::default()),
@@ -530,6 +532,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         )),
         Box::new(buffs::Buffs::demo(tables.as_ref().map(|(t, _)| &**t))),
         Box::new(autoplay::Autoplay::demo()),
+        Box::new(loot_profiles::LootProfiles::demo()),
         Box::new(fleet::Fleet::demo()),
         Box::new(holdings::Holdings::demo()),
         Box::new(menu::Menu::demo()),
