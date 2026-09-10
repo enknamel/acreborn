@@ -500,6 +500,22 @@ fn notes_for_bill(purse: u32, need_coin: u32, notes: &[(u32, u32)]) -> Vec<u32> 
 /// would not fit.
 const NOTE_STACK: u32 = 250;
 
+/// How far to look for a shop before settling for a nearer one with
+/// less on its shelves: the town we are in, the towns around it, then a
+/// long walk, then anywhere at all.
+const VENDOR_RINGS: [f32; 3] = [600.0, 3_000.0, 15_000.0];
+
+/// The distances to search, widening, never past `within`.
+///
+/// The last one is `within` itself (or everything), so a character with
+/// nothing nearby still finds a shop rather than standing still.
+fn vendor_rings(within: Option<f32>) -> Vec<f32> {
+    let cap = within.unwrap_or(f32::INFINITY);
+    let mut out: Vec<f32> = VENDOR_RINGS.iter().copied().filter(|r| *r < cap).collect();
+    out.push(cap);
+    out
+}
+
 /// How much of a purse to turn into trade notes here, and which.
 ///
 /// Coin is bulky: pyreals stack 25,000 to a slot, so a good afternoon's
@@ -1615,25 +1631,29 @@ impl Client {
                     .any(|(p, t)| p.distance(at) < 1.0 && now.duration_since(*t) < SKIP_VENDOR_FOR)
         };
         // A shop that has what the character came for is worth a longer
-        // walk than one that does not. An archer out of quarrels is not
-        // helped by the archmage next door, which is what made these
-        // runs look aimless: the nearest vendor was the only thing that
-        // decided them.
-        let stocked = ac_world::shops::all()
-            .iter()
-            .filter(|s| allowed(s.xy()))
-            .map(|s| {
-                let has = wanted.iter().filter(|w| s.stocks(w).is_some()).count();
-                (s, has)
-            })
-            .filter(|(_, has)| *has > 0)
-            .min_by(|(a, ha), (b, hb)| {
-                hb.cmp(ha)
-                    .then_with(|| a.xy().distance(from).total_cmp(&b.xy().distance(from)))
-            })
-            .map(|(s, _)| (s.name.clone(), s.xy()));
-        if stocked.is_some() {
-            return stocked;
+        // walk than one that does not: an archer out of quarrels is not
+        // helped by the archmage next door. But only so much longer.
+        // Ranking on what a shop stocks alone sent a character twenty-
+        // five kilometres to a counter with one more line on the shelf,
+        // so the search widens in rings and takes the best shop in the
+        // first ring that has anything.
+        for ring in vendor_rings(within) {
+            let best = ac_world::shops::all()
+                .iter()
+                .filter(|s| allowed(s.xy()) && s.xy().distance(from) <= ring)
+                .map(|s| {
+                    let has = wanted.iter().filter(|w| s.stocks(w).is_some()).count();
+                    (s, has)
+                })
+                .filter(|(_, has)| *has > 0)
+                .min_by(|(a, ha), (b, hb)| {
+                    hb.cmp(ha)
+                        .then_with(|| a.xy().distance(from).total_cmp(&b.xy().distance(from)))
+                })
+                .map(|(s, _)| (s.name.clone(), s.xy()));
+            if best.is_some() {
+                return best;
+            }
         }
         // Nothing sells what is wanted, or nothing is wanted at all:
         // any counter will do, which is the case when the trip is to
@@ -2010,6 +2030,26 @@ impl Client {
                 let stock = self.stock();
                 let purse = self.purse();
                 let orders = orders(&needs, &stock, purse);
+                // Why a counter came to nothing is the hardest thing to
+                // see from outside: the character stands there, says it
+                // sold nothing, and walks off. Turn ac_client up to
+                // debug and it says what it wanted, what was on the
+                // shelf, and what it could pay.
+                if orders.is_empty() && !needs.is_empty() {
+                    tracing::debug!(
+                        "shopping: bought nothing here. purse {purse}; wanted {:?}; shelf holds {} line(s): {:?}",
+                        needs
+                            .iter()
+                            .map(|n| format!("{} x{} ({:?})", n.name, n.want, n.kind))
+                            .collect::<Vec<_>>(),
+                        stock.len(),
+                        stock
+                            .iter()
+                            .take(12)
+                            .map(|s| format!("{} wcid {} @{}", s.name, s.wcid, s.price))
+                            .collect::<Vec<_>>()
+                    );
+                }
                 let mut bought = Vec::new();
                 for (guid, amount) in &orders {
                     self.buy_amount(*guid, *amount);
@@ -2490,6 +2530,39 @@ mod tests {
         assert_eq!(notes_for_bill(0, 1_000_000, &held), vec![1, 2]);
         // And with no notes at all, nothing.
         assert!(notes_for_bill(0, 1_000, &[]).is_empty());
+    }
+
+    #[test]
+    fn the_search_widens_rather_than_crossing_the_world() {
+        // The bug: ranking on what a shop stocks alone sent a character
+        // twenty-five kilometres to a counter with one more line on the
+        // shelf. The rings mean a good enough shop in this town wins.
+        let r = vendor_rings(None);
+        assert_eq!(r.first().copied(), Some(600.0), "the town first");
+        assert!(r.windows(2).all(|w| w[0] < w[1]), "{r:?} does not widen");
+        assert_eq!(r.last().copied(), Some(f32::INFINITY), "and then anywhere");
+    }
+
+    #[test]
+    fn a_capped_search_never_looks_past_the_cap() {
+        // The next stop of a run stays in the same town.
+        let r = vendor_rings(Some(500.0));
+        assert_eq!(r, vec![500.0]);
+        assert!(r.iter().all(|x| *x <= 500.0));
+        // A cap between rings keeps the ones below it.
+        let mid = vendor_rings(Some(1_000.0));
+        assert_eq!(mid, vec![600.0, 1_000.0]);
+    }
+
+    #[test]
+    fn there_is_always_a_last_ring_to_fall_back_on() {
+        // Whatever the cap, the search ends somewhere rather than
+        // leaving the character with nowhere to go.
+        for cap in [1.0f32, 600.0, 3_000.0, 15_000.0, 100_000.0] {
+            let r = vendor_rings(Some(cap));
+            assert!(!r.is_empty(), "cap {cap}");
+            assert_eq!(r.last().copied(), Some(cap));
+        }
     }
 
     #[test]
