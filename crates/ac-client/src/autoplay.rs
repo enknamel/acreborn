@@ -41,9 +41,23 @@ use crate::{Client, Stance};
 /// How long to wait for a corpse to open before asking again, when it
 /// is right under our feet. A corpse further off is given time for the
 /// walk as well (see [`loot_wait`]).
-const LOOT_TIMEOUT: Duration = Duration::from_secs(6);
-/// How many times to ask before leaving a corpse alone.
-const LOOT_TRIES: u32 = 2;
+///
+/// Short, because the character now walks to the corpse itself (see
+/// [`CORPSE_REACH`]) and asks from on top of it. The first ask is
+/// nonetheless often ignored -- the server still has us moving -- so
+/// what matters is how quickly the second one follows.
+const LOOT_TIMEOUT: Duration = Duration::from_millis(2500);
+/// How many times to ask before leaving a corpse alone. Asking is
+/// cheap now that it is asked from arm's length.
+const LOOT_TRIES: u32 = 3;
+/// How many times to ask for one item before leaving it where it is.
+const TAKE_TRIES: u32 = 3;
+/// How long a corpse may stay open before the character gives up on
+/// it. Emptying one takes a second or two; anything past this is an
+/// item the server will not hand over, and standing there asking for
+/// it again every four hundred milliseconds is how a character spends
+/// an afternoon over one drudge.
+const LOOT_GIVE_UP: Duration = Duration::from_secs(45);
 /// A pessimistic walking speed for pricing that walk, metres a second:
 /// the way round a dungeon corner is longer than the line to it.
 const LOOT_WALK: f32 = 2.5;
@@ -529,6 +543,16 @@ const CORPSE_LIFE: Duration = Duration::from_secs(300);
 /// off for. Inside this there is no second chance.
 const CORPSE_URGENT: Duration = Duration::from_secs(75);
 
+/// How close the character has to stand before a corpse will open.
+///
+/// The server will not hand over a container we are not standing at: a
+/// use from across the room is answered by being told to walk there,
+/// and it waits for us to arrive. A client that never walks waits for
+/// ever, which is what every corpse that "did not open" turned out to
+/// be. Two and a half metres is inside the use radius of everything
+/// that leaves a body.
+const CORPSE_REACH: f32 = 2.5;
+
 /// How far from its leader a follower keeping `keep` metres may stray
 /// before following comes before everything else.
 pub fn follow_break(keep: f32) -> f32 {
@@ -933,6 +957,10 @@ pub struct Autoplay {
     corpse: Option<(u32, Instant, Duration, u32)>,
     /// Corpses already emptied.
     pub(crate) looted: Vec<u32>,
+    /// The corpse being walked to, if the looting set the walk going.
+    /// A follower is walking after its leader with the same machinery,
+    /// and that walk is not ours to cancel.
+    pub(crate) walking_to: Option<u32>,
     /// Corpse items we asked the server about.
     appraising: bool,
     /// What the rules said about each carried item taken as loot (or
@@ -967,6 +995,11 @@ pub struct Autoplay {
     /// when the last one was asked for. The server takes one at a time.
     take_queue: Vec<u32>,
     last_take: Option<Instant>,
+    /// How many times each of those has been asked for. The server can
+    /// refuse -- a full pack, a chest that will not give the thing up
+    /// -- and it refuses in chat, not in a reply we can wait on, so the
+    /// only way to hear "no" is to notice the item has not moved.
+    take_tries: std::collections::BTreeMap<u32, u32>,
     /// When each corpse was first seen, so the ones about to rot can be
     /// emptied first. A corpse we never saw appear is taken as fresh.
     corpse_seen: Vec<(u32, Instant)>,
@@ -1671,14 +1704,48 @@ impl Client {
 
     /// Open the corpse of something we killed and take what is worth
     /// taking. True while looting.
+    /// Let go of a walk toward a corpse, wherever that corpse has been
+    /// let go of. Nothing else is steering here, so leaving the walk
+    /// running would carry the character off to a body it has already
+    /// finished with.
+    fn stop_walking_to_loot(&mut self) {
+        if self.autoplay.walking_to.take().is_some() && self.follow.take().is_some() {
+            self.steering.reset();
+        }
+    }
+
     fn autoplay_loot(&mut self, now: Instant) -> bool {
         if !self.autoplay.config.loot.enabled {
             return false;
         }
         // Already at one: wait for its contents, then empty it.
         if let Some((guid, since, allow, tries)) = self.autoplay.corpse {
-            if now.duration_since(since) > allow {
+            // The clock is on the opening, not on the emptying. Once
+            // the corpse is open the character is taking from it an
+            // item at a time, and asking the server to open it again
+            // in the middle of that pulls the container out from under
+            // the take in flight -- which is what "Source item not
+            // found!" is.
+            let opened = self
+                .world
+                .open_container
+                .as_ref()
+                .is_some_and(|(g, _)| *g == guid);
+            if opened && now.duration_since(since) > LOOT_GIVE_UP {
+                tracing::info!("autoplay: giving up on corpse {guid:#010x}; it will not empty");
+                self.close_container();
+                self.autoplay.looted.push(guid);
                 self.autoplay.corpse = None;
+                self.stop_walking_to_loot();
+                self.autoplay.appraising = false;
+                self.autoplay.take_queue.clear();
+                self.autoplay.take_tries.clear();
+                self.autoplay.last_take = None;
+                return false;
+            }
+            if !opened && now.duration_since(since) > allow {
+                self.autoplay.corpse = None;
+                self.stop_walking_to_loot();
                 self.autoplay.appraising = false;
                 // Opening a corpse asks the server to walk us to it,
                 // and indoors that walk goes round corners. Giving up
@@ -1732,6 +1799,7 @@ impl Client {
                 self.autoplay.note("pack full, leaving the loot", now);
                 self.autoplay.looted.push(guid);
                 self.autoplay.corpse = None;
+                self.stop_walking_to_loot();
                 self.autoplay.appraising = false;
                 return false;
             }
@@ -1771,17 +1839,24 @@ impl Client {
                     self.close_container();
                     self.autoplay.looted.push(guid);
                     self.autoplay.corpse = None;
+                    self.stop_walking_to_loot();
                     self.autoplay.appraising = false;
                     self.autoplay.say(Doing::Looting, "nothing worth taking");
                     return true;
                 }
                 self.autoplay.take_queue = queue;
             }
-            // Whatever has left the corpse is done with.
+            // Whatever has left the corpse is done with, and whatever
+            // has been asked for often enough and stayed put is not
+            // coming: the pack is full, or the thing will not be moved.
+            // Asking again every four hundred milliseconds until the
+            // corpse rots is not persistence, it is a stuck character.
             let still: Vec<u32> = self.autoplay.take_queue.clone();
+            let tries = &self.autoplay.take_tries;
             self.autoplay.take_queue = still
                 .into_iter()
                 .filter(|g| items.contains(g) && !self.world.is_carried(*g))
+                .filter(|g| tries.get(g).copied().unwrap_or(0) < TAKE_TRIES)
                 .collect();
             if let Some(next) = self.autoplay.take_queue.first().copied() {
                 let ready = self
@@ -1789,8 +1864,20 @@ impl Client {
                     .last_take
                     .is_none_or(|t| now.duration_since(t) >= TAKE_EVERY);
                 if ready {
+                    let n = self.autoplay.take_tries.entry(next).or_insert(0);
+                    *n += 1;
+                    let n = *n;
                     self.take(next);
                     self.autoplay.last_take = Some(now);
+                    if n == TAKE_TRIES {
+                        let what = self
+                            .world
+                            .objects
+                            .get(&next)
+                            .map(|o| o.name.clone())
+                            .unwrap_or_else(|| format!("{next:#010x}"));
+                        tracing::info!("autoplay: leaving {what}; it will not come out");
+                    }
                 }
                 return true;
             }
@@ -1803,8 +1890,10 @@ impl Client {
             self.close_container();
             self.autoplay.looted.push(guid);
             self.autoplay.corpse = None;
+            self.stop_walking_to_loot();
             self.autoplay.appraising = false;
             self.autoplay.last_take = None;
+            self.autoplay.take_tries.clear();
             self.autoplay.say(Doing::Looting, format!("emptied {what}"));
             return true;
         }
@@ -1911,6 +2000,30 @@ impl Client {
         }
         self.autoplay.casting_at = None;
         self.autoplay.armed_for = None;
+        // Stand over it first (see [`CORPSE_REACH`]).
+        if away > CORPSE_REACH {
+            if let Some(at) = self.world.objects.get(&guid).and_then(|o| o.world_pos()) {
+                // Well inside the radius rather than on its edge: the
+                // last metre of a walk wanders, and stopping on the
+                // line means stepping back off it again.
+                self.follow = Some(crate::Follow {
+                    target: at,
+                    stop: CORPSE_REACH / 2.0,
+                });
+                // Said once for the walk, not once a frame: the
+                // distance changes every tick and the log is not a
+                // tape measure.
+                if self.autoplay.walking_to != Some(guid) {
+                    self.autoplay.walking_to = Some(guid);
+                    self.autoplay.say(
+                        Doing::Looting,
+                        format!("walking to {name} ({} m)", away.round()),
+                    );
+                }
+                return true;
+            }
+        }
+        self.stop_walking_to_loot();
         // Opening a corpse is "using something", which ends a journey.
         self.remember_journey();
         self.interact(guid);
