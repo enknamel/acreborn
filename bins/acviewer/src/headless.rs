@@ -1,4 +1,5 @@
-//! acbot: run many game sessions in one process with no window and no GPU.
+//! Headless mode: run many game sessions in one process with no window
+//! and no GPU. What used to be a separate headless mode binary.
 //!
 //! Every `--client` becomes an `ac_client::Client`; the loop ticks each one
 //! `--hz` (`--tick-hz`) times a second with no keyboard input (plugins and the
@@ -8,81 +9,17 @@
 //! starting with `/` go to the plugin host as commands. Ctrl-C disconnects
 //! every session cleanly.
 
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use clap::Parser;
 
 use ac_client::creation::{self, CreateSpec};
 use ac_client::{Client, Config, Event};
 use ac_plugin::console::Console;
 use ac_plugin::Host;
-
-#[derive(Parser, Debug)]
-#[command(name = "acbot", about = "Headless runner for many game sessions")]
-struct Cli {
-    /// Directory with client_portal.dat and client_cell_1.dat.
-    #[arg(long, env = "AC_DATA_DIR")]
-    data_dir: PathBuf,
-    /// Server login address: HOST or HOST:PORT (port 9000 when omitted).
-    #[arg(long, required_unless_present = "show_rules")]
-    connect: Option<String>,
-    /// A session to run: ACCOUNT:PASSWORD[:CHARACTER]. Repeat for more.
-    #[arg(long = "client", required_unless_present = "show_rules")]
-    clients: Vec<String>,
-    /// Ticks per second for every session (`--hz` for short). 20 is
-    /// the game's pace; a process of followers gets by on 10.
-    #[arg(long, alias = "hz", default_value_t = 20)]
-    tick_hz: u32,
-    /// Run for this many seconds (0 = until Ctrl-C or every session ends).
-    #[arg(long, default_value_t = 0)]
-    duration: u64,
-    /// A line every session types once placed (one per second); lines
-    /// starting with `/` are plugin commands. Repeat for more.
-    #[arg(long)]
-    say: Vec<String>,
-    /// A text file of lines typed after the --say lines, one per second,
-    /// by every session. Blank lines and `#` comments are skipped.
-    #[arg(long)]
-    script: Option<PathBuf>,
-    /// Print chat lines, prefixed with the account.
-    #[arg(long)]
-    log_chat: bool,
-    /// For every session without a character of this name: create one
-    /// from the CharGen table (see --heritage, --gender, --template,
-    /// --start-area) and enter the world with it.
-    #[arg(long)]
-    create: Option<String>,
-    /// Heritage for --create: a name (aluvian, gharu, sho, viamontian,
-    /// ...) or id 1..=13. Default Aluvian.
-    #[arg(long)]
-    heritage: Option<String>,
-    /// Sex for --create: m or f. Default m.
-    #[arg(long)]
-    gender: Option<String>,
-    /// Template for --create: a name (adventurer, bow, swash, life, war,
-    /// wayfarer, soldier) or index. Default the first (Adventurer).
-    #[arg(long)]
-    template: Option<String>,
-    /// Starting town for --create: holtburg, shoushi, yaraq or sanamar.
-    /// Default the heritage's home town.
-    #[arg(long)]
-    start_area: Option<String>,
-    /// Print the creation rules for --heritage (credits, skill costs,
-    /// templates, towns) and exit without connecting.
-    #[arg(long)]
-    show_rules: bool,
-    /// Join the local cross-process bus so plugins here and in other
-    /// acbot/acviewer processes share posts and values: HOST:PORT or PORT
-    /// (default 127.0.0.1:9500, or $ACSWARM_BUS). The first process up
-    /// hosts it.
-    #[arg(long, num_args = 0..=1, default_missing_value = "")]
-    bus: Option<String>,
-}
 
 /// One `--client` argument, parsed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,6 +101,9 @@ impl Schedule {
         out
     }
 
+    /// Whether every line has gone out. The loop stops on the duration
+    /// or on every session ending, so only the tests ask this.
+    #[cfg(test)]
     pub fn finished(&self) -> bool {
         self.sent >= self.lines.len()
     }
@@ -250,17 +190,12 @@ fn clients_of(sessions: &mut [Session]) -> Vec<&mut Client> {
     sessions.iter_mut().map(|s| &mut s.client).collect()
 }
 
-fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
-        .init();
-    let cli = Cli::parse();
+pub fn run(cli: crate::Cli) -> Result<()> {
+    // The app set up logging before it worked out which mode to run in.
     anyhow::ensure!(cli.tick_hz > 0, "--tick-hz must be at least 1");
     if cli.show_rules {
-        let assets = ac_scene::Assets::open(&cli.data_dir).context("opening DAT archives")?;
+        let assets = ac_scene::Assets::open(cli.data_dir.as_ref().expect("data dir"))
+            .context("opening DAT archives")?;
         let cg = assets.chargen().context("reading the CharGen table")?;
         let heritage = match &cli.heritage {
             Some(h) => ac_scene::chargen::heritage_id(&cg, h)
@@ -284,7 +219,10 @@ fn main() -> Result<()> {
         lines.extend(parse_script(&text));
     }
 
-    let assets = Rc::new(ac_scene::Assets::open(&cli.data_dir).context("opening DAT archives")?);
+    let assets = Rc::new(
+        ac_scene::Assets::open(cli.data_dir.as_ref().expect("data dir"))
+            .context("opening DAT archives")?,
+    );
     // What --create makes on a session whose account lacks the character.
     let create: Option<CreateSpec> = cli.create.as_ref().map(|name| CreateSpec {
         name: name.clone(),
@@ -332,7 +270,7 @@ fn main() -> Result<()> {
     )));
     let period = Duration::from_secs_f64(1.0 / cli.tick_hz as f64);
     println!(
-        "acbot: {} session(s) to {}, {} Hz ({} ms per tick), {} scripted line(s), {}",
+        "headless: {} session(s) to {}, {} Hz ({} ms per tick), {} scripted line(s), {}",
         sessions.len(),
         connect,
         cli.tick_hz,
@@ -481,7 +419,7 @@ fn main() -> Result<()> {
             }
             if !r.stop_sessions.is_empty() {
                 tracing::warn!(
-                    "acbot: a plugin asked to stop sessions {:?}; not supported headless (Ctrl-C ends the run)",
+                    "headless: a plugin asked to stop sessions {:?}; not supported headless (Ctrl-C ends the run)",
                     r.stop_sessions
                 );
             }
@@ -517,15 +455,15 @@ fn main() -> Result<()> {
         }
 
         if stop.load(Ordering::SeqCst) {
-            println!("acbot: interrupted, disconnecting");
+            println!("headless: interrupted, disconnecting");
             break;
         }
         if cli.duration > 0 && now - start >= Duration::from_secs(cli.duration) {
-            println!("acbot: {} s elapsed, disconnecting", cli.duration);
+            println!("headless: {} s elapsed, disconnecting", cli.duration);
             break;
         }
         if sessions.iter().all(|s| s.ended) {
-            println!("acbot: every session ended");
+            println!("headless: every session ended");
             break;
         }
 

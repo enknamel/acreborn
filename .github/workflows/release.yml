@@ -23,7 +23,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  BINS: -p acviewer -p acbot -p acclient -p aclauncher
+  BINS: -p acviewer
   # Release archives carry no debug info (the dev profile keeps it for
   # backtraces; it made the Linux tarball 130 MB).
   CARGO_PROFILE_RELEASE_DEBUG: 0
@@ -66,7 +66,7 @@ jobs:
           V=${{ needs.version.outputs.version }}
           D=acswarm-$V-linux-x86_64
           mkdir -p dist/$D
-          cp target/release/{acviewer,acbot,acclient,aclauncher} dist/$D/
+          cp target/release/acviewer dist/$D/
           cp -R scripts LICENSE README.md dist/$D/
           tar -C dist -czf dist/$D.tar.gz $D
       - uses: actions/upload-artifact@v4
@@ -90,7 +90,7 @@ jobs:
         run: |
           [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
-          foreach ($b in "acviewer","acbot","acclient","aclauncher") {
+          foreach ($b in "acviewer") {
             & $signtool.FullName sign /f cert.pfx /p $env:PFX_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 "target\release\$b.exe"
           }
           Remove-Item cert.pfx
@@ -100,7 +100,7 @@ jobs:
           $V = "${{ needs.version.outputs.version }}"
           $D = "acswarm-$V-windows-x86_64"
           New-Item -ItemType Directory -Force -Path "dist\$D" | Out-Null
-          foreach ($b in "acviewer","acbot","acclient","aclauncher") { Copy-Item "target\release\$b.exe" "dist\$D\" }
+          foreach ($b in "acviewer") { Copy-Item "target\release\$b.exe" "dist\$D\" }
           Copy-Item -Recurse scripts "dist\$D\scripts"
           Copy-Item LICENSE, README.md "dist\$D\"
           Compress-Archive -Path "dist\$D" -DestinationPath "dist\$D.zip"

@@ -136,43 +136,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "acbot"
-version = "0.0.3"
-dependencies = [
- "ac-client",
- "ac-plugin",
- "ac-scene",
- "ac-script",
- "anyhow",
- "clap",
- "ctrlc",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "accesskit"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3b7f7f85a7e5f68090000ed7622545829afd484d210358702ae4cb97dd0c320"
 dependencies = [
  "uuid",
-]
-
-[[package]]
-name = "acclient"
-version = "0.0.3"
-dependencies = [
- "ac-client",
- "ac-dat",
- "ac-formats",
- "ac-net",
- "ac-scene",
- "ac-world",
- "anyhow",
- "clap",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -222,6 +191,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "clap",
+ "ctrlc",
  "egui",
  "egui-wgpu",
  "egui-winit",

@@ -10,6 +10,7 @@
 
 mod camera;
 mod gpu;
+mod headless;
 mod particles;
 mod perf;
 mod scene;
@@ -78,6 +79,50 @@ struct Cli {
     /// Character name to enter with (default: first)
     #[arg(long)]
     character: Option<String>,
+    /// Run without a window: many sessions in one process, no GPU. What
+    /// the separate `acbot` used to be. Pair with --client (repeatable),
+    /// --duration, --tick-hz and --script.
+    #[arg(long)]
+    headless: bool,
+    /// Headless: ticks per second for every session. 20 is the game's
+    /// pace; a process of followers gets by on 10.
+    #[arg(long = "tick-hz", alias = "hz", default_value_t = 20)]
+    tick_hz: u32,
+    /// Headless: run for this many seconds (0 = until Ctrl-C or every
+    /// session ends).
+    #[arg(long, default_value_t = 0)]
+    duration: u64,
+    /// Headless: a text file of lines typed after the --say lines, one
+    /// per second, by every session. Blank lines and `#` are skipped.
+    #[arg(long)]
+    script: Option<PathBuf>,
+    /// Headless: print every chat line the server sends.
+    #[arg(long)]
+    log_chat: bool,
+    /// For every session without a character of this name: create one
+    /// from the CharGen table (see --heritage, --gender, --template,
+    /// --start-area) and enter the world with it.
+    #[arg(long)]
+    create: Option<String>,
+    /// Heritage for --create: a name (aluvian, gharu, sho, viamontian,
+    /// ...) or id 1..=13. Default Aluvian.
+    #[arg(long)]
+    heritage: Option<String>,
+    /// Sex for --create: m or f. Default m.
+    #[arg(long)]
+    gender: Option<String>,
+    /// Template for --create: a name (adventurer, bow, swash, life, war,
+    /// wayfarer, soldier) or index. Default the first (Adventurer).
+    #[arg(long)]
+    template: Option<String>,
+    /// Starting town for --create: holtburg, shoushi, yaraq or sanamar.
+    /// Default the heritage's home town.
+    #[arg(long)]
+    start_area: Option<String>,
+    /// Print the creation rules for --heritage (credits, skill costs,
+    /// templates, towns) and exit without connecting.
+    #[arg(long)]
+    show_rules: bool,
     /// Render one frame to this PNG and exit (no window)
     #[arg(long)]
     screenshot: Option<PathBuf>,
@@ -2391,6 +2436,9 @@ fn main() -> Result<()> {
     // missing --data-dir. Headless `--screenshot` runs never prompt.
     let interactive = cli.screenshot.is_none();
     cli.data_dir = Some(resolve_data_dir(cli.data_dir.take(), interactive)?);
+    if cli.headless {
+        return headless::run(cli);
+    }
     if let Some(path) = cli.screenshot.clone() {
         let mut gpu = gpu::Gpu::headless(1280, 800)?;
         let mut app = App {

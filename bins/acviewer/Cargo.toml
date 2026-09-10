@@ -6,6 +6,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+ctrlc = "3"
 ac-dat = { path = "../../crates/ac-dat" }
 ac-formats = { path = "../../crates/ac-formats" }
 ac-scene = { path = "../../crates/ac-scene" }

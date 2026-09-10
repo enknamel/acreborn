@@ -28,7 +28,7 @@ if (( ! UNSIGNED )); then
 fi
 echo "version $VERSION, signing as: ${SIGN_ID:-(unsigned)}"
 
-BINS=(acviewer acbot acclient aclauncher)
+BINS=(acviewer)
 if (( UNIVERSAL )); then
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
   for t in aarch64-apple-darwin x86_64-apple-darwin; do
@@ -67,7 +67,6 @@ done
 rm -f "$ICONSET/icon_1024x1024.png" "$ICONSET/icon_64x64@2x.png"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/acswarm.icns"
 echo "icon: $(du -h "$APP/Contents/Resources/acswarm.icns" | cut -f1)"
-for b in acbot acclient aclauncher; do cp "$BIN_DIR/$b" "$DIST/$b"; done
 cp -R scripts "$DIST/scripts"
 cp LICENSE README.md "$DIST/"
 
@@ -80,7 +79,6 @@ else
              --entitlements tools/release/entitlements.plist --sign "$SIGN_ID" "$1"; }
   sign "$APP/Contents/MacOS/acviewer"
   sign "$APP"
-  for b in acbot acclient aclauncher; do sign "$DIST/$b"; done
   codesign --verify --deep --strict --verbose=2 "$APP"
   spctl --assess --type execute --verbose=2 "$APP" || echo "(spctl needs notarization to pass; see --notarize)"
 fi
