@@ -112,20 +112,20 @@ impl Texture {
         match self.format {
             R8G8B8 | CustomB8G8R8 => {
                 need(3)?;
-                for p in d[..n * 3].chunks_exact(3) {
+                for p in d[..n * 3].as_chunks::<3>().0 {
                     px.extend_from_slice(&[p[2], p[1], p[0], 255]);
                 }
             }
             CustomLscapeR8G8B8 => {
                 need(3)?;
-                for p in d[..n * 3].chunks_exact(3) {
+                for p in d[..n * 3].as_chunks::<3>().0 {
                     px.extend_from_slice(&[p[0], p[1], p[2], 255]);
                 }
             }
             A8R8G8B8 | X8R8G8B8 => {
                 need(4)?;
                 let opaque = self.format == X8R8G8B8;
-                for p in d[..n * 4].chunks_exact(4) {
+                for p in d[..n * 4].as_chunks::<4>().0 {
                     px.extend_from_slice(&[p[2], p[1], p[0], if opaque { 255 } else { p[3] }]);
                 }
             }
@@ -135,7 +135,7 @@ impl Texture {
             }
             CustomA8B8G8R8 => {
                 need(4)?;
-                for p in d[..n * 4].chunks_exact(4) {
+                for p in d[..n * 4].as_chunks::<4>().0 {
                     px.extend_from_slice(&[p[3], p[2], p[1], p[0]]);
                 }
             }
@@ -147,7 +147,7 @@ impl Texture {
             }
             R5G6B5 => {
                 need(2)?;
-                for p in d[..n * 2].chunks_exact(2) {
+                for p in d[..n * 2].as_chunks::<2>().0 {
                     let v = u16::from_le_bytes([p[0], p[1]]);
                     let r5 = (v >> 11) & 0x1F;
                     let g6 = (v >> 5) & 0x3F;
@@ -162,7 +162,7 @@ impl Texture {
             }
             A4R4G4B4 => {
                 need(2)?;
-                for p in d[..n * 2].chunks_exact(2) {
+                for p in d[..n * 2].as_chunks::<2>().0 {
                     let v = u16::from_le_bytes([p[0], p[1]]);
                     px.extend_from_slice(&[
                         ((v >> 8) & 0xF) as u8 * 17,
@@ -174,7 +174,7 @@ impl Texture {
             }
             A1R5G5B5 | X1R5G5B5 => {
                 need(2)?;
-                for p in d[..n * 2].chunks_exact(2) {
+                for p in d[..n * 2].as_chunks::<2>().0 {
                     let v = u16::from_le_bytes([p[0], p[1]]);
                     let c5 = |s: u16| {
                         let c = (v >> s) & 0x1F;

@@ -154,7 +154,7 @@ fn main() {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(f32::INFINITY);
-        if t0.elapsed().as_secs_f32() >= trace_from && frames % 5 == 0 {
+        if t0.elapsed().as_secs_f32() >= trace_from && frames.is_multiple_of(5) {
             let p = pl.world_position() - ac_world::landblock_origin(pl.landblock());
             eprintln!(
                 "frame {frames}: at ({:.2}, {:.2}, {:.2}) heading {:.2} aim {:?}",

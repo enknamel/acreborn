@@ -456,8 +456,10 @@ mod tests {
         assert!(MovementRules::ServerSafe.limits().is_server_safe());
         // A choice survives a restart.
         let mut settings = Settings::new();
-        let mut chosen = Options::default();
-        chosen.movement_rules = MovementRules::ServerSafe;
+        let chosen = Options {
+            movement_rules: MovementRules::ServerSafe,
+            ..Options::default()
+        };
         chosen.save(&mut settings);
         let mut back = Options::default();
         back.load(&settings);
@@ -470,8 +472,10 @@ mod tests {
 
     #[test]
     fn draw_distance_is_kept_and_published_for_the_viewer() {
-        let mut o = Options::default();
-        o.draw_distance = Some(250.0);
+        let o = Options {
+            draw_distance: Some(250.0),
+            ..Options::default()
+        };
         let mut settings = Settings::new();
         o.save(&mut settings);
         let mut back = Options::default();

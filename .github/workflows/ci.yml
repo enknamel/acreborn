@@ -22,8 +22,8 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
-    # Warnings are reported but not fatal yet: the tree carries pre-existing
-    # style lints. Tighten to `-D warnings` once they are cleared.
+    # Fatal. The tree is clean, and the way it stays clean is that a new
+    # warning fails the build rather than joining a backlog.
     name: clippy
     runs-on: ubuntu-latest
     steps:
@@ -37,7 +37,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets
+      - run: cargo clippy --workspace --all-targets -- -D warnings
 
   test:
     name: test (${{ matrix.os }})

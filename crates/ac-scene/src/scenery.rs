@@ -128,6 +128,9 @@ pub struct TerrainSampler<'a> {
 impl<'a> TerrainSampler<'a> {
     pub fn new(lb: &'a CellLandblock, height_table: &[f32]) -> Self {
         let mut heights = [[0.0; VERTS_PER_SIDE]; VERTS_PER_SIDE];
+        // Indexed on purpose: the source is one flat run of heights and
+        // x and y are what turn it into a square.
+        #[allow(clippy::needless_range_loop)]
         for x in 0..VERTS_PER_SIDE {
             for y in 0..VERTS_PER_SIDE {
                 heights[x][y] = height_table
@@ -301,6 +304,9 @@ pub fn generate_with_stats(
                 .unwrap_or(10.0)
                 .max(6.0);
             let o = b.frame.origin;
+            // Indexed on purpose: cx and cy are the cell's coordinates
+            // in the landblock, used both to place it and to mark it.
+            #[allow(clippy::needless_range_loop)]
             for cx in 0..8 {
                 for cy in 0..8 {
                     let c = Vec3::new(

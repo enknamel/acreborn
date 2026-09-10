@@ -1194,20 +1194,19 @@ impl Client {
                 continue;
             }
             let have = self.carried_named(&name);
-            if have < least {
-                if !needs
+            if have < least
+                && !needs
                     .iter()
                     .any(|n: &Need| n.kind == NeedKind::Named(name.clone()))
-                {
-                    needs.push(Need {
-                        name: name.clone(),
-                        want: least - have,
-                        have,
-                        keep: least,
-                        urgent: true,
-                        kind: NeedKind::Named(name),
-                    });
-                }
+            {
+                needs.push(Need {
+                    name: name.clone(),
+                    want: least - have,
+                    have,
+                    keep: least,
+                    urgent: true,
+                    kind: NeedKind::Named(name),
+                });
             }
         }
         if let Some((kind, have)) = self.ammo_carried() {

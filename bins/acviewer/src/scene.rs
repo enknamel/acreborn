@@ -85,7 +85,7 @@ fn push_submeshes(
                 batch.indices.extend(sub.indices.iter().map(|i| i + base));
             }
             Some(cell) => {
-                for tri in sub.indices.chunks_exact(3) {
+                for tri in sub.indices.as_chunks::<3>().0 {
                     let corners = [
                         world[tri[0] as usize],
                         world[tri[1] as usize],
@@ -274,7 +274,9 @@ pub fn build_landblock(
     for (cell, tri) in scene
         .terrain
         .indices
-        .chunks_exact(6)
+        .as_chunks::<6>()
+        .0
+        .iter()
         .enumerate()
         .take(terrain_cells)
     {
@@ -333,10 +335,10 @@ pub fn build_landblock(
         min = min.min(lo);
         max = max.max(hi);
         for part in &cell.parts {
-            if !mesh_cache.contains_key(&part.gfxobj_id) {
+            if let std::collections::hash_map::Entry::Vacant(e) = mesh_cache.entry(part.gfxobj_id) {
                 match assets.gfxobj(part.gfxobj_id) {
                     Ok(g) => {
-                        mesh_cache.insert(part.gfxobj_id, model::build_mesh(assets, &g)?);
+                        e.insert(model::build_mesh(assets, &g)?);
                     }
                     Err(e) => {
                         tracing::warn!("gfxobj {:#010x}: {e}", part.gfxobj_id);
@@ -360,7 +362,7 @@ pub fn build_landblock(
     };
     let outdoor_lit = scene.is_dungeon.then_some(&underground);
     for part in &scene.parts {
-        if !mesh_cache.contains_key(&part.gfxobj_id) {
+        if let std::collections::hash_map::Entry::Vacant(e) = mesh_cache.entry(part.gfxobj_id) {
             let g = match assets.gfxobj(part.gfxobj_id) {
                 Ok(g) => g,
                 Err(e) => {
@@ -368,7 +370,7 @@ pub fn build_landblock(
                     continue;
                 }
             };
-            mesh_cache.insert(part.gfxobj_id, model::build_mesh(assets, &g)?);
+            e.insert(model::build_mesh(assets, &g)?);
         }
         push_mesh(
             &mut batches,
@@ -463,89 +465,6 @@ pub fn build_model_with(assets: &Assets, model_id: u32, app: &model::Appearance)
         radius: ((max - min).length() * 0.5).max(1.0),
         is_dungeon: false,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn v(x: f32, y: f32) -> Vertex {
-        Vertex {
-            position: [x, y, 0.0],
-            normal: [0.0, 0.0, 1.0],
-            uv: [x, y],
-            color: [1.0; 4],
-        }
-    }
-
-    #[test]
-    fn subdivide_keeps_small_triangles_and_grids_large_ones() {
-        let small = [v(0.0, 0.0), v(1.0, 0.0), v(0.0, 1.0)];
-        let (verts, idx) = subdivide(&small, 2.0);
-        assert_eq!((verts.len(), idx.len()), (3, 3));
-        // A right triangle with 4 m legs at a 2 m step: the hypotenuse
-        // asks for three cuts, the legs two, so it is a 3-grid whose leg
-        // points collapse onto the legs' midpoints. Area is preserved,
-        // nothing flips, and every edge stays short.
-        let big = [v(0.0, 0.0), v(4.0, 0.0), v(0.0, 4.0)];
-        let (verts, idx) = subdivide(&big, 2.0);
-        assert_eq!((verts.len(), idx.len()), (10, 27));
-        let mut area = 0.0;
-        for t in idx.chunks_exact(3) {
-            let [a, b, c] = [0, 1, 2].map(|k| Vec3::from(verts[t[k] as usize].position));
-            assert!((b - a).length() <= 2.0 * 2f32.sqrt() + 1e-5);
-            let n = (b - a).cross(c - a);
-            assert!(n.z >= 0.0, "winding flipped");
-            area += n.length() * 0.5;
-        }
-        assert!((area - 8.0).abs() < 1e-4, "{area}");
-        for p in verts.iter().filter(|v| v.position[1] == 0.0) {
-            assert!([0.0, 2.0, 4.0].contains(&p.position[0]), "{:?}", p.position);
-        }
-        // UVs follow the positions.
-        let mid = verts
-            .iter()
-            .find(|v| v.position == [2.0, 0.0, 0.0])
-            .unwrap();
-        assert_eq!(mid.uv, [2.0, 0.0]);
-    }
-
-    #[test]
-    fn subdivide_shares_edge_points_with_the_neighbour() {
-        // Two triangles of different shapes on either side of the edge
-        // (0,0)-(10,0) cut it into the same points, bit for bit.
-        let left = [v(0.0, 0.0), v(10.0, 0.0), v(0.0, 3.0)];
-        let right = [v(10.0, 0.0), v(0.0, 0.0), v(7.0, -9.0)];
-        let on_edge = |tri: &[Vertex; 3]| {
-            let (verts, _) = subdivide(tri, 2.0);
-            let mut xs: Vec<u32> = verts
-                .iter()
-                .filter(|v| v.position[1] == 0.0)
-                .map(|v| v.position[0].to_bits())
-                .collect();
-            xs.sort_unstable();
-            xs.dedup();
-            xs
-        };
-        let l = on_edge(&left);
-        assert_eq!(l.len(), 6, "five 2 m cuts: {l:?}");
-        assert_eq!(l, on_edge(&right));
-    }
-
-    #[test]
-    fn baked_vertex_is_flagged_prelit() {
-        let cell = CellLighting {
-            ambient: Vec3::splat(0.2),
-            lights: vec![ac_scene::lighting::CellLight {
-                position: Vec3::new(0.0, 0.0, 1.0),
-                color: Vec3::new(1.0, 0.5, 0.0),
-                radius: 4.0,
-            }],
-        };
-        let b = bake_vertex(v(0.0, 0.0), &cell, 0.5);
-        assert!(b.color[3] >= Vertex::PRELIT && (b.opacity() - 0.5).abs() < 1e-6);
-        assert!(b.color[0] > 0.2 && b.color[2] == 0.2, "{:?}", b.color);
-    }
 }
 
 /// Composed palettes referenced by material keys, by hash.
@@ -988,17 +907,14 @@ pub fn instances_lit(
     let mut out = Vec::with_capacity(parts.len());
     for part in parts {
         let key = (part.gfxobj_id, if app.is_empty() { 0 } else { app_key });
-        if !meshes.contains_key(&key) {
+        if let std::collections::hash_map::Entry::Vacant(e) = meshes.entry(key) {
             let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
                 continue;
             };
             let Ok(m) = model::build_mesh_with(assets, &g, part.part_index, app) else {
                 continue;
             };
-            meshes.insert(
-                key,
-                gpu.upload_mesh(&m, |k| material_image(assets, k, palettes)),
-            );
+            e.insert(gpu.upload_mesh(&m, |k| material_image(assets, k, palettes)));
         }
         out.push(crate::gpu::Instance {
             mesh: meshes[&key].clone(),
@@ -1060,4 +976,87 @@ pub fn object_instances(
         out.extend(inst);
     }
     (out, picks)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(x: f32, y: f32) -> Vertex {
+        Vertex {
+            position: [x, y, 0.0],
+            normal: [0.0, 0.0, 1.0],
+            uv: [x, y],
+            color: [1.0; 4],
+        }
+    }
+
+    #[test]
+    fn subdivide_keeps_small_triangles_and_grids_large_ones() {
+        let small = [v(0.0, 0.0), v(1.0, 0.0), v(0.0, 1.0)];
+        let (verts, idx) = subdivide(&small, 2.0);
+        assert_eq!((verts.len(), idx.len()), (3, 3));
+        // A right triangle with 4 m legs at a 2 m step: the hypotenuse
+        // asks for three cuts, the legs two, so it is a 3-grid whose leg
+        // points collapse onto the legs' midpoints. Area is preserved,
+        // nothing flips, and every edge stays short.
+        let big = [v(0.0, 0.0), v(4.0, 0.0), v(0.0, 4.0)];
+        let (verts, idx) = subdivide(&big, 2.0);
+        assert_eq!((verts.len(), idx.len()), (10, 27));
+        let mut area = 0.0;
+        for t in idx.as_chunks::<3>().0 {
+            let [a, b, c] = [0, 1, 2].map(|k| Vec3::from(verts[t[k] as usize].position));
+            assert!((b - a).length() <= 2.0 * 2f32.sqrt() + 1e-5);
+            let n = (b - a).cross(c - a);
+            assert!(n.z >= 0.0, "winding flipped");
+            area += n.length() * 0.5;
+        }
+        assert!((area - 8.0).abs() < 1e-4, "{area}");
+        for p in verts.iter().filter(|v| v.position[1] == 0.0) {
+            assert!([0.0, 2.0, 4.0].contains(&p.position[0]), "{:?}", p.position);
+        }
+        // UVs follow the positions.
+        let mid = verts
+            .iter()
+            .find(|v| v.position == [2.0, 0.0, 0.0])
+            .unwrap();
+        assert_eq!(mid.uv, [2.0, 0.0]);
+    }
+
+    #[test]
+    fn subdivide_shares_edge_points_with_the_neighbour() {
+        // Two triangles of different shapes on either side of the edge
+        // (0,0)-(10,0) cut it into the same points, bit for bit.
+        let left = [v(0.0, 0.0), v(10.0, 0.0), v(0.0, 3.0)];
+        let right = [v(10.0, 0.0), v(0.0, 0.0), v(7.0, -9.0)];
+        let on_edge = |tri: &[Vertex; 3]| {
+            let (verts, _) = subdivide(tri, 2.0);
+            let mut xs: Vec<u32> = verts
+                .iter()
+                .filter(|v| v.position[1] == 0.0)
+                .map(|v| v.position[0].to_bits())
+                .collect();
+            xs.sort_unstable();
+            xs.dedup();
+            xs
+        };
+        let l = on_edge(&left);
+        assert_eq!(l.len(), 6, "five 2 m cuts: {l:?}");
+        assert_eq!(l, on_edge(&right));
+    }
+
+    #[test]
+    fn baked_vertex_is_flagged_prelit() {
+        let cell = CellLighting {
+            ambient: Vec3::splat(0.2),
+            lights: vec![ac_scene::lighting::CellLight {
+                position: Vec3::new(0.0, 0.0, 1.0),
+                color: Vec3::new(1.0, 0.5, 0.0),
+                radius: 4.0,
+            }],
+        };
+        let b = bake_vertex(v(0.0, 0.0), &cell, 0.5);
+        assert!(b.color[3] >= Vertex::PRELIT && (b.opacity() - 0.5).abs() < 1e-6);
+        assert!(b.color[0] > 0.2 && b.color[2] == 0.2, "{:?}", b.color);
+    }
 }

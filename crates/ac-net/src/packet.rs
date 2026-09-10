@@ -392,7 +392,7 @@ mod tests {
             id: 7,
             ..Default::default()
         };
-        let dg = build(h, &42u32.to_le_bytes(), &[frag.clone()], 0);
+        let dg = build(h, &42u32.to_le_bytes(), std::slice::from_ref(&frag), 0);
         let p = Packet::parse(&dg).unwrap();
         assert_eq!(p.header.sequence, 5);
         assert_eq!(p.optional.ack_sequence, Some(42));

@@ -463,11 +463,12 @@ fn icon_loader(data_dir: PathBuf) -> ac_plugin::IconLoader {
 /// Live server connection state for `--connect`.
 struct Net {
     client: ac_client::Client,
-    /// The server this session was started against, and what started it,
-    /// so a dropped session can be started again as the same character
-    /// against the same server (see `App::reconnect_session`).
+    /// The server this session was started against, so a dropped
+    /// session can be started again against the same one. Who it was
+    /// comes from the session itself (`reconnect::Carry`), which knows
+    /// the character actually in the world rather than the one asked
+    /// for.
     host: String,
-    spec: ac_plugin::SessionSpec,
     /// When to come back after a drop (see `ac_client::reconnect`).
     reconnect: ac_client::reconnect::Reconnect,
     /// This client's ending has been handed to `reconnect`. Cleared when
@@ -800,7 +801,6 @@ impl App {
         self.nets.push(Net {
             client,
             host,
-            spec: spec.clone(),
             reconnect,
             ending_reported: false,
             last_generation: 0,
@@ -1435,20 +1435,12 @@ impl App {
         self.audio = audio;
         self.assets = Some(assets.clone());
         for cfg in configs {
-            let spec = ac_plugin::SessionSpec {
-                account: cfg.account.clone(),
-                password: cfg.password.clone(),
-                character: cfg.character.clone(),
-                create: None,
-                role: ac_plugin::Role::default(),
-            };
             let host = cfg.host.clone();
             let client = ac_client::Client::connect(cfg, assets.clone())?;
             let reconnect = self.reconnect_rule();
             self.nets.push(Net {
                 client,
                 host,
-                spec,
                 reconnect,
                 ending_reported: false,
                 last_generation: 0,

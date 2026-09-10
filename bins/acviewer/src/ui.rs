@@ -125,8 +125,10 @@ impl Ui {
         });
     }
 
-    /// Queue synthetic input for the next frame (headless tests and
-    /// automation): key presses and typed text as egui events.
+    /// Queue synthetic input for the next frame: key presses and typed
+    /// text as egui events. Only the tests drive the window this way;
+    /// a real one gets its events from winit.
+    #[cfg(test)]
     pub fn inject(&mut self, events: impl IntoIterator<Item = egui::Event>) {
         self.injected.extend(events);
     }
@@ -507,7 +509,7 @@ mod tests {
         };
         let (device, queue) = (gpu.device(), gpu.queue());
         let mut ui = Ui::new(device, gpu.format(), None, 320, 240);
-        let mut frame = |ui: &mut Ui| ui.begin(None, &mut |_| {}, device, queue, 320, 240);
+        let frame = |ui: &mut Ui| ui.begin(None, &mut |_| {}, device, queue, 320, 240);
         frame(&mut ui); // fonts
         ui.chat_focus = true;
         frame(&mut ui); // focus requested

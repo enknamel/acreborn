@@ -29,6 +29,12 @@ impl Isaac {
         }
         for pass in 0..2 {
             for j in (0..256).step_by(8) {
+                // Indexed on purpose: k walks three arrays at once and
+                // the published algorithm is written this way. Turning
+                // it into an iterator chain would read further from the
+                // spec it is checked against, in code whose only job is
+                // to agree with the server bit for bit.
+                #[allow(clippy::needless_range_loop)]
                 for k in 0..8 {
                     x[k] = x[k].wrapping_add(if pass == 0 { s.rsl[j + k] } else { s.mm[j + k] });
                 }
@@ -43,6 +49,10 @@ impl Isaac {
         s
     }
 
+    /// The next word of the keystream. Named for the cipher, not for
+    /// `Iterator`: this is a keystream, not a sequence anyone should
+    /// be able to `collect`.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> u32 {
         let v = self.rsl[self.offset];
         if self.offset > 0 {

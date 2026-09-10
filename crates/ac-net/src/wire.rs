@@ -119,7 +119,7 @@ impl Writer {
         self
     }
     pub fn align4(&mut self) -> &mut Self {
-        while self.buf.len() % 4 != 0 {
+        while !self.buf.len().is_multiple_of(4) {
             self.buf.push(0);
         }
         self
@@ -133,7 +133,7 @@ impl Writer {
         self.u16(bytes.len() as u16);
         self.buf.extend_from_slice(&bytes);
         let pad = (4 - (2 + bytes.len()) % 4) % 4;
-        self.buf.extend(std::iter::repeat(0).take(pad));
+        self.buf.extend(std::iter::repeat_n(0, pad));
         self
     }
     pub fn packed_u32(&mut self, v: u32) -> &mut Self {

@@ -650,7 +650,7 @@ impl TeamView {
 
     /// The mate nearest `me` that is short of something we could hand
     /// over, within `radius` metres.
-    pub fn wanting<'a>(&'a self, me: glam::Vec3, radius: f32) -> Option<&'a Mate> {
+    pub fn wanting(&self, me: glam::Vec3, radius: f32) -> Option<&Mate> {
         self.mates
             .iter()
             .filter(|m| !m.wants.is_empty() && m.world.distance(me) <= radius)
@@ -4236,8 +4236,10 @@ mod tests {
 
     #[test]
     fn config_round_trips_through_json() {
-        let mut c = Config::default();
-        c.enabled = true;
+        let mut c = Config {
+            enabled: true,
+            ..Config::default()
+        };
         c.buffs.spells = vec!["Strength Self".into()];
         c.fight.avoid = vec!["Olthoi".into()];
         let text = serde_json::to_string(&c).unwrap();

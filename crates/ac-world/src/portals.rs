@@ -247,7 +247,7 @@ mod tests {
         assert!(p.refusal(p.max_level + 1).is_some());
         let q = quested[0];
         assert!(!q.usable_by(200, &[]));
-        assert!(q.usable_by(200, &[q.quest.clone()]));
+        assert!(q.usable_by(200, std::slice::from_ref(&q.quest)));
         assert!(q.refusal(200).unwrap().contains("quest"));
     }
 

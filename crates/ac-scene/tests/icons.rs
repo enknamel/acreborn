@@ -31,7 +31,14 @@ fn icons_decode_to_32x32_rgba() {
         assert_eq!(img.pixels.len(), 32 * 32 * 4, "{id:#010x}");
         // An icon is a picture, not a blank: some pixel is visible and not
         // every visible pixel is the same color.
-        let visible: Vec<&[u8]> = img.pixels.chunks_exact(4).filter(|p| p[3] > 0).collect();
+        let visible: Vec<&[u8]> = img
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| p[3] > 0)
+            .map(|p| &p[..])
+            .collect();
         assert!(!visible.is_empty(), "{id:#010x}: fully transparent");
         assert!(
             visible.iter().any(|p| p[..3] != visible[0][..3]),

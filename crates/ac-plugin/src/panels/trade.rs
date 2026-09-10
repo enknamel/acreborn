@@ -131,7 +131,7 @@ pub fn draw(egui: &egui::Context, icons: &mut IconCache, v: &TradeView) -> Actio
             if let Some(p) = zone.response.dnd_release_payload::<ItemDrag>() {
                 actions.add.push(p.0);
             }
-            caption(&mut cols[1], &format!("{}'s offer", v.partner));
+            caption(&mut cols[1], format!("{}'s offer", v.partner));
             cols[1].set_min_height(170.0);
             for it in &v.theirs {
                 let row = item_row(

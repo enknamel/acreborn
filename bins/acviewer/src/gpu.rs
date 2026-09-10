@@ -1551,7 +1551,7 @@ impl Gpu {
         let mut pixels = Vec::with_capacity((w * h * 4) as usize);
         for row in 0..h {
             let r = &data[(row * bytes_per_row) as usize..][..(w * 4) as usize];
-            for p in r.chunks_exact(4) {
+            for p in r.as_chunks::<4>().0 {
                 if bgra {
                     pixels.extend_from_slice(&[p[2], p[1], p[0], 255]);
                 } else {

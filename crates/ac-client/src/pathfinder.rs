@@ -18,7 +18,7 @@
 //! in about a millisecond.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -202,13 +202,10 @@ impl Pathfinder {
     pub fn take(&mut self, me: Vec3, goal: Vec3) -> Option<Vec<Vec3>> {
         let (_, _, answers) = self.line.as_ref()?;
         let mut newest: Option<Answer> = None;
-        loop {
-            match answers.try_recv() {
-                Ok(a) => newest = Some(a),
-                // We hold a sender ourselves, so the channel never closes;
-                // a planner that stopped shows up on the next ask.
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
+        // We hold a sender ourselves, so the channel never closes; a
+        // planner that stopped shows up on the next ask.
+        while let Ok(a) = answers.try_recv() {
+            newest = Some(a);
         }
         let a = newest?;
         self.waiting = false;

@@ -131,7 +131,7 @@ pub fn build(lb: &CellLandblock, height_table: &[f32]) -> TerrainMesh {
     }
     // Smooth normals from face normals.
     let mut acc = vec![Vec3::ZERO; vertices.len()];
-    for t in indices.chunks_exact(3) {
+    for t in indices.as_chunks::<3>().0 {
         let p0 = vertices[t[0] as usize].position;
         let p1 = vertices[t[1] as usize].position;
         let p2 = vertices[t[2] as usize].position;

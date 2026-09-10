@@ -2621,7 +2621,7 @@ impl Client {
                 .inventory()
                 .filter(|o| o.weenie_class_id == p.wcid && o.wielder != me)
                 .collect();
-            stacks.sort_by(|a, b| b.stack_size.cmp(&a.stack_size));
+            stacks.sort_by_key(|o| std::cmp::Reverse(o.stack_size));
             for o in stacks {
                 if need == 0 {
                     break;
@@ -3246,6 +3246,44 @@ pub fn salvage_text(res: &ac_net::messages::SalvageResult) -> String {
     text
 }
 
+/// Whether `chat_message` takes a message: the speech opcodes, and for
+/// GameEvent (`ev` is the event type) the notices it turns into chat
+/// lines. Keeps the unhandled-message log honest.
+fn chat_handles(op: u32, ev: u32) -> bool {
+    use ac_net::messages::{event, opcode};
+    match op {
+        opcode::SOUND
+        | opcode::TURBINE_CHAT
+        | opcode::HEAR_SPEECH
+        | opcode::HEAR_RANGED_SPEECH
+        | opcode::SERVER_MESSAGE
+        | opcode::EMOTE_TEXT
+        | opcode::SOUL_EMOTE
+        | opcode::PLAYER_KILLED => true,
+        opcode::GAME_EVENT => matches!(
+            ev,
+            event::TELL
+                | event::CHANNEL_BROADCAST
+                | event::BOOK_DATA_RESPONSE
+                | event::BOOK_PAGE_DATA_RESPONSE
+                | event::SALVAGE_OPERATIONS_RESULT
+                | event::IDENTIFY_OBJECT_RESPONSE
+                | event::ATTACK_DONE
+                | event::ATTACKER_NOTIFICATION
+                | event::DEFENDER_NOTIFICATION
+                | event::EVASION_ATTACKER_NOTIFICATION
+                | event::EVASION_DEFENDER_NOTIFICATION
+                | event::VICTIM_NOTIFICATION
+                | event::KILLER_NOTIFICATION
+                | event::TRANSIENT_STRING
+                | event::WEENIE_ERROR
+                | event::WEENIE_ERROR_WITH_STRING
+                | event::POPUP_STRING
+        ),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod salvage_tests {
     use super::*;
@@ -3283,43 +3321,5 @@ mod salvage_tests {
             salvage_text(&parsed),
             "You obtain 2 Steel (workmanship 3.00) using your Weapon Tinkering skill."
         );
-    }
-}
-
-/// Whether `chat_message` takes a message: the speech opcodes, and for
-/// GameEvent (`ev` is the event type) the notices it turns into chat
-/// lines. Keeps the unhandled-message log honest.
-fn chat_handles(op: u32, ev: u32) -> bool {
-    use ac_net::messages::{event, opcode};
-    match op {
-        opcode::SOUND
-        | opcode::TURBINE_CHAT
-        | opcode::HEAR_SPEECH
-        | opcode::HEAR_RANGED_SPEECH
-        | opcode::SERVER_MESSAGE
-        | opcode::EMOTE_TEXT
-        | opcode::SOUL_EMOTE
-        | opcode::PLAYER_KILLED => true,
-        opcode::GAME_EVENT => matches!(
-            ev,
-            event::TELL
-                | event::CHANNEL_BROADCAST
-                | event::BOOK_DATA_RESPONSE
-                | event::BOOK_PAGE_DATA_RESPONSE
-                | event::SALVAGE_OPERATIONS_RESULT
-                | event::IDENTIFY_OBJECT_RESPONSE
-                | event::ATTACK_DONE
-                | event::ATTACKER_NOTIFICATION
-                | event::DEFENDER_NOTIFICATION
-                | event::EVASION_ATTACKER_NOTIFICATION
-                | event::EVASION_DEFENDER_NOTIFICATION
-                | event::VICTIM_NOTIFICATION
-                | event::KILLER_NOTIFICATION
-                | event::TRANSIENT_STRING
-                | event::WEENIE_ERROR
-                | event::WEENIE_ERROR_WITH_STRING
-                | event::POPUP_STRING
-        ),
-        _ => false,
     }
 }

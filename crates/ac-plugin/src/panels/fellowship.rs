@@ -170,10 +170,8 @@ pub fn draw(
                     });
                 ui.horizontal(|ui| {
                     match &v.selected {
-                        Some((g, n)) if v.i_lead => {
-                            if ui.button(format!("Recruit {n}")).clicked() {
-                                actions.recruit = Some(*g);
-                            }
+                        Some((g, n)) if v.i_lead && ui.button(format!("Recruit {n}")).clicked() => {
+                            actions.recruit = Some(*g);
                         }
                         _ => {}
                     }

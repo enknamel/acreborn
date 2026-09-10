@@ -356,8 +356,10 @@ mod tests {
 
     #[test]
     fn configured_binary_wins() {
-        let mut cfg = Config::default();
-        cfg.client_binary = vec!["/x/acviewer".into(), "--verbose".into()];
+        let cfg = Config {
+            client_binary: vec!["/x/acviewer".into(), "--verbose".into()],
+            ..Config::default()
+        };
         assert_eq!(client_binary(&cfg), cfg.client_binary);
         let (server, account) = fixtures();
         let l = build_launch(

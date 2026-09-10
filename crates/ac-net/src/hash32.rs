@@ -6,7 +6,7 @@ pub fn hash32(data: &[u8]) -> u32 {
     let len = data.len();
     let mut sum = (len as u32) << 16;
     let whole = len / 4 * 4;
-    for chunk in data[..whole].chunks_exact(4) {
+    for chunk in data[..whole].as_chunks::<4>().0 {
         sum = sum.wrapping_add(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
     }
     let mut shift = 3u32;

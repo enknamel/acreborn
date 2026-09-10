@@ -19,6 +19,10 @@ pub struct Server {
 }
 
 impl Server {
+    /// One row of the builtin table. It yields a [`ServerLit`] rather
+    /// than a `Server` because the table is a `const` and a `String`
+    /// cannot be built in one; [`From`] turns it into a `Server`.
+    #[allow(clippy::new_ret_no_self)]
     pub const fn new(name: &'static str, host: &'static str, port: u16) -> ServerLit {
         ServerLit { name, host, port }
     }
