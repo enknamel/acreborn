@@ -52,6 +52,9 @@ const LOOT_TIMEOUT: Duration = Duration::from_millis(2500);
 const LOOT_TRIES: u32 = 3;
 /// How many times to ask for one item before leaving it where it is.
 const TAKE_TRIES: u32 = 3;
+/// How many goes at handing the same thing over before the party is
+/// let on without it.
+const GIVE_TRIES: u32 = 6;
 /// How long a corpse may stay open before the character gives up on
 /// it. Emptying one takes a second or two; anything past this is an
 /// item the server will not hand over, and standing there asking for
@@ -990,6 +993,9 @@ pub struct Autoplay {
     pub wants: Vec<String>,
     last_debuff: Option<Instant>,
     last_give: Option<Instant>,
+    /// How many goes at the hand-over in progress. Cleared whenever one
+    /// lands or the party's mind changes.
+    give_tries: u32,
     last_merge: Option<Instant>,
     /// Items decided on but not yet taken from the open corpse, and
     /// when the last one was asked for. The server takes one at a time.
@@ -1577,6 +1583,17 @@ impl Client {
         // those guids vanish mid-sale. Whatever was bought is tidied
         // the moment the window closes, which is soon enough.
         if self.world.open_vendor.is_some() {
+            return false;
+        }
+        // Nor in the middle of loading or unloading the quartermaster.
+        // Money counted out for the runner is a stack of its own, and
+        // tidying poured it straight back into the pile it came from --
+        // count out, merge back, count out again, a hundred and twenty
+        // six times in one watched run.
+        if matches!(
+            self.autoplay.growth.mode.stage(),
+            Some(crate::logistics::Stage::HandOver | crate::logistics::Stage::HandOut)
+        ) {
             return false;
         }
         if self
@@ -3653,12 +3670,15 @@ impl Client {
         let Some(stage) = self.autoplay.growth.mode.stage() else {
             return false;
         };
+        // Waiting on the last give. The frame is still this errand's:
+        // let something else have it and the tidying merges away the
+        // money that was just counted out.
         if self
             .autoplay
             .last_give
             .is_some_and(|t| now.duration_since(t) < GIVE_EVERY)
         {
-            return false;
+            return matches!(stage, Stage::HandOver | Stage::HandOut);
         }
         let growth = self.autoplay.config.growth.clone();
         let Some(runner) = self.quartermaster_name(&growth) else {
@@ -3716,13 +3736,47 @@ impl Client {
             return true;
         }
         if let Some((purse, amount)) = coin {
-            if self.give(mate.guid, purse, Some(amount)) {
-                self.autoplay.last_give = Some(now);
-                self.autoplay.say(
-                    Doing::Helping,
-                    format!("giving {runner} {amount} pyreals to shop with"),
-                );
-                return true;
+            let whole = self
+                .world
+                .objects
+                .get(&purse)
+                .map_or(1, |o| o.stack_size.max(1));
+            // Part of a stack cannot be handed over as it stands. The
+            // server takes whole objects, and a give of part of one is
+            // dropped without a word -- which is what four hundred and
+            // ninety-six unanswered gives of eighteen thousand pyreals
+            // looked like. So count the money out first, into a stack
+            // of its own, and hand that over.
+            let piece = if amount >= whole {
+                Some(purse)
+            } else {
+                self.coin_piece(amount)
+            };
+            match piece {
+                Some(g) => {
+                    if self.give(mate.guid, g, None) {
+                        self.autoplay.last_give = Some(now);
+                        self.autoplay.give_tries = 0;
+                        self.autoplay.say(
+                            Doing::Helping,
+                            format!("giving {runner} {amount} pyreals to shop with"),
+                        );
+                        return true;
+                    }
+                }
+                None if self.autoplay.give_tries < GIVE_TRIES => {
+                    self.autoplay.give_tries += 1;
+                    self.split_stack(purse, None, amount);
+                    self.autoplay.last_give = Some(now);
+                    self.autoplay.say(
+                        Doing::Helping,
+                        format!("counting out {amount} pyreals for {runner}"),
+                    );
+                    return true;
+                }
+                // The money will not come apart. The loot still can go,
+                // and the runner may have enough of its own.
+                None => {}
             }
         }
         let Some(&item) = loot.first() else {
@@ -3741,11 +3795,21 @@ impl Client {
             return false;
         }
         self.autoplay.last_give = Some(now);
+        self.autoplay.give_tries = 0;
         self.autoplay
             .say(Doing::Helping, format!("giving {name} to {runner} to sell"));
         // Loaded once the last piece has gone.
         self.autoplay.growth.handed_over = loot.len() == 1;
         true
+    }
+
+    /// A carried stack of coin of exactly this many, which is what a
+    /// split leaves behind: the piece counted out to hand over.
+    fn coin_piece(&self, amount: u32) -> Option<u32> {
+        self.world
+            .inventory()
+            .find(|o| o.item_type & ac_world::item_type::MONEY != 0 && o.stack_size == amount)
+            .map(|o| o.guid)
     }
 
     /// Give everyone what they ordered.

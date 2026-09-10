@@ -383,12 +383,15 @@ fn advance_trip(stage: Stage, mates: &[Supplies], cfg: &Restock, round: u32) -> 
 }
 
 /// Who makes the run for the party: the one with the most room in its
-/// pack, ties settled by name so that every session picks the same
+/// pack, since room is what the errand needs; between two with the same
+/// room, the one already holding the money, which saves handing it
+/// over; and after that the name, so that every session picks the same
 /// character without having to agree on one.
 pub fn quartermaster(mates: &[Supplies]) -> Option<&Supplies> {
     mates.iter().filter(|m| !m.name.is_empty()).max_by(|a, b| {
         a.free_space
             .cmp(&b.free_space)
+            .then_with(|| a.purse.cmp(&b.purse))
             .then_with(|| b.name.cmp(&a.name))
     })
 }
