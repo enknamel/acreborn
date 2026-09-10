@@ -827,12 +827,20 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                 ui.horizontal(|ui| {
                     ui.label("carry");
                     ui.add(
-                        egui::DragValue::new(&mut cfg.growth.comps_keep)
-                            .speed(5.0)
-                            .range(0..=1000)
-                            .suffix(" of each spell component"),
+                        egui::DragValue::new(&mut cfg.growth.tapers_keep)
+                            .speed(25.0)
+                            .range(0..=10000)
+                            .suffix(" Prismatic Tapers"),
                     );
-                });
+                })
+                .response
+                .on_hover_text(
+                    "A taper is what a caster runs out of, so it is the number \
+                     you set. Everything else in your formulas is scaled to it \
+                     by how fast it burns: with foci a top cast burns about 0.4 \
+                     of a taper against 0.003 of a scarab, so a thousand tapers \
+                     comes out at a handful of scarabs rather than a thousand.",
+                );
                 ui.horizontal(|ui| {
                     ui.label("carry");
                     ui.add(
@@ -1385,7 +1393,7 @@ mod tests {
         p.saved.team.restock.plan = Plan::Quartermaster;
         p.saved.team.restock.go_at = 0.5;
         p.saved.team.restock.share_money = false;
-        p.saved.growth.comps_keep = 500;
+        p.saved.growth.tapers_keep = 500;
         let mut settings = Settings::new();
         p.save(&mut settings);
         let mut back = Autoplay::default();
@@ -1393,7 +1401,7 @@ mod tests {
         assert_eq!(back.saved.team.restock.plan, Plan::Quartermaster);
         assert_eq!(back.saved.team.restock.go_at, 0.5);
         assert!(!back.saved.team.restock.share_money);
-        assert_eq!(back.saved.growth.comps_keep, 500);
+        assert_eq!(back.saved.growth.tapers_keep, 500);
     }
 
     #[test]

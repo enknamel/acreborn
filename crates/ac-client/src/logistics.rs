@@ -222,6 +222,11 @@ pub struct Supplies {
     pub bill: u32,
     /// What it can spend: coin and notes together.
     pub purse: u32,
+    /// It has bought everything it can pay for. A character short of
+    /// something it cannot afford is not going to become less short by
+    /// standing at the counter, so it counts as done: it goes back to
+    /// hunting with what it has and earns the rest.
+    pub broke: bool,
     /// Free slots in its pack: what decides who can be quartermaster.
     pub free_space: u32,
     /// It has given the quartermaster its sale loot and its order.
@@ -240,6 +245,11 @@ impl Supplies {
     /// Whether this character alone is reason enough to go shopping.
     fn wants_town(&self, cfg: &Restock) -> bool {
         self.pack_full || self.level < cfg.go_at
+    }
+
+    /// Whether the party need wait for it any longer.
+    fn settled(&self) -> bool {
+        self.stocked || self.broke
     }
 }
 
@@ -309,7 +319,7 @@ fn opening_stage(mates: &[Supplies], cfg: &Restock) -> Stage {
 
 /// Whether the trip has reached its next stage.
 fn advance_trip(stage: Stage, mates: &[Supplies], cfg: &Restock, round: u32) -> Option<Switch> {
-    let done = |m: &Supplies| m.stocked;
+    let done = |m: &Supplies| m.settled();
     match stage {
         // Everyone shopping for themselves: one stage, and nobody goes
         // back until everybody is ready. A party that trickles back to
@@ -456,7 +466,7 @@ pub fn hand_out(mates: &[Supplies], item: &str, brought: u32) -> Vec<(String, u3
 pub fn still_shopping(mates: &[Supplies]) -> Vec<&str> {
     mates
         .iter()
-        .filter(|m| !m.stocked)
+        .filter(|m| !m.settled())
         .map(|m| m.name.as_str())
         .collect()
 }
@@ -957,5 +967,21 @@ mod tests {
     fn nobody_is_handed_something_they_did_not_ask_for() {
         let party = [orders("Aldric", &[("Prismatic Taper", 100)])];
         assert!(hand_out(&party, "Lead Scarab", 50).is_empty());
+    }
+    #[test]
+    fn a_character_that_cannot_afford_the_rest_stops_shopping() {
+        // Standing at the counter with an empty purse does not make it
+        // less short. It goes back to hunting and earns the rest, which
+        // is the only thing that will actually help.
+        let cfg = qm_cfg();
+        let mut party = [mate("Aldric", 0.2), mate("Bryn", 1.0)];
+        party[0].stocked = false;
+        party[1].stocked = true;
+        let at = SHOPPING;
+        assert_eq!(decide(at, &party, &cfg, 0), None, "still hoping");
+        party[0].broke = true;
+        let s = decide(at, &party, &cfg, 0).expect("a switch");
+        assert_eq!(s.mode, GroupMode::Hunting);
+        assert!(still_shopping(&party).is_empty());
     }
 }

@@ -139,9 +139,15 @@ pub struct Growth {
     /// town is made when a quarter of this is left and none can be
     /// made from what is carried.
     pub ammo_keep: u32,
-    /// How many of each spell component to carry, for a character that
-    /// casts. A run is made when any is down to a quarter.
-    pub comps_keep: u32,
+    /// How many Prismatic Tapers to carry, for a character that casts.
+    /// Everything else in its formulas is scaled to this by how fast it
+    /// burns (see [`Client::component_targets`]), because a taper is
+    /// what a caster actually runs out of: with foci a cast burns about
+    /// 0.4 of a taper and 0.003 of a scarab, so one number for both is
+    /// wrong in both directions. A run is made when any is down to a
+    /// quarter.
+    #[serde(alias = "comps_keep")]
+    pub tapers_keep: u32,
     /// Sell what matches any of these searches (the inventory's
     /// language: `type:armor`, `value<50`).
     pub sell: Vec<String>,
@@ -161,7 +167,7 @@ impl Default for Growth {
             town_runs: true,
             keep_stocked: vec![("Healing Kit".into(), 2)],
             ammo_keep: 250,
-            comps_keep: 40,
+            tapers_keep: 1000,
             // Vendor trash only. Gear worth keeping is left alone:
             // spelled armour and jewelry never match (see
             // `storage_worthy`), and what is left is capped by value so
@@ -1239,7 +1245,7 @@ impl Client {
         }
         // Components: for a character with spells and a wand. Those it
         // carries, and those its buffs ask for that it has run out of.
-        if cfg.comps_keep > 0 && !self.world.stats.spells.is_empty() {
+        if cfg.tapers_keep > 0 && !self.world.stats.spells.is_empty() {
             let has_wand = self.wielded_caster().is_some()
                 || self
                     .world
@@ -1256,23 +1262,26 @@ impl Client {
                     ids.extend(carried.iter().map(|c| c.component_id));
                     ids.sort_unstable();
                     ids.dedup();
+                    let targets = self.component_targets(cfg.tapers_keep);
                     for id in ids {
                         let Some(wcid) = mapper.component_wcid(id) else {
                             continue;
                         };
+                        // What this one burns at, not what a taper does.
+                        let keep = targets.get(&id).copied().unwrap_or(cfg.tapers_keep);
                         let c = carried.iter().find(|c| c.component_id == id);
                         let have = c.map_or(0, |c| c.count);
-                        if have < cfg.comps_keep {
+                        if have < keep {
                             let name = c
                                 .map(|c| c.name.clone())
                                 .or_else(|| mapper.name_of(id).map(str::to_string))
                                 .unwrap_or_else(|| format!("component {id}"));
                             needs.push(Need {
                                 name,
-                                want: cfg.comps_keep - have,
+                                want: keep - have,
                                 have,
-                                keep: cfg.comps_keep,
-                                urgent: have < cfg.comps_keep / 4,
+                                keep,
+                                urgent: have < keep / 4,
                                 kind: NeedKind::Component(wcid),
                             });
                         }
@@ -1411,6 +1420,9 @@ impl Client {
             holding_orders: self.holding_orders(),
             bill: needs.iter().map(|n| self.rough_cost(n)).sum(),
             purse: self.spendable(),
+            // Short of something, and nothing left to pay for it with.
+            // The trip has given what it can; the rest is earned.
+            broke: !needs.is_empty() && self.spendable() == 0,
             free_space: self.free_space(),
             order: needs
                 .iter()
@@ -1460,6 +1472,79 @@ impl Client {
         self.world
             .inventory()
             .any(|o| wanted.iter().any(|w| o.name.eq_ignore_ascii_case(w)))
+    }
+
+    /// How many of each spell component to carry, keyed by component id.
+    ///
+    /// A taper is the yardstick: it is what a caster runs out of, and
+    /// it is the one number a player sets. Everything else is scaled to
+    /// it by how fast it burns relative to a taper, which the client
+    /// can work out rather than guess, because both halves are in its
+    /// own tables. ACE rolls each component of a formula separately
+    /// (`Spell.TryBurnComponents`):
+    ///
+    /// ```text
+    /// burn = spell.ComponentLoss * component.CDM * min(1, power / skill)
+    /// ```
+    ///
+    /// The skill term cancels when one component is divided by another
+    /// of the same spell, so the ratio is just the loss and the CDMs,
+    /// and a component used by several spells is stocked for the one
+    /// that burns it fastest. With foci a top-level cast burns about
+    /// 0.4 of a taper against 0.003 of a scarab, so a thousand tapers
+    /// comes out at a handful of scarabs rather than a thousand.
+    pub fn component_targets(&self, tapers_keep: u32) -> BTreeMap<u32, u32> {
+        let mut out: BTreeMap<u32, u32> = BTreeMap::new();
+        if tapers_keep == 0 {
+            return out;
+        }
+        let (Ok(table), Ok(comps)) = (self.assets.spell_table(), self.assets.spell_components())
+        else {
+            return out;
+        };
+        // The fastest rate each component burns at, across the spells
+        // this character actually casts.
+        let mut fastest: BTreeMap<u32, f32> = BTreeMap::new();
+        let spells: Vec<u32> = self
+            .wanted_buffs()
+            .iter()
+            .map(|w| w.spell)
+            .chain(self.attack_spells_known())
+            .collect();
+        for spell in spells {
+            let Some(sp) = table.get(spell) else { continue };
+            for id in self.current_formula(spell) {
+                let Some(c) = comps.get(id) else { continue };
+                let rate = sp.component_loss * c.cdm;
+                let e = fastest.entry(id).or_insert(0.0);
+                if rate > *e {
+                    *e = rate;
+                }
+            }
+        }
+        let taper = fastest
+            .get(&crate::magic::PRISMATIC_TAPER)
+            .copied()
+            .filter(|r| *r > 0.0);
+        // A floor under everything: twenty to the thousand. The burn
+        // rates say a scarab would only need eight, and that is cutting
+        // it far too fine for something bought once a trip -- being
+        // over-provisioned on the cheap, light things costs a slot and
+        // saves a walk. Anything that genuinely burns faster than the
+        // floor keeps its own number, so a caster without foci still
+        // stocks its herbs properly.
+        let floor = (tapers_keep / 50).max(1);
+        for (id, rate) in &fastest {
+            let want = match taper {
+                // Scaled to the taper by how fast it burns.
+                Some(t) => ((tapers_keep as f32) * rate / t).round() as u32,
+                // No taper in any formula (no foci, or an odd build):
+                // the configured number stands for everything.
+                None => tapers_keep,
+            };
+            out.insert(*id, want.max(floor));
+        }
+        out
     }
 
     /// The party as everyone has last described itself, this character
