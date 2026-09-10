@@ -2023,7 +2023,7 @@ mod tests {
         st.vitals[0].base = 10; // health
         st.vitals[1].base = 10; // stamina
         st.vitals[2].base = 10; // mana
-        // Health is half of Endurance, the others the whole.
+                                // Health is half of Endurance, the others the whole.
         assert_eq!(st.vital_max(0), 10 + 50);
         assert_eq!(st.vital_max(1), 10 + 100);
         assert_eq!(st.vital_max(2), 10 + 100);
@@ -2040,7 +2040,11 @@ mod tests {
             duration: -1.0,
             ..Default::default()
         });
-        assert_eq!(st.vital_max_current(0), 10 + 100, "health follows Endurance");
+        assert_eq!(
+            st.vital_max_current(0),
+            10 + 100,
+            "health follows Endurance"
+        );
         assert_eq!(st.vital_max_current(1), 10 + 200, "stamina follows it too");
         assert_eq!(st.vital_max_current(2), 10 + 100, "mana does not");
     }
@@ -2066,5 +2070,4 @@ mod tests {
         // character sheet's own numbers are built from.
         assert_eq!(st.vital_max(0), plain);
     }
-
 }

@@ -197,7 +197,10 @@ fn summary(c: &Client, index: usize) -> Map {
     map.insert("skill_credits".into(), int(stats.skill_credits));
     for (i, vital) in ["health", "stamina", "mana"].into_iter().enumerate() {
         map.insert(vital.into(), int(stats.vitals[i].current));
-        map.insert(format!("{vital}_max").into(), int(stats.vital_max_current(i)));
+        map.insert(
+            format!("{vital}_max").into(),
+            int(stats.vital_max_current(i)),
+        );
     }
     let p = player_position(c).unwrap_or([0.0; 3]);
     map.insert("x".into(), float(p[0]));

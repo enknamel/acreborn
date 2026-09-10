@@ -38,8 +38,24 @@ use serde::{Deserialize, Serialize};
 use crate::items::Query;
 use crate::{Client, Stance};
 
-/// How long to wait for a corpse to open before giving up.
+/// How long to wait for a corpse to open before asking again, when it
+/// is right under our feet. A corpse further off is given time for the
+/// walk as well (see [`loot_wait`]).
 const LOOT_TIMEOUT: Duration = Duration::from_secs(6);
+/// How many times to ask before leaving a corpse alone.
+const LOOT_TRIES: u32 = 2;
+/// A pessimistic walking speed for pricing that walk, metres a second:
+/// the way round a dungeon corner is longer than the line to it.
+const LOOT_WALK: f32 = 2.5;
+
+/// How long to allow a corpse `away` metres off to open.
+///
+/// Opening one asks the server to walk us there, and that walk is not
+/// instant: a flat six seconds was enough for a corpse at our feet and
+/// not for one across a room, so the far ones were written off unopened.
+fn loot_wait(away: f32) -> Duration {
+    LOOT_TIMEOUT + Duration::from_secs_f32((away.max(0.0) / LOOT_WALK).min(30.0))
+}
 /// Least time between two heals, so one is not spammed.
 const HEAL_EVERY: Duration = Duration::from_millis(2500);
 /// Least time between two casts of the same buff.
@@ -896,7 +912,10 @@ pub struct Autoplay {
     /// When stamina was last poured into mana or Revitalize cast.
     last_vital: Option<Instant>,
     /// The corpse being looted and when we started.
-    corpse: Option<(u32, Instant)>,
+    /// The corpse being opened: which, since when, how long to allow
+    /// (the server walks us to it, so a far one is slower), and how
+    /// many times we have asked.
+    corpse: Option<(u32, Instant, Duration, u32)>,
     /// Corpses already emptied.
     pub(crate) looted: Vec<u32>,
     /// Corpse items we asked the server about.
@@ -1635,12 +1654,24 @@ impl Client {
             return false;
         }
         // Already at one: wait for its contents, then empty it.
-        if let Some((guid, since)) = self.autoplay.corpse {
-            if now.duration_since(since) > LOOT_TIMEOUT {
-                tracing::info!("autoplay: corpse {guid:#010x} did not open");
+        if let Some((guid, since, allow, tries)) = self.autoplay.corpse {
+            if now.duration_since(since) > allow {
                 self.autoplay.corpse = None;
-                self.autoplay.looted.push(guid);
                 self.autoplay.appraising = false;
+                // Opening a corpse asks the server to walk us to it,
+                // and indoors that walk goes round corners. Giving up
+                // once and never asking again left loot on the floor,
+                // so ask again before writing it off.
+                if tries < LOOT_TRIES {
+                    tracing::info!(
+                        "autoplay: corpse {guid:#010x} did not open; asking again ({tries})"
+                    );
+                    self.interact(guid);
+                    self.autoplay.corpse = Some((guid, now, allow, tries + 1));
+                    return true;
+                }
+                tracing::info!("autoplay: corpse {guid:#010x} did not open after {tries} tries");
+                self.autoplay.looted.push(guid);
                 return false;
             }
             let open = self.world.open_container.clone();
@@ -1669,7 +1700,7 @@ impl Client {
             }
             if self.autoplay.appraising
                 && items.iter().any(|g| !self.appraisals.contains_key(g))
-                && now.duration_since(since) < LOOT_TIMEOUT
+                && now.duration_since(since) < allow
             {
                 return true;
             }
@@ -1775,7 +1806,7 @@ impl Client {
                 (d <= 20.0).then_some((d, o.guid, o.name.clone()))
             })
             .min_by(|a, b| a.0.total_cmp(&b.0));
-        let Some((_, guid, name)) = corpse else {
+        let Some((away, guid, name)) = corpse else {
             return false;
         };
         if self.combat {
@@ -1786,7 +1817,7 @@ impl Client {
         // Opening a corpse is "using something", which ends a journey.
         self.remember_journey();
         self.interact(guid);
-        self.autoplay.corpse = Some((guid, now));
+        self.autoplay.corpse = Some((guid, now, loot_wait(away), 0));
         self.autoplay.say(Doing::Looting, format!("looting {name}"));
         true
     }
@@ -4287,5 +4318,36 @@ mod heal_choice_tests {
         // any fixed heal.
         let best = found.iter().map(|t| t.gain(700)).max().unwrap_or(0);
         assert!(best > 200, "the top transfer only returned {best}");
+    }
+}
+#[cfg(test)]
+mod loot_wait_tests {
+    use super::{loot_wait, LOOT_TIMEOUT};
+
+    #[test]
+    fn a_corpse_underfoot_gets_the_plain_wait() {
+        assert_eq!(loot_wait(0.0), LOOT_TIMEOUT);
+        // A negative distance cannot happen, but must not panic or
+        // shorten the wait.
+        assert_eq!(loot_wait(-5.0), LOOT_TIMEOUT);
+    }
+
+    #[test]
+    fn a_corpse_across_a_room_is_given_time_to_walk_to() {
+        // The bug: a flat six seconds covered a corpse at our feet and
+        // not one twenty metres off, so the far ones were written off
+        // unopened.
+        let near = loot_wait(2.0);
+        let far = loot_wait(20.0);
+        assert!(far > near, "{far:?} is not longer than {near:?}");
+        assert!(far > LOOT_TIMEOUT * 2, "twenty metres barely added time");
+    }
+
+    #[test]
+    fn the_wait_does_not_run_away_with_itself() {
+        // Whatever distance arrives, the character does not sit on a
+        // corpse for ever.
+        let silly = loot_wait(100_000.0);
+        assert!(silly <= LOOT_TIMEOUT + std::time::Duration::from_secs(30));
     }
 }
