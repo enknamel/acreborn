@@ -417,6 +417,13 @@ struct Need {
     keep: u32,
     /// Whether it is short enough to be worth a run to town.
     urgent: bool,
+    /// Whether enough of the world sells it to go and buy it. What is
+    /// not is farmed instead: the Void components, and in practice the
+    /// Diamond Scarab, whose one seller is a curiosity shop. A line
+    /// like that must never drive a trip and must never be counted
+    /// against the character's supplies, or a caster is out of stock
+    /// for ever and the party restocks for ever.
+    buyable: bool,
     kind: NeedKind,
 }
 
@@ -1509,6 +1516,7 @@ impl Client {
                     have,
                     keep: least,
                     urgent: true,
+                    buyable: true,
                     kind: NeedKind::Named(name),
                 });
             }
@@ -1521,6 +1529,7 @@ impl Client {
                     have,
                     keep: cfg.ammo_keep,
                     urgent: have < cfg.ammo_keep / 4 && !self.can_craft_ammo(kind),
+                    buyable: true,
                     kind: NeedKind::Ammo(kind),
                 });
             }
@@ -1558,6 +1567,7 @@ impl Client {
                         let keep = targets.get(&id).copied().unwrap_or(cfg.tapers_keep);
                         let c = carried.iter().find(|c| c.component_id == id);
                         let have = c.map_or(0, |c| c.count);
+                        let buyable = ac_world::shops::sold_widely(wcid);
                         if have < keep {
                             // What it is called in the client's own
                             // component table, which is what a vendor
@@ -1579,7 +1589,8 @@ impl Client {
                                 want: keep - have,
                                 have,
                                 keep,
-                                urgent: have < keep / 4,
+                                urgent: have < keep / 4 && buyable,
+                                buyable,
                                 kind: NeedKind::Component(wcid),
                             });
                         }
@@ -1699,8 +1710,13 @@ impl Client {
     /// the two would hide that.
     pub fn supplies(&self, cfg: &Growth) -> Supplies {
         let needs = self.grow_needs(cfg);
+        // The worst line the party can do anything about. A Void mage
+        // is permanently out of Nightshade -- no counter in Dereth
+        // sells it -- and counting that would hold the level at nought
+        // for ever, which reads as "always restocking, never stocked".
         let level = needs
             .iter()
+            .filter(|n| n.buyable)
             .map(|n| logistics::line_level(n.have, n.keep))
             .fold(1.0f32, f32::min);
         let policy = self.autoplay.config.team.restock.sane();
@@ -1727,7 +1743,7 @@ impl Client {
             free_space: self.free_space(),
             order: needs
                 .iter()
-                .filter(|n| n.want > 0)
+                .filter(|n| n.want > 0 && n.buyable)
                 .map(|n| (n.name.clone(), n.want))
                 .collect(),
         }
@@ -2050,7 +2066,7 @@ impl Client {
         // this walks every counter in range.
         let wants: Vec<(&Need, String)> = needs
             .iter()
-            .filter(|n| n.want > 0)
+            .filter(|n| n.want > 0 && n.buyable)
             .map(|n| {
                 let needle = match &n.kind {
                     NeedKind::Named(t) => t.trim().to_lowercase(),
@@ -2261,7 +2277,11 @@ impl Client {
             let short: Vec<&str> = needs.iter().map(|n| n.name.as_str()).collect();
             return self.held_back(format!("nothing urgent (short of {})", a_few(&short)));
         } else {
-            let short: Vec<&str> = urgent.iter().map(|n| n.name.as_str()).collect();
+            let short: Vec<&str> = urgent
+                .iter()
+                .filter(|n| n.buyable)
+                .map(|n| n.name.as_str())
+                .collect();
             format!("short of {}", a_few(&short))
         };
         let Some(me) = self.player.as_ref().map(|p| p.world_position()) else {
@@ -2610,6 +2630,7 @@ impl Client {
                     // need into notes and then could not pay.
                     let still_to_buy: u32 = needs
                         .iter()
+                        .filter(|n| n.buyable)
                         .map(|n| self.shelf_cost(n, &stock))
                         .sum::<u32>()
                         .saturating_sub(spent);
@@ -3054,6 +3075,7 @@ mod tests {
             have: 0,
             keep: want,
             urgent: true,
+            buyable: true,
             kind,
         }
     }

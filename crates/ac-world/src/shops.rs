@@ -176,6 +176,40 @@ pub fn all() -> &'static [Shop] {
     SHOPS.get_or_init(|| parse(SELLS, BUYS))
 }
 
+/// How many shops in the world have to sell a thing before a supply
+/// plan can lean on it.
+///
+/// One is not enough. The only vendor in Dereth with a Diamond Scarab
+/// is Jeeves, who also sells Ancient Temples, dye pots and other
+/// people's keys; the only source of Chorizite is the same counter.
+/// Both of those are farmed in practice, and a character that sets off
+/// to buy one is setting off for a curiosity shop. Six is plenty --
+/// that is what stocks a Mana Scarab, and a walk across the world to
+/// an archmage for one is a walk worth making.
+const MANY_ENOUGH: usize = 2;
+
+/// How many shop placements sell this weenie class.
+pub fn placements(wcid: u32) -> usize {
+    static COUNT: OnceLock<BTreeMap<u32, usize>> = OnceLock::new();
+    let count = COUNT.get_or_init(|| {
+        let mut m: BTreeMap<u32, usize> = BTreeMap::new();
+        for shop in all() {
+            for w in &shop.sells {
+                *m.entry(w.wcid).or_default() += 1;
+            }
+        }
+        m
+    });
+    count.get(&wcid).copied().unwrap_or(0)
+}
+
+/// Whether enough of the world sells this to plan a trip around it.
+/// What fails this is not bought but farmed, and a character short of
+/// it is short of it until something drops one (see [`MANY_ENOUGH`]).
+pub fn sold_widely(wcid: u32) -> bool {
+    placements(wcid) >= MANY_ENOUGH
+}
+
 /// What a vendor charges for a trade note, as a multiple of its face
 /// value. The server fixes this at 1.15 whatever the shop's own sell
 /// rate is, and pays back only face value, so a purse turned into notes
@@ -304,6 +338,38 @@ mod tests {
 
     fn holtburg() -> Vec2 {
         crate::towns::find("Holtburg").unwrap().world_xy()
+    }
+
+    #[test]
+    fn what_is_farmed_is_told_from_what_is_bought() {
+        let of = |name: &str| {
+            all()
+                .iter()
+                .flat_map(|s| &s.sells)
+                .find(|w| w.name == name)
+                .map(|w| w.wcid)
+        };
+        // Common components: every archmage has them.
+        for name in ["Lead Scarab", "Prismatic Taper", "Hawthorn"] {
+            let wcid = of(name).unwrap_or_else(|| panic!("{name} is sold somewhere"));
+            assert!(placements(wcid) > 20, "{name} is common");
+            assert!(sold_widely(wcid), "{name} is bought");
+        }
+        // Rare but real: six counters in the world sell a Mana Scarab,
+        // and a walk across Dereth for one is a walk worth making.
+        let mana = of("Mana Scarab").expect("Mana Scarab is sold");
+        assert_eq!(placements(mana), 6);
+        assert!(sold_widely(mana));
+        // Sold by one curiosity shop and farmed in practice.
+        for name in ["Diamond Scarab", "Chorizite"] {
+            let wcid = of(name).unwrap_or_else(|| panic!("{name} is listed"));
+            assert_eq!(placements(wcid), 1, "{name}");
+            assert!(!sold_widely(wcid), "{name} is farmed, not bought");
+        }
+        // Sold by nobody at all: the Void components.
+        for name in ["Dark Scarab", "Nightshade", "Soulweed", "Shadowroot"] {
+            assert!(of(name).is_none(), "{name} is sold by nobody");
+        }
     }
 
     #[test]
