@@ -21,6 +21,16 @@ pub const PRISMATIC_TAPER: u32 = 188;
 /// Chorizite: kept in the foci formula alongside the scarabs.
 pub const CHORIZITE: u32 = 111;
 
+/// The five Foci, by weenie class. Each takes a pack slot of its own
+/// and each halves the components of its school, so they are equipment
+/// in everything but name: never sold, never handed to a vendor.
+pub const FOCI: [u32; 5] = [15271, 15270, 15268, 15269, 43173];
+
+/// Whether this weenie class is one of the Foci.
+pub fn is_focus(wcid: u32) -> bool {
+    FOCI.contains(&wcid)
+}
+
 /// Foci weenie class ids by magic school (ACE world database).
 pub fn focus_wcid(school: u32) -> Option<u32> {
     use ac_formats::spell_table::school;

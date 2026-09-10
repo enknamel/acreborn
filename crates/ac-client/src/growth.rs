@@ -86,13 +86,16 @@ const SELL_BATCH: usize = 4;
 /// How long to wait for the server to take the items sold, the
 /// appraisals to come back, or the purchases to arrive.
 const SETTLE: Duration = Duration::from_secs(5);
-/// Least time between two town runs. A run that could sell nothing
-/// leaves the pack as full as it found it, and the next is not until
-/// this has passed.
 /// How long to leave it after a trip to town that bought and sold
 /// nothing. Long enough that a character which cannot afford what it
 /// needs goes back to earning instead of shuttling between counters.
 const FUTILE_RUN_WAIT: Duration = Duration::from_secs(300);
+/// How often a character that has stopped in town looks to see whether
+/// its luck has changed.
+const STOPPED_LOOK_EVERY: Duration = Duration::from_secs(5);
+/// Least time between two town runs. A run that could sell nothing
+/// leaves the pack as full as it found it, and the next is not until
+/// this has passed.
 const RUN_EVERY: Duration = Duration::from_secs(8 * 60);
 /// Most vendors visited in one run.
 const STOPS_PER_RUN: u32 = 3;
@@ -342,6 +345,13 @@ pub struct State {
     /// goods are, and where whoever is watching can put it right --
     /// rather than walk back to a hunting ground it cannot work.
     pub stopped_in_town: bool,
+    /// When it last looked to see whether that had changed. Counting
+    /// the pack is not free and it is standing still.
+    stopped_looked: Option<Instant>,
+    /// Why no run to town was started, as last logged. A run is decided
+    /// once a frame and the answer is usually the same one; this keeps
+    /// the log to the moments it changes.
+    held_back: String,
     last_raise: Option<Instant>,
     /// The pool as it stood when the last rank was bought, and when.
     raise_pending: Option<(i64, Instant)>,
@@ -370,9 +380,13 @@ pub struct State {
     last_run: Option<Instant>,
     /// Vendors not to go to for a while (by position), and since when.
     skip_vendors: Vec<(Vec2, Instant)>,
-    /// Items a vendor would not take: `(vendor, item)`. Another vendor
-    /// may.
-    unsellable: Vec<(u32, u32)>,
+    /// Items no vendor will take. Refusals reach us after the item's
+    /// kind and worth have already been checked against the counter,
+    /// so what is left is the item saying no for itself -- the Academy
+    /// bread, a quest token -- and no other counter will take it
+    /// either. Remembered for the whole session, or the character
+    /// offers the same loaf in every town.
+    unsellable: std::collections::BTreeSet<u32>,
     /// No run is started before this: a vendor that could not be
     /// reached is not tried again at once.
     next_run: Option<Instant>,
@@ -429,6 +443,24 @@ pub struct Stock {
     pub price: u32,
     /// How many it has; `None` for unlimited.
     pub stack: Option<u32>,
+}
+
+/// A few names, and how many more there are. A caster short of every
+/// component in the book has thirty-one of them, and a line of the log
+/// is not the place to read all thirty-one.
+fn a_few(names: &[&str]) -> String {
+    const MOST: usize = 4;
+    if names.is_empty() {
+        return "nothing".to_string();
+    }
+    if names.len() <= MOST {
+        return names.join(", ");
+    }
+    format!(
+        "{} and {} more",
+        names[..MOST].join(", "),
+        names.len() - MOST
+    )
 }
 
 /// `haystack` contains `needle`, ignoring ASCII case; `needle` is
@@ -528,7 +560,8 @@ impl Forecast {
             out.push_str(&format!(", {} for {} item(s)", self.takings, self.selling));
         }
         if !self.missing.is_empty() {
-            out.push_str(&format!("; no {}", self.missing.join(", ")));
+            let missing: Vec<&str> = self.missing.iter().map(String::as_str).collect();
+            out.push_str(&format!("; no {}", a_few(&missing)));
         }
         out
     }
@@ -834,6 +867,12 @@ pub fn sellable(stats: &ItemStats, ammo: bool, rules: &SellRules) -> bool {
         Some(LootAction::Sell) => return true,
         Some(LootAction::Salvage | LootAction::Keep | LootAction::Skip) => return false,
         None => {}
+    }
+    // A Focus is equipment: it lives in a pack slot and halves the
+    // components of its school. Vendors will not take one anyway, but
+    // the point is not to walk to town meaning to sell it.
+    if crate::magic::is_focus(stats.wcid) {
+        return false;
     }
     // Things a vendor should never be handed: money, the packs
     // themselves, what spells and crafting are made of.
@@ -1496,16 +1535,21 @@ impl Client {
                     .any(|o| o.item_type & item_type::CASTER != 0);
             if has_wand {
                 if let Ok(mapper) = self.assets.spell_component_ids() {
-                    let mut ids: Vec<u32> = self
-                        .wanted_buffs()
-                        .iter()
-                        .flat_map(|w| self.current_formula(w.spell))
-                        .collect();
+                    let targets = self.component_targets(cfg.tapers_keep);
+                    // Every component the spells this character casts
+                    // will burn, and every one it happens to carry.
+                    //
+                    // The targets are what matters. Asking only what is
+                    // in the pack, as this once did, leaves a caster
+                    // that has run right out of something unable to
+                    // notice: with none of it carried there is nothing
+                    // to count, so nothing is short, so it never goes
+                    // to town for more.
                     let carried = self.components();
+                    let mut ids: Vec<u32> = targets.keys().copied().collect();
                     ids.extend(carried.iter().map(|c| c.component_id));
                     ids.sort_unstable();
                     ids.dedup();
-                    let targets = self.component_targets(cfg.tapers_keep);
                     for id in ids {
                         let Some(wcid) = mapper.component_wcid(id) else {
                             continue;
@@ -1515,8 +1559,19 @@ impl Client {
                         let c = carried.iter().find(|c| c.component_id == id);
                         let have = c.map_or(0, |c| c.count);
                         if have < keep {
+                            // What it is called in the client's own
+                            // component table, which is what a vendor
+                            // and a person both call it. The enum name
+                            // is the last resort: "LeadScarab" is a
+                            // symbol, not a thing you can ask for.
                             let name = c
                                 .map(|c| c.name.clone())
+                                .or_else(|| {
+                                    self.assets
+                                        .spell_components()
+                                        .ok()
+                                        .and_then(|t| t.get(id).map(|c| c.name.clone()))
+                                })
                                 .or_else(|| mapper.name_of(id).map(str::to_string))
                                 .unwrap_or_else(|| format!("component {id}"));
                             needs.push(Need {
@@ -1908,7 +1963,7 @@ impl Client {
         };
         // The vendor buys some kinds of thing, within a range of values
         // (a range of 0 is no range at all).
-        self.salables(cfg, Some(v.vendor))
+        self.salables(cfg)
             .into_iter()
             .filter(|it| it.taken_by(v.item_types, v.min_value, v.max_value))
             .map(|it| it.guid)
@@ -1921,9 +1976,8 @@ impl Client {
     /// [`Self::sale_list`] narrows this to the vendor standing in front
     /// of the character; a forecast narrows it to a shop the character
     /// has not walked to yet, which is how a trip is judged before it is
-    /// started. `refused` names the vendor whose earlier refusals are
-    /// remembered, and is `None` when the shop is only being imagined.
-    fn salables(&self, cfg: &Growth, refused: Option<u32>) -> Vec<Salable> {
+    /// started.
+    fn salables(&self, cfg: &Growth) -> Vec<Salable> {
         let wielder = self.wielder();
         let keep = self.keep_names(cfg);
         let tags = self.autoplay.tags().clone();
@@ -1936,7 +1990,7 @@ impl Client {
         let unsellable = &self.autoplay.growth.unsellable;
         self.world
             .inventory()
-            .filter(|o| refused.is_none_or(|v| !unsellable.contains(&(v, o.guid))))
+            .filter(|o| !unsellable.contains(&o.guid))
             .filter_map(|o| {
                 let stats = self.stats_of(o.guid)?;
                 let ammo = o.valid_locations & equip::MISSILE_AMMO != 0;
@@ -2006,7 +2060,7 @@ impl Client {
             })
             .collect();
         let purse = self.spendable();
-        let salables = self.salables(cfg, None);
+        let salables = self.salables(cfg);
 
         // A shop that has what the character came for is worth a longer
         // walk than one that does not: an archer out of quarrels is not
@@ -2083,9 +2137,19 @@ impl Client {
     /// supplies there is nothing to earn out there, and the shops,
     /// the party and the player are all here.
     fn stranded(&self, needs: &[Need], cfg: &Growth) -> bool {
-        needs.iter().any(|n| n.urgent)
-            && self.spendable() == 0
-            && self.salables(cfg, None).is_empty()
+        needs.iter().any(|n| n.urgent) && self.spendable() == 0 && self.salables(cfg).is_empty()
+    }
+
+    /// Say, once, why no run to town is being started, and answer that
+    /// none is. There is nothing to see when a character stands about
+    /// doing nothing, so this is how it explains itself.
+    fn held_back(&mut self, why: impl Into<String>) -> bool {
+        let why = why.into();
+        if self.autoplay.growth.held_back != why {
+            tracing::debug!("no town run: {why}");
+            self.autoplay.growth.held_back = why;
+        }
+        false
     }
 
     /// Start a run when one is due, or carry the current one on. True
@@ -2099,12 +2163,22 @@ impl Client {
         // quartermaster's delivery -- and when it does it picks the
         // shopping straight back up.
         if self.autoplay.growth.stopped_in_town {
+            if self
+                .autoplay
+                .growth
+                .stopped_looked
+                .is_some_and(|t| now.duration_since(t) < STOPPED_LOOK_EVERY)
+            {
+                return false;
+            }
+            self.autoplay.growth.stopped_looked = Some(now);
             let needs = self.needs_now(now, cfg);
             if self.stranded(&needs, cfg) {
                 return false;
             }
             let st = &mut self.autoplay.growth;
             st.stopped_in_town = false;
+            st.stopped_looked = None;
             st.run_was_futile = false;
             st.last_run = None;
             self.autoplay
@@ -2116,7 +2190,7 @@ impl Client {
             || self.traveling()
             || self.autoplay.growth.bound.is_some()
         {
-            return false;
+            return self.held_back("busy with something else");
         }
         // The party has already decided to shop, so the throttle that
         // stops a lone character wearing a path to the vendor does not
@@ -2137,16 +2211,17 @@ impl Client {
         } else {
             RUN_EVERY
         };
-        if self
+        if let Some(t) = self
             .autoplay
             .growth
             .last_run
-            .is_some_and(|t| now.duration_since(t) < wait)
+            .filter(|t| now.duration_since(*t) < wait)
         {
-            return false;
+            let left = wait.saturating_sub(now.duration_since(t));
+            return self.held_back(format!("{} s to wait since the last run", left.as_secs()));
         }
         if self.autoplay.growth.next_run.is_some_and(|t| now < t) {
-            return false;
+            return self.held_back("waiting to try a vendor again");
         }
         let full = self.pack_full();
         let needs = self.needs_now(now, cfg);
@@ -2161,7 +2236,7 @@ impl Client {
         let urgent: Vec<&Need> = needs.iter().filter(|n| n.urgent).collect();
         let reason = if together {
             match party_mode.stage() {
-                None => return false,
+                None => return self.held_back("the party is hunting"),
                 // Only the runner walks to town; the rest hold their
                 // place at the hunting ground and wait for it.
                 Some(Stage::HandOver | Stage::Away | Stage::HandOut)
@@ -2169,7 +2244,7 @@ impl Client {
                         == crate::logistics::Plan::Quartermaster
                         && !self.is_quartermaster(cfg) =>
                 {
-                    return false
+                    return self.held_back("the quartermaster is doing the shopping")
                 }
                 Some(_) => {
                     let because = self.autoplay.growth.mode_because.clone();
@@ -2183,19 +2258,14 @@ impl Client {
         } else if full {
             "the pack is full".to_string()
         } else if urgent.is_empty() {
-            return false;
+            let short: Vec<&str> = needs.iter().map(|n| n.name.as_str()).collect();
+            return self.held_back(format!("nothing urgent (short of {})", a_few(&short)));
         } else {
-            format!(
-                "short of {}",
-                urgent
-                    .iter()
-                    .map(|n| n.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
+            let short: Vec<&str> = urgent.iter().map(|n| n.name.as_str()).collect();
+            format!("short of {}", a_few(&short))
         };
         let Some(me) = self.player.as_ref().map(|p| p.world_position()) else {
-            return false;
+            return self.held_back("not placed in the world yet");
         };
         let me = Vec2::new(me.x, me.y);
         let Some((vendor, at, look)) = self.pick_vendor(cfg, &needs, me, None, &[], now) else {
@@ -2480,11 +2550,7 @@ impl Client {
                 run.sold += (sent.len() - still.len()) as u32;
                 if !still.is_empty() {
                     tracing::info!("growth: {} item(s) the vendor would not take", still.len());
-                    let vendor = self.world.open_vendor.as_ref().map_or(0, |v| v.vendor);
-                    self.autoplay
-                        .growth
-                        .unsellable
-                        .extend(still.into_iter().map(|g| (vendor, g)));
+                    self.autoplay.growth.unsellable.extend(still);
                 }
                 // Now buy what is short.
                 let needs = self.grow_needs(cfg);
@@ -2668,15 +2734,14 @@ impl Client {
                 .filter(|n| n.urgent)
                 .map(|n| n.name.as_str())
                 .collect();
+            let short = a_few(&short);
             self.autoplay.growth.stopped_in_town = true;
+            self.autoplay.growth.stopped_looked = Some(now);
             self.autoplay.growth.bound = None;
             self.autoplay.growth.bound_since = None;
             self.autoplay.say(
                 Doing::Shopping,
-                format!(
-                    "out of money and short of {} -- stopping in town",
-                    short.join(", ")
-                ),
+                format!("out of money and short of {short} -- stopping in town"),
             );
             return false;
         }
@@ -3002,6 +3067,32 @@ mod tests {
             price,
             stack,
         }
+    }
+
+    #[test]
+    fn a_long_list_is_cut_short() {
+        assert_eq!(a_few(&[]), "nothing");
+        assert_eq!(a_few(&["Myrrh"]), "Myrrh");
+        assert_eq!(a_few(&["a", "b", "c", "d"]), "a, b, c, d");
+        assert_eq!(a_few(&["a", "b", "c", "d", "e"]), "a, b, c, d and 1 more");
+    }
+
+    #[test]
+    fn a_focus_is_equipment_and_never_sold() {
+        let sell = vec!["type:gem".to_string()];
+        let rules = SellRules {
+            sell: &sell,
+            keep: &[],
+            can_wield: None,
+            tags: &BTreeMap::new(),
+        };
+        let mut focus = item("Foci of Strife", item_type::GEM, 500);
+        focus.wcid = 15271;
+        assert!(!sellable(&focus, false, &rules));
+        // The rule is the weenie, not the name: a keepsake called after
+        // one is still just a keepsake.
+        focus.wcid = 999;
+        assert!(sellable(&focus, false, &rules));
     }
 
     fn ware(wcid: u32, name: &str, value: u32) -> ac_world::shops::Ware {
