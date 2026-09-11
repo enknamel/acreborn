@@ -245,12 +245,23 @@ impl Client {
             self.interrupt_travel("closing on a target");
             self.steering.reset();
         }
+        // Nothing to hit is ever a journey away.
+        //
+        // A fight is with what is in front of the character. Something
+        // named as a target from half a world away is not there at all:
+        // it is an object left over from somewhere the character has
+        // since left -- the Academy, most often, whose creatures stay
+        // in the world model after the way back has closed -- and a
+        // character that sets off for one spends its life planning a
+        // trip it can never make.
+        if at.distance(me) > crate::travel::WALKABLE {
+            tracing::info!("range: {name} is not here any more ({:.0} m off)", at.distance(me));
+            self.stop_approaching();
+            return false;
+        }
         self.dodge.approaching = Some(target);
         // Closing on something to hit it is a goal like any other, so
         // it is named to the travel system and not steered by hand.
-        // This one was missed when the rest were converted -- and it is
-        // the goal a hunting character uses most, so it went on walking
-        // into walls after every other path had stopped.
         self.head_for(at, stop, name);
         self.autoplay.say(
             Doing::Fighting,

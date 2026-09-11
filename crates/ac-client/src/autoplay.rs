@@ -3113,7 +3113,24 @@ impl Client {
             if self.stalled_on(t, now) {
                 return false;
             }
-            if let Some(o) = self.world.objects.get(&t) {
+            // And still here. A target is chosen from within the fight
+            // radius, but nothing checked it was still within it
+            // afterwards -- so a creature the character walked away
+            // from, or left behind in the Academy, stayed its target
+            // for ever while it planned a journey to the other side of
+            // the world to swing at it.
+            let gone = self
+                .world
+                .objects
+                .get(&t)
+                .and_then(|o| o.world_pos())
+                .zip(self.player.as_ref().map(|p| p.world_position()))
+                .is_some_and(|(at, me)| at.distance(me) > crate::travel::WALKABLE);
+            if gone {
+                self.attack_target = None;
+                self.autoplay.casting_at = None;
+            }
+            if let Some(o) = self.world.objects.get(&t).filter(|_| !gone) {
                 if o.health.unwrap_or(1.0) > 0.0 {
                     let name = o.name.clone();
                     self.autoplay
