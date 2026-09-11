@@ -131,7 +131,6 @@ pub struct Survive {
     /// Heal when health falls below this fraction of its maximum.
     pub heal_below: f32,
     /// Stop fighting below this fraction (0 to keep fighting).
-    pub flee_below: f32,
     /// Use a carried healing kit.
     pub use_kits: bool,
     /// Cast this spell to heal (by name, "Heal Self"); empty to use the
@@ -166,7 +165,6 @@ impl Default for Survive {
     fn default() -> Self {
         Survive {
             heal_below: 0.6,
-            flee_below: 0.25,
             use_kits: true,
             heal_spell: String::new(),
             manage_mana: true,
@@ -923,7 +921,6 @@ pub enum Doing {
     #[default]
     Idle,
     Healing,
-    Fleeing,
     Fighting,
     Looting,
     /// Salvaging, or carrying salvage to whoever does.
@@ -954,7 +951,6 @@ impl Doing {
             Doing::Tidying => "tidying the pack",
             Doing::Idle => "waiting",
             Doing::Healing => "healing",
-            Doing::Fleeing => "breaking off",
             Doing::Fighting => "fighting",
             Doing::Looting => "looting",
             Doing::Salvaging => "salvaging",
@@ -1679,11 +1675,25 @@ impl Client {
     }
 
     /// Heal, and break off a losing fight. True when it acted.
-    /// Whether anything the character has could still mend it: a kit
-    /// it knows how to use, or a heal it can cast right now.
+    /// Hurt enough to want healing, with something that could still
+    /// mend it: a kit it knows how to use, or a heal it can cast right
+    /// now.
     ///
-    /// Asked while a heal is cooling down, to decide whether waiting is
-    /// worth more than whatever else would take the tick.
+    /// The fight rule asks this before swinging. One heal is rarely
+    /// enough, and a character that heals, then swings, then heals,
+    /// then swings loses health the whole way down -- which is how one
+    /// died with healing already first on the list. A character with no
+    /// kit, no spell and no mana is not healing however long it waits,
+    /// so it fights: that is better for it than standing there.
+    pub(crate) fn too_hurt_to_fight(&mut self) -> bool {
+        let cfg = self.autoplay.config.survive.clone();
+        let health = self.health_fraction();
+        if health >= cfg.heal_below || health <= 0.0 {
+            return false;
+        }
+        self.can_still_heal(&cfg)
+    }
+
     fn can_still_heal(&mut self, cfg: &Survive) -> bool {
         if cfg.use_kits
             && self.heals_with_kits()
@@ -1707,40 +1717,18 @@ impl Client {
         if health >= cfg.heal_below || health <= 0.0 {
             return false;
         }
-        if cfg.flee_below > 0.0 && health < cfg.flee_below && self.attack_target.is_some() {
-            self.attack_target = None;
-            if self.combat {
-                self.toggle_combat();
-            }
-            self.autoplay.casting_at = None;
-            self.autoplay.armed_for = None;
-            self.autoplay.say(
-                Doing::Fleeing,
-                format!("breaking off at {:.0}% health", health * 100.0),
-            );
-            return true;
-        }
         if self
             .autoplay
             .last_heal
             .is_some_and(|t| now.duration_since(t) < HEAL_EVERY)
         {
-            // Still hurt, and the next heal is only a moment away:
-            // hold the tick rather than hand it to the fight.
-            //
-            // Letting it go was how a character died with healing at
-            // the top of its list. One heal is rarely enough; it went
-            // out, the rules came straight back here, found the heal
-            // still cooling, stood aside -- and the fight, next in
-            // line, swung again. Heal, fight, heal, fight, losing
-            // health the whole way down. Being hurt is a state to stay
-            // in until it is mended, not a thing to do once.
-            //
-            // Only while something can actually mend it. A character
-            // with no kit, no spell and no mana is not healing however
-            // long it waits, and standing still is worse for it than
-            // fighting or running.
-            return self.can_still_heal(&cfg);
+            // Waiting for the next heal is not a reason to stand
+            // still. Everything below this in the list -- looting,
+            // walking, tidying -- carries on; it is only the fighting
+            // that must not go first, and the fight rule sees to that
+            // itself (`too_hurt_to_fight`). Holding the tick here
+            // instead left the character idle between heals.
+            return false;
         }
         // A kit is quicker and cheaper than a spell -- but only to
         // someone who has trained Healing. Untrained it restores next to
@@ -3138,6 +3126,14 @@ impl Client {
     pub(crate) fn autoplay_fight_as(&mut self, now: Instant, cfg: &Fight) -> bool {
         let cfg = cfg.clone();
         if !cfg.enabled {
+            return false;
+        }
+        // Hurt, and able to mend it: heal, do not swing. The healing
+        // rule runs before this one and has already had its turn this
+        // tick; what it cannot do is stop the fighting happening in the
+        // gap while its next heal comes round, and that gap is where a
+        // character bleeds to death one exchange at a time.
+        if self.too_hurt_to_fight() {
             return false;
         }
         let stance = self.fighting_stance_as(cfg.style);

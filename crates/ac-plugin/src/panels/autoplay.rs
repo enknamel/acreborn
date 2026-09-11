@@ -395,12 +395,6 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     &mut cfg.survive.heal_below,
                     "Heal when health falls below this much of its maximum",
                 );
-                percent(
-                    ui,
-                    "break off",
-                    &mut cfg.survive.flee_below,
-                    "Stop fighting below this much health; 0 to keep fighting",
-                );
                 ui.checkbox(&mut cfg.survive.use_kits, "use healing kits")
                     .on_hover_text("Spend a carried healing kit before casting");
                 ui.horizontal(|ui| {
@@ -995,7 +989,6 @@ impl Autoplay {
             enabled: true,
             survive: Survive {
                 heal_below: 0.65,
-                flee_below: 0.3,
                 ..Default::default()
             },
             buffs: Buffs {
