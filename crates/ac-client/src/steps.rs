@@ -193,18 +193,18 @@ macro_rules! claimed {
 /// cares about, most pressing first.
 pub const STEPS: &[Step] = &[
     Step {
-        name: "dodge",
-        layer: Layer::Reflex,
-        why: "a spell already in the air is stepped out of before anything else, healing included",
-        worth: by_place,
-        run: claimed!(Client::autoplay_dodge),
-    },
-    Step {
         name: "survive",
         layer: Layer::Reflex,
-        why: "heal or run before doing anything that assumes being alive",
+        why: "healing comes before everything, a spell in the air included: a character that dodges well and dies is no better off",
         worth: by_place,
         run: claimed!(Client::autoplay_survive),
+    },
+    Step {
+        name: "dodge",
+        layer: Layer::Reflex,
+        why: "a spell already in the air is stepped out of before anything but healing",
+        worth: by_place,
+        run: claimed!(Client::autoplay_dodge),
     },
     Step {
         name: "recover",
@@ -449,7 +449,11 @@ mod tests {
 
         // Staying alive comes before everything. These are the ones
         // that cost a character its life when they are wrong.
-        assert!(at("dodge") < at("survive"), "step out before healing");
+        // Healing outranks everything, a spell already in the air
+        // included. Stepping out of the way is worth little to a
+        // character that dies while doing it.
+        assert!(at("survive") < at("dodge"), "heal before stepping out");
+        assert_eq!(at("survive"), 0, "nothing comes before staying alive");
         assert!(at("survive") < at("fight"), "heal before fighting");
         assert!(at("survive") < at("loot"), "heal before looting");
         assert!(at("recover") < at("fight"), "deal with the corpse first");
