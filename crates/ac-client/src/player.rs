@@ -79,6 +79,12 @@ struct Block {
     dungeon: bool,
 }
 
+/// How many blocked steps in a row count as wedged. At twenty a second
+/// this is about half of one: long enough that squeezing past furniture
+/// is not mistaken for a wall, short enough that nobody watching would
+/// call it running at one.
+const WEDGED_STEPS: u32 = 10;
+
 /// Blocks further than this many landblocks from the character (in
 /// either axis) are let go of: they are still in the process cache for
 /// whoever is there, and come back at the cost of one lookup.
@@ -114,6 +120,9 @@ pub struct Player {
     current_motion: u32,
     pub n_parts: usize,
     capsule: Capsule,
+    /// How many steps running the character has spent leaning on
+    /// something without moving (see the walk below).
+    wedged_for: u32,
     /// Terrain types that are open sea, read from the region on first
     /// use (see `sea_types`).
     sea_types: Option<Vec<bool>>,
@@ -357,6 +366,7 @@ impl Player {
             current_motion: 0,
             n_parts: 0,
             capsule: Capsule::default(),
+            wedged_for: 0,
             sea_types: None,
             vz: 0.0,
             airborne: false,
@@ -1120,6 +1130,22 @@ impl Player {
         if self.noclip {
             return self.fly(assets, input, dir, speed, dt);
         }
+        // Leaning on something and getting nowhere: stop leaning.
+        //
+        // Whatever asked for this -- a shop, a corpse, a teammate, a
+        // thing to hit, a sidestep out of an arrow's way -- the answer
+        // when the wall will not move is the same, and it belongs here,
+        // where every one of them ends up, rather than at each of the
+        // ten places that set a goal. A character that has pushed at
+        // the same spot for half a second is not walking anywhere.
+        //
+        // It resets the moment real ground is covered, so a slow squeeze
+        // past a crate is untouched; only a genuine wall holds it.
+        if steering && self.wedged_for >= WEDGED_STEPS {
+            self.ground_velocity = Vec3::ZERO;
+            self.moving = false;
+            return false;
+        }
         if !self.airborne {
             self.ground_velocity = if steering {
                 dir.normalize() * speed
@@ -1212,6 +1238,19 @@ impl Player {
                 if !indoors {
                     floor = Some((old.z, 0));
                 }
+                // Pressed against something and going nowhere.
+                //
+                // This counts, and once it has counted long enough the
+                // character stops pressing. It is the last guard rather
+                // than the first: every other one has to be put at the
+                // place that chose the goal, and there turned out to be
+                // ten of those -- a corpse, a counter, a teammate, a
+                // door, a thing to hit -- so fixing them one at a time
+                // meant the next report was always about the one still
+                // missed. Nothing reaches the wall except through here.
+                self.wedged_for += 1;
+            } else if self.ground_velocity.length_squared() > 1e-6 {
+                self.wedged_for = 0;
             }
             // An interior floor under the ground we walk on -- a cellar,
             // a dungeon beneath a hill -- is not ours to stand on from
