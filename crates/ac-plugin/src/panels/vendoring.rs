@@ -18,6 +18,11 @@ use crate::{Ctx, Plugin, Settings};
 
 pub const OPEN_KEY: &str = "vendoring.open";
 
+/// How often Run sends the counter another act. The same pace autoplay
+/// keeps: fast enough to feel immediate, slow enough that the server
+/// has answered the last one.
+const ACT_EVERY: std::time::Duration = std::time::Duration::from_millis(600);
+
 /// What the panel draws, read fresh from the character each frame.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VendorView {
@@ -48,6 +53,13 @@ pub struct Vendoring {
     show: bool,
     /// Carry out one act on the next frame.
     step_once: bool,
+    /// Keep carrying out acts, frame after frame, until the trip is
+    /// over or Stop is pressed. This is the whole of autovendoring
+    /// running by itself, with nothing else of autoplay turned on.
+    running: bool,
+    /// When the last act went out, so the counter is not shouted at
+    /// twenty times a second.
+    last: Option<std::time::Instant>,
     /// A made-up trip, for the layout gallery and for looking at the
     /// panel without a server.
     demo: Option<VendorView>,
@@ -61,6 +73,8 @@ impl Vendoring {
         Vendoring {
             show: false,
             step_once: false,
+            running: false,
+            last: None,
             demo: Some(VendorView {
                 counter: Some("Rakk the Peddler".into()),
                 away: 1.2,
@@ -173,6 +187,8 @@ impl Plugin for Vendoring {
         };
         let Some(v) = v else { return };
         let mut step = false;
+        let mut go = false;
+        let mut halt = false;
         egui::Window::new("Vendoring")
             .default_width(340.0)
             .show(egui, |ui| {
@@ -213,25 +229,74 @@ impl Plugin for Vendoring {
                     }
                 }
                 ui.separator();
-                // One act, then stop: the way to read a trip a line at
-                // a time without handing the character over.
-                if ui.add_enabled(self.demo.is_none(), egui::Button::new("Step")).clicked() {
-                    step = true;
-                }
+                ui.horizontal(|ui| {
+                    let live = self.demo.is_none();
+                    // One act, then stop: the way to read a trip a line
+                    // at a time without handing the character over.
+                    if ui
+                        .add_enabled(live && !self.running, egui::Button::new("Step"))
+                        .clicked()
+                    {
+                        step = true;
+                    }
+                    if ui
+                        .add_enabled(live && !self.running, egui::Button::new("Run"))
+                        .clicked()
+                    {
+                        go = true;
+                    }
+                    if ui
+                        .add_enabled(live && self.running, egui::Button::new("Stop"))
+                        .clicked()
+                    {
+                        halt = true;
+                    }
+                    if self.running {
+                        ui.label("running");
+                    }
+                });
             });
         if step {
             self.step_once = true;
         }
-        if self.step_once {
+        if go {
+            self.running = true;
+            self.last = None;
+        }
+        if halt {
+            self.running = false;
+        }
+        // Running takes one act every so often, not one a frame: the
+        // server answers in its own time and a trip that asks faster
+        // than it answers is a trip that loses track of what it has
+        // offered.
+        let now = std::time::Instant::now();
+        let due = self
+            .last
+            .is_none_or(|t| now.duration_since(t) >= ACT_EVERY);
+        if self.step_once || (self.running && due) {
             self.step_once = false;
+            self.last = Some(now);
             if let Some(c) = cx.try_client() {
                 let cfg = c.autoplay.config.growth.clone();
                 let snap = c.vendor_snapshot(&cfg);
-                let now = std::time::Instant::now();
                 let next = c.autoplay.growth.shop.step(&snap, now);
-                if let Some(act) = next.act {
-                    c.do_vendor_act(&act, &next.saying);
+                match next.act {
+                    // The trip is over, or there is nothing here to do.
+                    // Running stops by itself rather than sitting on a
+                    // closed counter.
+                    Some(Act::Close) | None => {
+                        if self.running {
+                            c.do_vendor_act(&Act::Close, &next.saying);
+                            self.running = false;
+                        }
+                    }
+                    Some(act) => {
+                        c.do_vendor_act(&act, &next.saying);
+                    }
                 }
+            } else {
+                self.running = false;
             }
         }
         if super::closed("vendoring") {

@@ -53,6 +53,13 @@ fn main() {
             thing(3, "Steel Long Sword", 12_500, 1, 1, 5002),
             thing(4, "Pyreal Pea", 5_000_000, 100, 100, 8330),
             thing(5, "Chainmail Hauberk", 21_000, 1, 1, 5003),
+            // The ordinary run of loot: a counter takes the lot in one
+            // armful, which is the whole point of not selling one at a
+            // time.
+            thing(6, "Copper Dagger", 900, 1, 1, 5004),
+            thing(7, "Leather Cap", 640, 1, 1, 5005),
+            thing(8, "Wooden Shield", 1_200, 1, 1, 5006),
+            thing(9, "Iron Mace", 1_450, 1, 1, 5007),
             keepsake,
             worn,
         ],
@@ -190,13 +197,22 @@ fn apply(snap: &mut Snapshot, act: &Act, next_guid: &mut u32) {
                 snap.slots_free = snap.slots_free.saturating_sub(1);
             }
         }
-        Act::Sell { guid } => {
-            if let Some(i) = snap.item(*guid).cloned() {
-                snap.items.retain(|x| x.guid != *guid);
-                snap.coin += i.value;
-                snap.carried = snap.carried.saturating_sub(i.burden);
-                snap.slots_free += 1;
+        Act::Sell { items } => {
+            // The takings come back as coin, and coin needs slots: a
+            // pyreal stack holds twenty-five thousand and then wants
+            // another. A simulator that forgets this makes the rules
+            // look as though they can sell a fortune into a full pack.
+            let before = snap.coin.div_ceil(25_000);
+            for guid in items {
+                if let Some(i) = snap.item(*guid).cloned() {
+                    snap.items.retain(|x| x.guid != *guid);
+                    snap.coin += i.value;
+                    snap.carried = snap.carried.saturating_sub(i.burden);
+                    snap.slots_free += 1;
+                }
             }
+            let after = snap.coin.div_ceil(25_000);
+            snap.slots_free = snap.slots_free.saturating_sub(after - before);
         }
         Act::Buy { wcid, count } => {
             let price = snap
@@ -206,7 +222,9 @@ fn apply(snap: &mut Snapshot, act: &Act, next_guid: &mut u32) {
                 .map(|w| w.price)
                 .unwrap_or(0);
             let bill = price.saturating_mul(*count);
+            let before = snap.coin.div_ceil(25_000);
             snap.coin = snap.coin.saturating_sub(bill);
+            snap.slots_free += before - snap.coin.div_ceil(25_000);
             if *wcid == NOTE_WCID {
                 *snap.notes.entry(NOTE_FACE).or_insert(0) += count;
                 snap.slots_free = snap.slots_free.saturating_sub(1);
@@ -238,8 +256,12 @@ fn apply(snap: &mut Snapshot, act: &Act, next_guid: &mut u32) {
             let have = snap.notes.get(face).copied().unwrap_or(0);
             let sold = (*count).min(have);
             if sold > 0 {
+                let before = snap.coin.div_ceil(25_000);
                 snap.notes.insert(*face, have - sold);
                 snap.coin += face * sold;
+                snap.slots_free = snap
+                    .slots_free
+                    .saturating_sub(snap.coin.div_ceil(25_000) - before);
                 if have - sold == 0 {
                     snap.slots_free += 1;
                 }

@@ -181,8 +181,8 @@ impl Client {
                 }
                 sent
             }
-            Act::Sell { guid } => {
-                self.sell(*guid);
+            Act::Sell { items } => {
+                self.sell_many(items);
                 self.autoplay.say(Doing::Shopping, saying.to_string());
                 true
             }

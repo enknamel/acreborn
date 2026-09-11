@@ -3173,6 +3173,33 @@ impl Client {
             .send_action(action::BUY, &trade(vendor, &[(guid, amount as i32)]));
     }
 
+    /// Sell several pack items (each its whole stack) to the open
+    /// vendor in one go.
+    ///
+    /// The sell action has always carried a list and the server has
+    /// always handled one; sending them singly was a round trip per
+    /// dagger, and a round trip is where a run finds new ways to lose
+    /// track of what it has offered.
+    pub fn sell_many(&mut self, guids: &[u32]) {
+        use ac_net::messages::{action, trade};
+        let Some(vendor) = self.world.open_vendor.as_ref().map(|v| v.vendor) else {
+            return;
+        };
+        let lot: Vec<(u32, i32)> = guids
+            .iter()
+            .filter_map(|g| {
+                let o = self.world.objects.get(g)?;
+                Some((*g, o.stack_size.max(1) as i32))
+            })
+            .collect();
+        if lot.is_empty() {
+            return;
+        }
+        tracing::info!("sell {} item(s) to {vendor:#010x}", lot.len());
+        self.session
+            .send_action(action::SELL, &trade(vendor, &lot));
+    }
+
     /// Sell a pack item (its whole stack) to the open vendor.
     pub fn sell(&mut self, guid: u32) {
         use ac_net::messages::{action, trade};

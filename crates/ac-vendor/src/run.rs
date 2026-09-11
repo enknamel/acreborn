@@ -23,8 +23,14 @@ pub enum Act {
     Merge { from: u32, to: u32, amount: u32 },
     /// Cut a piece off a stack worth more than the counter will look at.
     Split { guid: u32, amount: u32 },
-    /// Hand this over.
-    Sell { guid: u32 },
+    /// Hand these over, all in one go.
+    ///
+    /// A counter takes a whole armful at once -- the sell action has
+    /// always carried a list, and sending them one at a time was a
+    /// round trip per dagger. What bounds an armful is not the counter
+    /// but the pack: the takings come back as coin, and coin needs
+    /// slots.
+    Sell { items: Vec<u32> },
     /// Buy this many of something on the shelf.
     Buy { wcid: u32, count: u32 },
     /// Turn trade notes back into coin to pay a bill.
@@ -270,11 +276,17 @@ impl Run {
         ))
     }
 
-    /// Hand over one thing, cutting it down first when it is worth more
-    /// than the counter will look at.
+    /// Hand over an armful, cutting a stack down first when it is worth
+    /// more than the counter will look at.
+    ///
+    /// As many as the pack can take the money for. Twenty-five thousand
+    /// pyreals fill a slot, so a big enough armful pays for itself in
+    /// slots and then starts costing them; the armful stops at the
+    /// reserve, and the next round turns the coin into notes and goes
+    /// on.
     fn sell_one(&mut self, snap: &Snapshot, now: Instant) -> Option<Next> {
         let counter = snap.counter.as_ref()?;
-        let mut best: Option<&Item> = None;
+        let mut offer: Vec<&Item> = Vec::new();
         for it in &snap.items {
             if it.keep.forbidden() || it.wielded {
                 continue;
@@ -295,43 +307,69 @@ impl Run {
             if snap.wants.iter().any(|w| w.wcid == it.wcid && w.short > 0) {
                 continue;
             }
-            // The most valuable first: it is the one most worth the
-            // slot it is taking up.
-            if best.is_none_or(|b| it.value > b.value) {
-                best = Some(it);
-            }
+            offer.push(it);
         }
-        let it = best?;
-        // A stack worth more than the ceiling is not refused for good:
-        // it is cut down and sold a handful at a time, which is what a
-        // player does and what the ceiling is for.
-        if counter.max_value > 0 && it.value > counter.max_value {
-            let each = it.each().max(1);
-            let take = (counter.max_value / each).max(1).min(it.stack);
-            if take < it.stack {
-                return Some(Next::acting(
-                    Act::Split {
-                        guid: it.guid,
-                        amount: take,
-                    },
-                    format!("cutting {take} off the {}", it.name),
+        // The dearest first: they are the ones most worth the slot they
+        // sit in, and the ones the armful should certainly include.
+        offer.sort_by(|a, b| b.value.cmp(&a.value));
+
+        // Anything too dear for this counter is cut down first, on its
+        // own: the piece is a new object and the armful would be naming
+        // a guid that does not exist yet.
+        if let Some(it) = offer.first().copied() {
+            if counter.max_value > 0 && it.value > counter.max_value {
+                let each = it.each().max(1);
+                let take = (counter.max_value / each).max(1).min(it.stack);
+                if take < it.stack {
+                    return Some(Next::acting(
+                        Act::Split {
+                            guid: it.guid,
+                            amount: take,
+                        },
+                        format!("cutting {take} off the {}", it.name),
+                    ));
+                }
+                self.refused.note(
+                    it.guid,
+                    &Did::refused("worth more than this counter will look at"),
+                    now,
+                );
+                return Some(Next::nothing(
+                    Did::waiting("that one is too dear for this counter"),
+                    format!("{} is worth more than {} will take", it.name, counter.name),
                 ));
             }
-            self.refused.note(
-                it.guid,
-                &Did::refused("worth more than this counter will look at"),
-                now,
-            );
-            return Some(Next::nothing(
-                Did::waiting("that one is too dear for this counter"),
-                format!("{} is worth more than {} will take", it.name, counter.name),
-            ));
         }
-        self.offered.push(it.guid);
-        Some(Next::acting(
-            Act::Sell { guid: it.guid },
-            format!("selling {}", it.name),
-        ))
+
+        let mut items: Vec<u32> = Vec::new();
+        let mut takings = snap.coin;
+        let before = coin_slots(snap.coin);
+        for it in offer {
+            let after = takings.saturating_add(it.value);
+            // What the pack looks like once this one is gone and its
+            // money is in: one slot back for the item, and however many
+            // the coin has grown into.
+            let freed = items.len() as u32 + 1;
+            let cost = coin_slots(after).saturating_sub(before);
+            let left = snap
+                .slots_free
+                .saturating_add(freed)
+                .saturating_sub(cost);
+            if left < snap.rules.keep_slots && !items.is_empty() {
+                break;
+            }
+            items.push(it.guid);
+            takings = after;
+        }
+        if items.is_empty() {
+            return None;
+        }
+        self.offered.extend(items.iter().copied());
+        let saying = match items.len() {
+            1 => format!("selling {} item", items.len()),
+            n => format!("selling {n} items"),
+        };
+        Some(Next::acting(Act::Sell { items }, saying))
     }
 
     /// Buy one thing the character came for, within the purse and what
@@ -401,6 +439,12 @@ impl Run {
         }
         None
     }
+}
+
+/// How many slots a pile of coin takes up. A pyreal stack holds
+/// twenty-five thousand and then wants another slot.
+fn coin_slots(coin: u32) -> u32 {
+    coin.div_ceil(crate::errand::COIN_STACK)
 }
 
 /// The weenie of the note a counter deals in, found on its own shelf.
@@ -520,8 +564,16 @@ mod tests {
         // the server weighs a merge as though the source were being
         // picked up afresh, and refuses it without a word.
         s.carried = s.capacity * 3 - 17;
+        // It does not try to pour them together; it gets on with the
+        // selling, which is what makes the character light enough to
+        // pour them together later.
         let next = run.step(&s, Instant::now());
-        assert_eq!(next.act, Some(Act::Sell { guid: 3 }), "{}", next.saying);
+        assert!(
+            matches!(&next.act, Some(Act::Sell { .. })),
+            "expected selling, got {:?} -- {}",
+            next.act,
+            next.saying
+        );
     }
 
     #[test]
@@ -542,7 +594,7 @@ mod tests {
         );
         // With room to spare it gets on with the selling instead.
         s.slots_free = 20;
-        assert_eq!(run.step(&s, Instant::now()).act, Some(Act::Sell { guid: 3 }));
+        assert_eq!(run.step(&s, Instant::now()).act, Some(Act::Sell { items: vec![3] }));
     }
 
     #[test]
@@ -568,7 +620,7 @@ mod tests {
             let next = run.step(&snap(vec![it]), now);
             assert_ne!(
                 next.act,
-                Some(Act::Sell { guid: 3 }),
+                Some(Act::Sell { items: vec![3] }),
                 "offered a {what} item: {}",
                 next.saying
             );
@@ -596,11 +648,15 @@ mod tests {
         let now = Instant::now();
         let mut run = Run::new();
         let s = snap(vec![item(3, "Dagger", 500, 1, 1)]);
-        assert_eq!(run.step(&s, now).act, Some(Act::Sell { guid: 3 }));
+        assert_eq!(run.step(&s, now).act, Some(Act::Sell { items: vec![3] }));
         // It is still in the pack a moment later: the counter would not
         // have it. Asking again is how a run spends an afternoon.
         let next = run.step(&s, now);
-        assert_ne!(next.act, Some(Act::Sell { guid: 3 }), "{}", next.saying);
+        assert!(
+            !matches!(&next.act, Some(Act::Sell { items }) if items.contains(&3)),
+            "{}",
+            next.saying
+        );
     }
 
     #[test]
@@ -617,7 +673,7 @@ mod tests {
         }];
         // The dagger, not the tapers, however much they are worth.
         let next = run.step(&s, Instant::now());
-        assert_eq!(next.act, Some(Act::Sell { guid: 3 }), "{}", next.saying);
+        assert_eq!(next.act, Some(Act::Sell { items: vec![3] }), "{}", next.saying);
     }
 
     #[test]
@@ -683,6 +739,47 @@ mod tests {
             "{}",
             next.saying
         );
+    }
+
+    #[test]
+    fn a_counter_is_handed_an_armful_not_one_thing_at_a_time() {
+        let mut run = Run::new();
+        let s = snap(vec![
+            item(1, "Dagger", 500, 1, 1),
+            item(2, "Shield", 900, 1, 1),
+            item(3, "Helm", 700, 1, 1),
+        ]);
+        match run.step(&s, Instant::now()).act {
+            Some(Act::Sell { items }) => {
+                // Dearest first, and all three in one go.
+                assert_eq!(items, vec![2, 3, 1]);
+            }
+            other => panic!("expected an armful, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_armful_stops_where_the_coin_would_fill_the_pack() {
+        let mut run = Run::new();
+        // Each of these turns into two slots of coin, and there are
+        // only a few slots to put it in.
+        let mut s = snap(
+            (1..=8)
+                .map(|g| item(g, "Ingot", 50_000, 1, 1))
+                .collect(),
+        );
+        s.slots_free = 5;
+        s.rules.keep_slots = 3;
+        match run.step(&s, Instant::now()).act {
+            Some(Act::Sell { items }) => {
+                assert!(
+                    items.len() < 8,
+                    "sold the lot with nowhere to put the money: {items:?}"
+                );
+                assert!(!items.is_empty());
+            }
+            other => panic!("expected an armful, got {other:?}"),
+        }
     }
 
     #[test]
