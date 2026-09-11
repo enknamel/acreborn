@@ -1,0 +1,4 @@
+{"autoplay.config": {"enabled": false, "team": {"enabled": false},
+ "growth": {"auto_xp": false, "hunt_grounds": false, "town_runs": false},
+ "fight": {"enabled": false}, "loot": {"enabled": false, "tidy_pack": false}},
+ "log.filter": "warn,ac_client=info"}

@@ -1306,6 +1306,20 @@ impl Api for CtxApi<'_, '_> {
         self.client().merge_stacks(from as u32, to as u32, None)
     }
 
+    fn walk_to(&mut self, x: f64, y: f64, z: f64, stop: f64) -> bool {
+        let target = glam::Vec3::new(x as f32, y as f32, z as f32);
+        let stop = if stop > 0.0 { stop as f32 } else { 0.5 };
+        let c = self.client();
+        c.follow = Some(ac_client::Follow { target, stop });
+        c.player.is_some()
+    }
+
+    fn walk_stop(&mut self) {
+        let c = self.client();
+        c.follow = None;
+        c.steering.reset();
+    }
+
     fn burden(&mut self) -> Map {
         let (carried, capacity) = self.client().burden();
         let ceiling = capacity.saturating_mul(3);

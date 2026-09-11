@@ -1,0 +1,4 @@
+# Where this machine keeps the DATs, and what a run leaves behind.
+data-dir
+profiles/
+*.log

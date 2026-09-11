@@ -119,6 +119,7 @@ dependencies = [
  "ac-net",
  "ac-plugin",
  "ac-world",
+ "glam 0.30.10",
  "rhai",
  "serde_json",
  "tracing",

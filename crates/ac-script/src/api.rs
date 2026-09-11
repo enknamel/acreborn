@@ -287,6 +287,12 @@ pub trait Api {
     /// to the pack -- including, on its own reckoning, a stack the
     /// character is already holding (see `merge`).
     fn burden(&mut self) -> Map;
+    /// Walk to a world position, stopping within `stop` metres of it
+    /// (0 for a sensible default). The steering and the route planner
+    /// do the work, so this goes round what is in the way rather than
+    /// into it. `walk_stop()` gives up the walk.
+    fn walk_to(&mut self, x: f64, y: f64, z: f64, stop: f64) -> bool;
+    fn walk_stop(&mut self);
     /// Queue everything in the open container; returns how many.
     fn take_all(&mut self) -> i64;
     fn close_container(&mut self);
@@ -570,6 +576,13 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("appraisal", |g: i64| with_api(|a| a.appraisal(g)));
     engine.register_fn("merge", |f: i64, t: i64| with_api(|a| a.merge(f, t)));
     engine.register_fn("burden", || with_api(|a| a.burden()));
+    engine.register_fn("walk_to", |x: f64, y: f64, z: f64| {
+        with_api(|a| a.walk_to(x, y, z, 0.0))
+    });
+    engine.register_fn("walk_to", |x: f64, y: f64, z: f64, stop: f64| {
+        with_api(|a| a.walk_to(x, y, z, stop))
+    });
+    engine.register_fn("walk_stop", || with_api(|a| a.walk_stop()));
     engine.register_fn("take_all", || with_api(|a| a.take_all()));
     engine.register_fn("close_container", || with_api(|a| a.close_container()));
     engine.register_fn("buy", |n: &str| with_api(|a| a.buy(n)));

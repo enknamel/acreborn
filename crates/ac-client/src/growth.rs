@@ -2525,10 +2525,20 @@ impl Client {
         };
         // What the server says we are carrying, or the pack counted up
         // when it has not said.
+        //
+        // Counted the way the server counts it, which is not the
+        // obvious way. A stack's weight is the whole stack's already,
+        // so multiplying by its size counts it twice over; and a side
+        // pack's weight is its own plus everything inside it, so adding
+        // the contents as well counts those twice too. Only what hangs
+        // directly off the character is added: the main pack's items,
+        // side packs included as the single lumps they weigh, and
+        // whatever is being worn or held.
         let now = int_of(ENCUMBRANCE_VAL).unwrap_or_else(|| {
             self.world
-                .inventory()
-                .map(|o| o.burden.saturating_mul(o.stack_size.max(1)))
+                .main_pack()
+                .chain(self.world.wielded())
+                .map(|o| o.burden)
                 .sum()
         });
         let strength = self.wielder().attributes_current[0];

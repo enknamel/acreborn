@@ -397,6 +397,12 @@ impl Api for Recorder {
         false
     }
 
+    fn walk_to(&mut self, _x: f64, _y: f64, _z: f64, _stop: f64) -> bool {
+        false
+    }
+
+    fn walk_stop(&mut self) {}
+
     fn burden(&mut self) -> Map {
         Map::new()
     }

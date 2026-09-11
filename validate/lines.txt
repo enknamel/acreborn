@@ -1,0 +1,23 @@
+/nop
+/nop
+/v_placed
+/v_burden
+/v_maxstack
+@ci 20631 37
+@ci 20631 41
+/nop
+/v_merge_do
+/nop
+/nop
+/v_merge_check
+/v_split_do
+/nop
+/nop
+/v_split_check
+/v_walk_do
+/nop
+/nop
+/nop
+/nop
+/nop
+/v_walk_check
