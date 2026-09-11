@@ -2059,9 +2059,14 @@ impl Client {
             // Asking again every four hundred milliseconds until the
             // corpse rots is not persistence, it is a stuck character.
             let still: Vec<u32> = self.autoplay.take_queue.clone();
+            let asked = &self.autoplay.take_tries;
             self.autoplay.take_queue = still
                 .into_iter()
                 .filter(|g| items.contains(g) && !self.world.is_carried(*g))
+                // Asked for three times and never moved: the pack is
+                // full, or the thing will not be given up. Leave it
+                // rather than let the queue stand behind it for ever.
+                .filter(|g| asked.waited(g).is_none_or(|w| w <= NOT_COMING))
                 .collect();
             if let Some(next) = self.autoplay.take_queue.first().copied() {
                 // One at a time, in order, and the order does not
@@ -4602,6 +4607,41 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_take_queue_waits_on_its_front_item_and_steps_over_a_dead_one() {
+        use crate::did::{Did, Patience};
+        let t0 = Instant::now();
+        let mut asked: Patience<u32> = Patience::new();
+        let outstanding = Did::waiting("it has not come out yet");
+
+        // Asked once: held briefly. The queue waits rather than
+        // starting a second take, because two at once is what
+        // "Source item not found!" is.
+        asked.note(1, &outstanding, t0);
+        assert!(asked.held(&1, t0));
+        assert!(
+            asked.waited(&1).is_some_and(|w| w <= NOT_COMING),
+            "one ask is not a dead item"
+        );
+
+        // Three asks, a quarter of a second apart and doubling, and it
+        // still has not moved: the queue goes on without it.
+        let mut at = t0;
+        for _ in 0..3 {
+            at += asked.waited(&1).unwrap_or_default();
+            asked.note(1, &outstanding, at);
+        }
+        assert!(
+            asked.waited(&1).is_some_and(|w| w > NOT_COMING),
+            "asked enough times to call it not coming"
+        );
+
+        // And an item that arrives clears everything remembered about
+        // it, so a later corpse's copy starts afresh.
+        asked.note(1, &Did::Done, at);
+        assert!(asked.waited(&1).is_none());
+    }
+
     #[test]
     fn a_daily_limit_is_a_wait_and_not_a_grudge() {
         use crate::did::{Because, Did, Patience};
