@@ -27,12 +27,62 @@ use crate::Client;
 const NEXT_TO: f32 = 12.0;
 
 impl Client {
+    /// Send one of the free recalls. Answers in the same words a cast
+    /// does, so the journey need not care which kind it asked for.
+    pub(crate) fn send_free_recall(&mut self, spell: u32) -> CastCheck {
+        use ac_net::messages::action;
+        let what = match spell {
+            recalls::spell::FREE_LIFESTONE => action::TELE_TO_LIFESTONE,
+            recalls::spell::FREE_MARKETPLACE => action::TELE_TO_MARKETPLACE,
+            _ => return CastCheck::NotKnown,
+        };
+        // The server refuses it in combat, so drop out first: the
+        // refusal costs a round trip and says nothing useful.
+        if self.combat {
+            self.toggle_combat();
+        }
+        tracing::info!("travel: asking for {spell:#x} (no spell needed)");
+        self.session.send_action(what, &[]);
+        CastCheck::Ok
+    }
+
+    /// The ways out that need no spell at all.
+    ///
+    /// `/lifestone` is not magic: the server takes it as its own action
+    /// and asks only that a lifestone has been attuned. Every character
+    /// has it from the first minute, which matters because the
+    /// characters most likely to be stuck at the bottom of a dungeon
+    /// are exactly the ones too junior to have learnt Lifestone Recall
+    /// or Lifestone Sending. A level twelve character with no spells
+    /// and no gems still has this, and planning as though it did not
+    /// left one standing in Holtburg Dungeon walking into a wall.
+    ///
+    pub fn free_recalls(&self) -> Vec<Recall> {
+        let mut out = Vec::new();
+        // Where /lifestone puts the character: the lifestone last
+        // attuned, which is what the server calls the sanctuary.
+        if let Some(p) = self.world.stats.recall_position(position_type::SANCTUARY) {
+            let at = ac_world::landblock_origin(p.cell) + p.local;
+            out.push(Recall {
+                spell: recalls::spell::FREE_LIFESTONE,
+                name: "/lifestone".to_string(),
+                exit: glam::Vec2::new(at.x, at.y),
+                exit_cell: p.cell,
+            });
+        }
+        // `/marketplace` is the same kind of thing and lands among a
+        // town's worth of counters, but nothing here knows where the
+        // Marketplace is: it is not in the recall table, which holds
+        // only the spells. Left out rather than guessed at.
+        out
+    }
+
     /// The recall spells the character can cast right now (known, with
     /// a caster in hand, the components and the mana) and where each
     /// would land; the trip planner's input. A spell whose destination
     /// is not known yet is left out.
     pub fn castable_recalls(&self) -> Vec<Recall> {
-        let mut out = Vec::new();
+        let mut out = self.free_recalls();
         for &id in &self.world.stats.spells {
             let (name, exit, exit_cell) = if let Some(kind) = recalls::dynamic(id) {
                 let Some(p) = self.world.stats.recall_position(kind) else {

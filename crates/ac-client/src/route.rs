@@ -105,6 +105,23 @@ pub struct Steering {
     /// The route came from the neighbourhood planner, so a single-block
     /// re-plan should not quietly replace it with a worse one.
     route_is_wide: bool,
+    /// There is no way to the goal from here: the straight line is
+    /// blocked and no route was found. The steering stands still rather
+    /// than lean on the obstacle, and whoever set the goal can ask for
+    /// this and choose another.
+    no_way: bool,
+}
+
+impl Steering {
+    /// Whether the last steer found no way at all to its goal.
+    ///
+    /// Worth asking before deciding a character is merely slow: a walk
+    /// that cannot be made does not get better with time, and the rules
+    /// above can pick another way -- a recall, a portal, another shop
+    /// -- instead of waiting out a timeout against a wall.
+    pub fn no_way(&self) -> bool {
+        self.no_way
+    }
 }
 
 /// No progress for this long while steering counts as stuck.
@@ -124,6 +141,7 @@ impl Steering {
             last_progress: now,
             straight_blocked_until: now,
             route_is_wide: false,
+            no_way: false,
         }
     }
 
@@ -133,6 +151,7 @@ impl Steering {
         self.route = None;
         self.last_pos = None;
         self.route_is_wide = false;
+        self.no_way = false;
     }
 
     /// Where to head this frame to reach `goal` (world space, in landblock
@@ -242,6 +261,7 @@ impl Steering {
                     tracing::debug!("route: straight line clear again");
                 }
                 self.route_is_wide = false;
+                self.no_way = false;
                 return goal;
             }
             match player.find_path(assets, block, me, goal, goal_block) {
@@ -265,6 +285,7 @@ impl Steering {
                     );
                     self.route = Some(Route::new(goal, waypoints, now));
                     self.route_is_wide = false;
+                    self.no_way = false;
                 }
                 None if following_wide => {
                     // The block's own graph finds nothing (the way on
@@ -278,11 +299,23 @@ impl Steering {
                     }
                 }
                 None => {
-                    tracing::debug!("route: no path to {goal:?}, going straight");
+                    // Nothing found, and the straight line was already
+                    // judged blocked -- that is why a path was looked
+                    // for at all. Walking it anyway is walking into
+                    // whatever was in the way, which is every report of
+                    // a character "running straight at a wall": it had
+                    // decided the wall was there and set off regardless.
+                    //
+                    // Standing still is not a fix for not knowing the
+                    // way, but it is honest, and it leaves the rules
+                    // above free to plan another way out. Charging the
+                    // wall never arrives and hides the fault.
+                    tracing::debug!("route: no path to {goal:?} and the line is blocked");
                     self.route = None;
                     self.route_is_wide = false;
                     self.next_check = now + REPLAN_AFTER;
-                    return goal;
+                    self.no_way = true;
+                    return me;
                 }
             }
         }

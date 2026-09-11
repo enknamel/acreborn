@@ -1219,7 +1219,11 @@ impl Client {
         let Some(pl) = self.player.as_ref() else {
             return false;
         };
-        if pl.is_indoors() {
+        // The shortcut below is for buildings. A dungeon has no door to
+        // step out of -- the way out is its exit portal or a recall --
+        // and walking at the last outdoor spot from underground is
+        // walking at rock.
+        if pl.is_indoors() && !self.autoplay.growth.in_dungeon {
             let me = pl.world_position();
             let block = pl.cell & 0xFFFF_0000;
             let same_block =
@@ -2456,6 +2460,25 @@ impl Client {
         // a character has.
         for g in self.carried_gems() {
             out.push((g.exit, g.name.clone()));
+        }
+        // And the dungeon's own door. Every portal's mouth and its
+        // landing are known, so a character underground can say which
+        // dungeon it is in and where the way out comes up -- and be
+        // judged on the shops near *that*, which is what walking out
+        // would actually achieve.
+        if self.autoplay.growth.in_dungeon {
+            if let Some(pl) = self.player.as_ref() {
+                let block = pl.cell & 0xFFFF_0000;
+                for p in ac_world::portals::all() {
+                    if p.from_cell & 0xFFFF_0000 != block || !p.works() {
+                        continue;
+                    }
+                    if !p.exit_outdoors() {
+                        continue;
+                    }
+                    out.push((p.to_xy(), format!("{} (the way out)", p.name)));
+                }
+            }
         }
         // Nothing to hand: the feet are all there is, wherever they are.
         if out.is_empty() {

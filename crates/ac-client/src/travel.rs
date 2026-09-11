@@ -783,11 +783,19 @@ impl Client {
                     waited >= RECALL_GIVE_UP
                 };
                 if due && casts < RECALL_TRIES {
-                    // On ourselves, whatever is selected: a few recalls
-                    // are written as targeted spells.
-                    let sent = match self.world.player_guid {
-                        Some(me) => self.cast_at(spell, me),
-                        None => self.try_cast(spell),
+                    // `/lifestone` is not a spell: the server has its
+                    // own action for it and asks for no skill,
+                    // components or casting at all. It is planned
+                    // beside the spells and sent quite differently.
+                    let sent = if ac_world::recalls::spell::is_free(spell) {
+                        self.send_free_recall(spell)
+                    } else {
+                        // On ourselves, whatever is selected: a few
+                        // recalls are written as targeted spells.
+                        match self.world.player_guid {
+                            Some(me) => self.cast_at(spell, me),
+                            None => self.try_cast(spell),
+                        }
                     };
                     match sent {
                         crate::magic::CastCheck::Ok => {

@@ -42,6 +42,23 @@ pub mod position_type {
 pub mod spell {
     pub const PRIMARY_PORTAL_TIE: u32 = 47;
     pub const PRIMARY_PORTAL_RECALL: u32 = 48;
+    /// Not a spell at all: the `/lifestone` command, which every
+    /// character has whatever its skills. The server takes it as the
+    /// `TeleToLifestone` action and asks only that a lifestone has been
+    /// attuned -- no magic, no components, half the mana.
+    ///
+    /// It is given a number here so that a journey can be planned with
+    /// it beside the spells, and the number is one no spell uses.
+    pub const FREE_LIFESTONE: u32 = 0xF000_0001;
+    /// The same for `/marketplace`.
+    pub const FREE_MARKETPLACE: u32 = 0xF000_0002;
+
+    /// Whether this is one of the commands rather than a spell, and so
+    /// is sent as an action rather than cast.
+    pub fn is_free(spell: u32) -> bool {
+        spell == FREE_LIFESTONE || spell == FREE_MARKETPLACE
+    }
+
     pub const LIFESTONE_RECALL: u32 = 1635;
     pub const LIFESTONE_SENDING: u32 = 1636;
     pub const LIFESTONE_TIE: u32 = 2644;
