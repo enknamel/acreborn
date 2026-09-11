@@ -511,18 +511,40 @@ pub struct Salable {
     pub guid: u32,
     /// `ac_world::item_type` bits.
     pub item_type: u32,
-    /// What one is worth.
+    /// What the whole stack is worth. The server counts a stack's value
+    /// as the lot, not as one of them, and a counter's limit is on that
+    /// figure -- which is why a hundred Pyreal Peas worth five million
+    /// are refused by a counter that will not look at anything over a
+    /// million.
     pub value: u32,
     pub stack: u32,
 }
 
 impl Salable {
+    /// What one of them is worth.
+    pub fn each(&self) -> u32 {
+        self.value / self.stack.max(1)
+    }
+
+    /// How many of them a counter with this ceiling will take at once.
+    /// Zero when it will not take even one.
+    ///
+    /// A stack worth more than the ceiling is not refused for good: it
+    /// is split and sold a handful at a time, which is what a player
+    /// does and what the counter's limit is for.
+    pub fn at_once(&self, max_value: u32) -> u32 {
+        if max_value == 0 {
+            return self.stack.max(1);
+        }
+        let each = self.each().max(1);
+        (max_value / each).min(self.stack.max(1))
+    }
+
     /// Whether a counter that buys `item_types` between `min_value` and
-    /// `max_value` (a maximum of 0 being no maximum) would take it.
+    /// `max_value` (a maximum of 0 being no maximum) would take it,
+    /// whole or in pieces.
     fn taken_by(&self, item_types: u32, min_value: u32, max_value: u32) -> bool {
-        self.item_type & item_types != 0
-            && self.value >= min_value
-            && (max_value == 0 || self.value <= max_value)
+        self.item_type & item_types != 0 && self.each() >= min_value && self.at_once(max_value) > 0
     }
 }
 
@@ -2105,12 +2127,19 @@ impl Client {
             tags: &tags,
             burns: &burns,
         };
-        // The vendor profile, when the character has been given one.
-        // It answers the same question the searches do -- does this go
-        // to the counter -- but it can ask about anything the server
-        // says of the item, and about the character holding it.
+        // What goes to a counter is a profile's decision, not a list of
+        // searches buried in the code.
+        //
+        // The vendor profile when there is one, and the loot profile
+        // when there is not: a rule that says "take this to sell" has
+        // already said where it goes, and saying it twice is how the
+        // two drift apart. The old searches are the last resort, for a
+        // character nobody has given a profile at all.
         let loot = &self.autoplay.config.loot;
-        let vendor = self.profiles.get(&loot.vendor_profile);
+        let vendor = self
+            .profiles
+            .get(&loot.vendor_profile)
+            .or_else(|| self.profiles.get(&loot.profile));
         let my_name = self.world.stats.name.clone();
         let unsellable = &self.autoplay.growth.unsellable;
         let now = Instant::now();
@@ -2868,12 +2897,45 @@ impl Client {
                         .last_sell
                         .is_none_or(|t| now.duration_since(t) >= SELL_EVERY)
                     {
+                        let ceiling = self.world.open_vendor.as_ref().map_or(0, |v| v.max_value);
                         for _ in 0..SELL_BATCH {
-                            let Some(g) = queue.pop() else { break };
-                            if self.world.is_carried(g) {
-                                self.sell(g);
-                                sent.push(g);
+                            let Some(g) = queue.last().copied() else {
+                                break;
+                            };
+                            if !self.world.is_carried(g) {
+                                queue.pop();
+                                continue;
                             }
+                            // A stack worth more than the counter will
+                            // look at is sold a piece at a time. The
+                            // server counts a stack's value as the lot,
+                            // so a hundred Pyreal Peas are five million
+                            // to a counter that stops at one -- and
+                            // splitting is what a player does about it.
+                            let piece = self
+                                .stats_of(g)
+                                .map(|it| Salable {
+                                    guid: g,
+                                    item_type: it.item_type,
+                                    value: it.value,
+                                    stack: it.stack,
+                                })
+                                .map_or(0, |it| it.at_once(ceiling));
+                            let whole = self
+                                .world
+                                .objects
+                                .get(&g)
+                                .map_or(1, |o| o.stack_size.max(1));
+                            if piece > 0 && piece < whole {
+                                // Cut a sellable piece off and let the
+                                // next turn offer it; the rest of the
+                                // stack stays where it is.
+                                self.split_stack(g, None, piece);
+                                break;
+                            }
+                            queue.pop();
+                            self.sell(g);
+                            sent.push(g);
                         }
                         run.last_sell = Some(now);
                         run.since = now;
@@ -3222,6 +3284,54 @@ mod tests {
             value,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_stack_worth_more_than_the_counter_allows_is_sold_in_pieces() {
+        // A hundred Pyreal Peas: fifty thousand each and five million
+        // the stack, and the server reckons a stack's value as the lot.
+        // A counter that will not look at anything over a million
+        // refuses all hundred -- so it takes twenty at a time.
+        let peas = Salable {
+            guid: 1,
+            item_type: item_type::SPELL_COMPONENTS,
+            value: 5_000_000,
+            stack: 100,
+        };
+        assert_eq!(peas.each(), 50_000);
+        assert_eq!(peas.at_once(1_000_000), 20);
+        assert!(
+            peas.taken_by(item_type::SPELL_COMPONENTS, 0, 1_000_000),
+            "in pieces, but taken"
+        );
+
+        // A counter with no ceiling takes the lot in one go.
+        assert_eq!(peas.at_once(0), 100);
+
+        // One too dear even singly is not taken at all, and saying so
+        // is better than splitting a stack down to nothing.
+        let jewel = Salable {
+            guid: 2,
+            item_type: item_type::JEWELRY,
+            value: 4_000_000,
+            stack: 1,
+        };
+        assert_eq!(jewel.at_once(1_000_000), 0);
+        assert!(!jewel.taken_by(item_type::JEWELRY, 0, 1_000_000));
+
+        // And the counter's floor is about one of them, not the pile:
+        // a stack of cheap things is not made sellable by being big.
+        let chaff = Salable {
+            guid: 3,
+            item_type: item_type::MISC,
+            value: 10_000,
+            stack: 1_000,
+        };
+        assert_eq!(chaff.each(), 10);
+        assert!(
+            !chaff.taken_by(item_type::MISC, 100, 0),
+            "ten is under the floor"
+        );
     }
 
     #[test]

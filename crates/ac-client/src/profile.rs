@@ -568,23 +568,26 @@ impl Profile {
                     ..Default::default()
                 },
                 Rule {
-                    name: "spell components".into(),
-                    action: LootAction::Keep,
-                    all: vec![kind("comps")],
-                    ..Default::default()
-                },
-                Rule {
                     name: "healing kits, a few".into(),
                     action: LootAction::Keep,
                     all: vec![word("healing kit")],
                     keep_up_to: Some(4),
                     ..Default::default()
                 },
-                // Peas are what a run to town is paid for with.
+                // Peas are what a run to town is paid for with, and
+                // they come first because a pea is a spell component by
+                // item type. The rule below would otherwise keep every
+                // one of them, which is what it used to do.
                 Rule {
                     name: "peas to sell".into(),
                     action: LootAction::Sell,
                     all: vec![word("pea")],
+                    ..Default::default()
+                },
+                Rule {
+                    name: "spell components".into(),
+                    action: LootAction::Keep,
+                    all: vec![kind("comps")],
                     ..Default::default()
                 },
                 Rule {
@@ -994,6 +997,10 @@ mod tests {
         ));
         assert!(keeps("Prismatic Taper", item_type::SPELL_COMPONENTS, 5));
         assert!(sells("Copper Pea", item_type::MISC, 40));
+        // A pea is a spell component by item type, and is still sold:
+        // the rule that says so comes before the one that keeps
+        // components, because peas are what the trip is paid for.
+        assert!(sells("Pyreal Pea", item_type::SPELL_COMPONENTS, 50_000));
         assert!(sells("Ruby", item_type::GEM, 9_000));
         // Junk is dismissed without the server being asked about it,
         // and the rule that dismisses it comes before every rule that

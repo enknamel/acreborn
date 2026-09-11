@@ -403,7 +403,13 @@ pub struct Loot {
     /// The loot profile this character reads, by name (see
     /// `crate::profile`). Empty falls back to `rules` below, which is
     /// what a character had before profiles existed.
-    #[serde(default)]
+    ///
+    /// Defaulted by name rather than by `Default::default`, because a
+    /// settings file that mentions `loot` at all and leaves this out
+    /// would otherwise get an empty string -- serde fills a missing
+    /// field from its type, not from the struct's own default -- and a
+    /// character would quietly stop reading its profile.
+    #[serde(default = "starter")]
     pub profile: String,
     /// The profile that decides what goes to a vendor. Empty falls back
     /// to the older `growth.sell` searches.
@@ -414,6 +420,12 @@ pub struct Loot {
 /// Serde's default for a switch that is on unless it was turned off.
 fn yes() -> bool {
     true
+}
+
+/// The profile the shelf seeds itself with, which is what a character
+/// reads when nobody has said otherwise.
+fn starter() -> String {
+    "Starter".to_string()
 }
 
 impl Default for Loot {
@@ -428,7 +440,10 @@ impl Default for Loot {
             salvage: true,
             hand_off: true,
             tidy_pack: true,
-            profile: String::new(),
+            // The profile the shelf seeds itself with, so a character
+            // nobody has configured still reads its rules from data
+            // rather than from a list in the code.
+            profile: "Starter".into(),
             vendor_profile: String::new(),
         }
     }
