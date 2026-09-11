@@ -12,9 +12,15 @@
 //!   server also places, fixed and lifeless, is left out. A search box
 //!   and kind chips narrow it, a click selects the object (and rings it
 //!   on the map), a double-click uses it. The same search also looks
-//!   through the towns, lifestones, shops and standing NPCs of the whole
-//!   world (`ac_world::landmarks`); those appear under "elsewhere in the
-//!   world" with how far away they are, and a click travels there.
+//!   through the whole world: its towns, the lifestones, shops and
+//!   named folk of the gazetteer (`ac_world::landmarks`), and the mouth
+//!   of every portal standing out in the open (`ac_world::portals`).
+//!   Portals matter most of the three -- almost every dungeon in Dereth
+//!   is a name on a portal and nothing else on the map -- and one
+//!   answer is given per name, because fifty-three lines reading
+//!   "Portal to Town Network" are no answer at all. They appear under
+//!   "elsewhere in the world" with how far away they are, and a click
+//!   travels there.
 //! * On the world map a double-click asks for a route there and the
 //!   character walks it (see `ac_client::Client::travel_to`); a place
 //!   name typed into "travel to" does the same by the gazetteer. The
@@ -163,7 +169,20 @@ pub struct MapView {
     pub elsewhere: Vec<(String, Vec2, f32)>,
 }
 
-/// The landmarks and towns matching `search`, nearest to `me` first.
+/// The towns, landmarks and portals matching `search`, nearest to `me`
+/// first.
+///
+/// Three sources, because a player looking for somewhere means any of
+/// them: a town by name, a standing thing (lifestones, shopkeepers and
+/// the named folk the gazetteer knows), and the mouth of a portal.
+///
+/// Portals are what a search is most often really after -- almost
+/// every dungeon in Dereth is a name on a portal and nothing else on
+/// the map -- and they were the one source missing. Only the ones
+/// standing out in the world are offered: a portal at the bottom of a
+/// dungeon is not somewhere to walk to from here, and the data is
+/// mostly such portals. The ruined ones say so themselves and are left
+/// out.
 pub fn world_search(search: &str, me: Vec2) -> Vec<(String, Vec2, f32)> {
     let needle = search.trim().to_lowercase();
     if needle.len() < 3 {
@@ -174,17 +193,58 @@ pub fn world_search(search: &str, me: Vec2) -> Vec<(String, Vec2, f32)> {
         .filter(|p| p.name.to_lowercase().contains(&needle))
         .map(|p| (format!("{} (town)", p.name), p.world_xy(), 0.0))
         .collect();
-    out.extend(
-        ac_world::landmarks::search(&needle, Some(me))
-            .into_iter()
-            .take(40)
-            .map(|l| (format!("{} ({})", l.name, l.kind.label()), l.xy(), 0.0)),
-    );
+    // One per name here too. The gazetteer holds five hundred and
+    // twenty-two Wailing Statues and a hundred and sixty-two Statues;
+    // a search that answers with all of them has answered with none,
+    // and the nearest of each is the one worth walking to.
+    let mut seen: Vec<String> = Vec::new();
+    for l in ac_world::landmarks::search(&needle, Some(me)) {
+        if seen.iter().any(|n| n == &l.name) {
+            continue;
+        }
+        seen.push(l.name.clone());
+        out.push((format!("{} ({})", l.name, l.kind.label()), l.xy(), 0.0));
+        if seen.len() >= 40 {
+            break;
+        }
+    }
+    out.extend(portal_search(&needle, me));
     for e in &mut out {
         e.2 = e.1.distance(me);
     }
     out.sort_by(|a, b| a.2.total_cmp(&b.2));
     out.truncate(20);
+    out
+}
+
+/// The mouths of portals matching `needle`, nearest first and one per
+/// name.
+///
+/// One per name matters: fifty-three portals are called "Portal to Town
+/// Network" and a list of fifty-three identical lines is a list of
+/// none. The nearest of each is the one worth walking to anyway.
+fn portal_search(needle: &str, me: Vec2) -> Vec<(String, Vec2, f32)> {
+    let mut found: Vec<&ac_world::portals::Portal> = ac_world::portals::named(needle)
+        .into_iter()
+        .filter(|p| p.works() && p.mouth_outdoors())
+        .collect();
+    found.sort_by(|a, b| {
+        a.from_xy()
+            .distance(me)
+            .total_cmp(&b.from_xy().distance(me))
+    });
+    let mut seen: Vec<&str> = Vec::new();
+    let mut out = Vec::new();
+    for p in found {
+        if seen.contains(&p.name.as_str()) {
+            continue;
+        }
+        seen.push(&p.name);
+        out.push((format!("{} (portal)", p.name), p.from_xy(), 0.0));
+        if out.len() >= 20 {
+            break;
+        }
+    }
     out
 }
 
@@ -964,6 +1024,83 @@ impl Plugin for Map {
             return true;
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    /// Holtburg, in world coordinates, as somewhere to search from.
+    fn holtburg() -> Vec2 {
+        ac_world::towns::PLACES
+            .iter()
+            .find(|p| p.name == "Holtburg")
+            .map(|p| p.world_xy())
+            .expect("Holtburg is a town")
+    }
+
+    #[test]
+    fn a_dungeon_is_found_by_the_portal_that_leads_to_it() {
+        // Almost every dungeon in Dereth is a name on a portal and
+        // nothing else on the map, which is why the search was missing
+        // most of the world before portals were in it.
+        let found = world_search("halls of metos", holtburg());
+        assert!(
+            found.iter().any(|(label, _, _)| label.contains("(portal)")),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn the_same_portal_name_is_offered_once_not_fifty_three_times() {
+        let found = world_search("town network", holtburg());
+        let n = found
+            .iter()
+            .filter(|(l, _, _)| l.starts_with("Portal to Town Network"))
+            .count();
+        assert_eq!(n, 1, "{found:?}");
+    }
+
+    #[test]
+    fn a_portal_at_the_bottom_of_a_dungeon_is_not_somewhere_to_walk_to() {
+        // "Surface" is the commonest portal name in the data and every
+        // one of them stands underground.
+        let found = world_search("surface", holtburg());
+        assert!(
+            !found.iter().any(|(l, _, _)| l.starts_with("Surface")),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn towns_and_the_people_in_them_are_still_found() {
+        let town = world_search("holtburg", holtburg());
+        assert!(town.iter().any(|(l, _, _)| l.contains("(town)")), "{town:?}");
+        // The gazetteer's named folk and shopkeepers were already
+        // searchable and must stay so.
+        let folk = world_search("ulgrim", holtburg());
+        assert!(!folk.is_empty(), "nobody found");
+    }
+
+    #[test]
+    fn one_of_each_name_not_five_hundred_of_one() {
+        // The gazetteer is full of scenery that shares a name.
+        let found = world_search("wailing statue", holtburg());
+        let n = found
+            .iter()
+            .filter(|(l, _, _)| l.starts_with("Wailing Statue"))
+            .count();
+        assert_eq!(n, 1, "{found:?}");
+    }
+
+    #[test]
+    fn the_nearest_answer_comes_first() {
+        let from = holtburg();
+        let found = world_search("portal", from);
+        for pair in found.windows(2) {
+            assert!(pair[0].2 <= pair[1].2, "{found:?}");
+        }
     }
 }
 
