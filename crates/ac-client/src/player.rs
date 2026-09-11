@@ -891,6 +891,17 @@ impl Player {
 
     /// The shape the character walks as, for planners that work on a
     /// copy of the world.
+    /// The character has been leaning on something and going nowhere.
+    ///
+    /// True once it has spent about half a second pressed against
+    /// geometry while still asking to move. Whoever set the goal can
+    /// read this and do something about it -- open the door in the way,
+    /// or choose another way round -- rather than leave it standing
+    /// there.
+    pub fn wedged(&self) -> bool {
+        self.wedged_for >= WEDGED_STEPS
+    }
+
     pub fn capsule(&self) -> Capsule {
         self.capsule
     }

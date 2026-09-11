@@ -35,6 +35,7 @@ pub const LEG: f32 = 60.0;
 /// across: beyond that the way there is a journey, not a stroll, and
 /// the steering has no business trying.
 pub const WALKABLE: f32 = 192.0;
+
 /// The leg is cut this far short of the landblock edge so its end lies in
 /// the block the character stands in.
 const EDGE_MARGIN: f32 = 2.0;
@@ -214,15 +215,17 @@ impl Client {
         };
         let me = pl.world_position();
         let away = Vec2::new(goal.x - me.x, goal.y - me.y).length();
-        let underground = {
-            let assets = self.assets.clone();
-            self.player
-                .as_mut()
-                .map(|pl| pl.is_indoors() && pl.in_dungeon(&assets))
-                .unwrap_or(false)
-        };
-        // Near enough to walk to, and somewhere the feet can get to.
-        if away <= WALKABLE && !underground {
+        // Near enough to walk to.
+        //
+        // Being underground does not make the rest of the dungeon
+        // unwalkable -- a monster across the room is a walk like any
+        // other, and ruling that out left a character unable to reach
+        // anything it was fighting. It is only the way *out* that the
+        // feet cannot manage, and that needs no special case here: a
+        // dungeon keeps its own corner of the world, tens of thousands
+        // of metres from the town above it, so anywhere outside is far
+        // past `WALKABLE` and goes to the planner anyway.
+        if away <= WALKABLE {
             if self.traveling() {
                 self.cancel_travel();
             }
