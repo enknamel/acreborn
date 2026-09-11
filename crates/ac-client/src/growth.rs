@@ -2216,12 +2216,20 @@ impl Client {
                 })
             })
             .collect();
+        // The Mayoi note, if this counter makes one. Only that one: no
+        // smaller note is worth making, since every note costs fifteen
+        // per cent of its face whatever it carries.
+        let note_face = shelf
+            .iter()
+            .filter(|s| s.wcid == ac_world::shops::MMD && s.price > 0)
+            .find_map(|s| ac_world::shops::note_face(s.wcid));
         crate::errand::plan(
             means,
             &sale,
             &notes,
             &wanted,
             self.autoplay.config.team.restock.float,
+            note_face,
         )
     }
 

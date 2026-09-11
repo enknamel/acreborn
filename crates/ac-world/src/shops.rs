@@ -303,6 +303,18 @@ pub fn note_price(face: u32) -> u32 {
 pub const MMD: u32 = 20630;
 
 /// Every trade note in the world, largest face value first.
+/// The face value of a trade note, by weenie class, or `None` for
+/// something that is not one.
+///
+/// Only the Mayoi notes count: they are the ones every counter makes
+/// and the ones a fortune is carried in.
+pub fn note_face(wcid: u32) -> Option<u32> {
+    trade_notes()
+        .iter()
+        .find(|w| w.wcid == wcid)
+        .map(|w| w.value)
+}
+
 pub fn trade_notes() -> &'static [Ware] {
     static NOTES: OnceLock<Vec<Ware>> = OnceLock::new();
     NOTES.get_or_init(|| {
