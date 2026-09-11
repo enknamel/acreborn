@@ -77,9 +77,6 @@ const NEEDS_EVERY: Duration = Duration::from_secs(5);
 /// are spread over it and the fight rules only look a short way.
 const ROAM: f32 = 70.0;
 const ROAMS: u32 = 3;
-/// A vendor that could not be reached or would not open is left alone
-/// for this long.
-const SKIP_VENDOR_FOR: Duration = Duration::from_secs(30 * 60);
 /// Sales go out a few at a time, this often.
 const SELL_EVERY: Duration = Duration::from_millis(500);
 const SELL_BATCH: usize = 4;
@@ -394,15 +391,18 @@ pub struct State {
     skip: Vec<(u32, Instant)>,
     run: Option<Run>,
     last_run: Option<Instant>,
-    /// Vendors not to go to for a while (by position), and since when.
-    skip_vendors: Vec<(Vec2, Instant)>,
+    /// Counters not to walk to for a while, keyed by where they stand
+    /// rounded to the metre. A counter that could not be reached, or
+    /// that came to nothing, is left alone and tried again later; each
+    /// further disappointment doubles the wait.
+    skip_vendors: crate::did::Patience<(i32, i32)>,
     /// Items no vendor will take. Refusals reach us after the item's
     /// kind and worth have already been checked against the counter,
     /// so what is left is the item saying no for itself -- the Academy
     /// bread, a quest token -- and no other counter will take it
     /// either. Remembered for the whole session, or the character
     /// offers the same loaf in every town.
-    unsellable: std::collections::BTreeSet<u32>,
+    unsellable: crate::did::Patience<u32>,
     /// No run is started before this: a vendor that could not be
     /// reached is not tried again at once.
     next_run: Option<Instant>,
@@ -668,6 +668,13 @@ fn shelf_price(need: &Need, stock: &[Stock]) -> Option<u32> {
         .filter(|s| s.price > 0)
         .min_by_key(|s| s.price)
         .map(|s| s.price.saturating_mul(need.want))
+}
+
+/// Where a counter stands, to the metre: what a skipped vendor is
+/// remembered by. Two vendors a metre apart are the same counter for
+/// this purpose, which is the same slack the old comparison allowed.
+fn spot(at: Vec2) -> (i32, i32) {
+    (at.x.round() as i32, at.y.round() as i32)
 }
 
 /// What the character wants from the stock of a vendor, and can pay
@@ -2088,9 +2095,10 @@ impl Client {
         let vendor = self.profiles.get(&loot.vendor_profile);
         let my_name = self.world.stats.name.clone();
         let unsellable = &self.autoplay.growth.unsellable;
+        let now = Instant::now();
         self.world
             .inventory()
-            .filter(|o| !unsellable.contains(&o.guid))
+            .filter(|o| !unsellable.held(&o.guid, now))
             .filter_map(|o| {
                 let stats = self.stats_of(o.guid)?;
                 let ammo = o.valid_locations & equip::MISSILE_AMMO != 0;
@@ -2179,9 +2187,7 @@ impl Client {
         let allowed = |at: Vec2| {
             within.is_none_or(|w| at.distance(from) <= w)
                 && !visited.iter().any(|p| p.distance(at) < 1.0)
-                && !skip
-                    .iter()
-                    .any(|(p, t)| p.distance(at) < 1.0 && now.duration_since(*t) < SKIP_VENDOR_FOR)
+                && !skip.held(&spot(at), now)
         };
         // Worked out once for the whole search rather than per shop:
         // this walks every counter in range.
@@ -2514,7 +2520,11 @@ impl Client {
             // journey can start from would try every vendor in the
             // world, one a frame.
             let st = &mut self.autoplay.growth;
-            st.skip_vendors.push((at, now));
+            st.skip_vendors.note(
+                spot(at),
+                &crate::did::Did::blocked("no way there from here"),
+                now,
+            );
             st.next_run = Some(now + RETRY_AFTER);
             self.autoplay
                 .note(format!("no way to {vendor} from here"), now);
@@ -2764,7 +2774,19 @@ impl Client {
                 run.sold += (sent.len() - still.len()) as u32;
                 if !still.is_empty() {
                     tracing::info!("growth: {} item(s) the vendor would not take", still.len());
-                    self.autoplay.growth.unsellable.extend(still);
+                    // The counter's kinds and its price range were
+                    // checked before the thing was offered, so what is
+                    // left is the item refusing for itself. No other
+                    // counter will take it either, which is what
+                    // `Refused` means and why it is the one answer that
+                    // never lapses.
+                    for guid in still {
+                        self.autoplay.growth.unsellable.note(
+                            guid,
+                            &crate::did::Did::refused("no vendor will take it"),
+                            now,
+                        );
+                    }
                 }
                 // Now buy what is short.
                 let needs = self.grow_needs(cfg);
@@ -2900,7 +2922,11 @@ impl Client {
             self.close_vendor();
         }
         if failed {
-            self.autoplay.growth.skip_vendors.push((run.at, now));
+            self.autoplay.growth.skip_vendors.note(
+                spot(run.at),
+                &crate::did::Did::blocked("that counter was no use"),
+                now,
+            );
         }
         let needs = self.grow_needs(cfg);
         let still_full = self.pack_full();
@@ -2944,7 +2970,11 @@ impl Client {
                 // while rather than choose it again next frame.
                 self.autoplay
                     .note(format!("skipping {vendor}: {}", look.tell()), now);
-                self.autoplay.growth.skip_vendors.push((at, now));
+                self.autoplay.growth.skip_vendors.note(
+                    spot(at),
+                    &crate::did::Did::blocked("could not get there"),
+                    now,
+                );
             }
         }
         // A trip that neither bought nor sold anything achieved
@@ -2957,8 +2987,7 @@ impl Client {
         st.last_run = Some(now);
         st.run = None;
         st.needs.clear();
-        st.skip_vendors
-            .retain(|(_, t)| now.duration_since(*t) < SKIP_VENDOR_FOR);
+        st.skip_vendors.tidy(now);
         let sold = run.sold;
         let full = if still_full { ", pack still full" } else { "" };
         self.autoplay

@@ -51,9 +51,10 @@ const LOOT_TIMEOUT: Duration = Duration::from_millis(2500);
 /// cheap now that it is asked from arm's length.
 const LOOT_TRIES: u32 = 3;
 
-/// How many goes at handing the same thing over before the party is
-/// let on without it.
-const GIVE_TRIES: u32 = 6;
+/// A wait that has doubled this far means the stack has been asked to
+/// come apart half a dozen times and has not. The party gets on
+/// without that hand-over.
+const WILL_NOT_SPLIT: Duration = Duration::from_secs(8);
 /// Coming this much closer (metres) counts as getting somewhere.
 const REACH_PROGRESS: f32 = 1.0;
 /// Walking towards something for this long without getting closer is
@@ -1049,9 +1050,11 @@ pub struct Autoplay {
     pub wants: Vec<String>,
     last_debuff: Option<Instant>,
     last_give: Option<Instant>,
-    /// How many goes at the hand-over in progress. Cleared whenever one
-    /// lands or the party's mind changes.
-    give_tries: u32,
+    /// Hand-overs that have not gone through, by what was being handed
+    /// over. Counting the money out into its own stack takes a moment
+    /// and the server answers in its own time; this is what stops the
+    /// asking from running away.
+    give_tries: crate::did::Patience<u32>,
     /// The spot being walked to, how close it has been got to, and when
     /// that last improved. See `Client::reaching_too_long`.
     reaching: Option<(glam::Vec3, f32, Instant)>,
@@ -3990,7 +3993,9 @@ impl Client {
             return false;
         }
         self.autoplay.last_give = Some(now);
-        self.autoplay.give_tries = 0;
+        self.autoplay
+            .give_tries
+            .note(item, &crate::did::Did::Done, now);
         self.autoplay
             .say(Doing::Helping, format!("giving {name} to {runner} to sell"));
         // Loaded once the last piece has gone.
@@ -4037,15 +4042,30 @@ impl Client {
         if let Some(g) = piece {
             if self.give(to, g, None) {
                 self.autoplay.last_give = Some(now);
-                self.autoplay.give_tries = 0;
+                self.autoplay
+                    .give_tries
+                    .note(stack, &crate::did::Did::Done, now);
                 return Some(true);
             }
             return Some(false);
         }
-        if self.autoplay.give_tries >= GIVE_TRIES {
+        // The counting-out has been asked for and the piece has not
+        // appeared. Waiting rather than blocked: a split is one message
+        // and the server answers in its own time, so the first few asks
+        // are a quarter of a second apart and double from there.
+        if self
+            .autoplay
+            .give_tries
+            .waited(&stack)
+            .is_some_and(|w| w > WILL_NOT_SPLIT)
+        {
             return Some(false);
         }
-        self.autoplay.give_tries += 1;
+        self.autoplay.give_tries.note(
+            stack,
+            &crate::did::Did::waiting("the money has not come apart yet"),
+            now,
+        );
         self.split_stack(stack, None, amount);
         self.autoplay.last_give = Some(now);
         None
