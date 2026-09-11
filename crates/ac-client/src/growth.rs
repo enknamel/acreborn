@@ -83,7 +83,6 @@ const ROAM: f32 = 70.0;
 const ROAMS: u32 = 3;
 /// Sales go out a few at a time, this often.
 const SELL_EVERY: Duration = Duration::from_millis(500);
-const SELL_BATCH: usize = 4;
 /// How long to wait for the server to take the items sold, the
 /// appraisals to come back, or the purchases to arrive.
 const SETTLE: Duration = Duration::from_secs(5);
@@ -306,15 +305,10 @@ enum Phase {
     Opening { guid: u32, tries: u32 },
     /// The pack's items are being appraised before the sale.
     Appraising,
-    /// Sales going out, a batch at a time. `passed` is what this
-    /// counter has been found unable to take, so that the list, which is
-    /// taken afresh every turn to catch pieces cut off a stack, does not
-    /// put it straight back.
-    Selling {
-        queue: Vec<u32>,
-        sent: Vec<u32>,
-        passed: Vec<u32>,
-    },
+    /// Selling. `sent` is what has gone over the counter and not yet
+    /// left the pack -- nothing else is remembered, because what there
+    /// is to sell is asked of the pack afresh every turn.
+    Selling { sent: Vec<u32> },
     /// Purchases sent; waiting for them to arrive.
     Buying,
 }
@@ -360,6 +354,10 @@ pub struct State {
     /// anything. Nothing at a shop changes that, so it does not go
     /// back until it has sold or used something.
     pub too_heavy: bool,
+    /// Stacks the server would not join, so the tidying does not ask
+    /// for ever. Prismatic Tapers at a hundred and two hundred should
+    /// merge and the asking should stop when they do not.
+    wont_merge: crate::did::Patience<(u32, u32)>,
     /// The last run to town ended without buying or selling anything.
     /// Another one straight away would do the same, so it waits.
     pub run_was_futile: bool,
@@ -691,29 +689,21 @@ fn forecast(
     f
 }
 
-/// What filling a need would cost at prices on this shelf, or `None`
-/// if this counter has no line that matches it. Prices off the shelf
-/// rather than off the pack: a character that has run right out of
-/// something carries none of it to read a price from, and that is
-/// exactly when it most needs to know what the trip will cost.
-fn shelf_price(need: &Need, stock: &[Stock]) -> Option<u32> {
-    stock
-        .iter()
-        .filter(|s| match &need.kind {
-            NeedKind::Named(n) => s.name.to_lowercase().contains(&n.to_lowercase()),
-            NeedKind::Ammo(kind) => ammo_stock(&s.name, *kind),
-            NeedKind::Component(wcid) => s.wcid == *wcid,
-        })
-        .filter(|s| s.price > 0)
-        .min_by_key(|s| s.price)
-        .map(|s| s.price.saturating_mul(need.want))
-}
-
 /// Where a counter stands, to the metre: what a skipped vendor is
 /// remembered by. Two vendors a metre apart are the same counter for
 /// this purpose, which is the same slack the old comparison allowed.
 fn spot(at: Vec2) -> (i32, i32) {
     (at.x.round() as i32, at.y.round() as i32)
+}
+
+/// The next move in a sale.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Sale {
+    /// Hand this over as it stands.
+    Hand(u32),
+    /// Cut this many off it first: the whole stack is worth more than
+    /// the counter will look at.
+    Cut { guid: u32, amount: u32 },
 }
 
 /// What the character wants from the stock of a vendor, and can pay
@@ -824,10 +814,6 @@ fn notes_for_bill(purse: u32, need_coin: u32, notes: &[(u32, u32)]) -> Vec<u32> 
     out
 }
 
-/// How many trade notes go in one stack. Buying past this in one go
-/// would not fit.
-const NOTE_STACK: u32 = 250;
-
 /// How far to look for a shop before settling for a nearer one with
 /// less on its shelves: the town we are in, the towns around it, then a
 /// long walk, then anywhere at all.
@@ -841,58 +827,6 @@ fn vendor_rings(within: Option<f32>) -> Vec<f32> {
     let cap = within.unwrap_or(f32::INFINITY);
     let mut out: Vec<f32> = VENDOR_RINGS.iter().copied().filter(|r| *r < cap).collect();
     out.push(cap);
-    out
-}
-
-/// How much of a purse to turn into trade notes here, and which.
-///
-/// Coin is bulky: pyreals stack 25,000 to a slot, so a good afternoon's
-/// selling fills the pack with money and leaves no room for loot. Notes
-/// hold a fortune in one slot. They are not free -- the server charges
-/// 1.15 times face and pays back only face -- so what is still to be
-/// bought is kept back as coin first and only the rest is converted.
-///
-/// `reserve` is the coin to keep: the shopping still to do, plus
-/// whatever float the rules say to carry.
-///
-/// Only MMDs are bought: the 250,000 note, named for the Roman numeral
-/// printed on it, since notes are denominated in hundreds of pyreals
-/// and 250,000 over 100 is 2,500. Every note costs the same fifteen
-/// percent, so a smaller one buys less carrying for the same fee.
-fn notes_to_buy(purse: u32, reserve: u32, stock: &[Stock]) -> Vec<(u32, u32)> {
-    let Some(mut spare) = purse.checked_sub(reserve) else {
-        return Vec::new();
-    };
-    // Only the MMD. The point of a note is to carry money in as few
-    // items as possible, and a smaller denomination does that worse for
-    // the same fifteen percent: buying a spread of them is strictly
-    // worse than buying the big one and leaving the remainder as coin.
-    let mut notes: Vec<&Stock> = stock
-        .iter()
-        .filter(|s| {
-            s.item_type & item_type::PROMISSORY_NOTE != 0
-                && s.wcid == ac_world::shops::MMD
-                && s.price > 0
-        })
-        .collect();
-    notes.sort_by_key(|s| std::cmp::Reverse(s.price));
-    let mut out = Vec::new();
-    for note in notes {
-        if note.price > spare {
-            continue;
-        }
-        // No more than a stack at a time, and no more than the shop
-        // has: a trade note stacks 250 to a slot, and a purchase past
-        // that would not fit in one.
-        let mut want = (spare / note.price).min(NOTE_STACK);
-        if let Some(left) = note.stack {
-            want = want.min(left);
-        }
-        if want > 0 {
-            out.push((note.guid, want));
-            spare -= want * note.price;
-        }
-    }
     out
 }
 
@@ -1886,14 +1820,6 @@ impl Client {
         }
     }
 
-    /// What filling a need would cost at this counter, from the prices
-    /// on the shelf. Falls back to what the character is carrying is
-    /// worth, and then to nothing, so a need nobody here sells does not
-    /// pretend to a price.
-    fn shelf_cost(&self, need: &Need, stock: &[Stock]) -> u32 {
-        shelf_price(need, stock).unwrap_or_else(|| self.rough_cost(need))
-    }
-
     /// Roughly what filling a need will cost, for working out who has
     /// to be handed money before the party can shop. A vendor sells
     /// above an item's own value, so this is an underestimate rather
@@ -2314,8 +2240,61 @@ impl Client {
             .stock()
             .into_iter()
             .find(|s| s.wcid == ac_world::shops::MMD && s.price > 0)?;
-        let count = spare / line.price;
+        // A trade note stacks two hundred and fifty deep, and asking
+        // for more than that in one go buys a stack and strands the
+        // rest. One stack at a time is plenty: it carries sixty-two
+        // and a half million.
+        let count = (spare / line.price).min(crate::errand::NOTE_STACK);
+        // And never more than the shelf has.
+        let count = line.stack.map_or(count, |have| count.min(have));
         (count > 0).then_some((line.guid, count))
+    }
+
+    /// The next thing to do about selling: hand something over, or cut
+    /// a stack down to what the counter will look at.
+    fn next_sale(&self, cfg: &Growth) -> Option<Sale> {
+        let ceiling = self.world.open_vendor.as_ref().map_or(0, |v| v.max_value);
+        let mut cut: Option<Sale> = None;
+        for guid in self.sale_list(cfg) {
+            let Some(o) = self.world.objects.get(&guid) else {
+                continue;
+            };
+            let it = Salable {
+                guid,
+                item_type: o.item_type,
+                value: o.value,
+                stack: o.stack_size.max(1),
+            };
+            let takes = it.at_once(ceiling);
+            if takes == 0 {
+                continue;
+            }
+            if takes >= it.stack {
+                // Goes as it stands, which is always better than
+                // cutting: handing something over is one message and
+                // cutting is two.
+                return Some(Sale::Hand(guid));
+            }
+            cut.get_or_insert(Sale::Cut {
+                guid,
+                amount: takes,
+            });
+        }
+        if cut.is_some() {
+            return cut;
+        }
+        // Nothing left to sell. Cash whatever notes the shopping is
+        // about to need: the counter takes coin, not paper, and the
+        // takings from the last stop are already notes.
+        let bill: u32 = {
+            let stock = self.stock();
+            let needs = self.grow_needs(cfg);
+            orders(&needs, &stock, u32::MAX)
+                .iter()
+                .filter_map(|(g, a)| stock.iter().find(|s| s.guid == *g).map(|s| s.price * a))
+                .sum()
+        };
+        self.notes_to_cash(bill).first().map(|g| Sale::Hand(*g))
     }
 
     /// The open vendor's stock, priced.
@@ -2462,6 +2441,68 @@ impl Client {
             .collect()
     }
 
+    /// Pour one loose stack into another, and say what came of it.
+    ///
+    /// `Did::Done` means the pack is as tight as it goes. `Blocked`
+    /// means nothing can be poured until the character is lighter:
+    /// the server weighs a pour as though the source were being picked
+    /// up for the first time, so a character near its ceiling is
+    /// refused a move that changes its burden by nothing at all. The
+    /// refusal carries no message and no code, which is how a tidier
+    /// that could not read it spent whole afternoons asking.
+    pub(crate) fn compress(&mut self, now: Instant) -> crate::did::Did {
+        use crate::did::{Because, Did};
+        let may_carry = self.burden_room();
+        let stacks = self.pack_stacks();
+        let held = |from: u32, to: u32| {
+            self.autoplay
+                .growth
+                .wont_merge
+                .held(&(from, to), now)
+        };
+        let Some(m) = crate::pack::next_merge_unless(&stacks, may_carry, held) else {
+            // Nothing to pour -- or nothing light enough. The two are
+            // worth telling apart: one is a tidy pack, the other is a
+            // character that must sell something first.
+            return if crate::pack::next_merge(&stacks).is_some() {
+                Did::Blocked(Because::ours("too laden to put stacks together"))
+            } else {
+                Did::Done
+            };
+        };
+        // What the server made of the last ask. It answers a pour it
+        // will not make with the source's guid and, half the time, no
+        // reason whatever.
+        if let Some((code, _)) = self.move_refused.remove(&m.from) {
+            let did = Did::Blocked(match code {
+                0 => Because::ours("the server would not put those two together"),
+                code => Because::server(code),
+            });
+            self.autoplay.growth.wont_merge.note((m.from, m.to), &did, now);
+            return did;
+        }
+        if self
+            .autoplay
+            .last_merge
+            .is_some_and(|t| now.duration_since(t) < crate::autoplay::MERGE_EVERY)
+        {
+            return Did::waiting("the last pour has not landed yet");
+        }
+        self.autoplay.last_merge = Some(now);
+        if !self.merge_stacks(m.from, m.to, Some(m.amount)) {
+            // Our own rules turned it down: not both carried, not the
+            // same weenie, or the target does not stack at all.
+            let did = Did::refused("those two will never join");
+            self.autoplay.growth.wont_merge.note((m.from, m.to), &did, now);
+            return did;
+        }
+        self.autoplay.say(
+            Doing::Tidying,
+            format!("putting {} {} with the rest", m.amount, m.name),
+        );
+        Did::Acting
+    }
+
     /// What the character is carrying, in burden units, and the most
     /// it may carry.
     ///
@@ -2500,6 +2541,22 @@ impl Client {
     pub fn burden_room(&self) -> u32 {
         let (now, capacity) = self.burden();
         capacity.saturating_mul(3).saturating_sub(now)
+    }
+
+    /// How much more the character will take on before it stops
+    /// hunting and goes to sell: `loot.carry_up_to` times its capacity,
+    /// less what it carries. Zero means it has had enough.
+    ///
+    /// This is the working limit, not the server's. [`burden_room`] is
+    /// the wall -- what the server will still accept -- and a character
+    /// that hunts up to the wall cannot loot, cannot merge stacks and
+    /// can barely walk.
+    pub fn carry_room(&self) -> u32 {
+        let (now, capacity) = self.burden();
+        let up_to = self.autoplay.config.loot.carry_up_to.max(0.0);
+        let limit = (capacity as f32 * up_to) as u32;
+        // Never claim more room than the server would actually allow.
+        limit.min(capacity.saturating_mul(3)).saturating_sub(now)
     }
 
     /// Which society this character belongs to, as `Faction1Bits`: 1
@@ -2629,6 +2686,12 @@ impl Client {
             return self.held_back("waiting to try a vendor again");
         }
         let full = self.pack_full();
+        // A pack runs out of room two ways, and weight is the one that
+        // creeps up unnoticed: slots stay free while the character
+        // grows too heavy to lift anything, tidy anything, or move at
+        // any speed. It is as good a reason to go and sell as a pack
+        // with no slots left.
+        let laden = self.carry_room() == 0;
         let needs = self.needs_now(now, cfg);
         // On a team that restocks together, the party's mode decides:
         // one character does not walk off to a vendor while the rest
@@ -2662,6 +2725,8 @@ impl Client {
             }
         } else if full {
             "the pack is full".to_string()
+        } else if laden {
+            "carrying as much as it means to".to_string()
         } else if urgent.is_empty() {
             let short: Vec<&str> = needs.iter().map(|n| n.name.as_str()).collect();
             return self.held_back(format!("nothing urgent (short of {})", a_few(&short)));
@@ -2915,31 +2980,30 @@ impl Client {
                     self.autoplay.growth.run = Some(run);
                     return true;
                 }
-                let mut queue = self.sale_list(cfg);
-                // Cash whatever notes the shopping needs. The counter
-                // takes coin, not notes, and the takings from the last
-                // stop are already notes.
-                let bill: u32 = {
-                    let stock = self.stock();
-                    let needs = self.grow_needs(cfg);
-                    orders(&needs, &stock, u32::MAX)
-                        .iter()
-                        .filter_map(|(g, a)| {
-                            stock.iter().find(|s| s.guid == *g).map(|s| s.price * a)
-                        })
-                        .sum()
-                };
-                for note in self.notes_to_cash(bill) {
-                    if !queue.contains(&note) {
-                        queue.push(note);
-                    }
+                // Compress the pack before selling any of it.
+                //
+                // Loose change and part stacks waste slots, and slots
+                // are what a sale runs out of. Doing it here rather
+                // than during the selling matters: a merge makes one
+                // stack vanish into another, and doing that while a
+                // sale is in flight pulls the ground from under it.
+                //
+                // It stays here until there is nothing left to pour.
+                // Falling through after a single pour left the pack
+                // almost as loose as it started.
+                // Acting or waiting on a pour keeps the tick. Done
+                // means the pack is as tight as it goes; blocked means
+                // it cannot be tightened until something is sold, and
+                // selling is the next thing either way.
+                if matches!(
+                    self.compress(now),
+                    crate::did::Did::Acting | crate::did::Did::Waiting(_)
+                ) {
+                    self.autoplay.growth.run = Some(run);
+                    return true;
                 }
-                let n = queue.len();
-                run.phase = Phase::Selling {
-                    queue,
-                    sent: Vec::new(),
-                    passed: Vec::new(),
-                };
+                let n = self.sale_list(cfg).len();
+                run.phase = Phase::Selling { sent: Vec::new() };
                 run.since = now;
                 self.autoplay.say(
                     Doing::Shopping,
@@ -2948,385 +3012,139 @@ impl Client {
                 self.autoplay.growth.run = Some(run);
                 true
             }
-            Phase::Selling {
-                mut queue,
-                mut sent,
-                mut passed,
-            } => {
+            Phase::Selling { mut sent } => {
                 if self.world.open_vendor.is_none() {
                     self.autoplay.note("the vendor closed on us", now);
                     return self.grow_run_next(run, now, cfg, false);
                 }
-                if !queue.is_empty() {
-                    if run
-                        .last_sell
-                        .is_none_or(|t| now.duration_since(t) >= SELL_EVERY)
-                    {
-                        let ceiling = self.world.open_vendor.as_ref().map_or(0, |v| v.max_value);
-
-                        // A piece cut off a stack is a new object, and
-                        // one nobody put on the list. Take the list
-                        // afresh each turn so the piece is offered the
-                        // moment it exists.
-                        let for_sale = self.sale_list(cfg);
-
-                        // Selling fills the pack with change, so the
-                        // sale has to make room as it goes. Compress
-                        // what is loose, and when the pack is running
-                        // out turn the takings into Mayoi notes -- a
-                        // slot of notes holds sixty-two million and a
-                        // slot of coin holds twenty-five thousand.
-                        // Then carry on selling. That is the loop; the
-                        // splitting below is only for a stack worth
-                        // more than the counter will look at.
-                        //
-                        // What is going over the counter is not loose,
-                        // and is left out of the pouring. A stack too
-                        // dear for the counter is cut into pieces it
-                        // will take, and pouring a piece straight back
-                        // into the stack it came from undoes the cut:
-                        // split twenty, pour twenty back, split again,
-                        // five hundred times in one watched run and not
-                        // a pea sold. The same move makes a guid the
-                        // sale is holding vanish out from under it.
-                        let loose: Vec<crate::pack::Stack> = self
-                            .pack_stacks()
-                            .into_iter()
-                            .filter(|s| {
-                                !for_sale.contains(&s.guid)
-                                    && !queue.contains(&s.guid)
-                                    && !sent.contains(&s.guid)
-                            })
-                            .collect();
-                        if let Some(m) = crate::pack::next_merge(&loose) {
-                            self.merge_stacks(m.from, m.to, Some(m.amount));
-                            // One move per turn, like a sale. The server
-                            // answers in its own time, and asking again
-                            // next frame sends the same merge three
-                            // times over and earns two refusals.
-                            run.last_sell = Some(now);
-                            run.since = now;
-                            run.phase = Phase::Selling {
-                                queue,
-                                sent,
-                                passed,
-                            };
-                            self.autoplay.growth.run = Some(run);
-                            return true;
-                        }
-                        if self.free_space() <= self.autoplay.config.team.restock.keep_slots {
-                            if let Some((line, count)) = self.notes_to_make() {
-                                self.buy_amount(line, count);
-                                self.autoplay.say(
-                                    Doing::Shopping,
-                                    format!("packing the takings into {count} note(s)"),
-                                );
-                                run.last_sell = Some(now);
-                                run.since = now;
-                                run.phase = Phase::Selling {
-                                    queue,
-                                    sent,
-                                    passed,
-                                };
-                                self.autoplay.growth.run = Some(run);
-                                return true;
-                            }
-                        }
-                        for guid in &for_sale {
-                            if !queue.contains(guid)
-                                && !sent.contains(guid)
-                                && !passed.contains(guid)
-                            {
-                                queue.push(*guid);
-                            }
-                        }
-                        // How many of a queued thing the counter will
-                        // take at once: the whole stack, unless it is
-                        // worth more than the counter looks at.
-                        //
-                        // Both numbers come off the same object. Taking
-                        // the value from one place and the size from
-                        // another lets them disagree while a split is
-                        // in flight, and a stale value over a
-                        // shrinking size makes each piece smaller than
-                        // the last: twenty, sixteen, twelve, ten.
-                        let takes = |me: &Client, g: u32| -> (u32, u32) {
-                            let (value, whole) = me
-                                .world
-                                .objects
-                                .get(&g)
-                                .map_or((0, 1), |o| (o.value, o.stack_size.max(1)));
-                            let piece = Salable {
-                                guid: g,
-                                item_type: me.stats_of(g).map_or(0, |it| it.item_type),
-                                value,
-                                stack: whole,
-                            }
-                            .at_once(ceiling);
-                            (piece, whole)
-                        };
-                        // Sell whatever can go as it stands, and only
-                        // cut a stack when nothing can.
-                        //
-                        // The other way round splits for ever: the big
-                        // stack is always at hand, so it is always the
-                        // thing considered, and the pieces already cut
-                        // off it are never reached. Four hundred and
-                        // eighty-eight cuts to sell twenty-nine peas.
-                        tracing::debug!(
-                            "selling to {}: ceiling {ceiling}, {} free slot(s), \
-                             queue {:?}, on the list {:?}, passed over {:?}",
-                            run.vendor,
-                            self.free_space(),
-                            queue
-                                .iter()
-                                .map(|g| (*g, takes(self, *g)))
-                                .collect::<Vec<_>>(),
-                            for_sale,
-                            passed,
-                        );
-                        let mut sold_now = 0;
-                        for _ in 0..SELL_BATCH {
-                            queue.retain(|g| self.world.is_carried(*g));
-                            let whole_now = queue.iter().rposition(|g| {
-                                let (piece, whole) = takes(self, *g);
-                                piece > 0 && piece >= whole
-                            });
-                            let Some(at) = whole_now else { break };
-                            let g = queue.remove(at);
-                            self.sell(g);
-                            sent.push(g);
-                            sold_now += 1;
-                        }
-                        // Nothing went this turn: cut one stack down to
-                        // something that will, and offer it next turn.
-                        //
-                        // This turn, not this visit: `sent` holds
-                        // everything handed over since the counter
-                        // opened, so asking whether it is empty asks
-                        // whether anything has ever been sold here --
-                        // true only on the first turn, after which
-                        // nothing was ever cut again.
-                        if sold_now == 0 {
-                            // Cutting a stack makes a second stack, and
-                            // a second stack needs a slot to go in. With
-                            // a full pack the cut simply does not
-                            // happen, and asking again every turn is
-                            // four hundred and seventy-nine cuts and
-                            // nothing sold.
-                            let room_to_cut = self.free_space() > 0;
-                            if !room_to_cut {
-                                self.autoplay.note(
-                                    "no room to split a stack for the counter; \
-                                     selling what fits as it is",
-                                    now,
-                                );
-                                // Passed over, not merely dropped from
-                                // the queue. The list is taken afresh
-                                // every turn, so anything only dropped
-                                // is back on the next one: drop, refill,
-                                // drop, for the rest of the visit, with
-                                // nothing sold and nothing said. The
-                                // counter is stuck there for good.
-                                queue.retain(|g| {
-                                    let (piece, whole) = takes(self, *g);
-                                    if piece > 0 && piece >= whole {
-                                        return true;
-                                    }
-                                    passed.push(*g);
-                                    false
-                                });
-                            } else if let Some(&g) = queue.iter().find(|g| {
-                                let (piece, whole) = takes(self, **g);
-                                piece > 0 && piece < whole
-                            }) {
-                                let (piece, _) = takes(self, g);
-                                // A cut refused out of hand will be
-                                // refused again next turn and every
-                                // turn after it, and this loop would ask
-                                // for the whole visit and say nothing.
-                                // Pass the stack over instead.
-                                if !self.split_stack(g, None, piece) {
-                                    tracing::debug!(
-                                        "cannot cut {piece} off {g:#010x}; passing it over"
-                                    );
-                                    queue.retain(|q| *q != g);
-                                    passed.push(g);
-                                }
-                            } else {
-                                // Nothing fits and nothing can be made
-                                // to fit.
-                                passed.append(&mut queue);
-                            }
-                        }
-                        run.last_sell = Some(now);
-                        run.since = now;
-                    }
-                    run.phase = Phase::Selling {
-                        queue,
-                        sent,
-                        passed,
-                    };
+                // One thing at a time, decided afresh every turn.
+                //
+                // This used to hold a list of guids worked out when the
+                // counter opened, and then spend its life patching that
+                // list: an item sold leaves it, a stack split becomes a
+                // guid nobody listed, a merge makes a guid vanish
+                // outright. Every bug in the selling came from the list
+                // being a moment out of date. So there is no list. Each
+                // turn asks the pack what there is to sell now, and
+                // does exactly one thing about it.
+                if run
+                    .last_sell
+                    .is_some_and(|t| now.duration_since(t) < SELL_EVERY)
+                {
                     self.autoplay.growth.run = Some(run);
                     return true;
                 }
-                // Everything sent: wait for the server to take it.
-                let still: Vec<u32> = sent
+                // Wait for what has already gone out. The counter takes
+                // one thing at a time and answers in its own time.
+                let waiting: Vec<u32> = sent
                     .iter()
                     .copied()
                     .filter(|g| self.world.is_carried(*g))
                     .collect();
-                if !still.is_empty() && elapsed < SETTLE {
-                    run.phase = Phase::Selling {
-                        queue,
-                        sent,
-                        passed,
-                    };
-                    self.autoplay.growth.run = Some(run);
-                    return true;
-                }
-                run.sold += (sent.len() - still.len()) as u32;
-                if !still.is_empty() {
-                    tracing::info!("growth: {} item(s) the vendor would not take", still.len());
-                    // The counter's kinds and its price range were
-                    // checked before the thing was offered, so what is
-                    // left is the item refusing for itself. No other
-                    // counter will take it either, which is what
-                    // `Refused` means and why it is the one answer that
-                    // never lapses.
-                    for guid in still {
+                if !waiting.is_empty() {
+                    if elapsed < SETTLE {
+                        self.autoplay.growth.run = Some(run);
+                        return true;
+                    }
+                    // It would not take them. The kind and the worth
+                    // were checked before they were offered, so this is
+                    // the item refusing for itself and no counter will
+                    // take it (see `crate::did::Did::Refused`).
+                    for guid in &waiting {
                         self.autoplay.growth.unsellable.note(
-                            guid,
+                            *guid,
                             &crate::did::Did::refused("no vendor will take it"),
                             now,
                         );
                     }
-                }
-                // Now buy what is short.
-                let needs = self.grow_needs(cfg);
-                let stock = self.stock();
-                let purse = self.purse();
-                // What the counter will do, as one plan. Selling has
-                // already happened, so the money and the room this is
-                // worked out from are what the loot left behind (see
-                // `crate::errand`).
-                let errand = self.errand(cfg);
-                tracing::debug!("shopping at {}: {}", run.vendor, errand.tell());
-                let orders: Vec<(u32, u32)> = errand
-                    .acts
-                    .iter()
-                    .filter_map(|a| match a {
-                        crate::errand::Act::Buy { line, amount, .. } => Some((*line, *amount)),
-                        _ => None,
-                    })
-                    .collect();
-                // Too heavy to be handed anything is not the same as
-                // having nothing to buy or no money to buy it with, and
-                // it is the one a character can do nothing about at a
-                // counter. The plan says which it was, so this no
-                // longer has to be worked out twice over.
-                let laden = orders.is_empty()
-                    && errand
-                        .unmet
-                        .iter()
-                        .any(|(_, _, why)| why.what.contains("laden"));
-                if laden {
-                    let (carrying, capacity) = self.burden();
-                    let percent = (carrying * 100).checked_div(capacity).unwrap_or(0);
-                    self.autoplay.say(
-                        Doing::Shopping,
-                        format!(
-                            "too heavy to buy anything: carrying {percent}% of what I can \
-                             ({carrying} of {capacity})"
-                        ),
-                    );
-                    self.autoplay.growth.too_heavy = true;
-                    return self.grow_run_next(run, now, cfg, false);
-                }
-                // Why a counter came to nothing is the hardest thing to
-                // see from outside: the character stands there, says it
-                // sold nothing, and walks off. Turn ac_client up to
-                // debug and it says what it wanted, what was on the
-                // shelf, and what it could pay.
-                if orders.is_empty() && !needs.is_empty() {
-                    tracing::debug!(
-                        "shopping: bought nothing here. purse {purse}; wanted {:?}; shelf holds {} line(s): {:?}",
-                        needs
-                            .iter()
-                            .map(|n| format!("{} x{} ({:?})", n.name, n.want, n.kind))
-                            .collect::<Vec<_>>(),
-                        stock.len(),
-                        stock
-                            .iter()
-                            .take(12)
-                            .map(|s| format!("{} wcid {} @{}", s.name, s.wcid, s.price))
-                            .collect::<Vec<_>>()
+                    tracing::info!(
+                        "growth: {} item(s) the vendor would not take",
+                        waiting.len()
                     );
                 }
-                let mut bought = Vec::new();
-                if !orders.is_empty() {
-                    self.autoplay.growth.bought_anything = true;
+                run.sold += (sent.len() - waiting.len()) as u32;
+                sent.clear();
+
+                // Compress again before each round of selling.
+                //
+                // It is not enough to do it once on arrival. Every sale
+                // makes the character lighter, and weight is what the
+                // server weighs a pour against: stacks it would not put
+                // together with a full pack go together happily a few
+                // sales later. Nothing is in flight at this point --
+                // `sent` was just cleared -- so a stack vanishing into
+                // another pulls the ground from under nothing.
+                if matches!(
+                    self.compress(now),
+                    crate::did::Did::Acting | crate::did::Did::Waiting(_)
+                ) {
+                    run.phase = Phase::Selling { sent };
+                    self.autoplay.growth.run = Some(run);
+                    return true;
                 }
-                for (guid, amount) in &orders {
-                    self.buy_amount(*guid, *amount);
-                    let name = stock
-                        .iter()
-                        .find(|s| s.guid == *guid)
-                        .map(|s| s.name.clone())
-                        .unwrap_or_default();
-                    bought.push(format!("{amount} {name}"));
-                }
-                // Turn the takings into notes before leaving the
-                // counter. A pack can hold far more selling than it can
-                // hold the pyreals that come back, so this happens at
-                // every stop rather than once at the end -- but only
-                // with coin over and above what the rest of the
-                // shopping will cost.
-                let spent: u32 = orders
-                    .iter()
-                    .filter_map(|(g, a)| stock.iter().find(|s| s.guid == *g).map(|s| s.price * a))
-                    .sum();
-                if self.autoplay.config.team.restock.share_money {
-                    // What the rest of the shopping will cost, priced
-                    // off the shelf in front of us rather than off what
-                    // the character happens to be carrying: a character
-                    // that has run out of something carries none of it,
-                    // so the carried price was zero and the reserve was
-                    // nothing. It converted the money it was about to
-                    // need into notes and then could not pay.
-                    let still_to_buy: u32 = needs
-                        .iter()
-                        .filter(|n| n.buyable)
-                        .map(|n| self.shelf_cost(n, &stock))
-                        .sum::<u32>()
-                        .saturating_sub(spent);
-                    let reserve = spent
-                        .saturating_add(still_to_buy)
-                        .saturating_add(self.autoplay.config.team.restock.float);
-                    for (guid, amount) in notes_to_buy(purse, reserve, &stock) {
-                        self.buy_amount(guid, amount);
-                        let name = stock
-                            .iter()
-                            .find(|s| s.guid == guid)
-                            .map(|s| s.name.clone())
-                            .unwrap_or_default();
-                        bought.push(format!("{amount} {name}"));
+
+                // Selling fills the pack with change: a pyreal stack
+                // holds twenty-five thousand and then takes another
+                // slot. Once the pack is low on room the takings go
+                // into Mayoi notes -- one slot of notes carries sixty
+                // two million -- and then the selling goes on. Low on
+                // room, not out of it: waiting for the last slot means
+                // the next handful of coin has nowhere to go.
+                if self.free_space() <= self.autoplay.config.team.restock.keep_slots {
+                    if let Some((line, count)) = self.notes_to_make() {
+                        self.buy_amount(line, count);
+                        self.autoplay.say(
+                            Doing::Shopping,
+                            format!("packing the takings into {count} note(s)"),
+                        );
+                        run.last_sell = Some(now);
+                        run.since = now;
+                        run.phase = Phase::Selling { sent };
+                        self.autoplay.growth.run = Some(run);
+                        return true;
                     }
                 }
-                self.autoplay.growth.needs = needs;
-                run.phase = Phase::Buying;
-                run.since = now;
-                let sold = run.sold;
-                self.autoplay.say(
-                    Doing::Shopping,
-                    if bought.is_empty() {
-                        format!("sold {sold} item(s); nothing to buy here")
-                    } else {
-                        format!("sold {sold} item(s); buying {}", bought.join(", "))
-                    },
-                );
-                self.autoplay.growth.run = Some(run);
-                true
+
+                match self.next_sale(cfg) {
+                    Some(Sale::Hand(guid)) => {
+                        self.sell(guid);
+                        sent.push(guid);
+                        run.last_sell = Some(now);
+                        run.since = now;
+                        run.phase = Phase::Selling { sent };
+                        self.autoplay.growth.run = Some(run);
+                        true
+                    }
+                    Some(Sale::Cut { guid, amount }) => {
+                        // Worth more than this counter will look at, so
+                        // cut off as much as it will take. The piece is
+                        // a new object; next turn simply asks the pack
+                        // again and finds it.
+                        if !self.split_stack(guid, None, amount) {
+                            // Nowhere to put the piece. Leave the stack
+                            // and get on with the rest.
+                            self.autoplay.growth.unsellable.note(
+                                guid,
+                                &crate::did::Did::blocked("no room to cut it down"),
+                                now,
+                            );
+                        }
+                        run.last_sell = Some(now);
+                        run.since = now;
+                        run.phase = Phase::Selling { sent };
+                        self.autoplay.growth.run = Some(run);
+                        true
+                    }
+                    None => {
+                        let sold = run.sold;
+                        self.autoplay
+                            .say(Doing::Shopping, format!("sold {sold} item(s)"));
+                        run.phase = Phase::Buying;
+                        run.since = now;
+                        self.autoplay.growth.run = Some(run);
+                        true
+                    }
+                }
             }
             Phase::Buying => {
                 if elapsed < Duration::from_secs(2) {
@@ -4007,38 +3825,6 @@ mod tests {
     }
 
     #[test]
-    fn a_price_is_read_off_the_shelf_not_out_of_the_pack() {
-        // The character has run right out of tapers, so there is none
-        // in the pack to read a price from -- and that is precisely the
-        // moment it needs to know what the trip will cost. The shelf
-        // has the answer.
-        let want = need(NeedKind::Component(691), 300);
-        let shelf = [
-            stock(1, "Prismatic Taper", 691, 15, None),
-            stock(2, "Lead Scarab", 690, 40, None),
-        ];
-        assert_eq!(shelf_price(&want, &shelf), Some(300 * 15));
-        // The cheapest matching line sets the price.
-        let two = [
-            stock(1, "Prismatic Taper", 691, 22, None),
-            stock(3, "Prismatic Taper", 691, 15, None),
-        ];
-        assert_eq!(shelf_price(&want, &two), Some(300 * 15));
-        // A counter that does not sell it has no price to give, and
-        // says so rather than answering nothing.
-        assert_eq!(
-            shelf_price(&want, &[stock(2, "Lead Scarab", 690, 40, None)]),
-            None
-        );
-        assert_eq!(shelf_price(&want, &[]), None);
-        // Nor does a free line, which is a vendor row we cannot read.
-        assert_eq!(
-            shelf_price(&want, &[stock(1, "Prismatic Taper", 691, 0, None)]),
-            None
-        );
-    }
-
-    #[test]
     fn case_folds_without_allocating() {
         assert!(contains_fold("Prismatic Taper", "taper"));
         assert!(contains_fold("PRISMATIC TAPER", "prismatic"));
@@ -4208,70 +3994,6 @@ mod tests {
             assert!(!r.is_empty(), "cap {cap}");
             assert_eq!(r.last().copied(), Some(cap));
         }
-    }
-
-    #[test]
-    fn the_takings_become_notes_once_the_shopping_is_paid_for() {
-        // 250,000 face costs 287,500; 100,000 face costs 115,000.
-        let shelf = vec![note(1, 250_000)];
-        // A purse of 400,000 with 50,000 still to spend leaves 350,000:
-        // one big note, then what fits after it.
-        let plan = notes_to_buy(400_000, 50_000, &shelf);
-        assert_eq!(plan[0].0, 1, "the MMD");
-        assert_eq!(plan[0].1, 1);
-        let spent: u32 = plan
-            .iter()
-            .filter_map(|(g, n)| shelf.iter().find(|s| s.guid == *g).map(|s| s.price * n))
-            .sum();
-        assert!(spent <= 350_000, "spent {spent} of 350000");
-    }
-
-    #[test]
-    fn the_shopping_money_is_never_converted() {
-        let shelf = vec![note(1, 1_000)];
-        // Everything carried is spoken for.
-        assert!(notes_to_buy(1_000, 1_000, &shelf).is_empty());
-        // And a reserve larger than the purse does not wrap round.
-        assert!(notes_to_buy(500, 5_000, &shelf).is_empty());
-    }
-
-    #[test]
-    fn a_shop_with_no_notes_on_the_shelf_converts_nothing() {
-        let shelf = vec![stock(9, "Prismatic Taper", 693, 43, None)];
-        assert!(notes_to_buy(500_000, 0, &shelf).is_empty());
-    }
-
-    #[test]
-    fn only_the_mmd_is_bought() {
-        // Every note costs the same fifteen percent, so a smaller one
-        // buys less carrying for the same fee. A shelf of small notes
-        // is not worth converting into.
-        let mut small = note(5, 1_000);
-        small.wcid = 2623;
-        assert!(notes_to_buy(500_000, 0, &[small]).is_empty());
-        // With the MMD there too, that is what is taken.
-        let mut small = note(5, 1_000);
-        small.wcid = 2623;
-        let plan = notes_to_buy(500_000, 0, &[small, note(6, 250_000)]);
-        assert_eq!(plan.iter().map(|(g, _)| *g).collect::<Vec<_>>(), vec![6]);
-    }
-
-    #[test]
-    fn no_more_notes_are_bought_than_fit_in_a_stack() {
-        // A trade note stacks 250 to a slot, so a purse that could buy
-        // thousands of the small ones still buys one stack.
-        let shelf = vec![note(1, 100)];
-        let plan = notes_to_buy(10_000_000, 0, &shelf);
-        assert_eq!(plan, vec![(1, 250)]);
-    }
-
-    #[test]
-    fn a_shop_that_has_only_a_few_notes_left_sells_only_those() {
-        let mut small = note(1, 250_000);
-        small.stack = Some(2);
-        let shelf = vec![small];
-        let plan = notes_to_buy(1_000_000, 0, &shelf);
-        assert_eq!(plan, vec![(1, 2)], "took more than the shop had");
     }
 
     #[test]

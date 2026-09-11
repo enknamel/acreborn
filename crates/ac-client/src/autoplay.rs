@@ -415,11 +415,33 @@ pub struct Loot {
     /// to the older `growth.sell` searches.
     #[serde(default)]
     pub vendor_profile: String,
+    /// How laden a character is willing to get while hunting, in
+    /// multiples of its carrying capacity (150 x Strength).
+    ///
+    /// The game's own landmarks: at one capacity a character is
+    /// comfortable, at two it is slowed, and at three the server stops
+    /// letting it pick anything up. Stopping only at that last one is
+    /// how a level twelve character came to be carrying twenty four
+    /// thousand of a twenty four thousand three hundred ceiling, with
+    /// seventeen units to spare -- unable to loot, barely able to
+    /// move, and unable to put two stacks together, because the server
+    /// weighs a merge as though the source were being lifted afresh.
+    ///
+    /// So the rules stop well before the wall and go and sell instead.
+    #[serde(default = "carry_up_to")]
+    pub carry_up_to: f32,
 }
 
 /// Serde's default for a switch that is on unless it was turned off.
 fn yes() -> bool {
     true
+}
+
+/// Laden, but a long way from the wall: half again the comfortable
+/// load, which leaves room under the server's ceiling for any stack a
+/// character is likely to be carrying to still be poured into another.
+fn carry_up_to() -> f32 {
+    1.5
 }
 
 /// The profile the shelf seeds itself with, which is what a character
@@ -445,6 +467,7 @@ impl Default for Loot {
             // rather than from a list in the code.
             profile: "Starter".into(),
             vendor_profile: String::new(),
+            carry_up_to: carry_up_to(),
         }
     }
 }
@@ -560,7 +583,7 @@ const GIVE_EVERY: Duration = Duration::from_millis(700);
 
 /// How often a stack is poured into another. The server takes one merge
 /// at a time and answers in its own time.
-const MERGE_EVERY: Duration = Duration::from_millis(600);
+pub(crate) const MERGE_EVERY: Duration = Duration::from_millis(600);
 
 /// How often one item is taken from a corpse. The server moves one at a
 /// time and refuses the rest as "you're too busy", so they go one by
@@ -1077,7 +1100,7 @@ pub struct Autoplay {
     /// The spot being walked to, how close it has been got to, and when
     /// that last improved. See `Client::reaching_too_long`.
     reaching: Option<(glam::Vec3, f32, Instant)>,
-    last_merge: Option<Instant>,
+    pub(crate) last_merge: Option<Instant>,
     /// Items decided on but not yet taken from the open corpse, and
     /// when the last one was asked for. The server takes one at a time.
     take_queue: Vec<u32>,
@@ -1589,6 +1612,7 @@ impl Client {
             count: o.stack_size.max(1),
             max: o.max_stack_size,
             wielded,
+            burden: o.burden,
         };
         self.world
             .inventory()
@@ -2025,10 +2049,13 @@ impl Client {
             // one. Eighty-four refusals in one watched run were a
             // character with slots to spare and nothing left to lift
             // with, asking anyway and being told no each time.
-            let laden = self.burden_room() == 0;
+            // Not the server's wall but our own limit, well short of
+            // it: a character that loots until the server refuses has
+            // nothing left to lift with and cannot even tidy its pack.
+            let laden = self.carry_room() == 0;
             if self.pack_full() || laden {
                 let why = if laden {
-                    "too laden to carry any more"
+                    "carrying as much as it means to, leaving the loot"
                 } else {
                     "pack full, leaving the loot"
                 };

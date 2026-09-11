@@ -55,6 +55,11 @@ pub struct ItemStats {
     /// See [`kind_name`].
     pub kind: &'static str,
     pub stack: u32,
+    /// The largest this stack may grow to. 1 (or 0) is a thing
+    /// that does not stack at all. Whether two things can be put
+    /// together is this, never how many are in them now: two
+    /// single tapers are one stack of two.
+    pub max_stack: u32,
     pub wielded: bool,
     /// Where it can be worn or held (see `ac_world::equip`): what tells
     /// a shield from the rest of the armour.
@@ -163,6 +168,7 @@ impl ItemStats {
             } else {
                 o.stack_size.max(1)
             },
+            max_stack: o.max_stack_size,
             wielded: me.is_some() && o.wielder == me,
             valid_locations: o.valid_locations,
             container: o.container.unwrap_or(0),

@@ -164,6 +164,12 @@ pub struct Client {
     /// reports us idle again.
     pub move_to: Option<ac_world::object::MoveTarget>,
     pub move_to_since: Instant,
+    /// The server refusing to move, merge or split an item. It answers
+    /// InventoryServerSaveFailed with the item's guid and, where it has
+    /// one, a reason; without reading that, a step cannot tell a
+    /// refusal from a request still in flight and so asks for ever.
+    /// Keyed by the guid the refusal names.
+    pub move_refused: std::collections::HashMap<u32, (u32, Instant)>,
     /// Route steering toward `move_to` when the straight line to it is
     /// blocked (see `route`).
     pub steering: route::Steering,
@@ -352,6 +358,7 @@ impl Client {
             scene_block: None,
             move_to: None,
             move_to_since: Instant::now(),
+            move_refused: std::collections::HashMap::new(),
             steering: route::Steering::new(Instant::now()),
             pathfinder,
             travel: Default::default(),
@@ -708,6 +715,17 @@ impl Client {
                                     tracing::warn!(
                                         "inventory action failed for {item:#010x}, error {err:#x}"
                                     );
+                                    // This is the server's whole answer
+                                    // to a move, a split or a merge it
+                                    // will not make, and half the time
+                                    // the error is None -- no words, no
+                                    // code, nothing. Until this was
+                                    // kept, a step could not tell a
+                                    // refusal from an answer still on
+                                    // its way, so it asked again every
+                                    // few hundred milliseconds for as
+                                    // long as the session lasted.
+                                    self.move_refused.insert(item, (err, Instant::now()));
                                     if self.loot_inflight.map(|(g, _)| g) == Some(item) {
                                         self.loot_inflight = None;
                                     }
@@ -716,8 +734,24 @@ impl Client {
                                     let err =
                                         u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
                                     tracing::debug!("use done, error {err:#x}");
-                                    // The walk the server asked for is over either way.
-                                    self.move_to = None;
+                                    // Only a refusal ends the walk.
+                                    //
+                                    // The server answers a use of
+                                    // something out of reach by telling
+                                    // the client to walk there, and
+                                    // acknowledges the request in the
+                                    // same breath. Taking that
+                                    // acknowledgement for "the walk is
+                                    // over" threw the goal away after a
+                                    // single tick: the character took
+                                    // one stride per attempt and stood
+                                    // still between them, four metres
+                                    // from a merchant, saying it was
+                                    // walking to it. Arriving is what
+                                    // ends the walk.
+                                    if err != 0 {
+                                        self.move_to = None;
+                                    }
                                 } else if ev == ac_net::messages::event::SET_TURBINE_CHAT_CHANNELS
                                     && rest.len() >= 4
                                 {
@@ -2382,10 +2416,69 @@ impl Client {
         true
     }
 
-    /// Split `amount` off a carried stack into a container (our main
-    /// pack when None; StackableSplitToContainer 0x0055). The server
-    /// creates the new stack and updates the old one's size. False when
-    /// the amount is not below the stack size.
+    /// Free item slots in one of the character's packs: the main pack
+    /// when `pack` is the character, a side pack otherwise.
+    ///
+    /// Packs and Foci sitting in the main pack take a pack slot rather
+    /// than an item slot, so they are not counted against it.
+    fn free_slots_in(&self, pack: u32) -> u32 {
+        let me = self.world.player_guid;
+        let capacity = if Some(pack) == me {
+            self.world
+                .player()
+                .map(|p| p.items_capacity)
+                .filter(|c| *c > 0)
+                .unwrap_or(102)
+        } else {
+            self.world
+                .objects
+                .get(&pack)
+                .map_or(0, |o| o.items_capacity)
+        };
+        let used = self
+            .world
+            .objects
+            .values()
+            .filter(|o| {
+                o.container == Some(pack)
+                    && !(Some(pack) == me
+                        && ac_world::pack_slot::used_by(
+                            o.weenie_class_id,
+                            o.item_type & ac_world::item_type::CONTAINER != 0,
+                        ))
+            })
+            .count() as u32;
+        capacity.saturating_sub(used)
+    }
+
+    /// A pack with room for one more item, `prefer` first: where a piece
+    /// cut off a stack can land. None when every pack is full.
+    fn pack_with_room(&self, prefer: Option<u32>) -> Option<u32> {
+        let me = self.world.player_guid;
+        prefer
+            .filter(|p| self.free_slots_in(*p) > 0)
+            .or_else(|| me.filter(|m| self.free_slots_in(*m) > 0))
+            .or_else(|| {
+                // The lowest guid among the side packs with room, so
+                // that the answer does not wander between frames.
+                self.world
+                    .objects
+                    .values()
+                    .filter(|o| {
+                        o.container == me
+                            && o.item_type & ac_world::item_type::CONTAINER != 0
+                            && self.free_slots_in(o.guid) > 0
+                    })
+                    .map(|o| o.guid)
+                    .min()
+            })
+    }
+
+    /// Split `amount` off a carried stack into a container (the pack the
+    /// stack is already in when None; StackableSplitToContainer
+    /// 0x0055). The server creates the new stack and updates the old
+    /// one's size. False when the amount is not below the stack size,
+    /// or when no pack has a slot for the piece.
     pub fn split_stack(&mut self, item: u32, container: Option<u32>, amount: u32) -> bool {
         use ac_net::messages::action;
         let me = self.world.player_guid;
@@ -2405,7 +2498,14 @@ impl Client {
         if amount == 0 || amount >= o.stack_size {
             return false;
         }
-        let target = container.or(me).unwrap_or(0);
+        // Where the piece goes. The server puts a split into the pack it
+        // is told and no other -- `limitToMainPackOnly` -- so naming a
+        // full pack is a refusal ("TryAddToInventory failed!") and not a
+        // spill into a side one. Left to itself the cut stays where the
+        // pile is, and only looks elsewhere if that pack is full.
+        let Some(target) = container.or_else(|| self.pack_with_room(o.container)) else {
+            return false;
+        };
         tracing::info!(
             "split {} off {} ({item:#010x}) into {target:#010x}",
             amount,

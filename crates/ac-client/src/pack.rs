@@ -34,6 +34,17 @@ pub struct Stack {
     /// the quiver slot, say. A wielded stack can be topped up, but is
     /// never the one poured away.
     pub wielded: bool,
+    /// What the whole stack weighs, in burden units, or 0 when the
+    /// server has not said.
+    ///
+    /// This is here for one reason. Pouring one stack into another
+    /// changes what a character carries by nothing at all, but the
+    /// server checks the pour as though the source were being picked
+    /// up for the first time -- carried weight plus the source's whole
+    /// weight against the ceiling -- and refuses it without a word
+    /// when that does not fit. So a character near its limit cannot
+    /// tidy, and must be told so rather than left asking.
+    pub burden: u32,
 }
 
 impl Stack {
@@ -72,11 +83,35 @@ pub struct Merge {
 /// the server as it can, and ties go to the lowest guid so that the
 /// answer does not wander between frames.
 pub fn next_merge(stacks: &[Stack]) -> Option<Merge> {
+    next_merge_unless(stacks, u32::MAX, |_, _| false)
+}
+
+/// The same, within a weight budget and skipping pairs the caller has
+/// been told no about.
+///
+/// `may_carry` is how much more the server believes the character may
+/// be handed. A pour it reckons too heavy is refused silently, so a
+/// pour that would not fit is not worth asking for.
+///
+/// The skip is the other half: a pair the server will not join must
+/// not stop the rest of the pack being tidied. Without it, one
+/// stubborn pair meant nothing else was ever poured together, because
+/// it is the only answer ever offered.
+pub fn next_merge_unless(
+    stacks: &[Stack],
+    may_carry: u32,
+    skip: impl Fn(u32, u32) -> bool,
+) -> Option<Merge> {
     let mut best: Option<Merge> = None;
     for from in stacks {
         // A stack in the character's hands stays there, and a full one
         // has nothing spare to give.
         if !from.stackable() || from.wielded || from.count == 0 {
+            continue;
+        }
+        // Nothing known about the weight is not a reason to refuse:
+        // ask, and let the server's answer settle it.
+        if from.burden > 0 && from.burden > may_carry {
             continue;
         }
         for to in stacks {
@@ -95,6 +130,9 @@ pub fn next_merge(stacks: &[Stack]) -> Option<Merge> {
             // would swap back and forth for ever, each frame deciding
             // the other way round.
             if (to.count, to.guid) <= (from.count, from.guid) {
+                continue;
+            }
+            if skip(from.guid, to.guid) {
                 continue;
             }
             let candidate = Merge {
@@ -152,6 +190,9 @@ mod tests {
             count,
             max,
             wielded: false,
+            // Weightless, so the tests that are about slots stay
+            // about slots. The weight budget has tests of its own.
+            burden: 0,
         }
     }
 
