@@ -166,15 +166,11 @@ fn main() {
     // several is our graph failing to walk a way the game says exists.
     {
         let mut by_piece: HashMap<usize, HashMap<usize, usize>> = HashMap::new();
-        for i in 0..n {
+        for (i, &c) in comp.iter().enumerate() {
             let Some(&piece) = piece_of.get(&area.nav.nodes[i].cell) else {
                 continue;
             };
-            *by_piece
-                .entry(piece)
-                .or_default()
-                .entry(comp[i])
-                .or_default() += 1;
+            *by_piece.entry(piece).or_default().entry(c).or_default() += 1;
         }
         let mut pieces: Vec<(usize, Vec<(usize, usize)>)> = by_piece
             .into_iter()
@@ -196,7 +192,7 @@ fn main() {
                 if v.len() > 1 {
                     format!(
                         ", next {:?}",
-                        &v[1..v.len().min(5)]
+                        v[1..v.len().min(5)]
                             .iter()
                             .map(|(_, k)| *k)
                             .collect::<Vec<_>>()

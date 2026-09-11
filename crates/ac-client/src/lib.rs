@@ -2392,7 +2392,14 @@ impl Client {
         let Some(o) = self.world.objects.get(&item) else {
             return false;
         };
-        if me.is_none() || o.container != me && o.wielder != me {
+        // A stack in a side pack is as much in hand as one in the main
+        // pack: the server looks for it anywhere the character can move
+        // things from, which is what [`Self::merge_stacks`] already
+        // allows. Asking only about the main pack made a pile kept in a
+        // sack uncuttable and said nothing about it, and a counter that
+        // will not take the pile whole then waited for a piece that
+        // could never be cut -- for the length of the visit.
+        if me.is_none() || !(self.world.is_carried(item) || o.wielder == me) {
             return false;
         }
         if amount == 0 || amount >= o.stack_size {

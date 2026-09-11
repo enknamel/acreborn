@@ -63,6 +63,10 @@ const SKIP_GROUND_FOR: Duration = Duration::from_secs(20 * 60);
 /// Standing this close to a vendor is close enough to use it: the
 /// server walks the character the last stretch itself.
 const VENDOR_REACH: f32 = 35.0;
+/// How close to stand before asking a counter to open. A vendor will
+/// not trade with somebody across the room, and says so by telling the
+/// character to walk there rather than by refusing.
+const COUNTER_REACH: f32 = 3.0;
 /// A vendor that does not answer a Use in this long is tried once more,
 /// then left.
 const VENDOR_OPEN_TIMEOUT: Duration = Duration::from_secs(12);
@@ -302,8 +306,15 @@ enum Phase {
     Opening { guid: u32, tries: u32 },
     /// The pack's items are being appraised before the sale.
     Appraising,
-    /// Sales going out, a batch at a time.
-    Selling { queue: Vec<u32>, sent: Vec<u32> },
+    /// Sales going out, a batch at a time. `passed` is what this
+    /// counter has been found unable to take, so that the list, which is
+    /// taken afresh every turn to catch pieces cut off a stack, does not
+    /// put it straight back.
+    Selling {
+        queue: Vec<u32>,
+        sent: Vec<u32>,
+        passed: Vec<u32>,
+    },
     /// Purchases sent; waiting for them to arrive.
     Buying,
 }
@@ -2290,6 +2301,23 @@ impl Client {
         )
     }
 
+    /// The Mayoi notes to buy with the coin in hand, as `(stock line,
+    /// how many)`, keeping the float back.
+    ///
+    /// This is what makes room during a sale: the coin the counter has
+    /// just paid out is filling the pack, and the same counter will
+    /// take it back as notes.
+    fn notes_to_make(&self) -> Option<(u32, u32)> {
+        let float = self.autoplay.config.team.restock.float;
+        let spare = self.purse().saturating_sub(float);
+        let line = self
+            .stock()
+            .into_iter()
+            .find(|s| s.wcid == ac_world::shops::MMD && s.price > 0)?;
+        let count = spare / line.price;
+        (count > 0).then_some((line.guid, count))
+    }
+
     /// The open vendor's stock, priced.
     fn stock(&self) -> Vec<Stock> {
         let Some(v) = self.world.open_vendor.as_ref() else {
@@ -2790,6 +2818,31 @@ impl Client {
                 }
                 match self.vendor_object(&run.vendor, run.at) {
                     Some(guid) => {
+                        // Stand at the counter before asking it to
+                        // open. The journey gets the character within
+                        // thirty-five metres of where the vendor is
+                        // listed, and a vendor will not trade with
+                        // somebody across the room: the server answers
+                        // by telling us to walk there, and a client
+                        // that does not walk waits for a window that
+                        // never opens. The same thing that left
+                        // characters standing under corpses.
+                        let where_it_is = self.world.objects.get(&guid).and_then(|o| o.world_pos());
+                        if let Some(spot) = where_it_is {
+                            if Vec2::new(spot.x, spot.y).distance(me) > COUNTER_REACH {
+                                self.follow = Some(crate::Follow {
+                                    target: spot,
+                                    stop: COUNTER_REACH / 2.0,
+                                });
+                                self.autoplay
+                                    .say(Doing::Shopping, format!("walking up to {}", run.vendor));
+                                self.autoplay.growth.run = Some(run);
+                                return true;
+                            }
+                        }
+                        if self.follow.take().is_some() {
+                            self.steering.reset();
+                        }
                         self.use_object(guid);
                         run.phase = Phase::Opening { guid, tries: 1 };
                         run.since = now;
@@ -2885,6 +2938,7 @@ impl Client {
                 run.phase = Phase::Selling {
                     queue,
                     sent: Vec::new(),
+                    passed: Vec::new(),
                 };
                 run.since = now;
                 self.autoplay.say(
@@ -2897,6 +2951,7 @@ impl Client {
             Phase::Selling {
                 mut queue,
                 mut sent,
+                mut passed,
             } => {
                 if self.world.open_vendor.is_none() {
                     self.autoplay.note("the vendor closed on us", now);
@@ -2908,49 +2963,210 @@ impl Client {
                         .is_none_or(|t| now.duration_since(t) >= SELL_EVERY)
                     {
                         let ceiling = self.world.open_vendor.as_ref().map_or(0, |v| v.max_value);
-                        for _ in 0..SELL_BATCH {
-                            let Some(g) = queue.last().copied() else {
-                                break;
+
+                        // A piece cut off a stack is a new object, and
+                        // one nobody put on the list. Take the list
+                        // afresh each turn so the piece is offered the
+                        // moment it exists.
+                        let for_sale = self.sale_list(cfg);
+
+                        // Selling fills the pack with change, so the
+                        // sale has to make room as it goes. Compress
+                        // what is loose, and when the pack is running
+                        // out turn the takings into Mayoi notes -- a
+                        // slot of notes holds sixty-two million and a
+                        // slot of coin holds twenty-five thousand.
+                        // Then carry on selling. That is the loop; the
+                        // splitting below is only for a stack worth
+                        // more than the counter will look at.
+                        //
+                        // What is going over the counter is not loose,
+                        // and is left out of the pouring. A stack too
+                        // dear for the counter is cut into pieces it
+                        // will take, and pouring a piece straight back
+                        // into the stack it came from undoes the cut:
+                        // split twenty, pour twenty back, split again,
+                        // five hundred times in one watched run and not
+                        // a pea sold. The same move makes a guid the
+                        // sale is holding vanish out from under it.
+                        let loose: Vec<crate::pack::Stack> = self
+                            .pack_stacks()
+                            .into_iter()
+                            .filter(|s| {
+                                !for_sale.contains(&s.guid)
+                                    && !queue.contains(&s.guid)
+                                    && !sent.contains(&s.guid)
+                            })
+                            .collect();
+                        if let Some(m) = crate::pack::next_merge(&loose) {
+                            self.merge_stacks(m.from, m.to, Some(m.amount));
+                            // One move per turn, like a sale. The server
+                            // answers in its own time, and asking again
+                            // next frame sends the same merge three
+                            // times over and earns two refusals.
+                            run.last_sell = Some(now);
+                            run.since = now;
+                            run.phase = Phase::Selling {
+                                queue,
+                                sent,
+                                passed,
                             };
-                            if !self.world.is_carried(g) {
-                                queue.pop();
-                                continue;
+                            self.autoplay.growth.run = Some(run);
+                            return true;
+                        }
+                        if self.free_space() <= self.autoplay.config.team.restock.keep_slots {
+                            if let Some((line, count)) = self.notes_to_make() {
+                                self.buy_amount(line, count);
+                                self.autoplay.say(
+                                    Doing::Shopping,
+                                    format!("packing the takings into {count} note(s)"),
+                                );
+                                run.last_sell = Some(now);
+                                run.since = now;
+                                run.phase = Phase::Selling {
+                                    queue,
+                                    sent,
+                                    passed,
+                                };
+                                self.autoplay.growth.run = Some(run);
+                                return true;
                             }
-                            // A stack worth more than the counter will
-                            // look at is sold a piece at a time. The
-                            // server counts a stack's value as the lot,
-                            // so a hundred Pyreal Peas are five million
-                            // to a counter that stops at one -- and
-                            // splitting is what a player does about it.
-                            let piece = self
-                                .stats_of(g)
-                                .map(|it| Salable {
-                                    guid: g,
-                                    item_type: it.item_type,
-                                    value: it.value,
-                                    stack: it.stack,
-                                })
-                                .map_or(0, |it| it.at_once(ceiling));
-                            let whole = self
+                        }
+                        for guid in &for_sale {
+                            if !queue.contains(guid)
+                                && !sent.contains(guid)
+                                && !passed.contains(guid)
+                            {
+                                queue.push(*guid);
+                            }
+                        }
+                        // How many of a queued thing the counter will
+                        // take at once: the whole stack, unless it is
+                        // worth more than the counter looks at.
+                        //
+                        // Both numbers come off the same object. Taking
+                        // the value from one place and the size from
+                        // another lets them disagree while a split is
+                        // in flight, and a stale value over a
+                        // shrinking size makes each piece smaller than
+                        // the last: twenty, sixteen, twelve, ten.
+                        let takes = |me: &Client, g: u32| -> (u32, u32) {
+                            let (value, whole) = me
                                 .world
                                 .objects
                                 .get(&g)
-                                .map_or(1, |o| o.stack_size.max(1));
-                            if piece > 0 && piece < whole {
-                                // Cut a sellable piece off and let the
-                                // next turn offer it; the rest of the
-                                // stack stays where it is.
-                                self.split_stack(g, None, piece);
-                                break;
+                                .map_or((0, 1), |o| (o.value, o.stack_size.max(1)));
+                            let piece = Salable {
+                                guid: g,
+                                item_type: me.stats_of(g).map_or(0, |it| it.item_type),
+                                value,
+                                stack: whole,
                             }
-                            queue.pop();
+                            .at_once(ceiling);
+                            (piece, whole)
+                        };
+                        // Sell whatever can go as it stands, and only
+                        // cut a stack when nothing can.
+                        //
+                        // The other way round splits for ever: the big
+                        // stack is always at hand, so it is always the
+                        // thing considered, and the pieces already cut
+                        // off it are never reached. Four hundred and
+                        // eighty-eight cuts to sell twenty-nine peas.
+                        tracing::debug!(
+                            "selling to {}: ceiling {ceiling}, {} free slot(s), \
+                             queue {:?}, on the list {:?}, passed over {:?}",
+                            run.vendor,
+                            self.free_space(),
+                            queue
+                                .iter()
+                                .map(|g| (*g, takes(self, *g)))
+                                .collect::<Vec<_>>(),
+                            for_sale,
+                            passed,
+                        );
+                        let mut sold_now = 0;
+                        for _ in 0..SELL_BATCH {
+                            queue.retain(|g| self.world.is_carried(*g));
+                            let whole_now = queue.iter().rposition(|g| {
+                                let (piece, whole) = takes(self, *g);
+                                piece > 0 && piece >= whole
+                            });
+                            let Some(at) = whole_now else { break };
+                            let g = queue.remove(at);
                             self.sell(g);
                             sent.push(g);
+                            sold_now += 1;
+                        }
+                        // Nothing went this turn: cut one stack down to
+                        // something that will, and offer it next turn.
+                        //
+                        // This turn, not this visit: `sent` holds
+                        // everything handed over since the counter
+                        // opened, so asking whether it is empty asks
+                        // whether anything has ever been sold here --
+                        // true only on the first turn, after which
+                        // nothing was ever cut again.
+                        if sold_now == 0 {
+                            // Cutting a stack makes a second stack, and
+                            // a second stack needs a slot to go in. With
+                            // a full pack the cut simply does not
+                            // happen, and asking again every turn is
+                            // four hundred and seventy-nine cuts and
+                            // nothing sold.
+                            let room_to_cut = self.free_space() > 0;
+                            if !room_to_cut {
+                                self.autoplay.note(
+                                    "no room to split a stack for the counter; \
+                                     selling what fits as it is",
+                                    now,
+                                );
+                                // Passed over, not merely dropped from
+                                // the queue. The list is taken afresh
+                                // every turn, so anything only dropped
+                                // is back on the next one: drop, refill,
+                                // drop, for the rest of the visit, with
+                                // nothing sold and nothing said. The
+                                // counter is stuck there for good.
+                                queue.retain(|g| {
+                                    let (piece, whole) = takes(self, *g);
+                                    if piece > 0 && piece >= whole {
+                                        return true;
+                                    }
+                                    passed.push(*g);
+                                    false
+                                });
+                            } else if let Some(&g) = queue.iter().find(|g| {
+                                let (piece, whole) = takes(self, **g);
+                                piece > 0 && piece < whole
+                            }) {
+                                let (piece, _) = takes(self, g);
+                                // A cut refused out of hand will be
+                                // refused again next turn and every
+                                // turn after it, and this loop would ask
+                                // for the whole visit and say nothing.
+                                // Pass the stack over instead.
+                                if !self.split_stack(g, None, piece) {
+                                    tracing::debug!(
+                                        "cannot cut {piece} off {g:#010x}; passing it over"
+                                    );
+                                    queue.retain(|q| *q != g);
+                                    passed.push(g);
+                                }
+                            } else {
+                                // Nothing fits and nothing can be made
+                                // to fit.
+                                passed.append(&mut queue);
+                            }
                         }
                         run.last_sell = Some(now);
                         run.since = now;
                     }
-                    run.phase = Phase::Selling { queue, sent };
+                    run.phase = Phase::Selling {
+                        queue,
+                        sent,
+                        passed,
+                    };
                     self.autoplay.growth.run = Some(run);
                     return true;
                 }
@@ -2961,7 +3177,11 @@ impl Client {
                     .filter(|g| self.world.is_carried(*g))
                     .collect();
                 if !still.is_empty() && elapsed < SETTLE {
-                    run.phase = Phase::Selling { queue, sent };
+                    run.phase = Phase::Selling {
+                        queue,
+                        sent,
+                        passed,
+                    };
                     self.autoplay.growth.run = Some(run);
                     return true;
                 }
