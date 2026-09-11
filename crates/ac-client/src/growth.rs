@@ -81,8 +81,6 @@ const NEEDS_EVERY: Duration = Duration::from_secs(5);
 /// are spread over it and the fight rules only look a short way.
 const ROAM: f32 = 70.0;
 const ROAMS: u32 = 3;
-/// Sales go out a few at a time, this often.
-const SELL_EVERY: Duration = Duration::from_millis(500);
 /// How long to wait for the server to take the items sold, the
 /// appraisals to come back, or the purchases to arrive.
 const SETTLE: Duration = Duration::from_secs(5);
@@ -2396,6 +2394,18 @@ impl Client {
         Did::Acting
     }
 
+    /// Something was handed to the counter and it has not answered
+    /// yet.
+    ///
+    /// The answer is what paces the shopping: an item leaving the pack,
+    /// a purchase arriving, or a refusal. `cast_sent` is cleared by the
+    /// server's `UseDone`, which is the same signal for a counter as
+    /// for a spell; the clock behind it only stops a run waiting for
+    /// ever on an answer that never comes.
+    fn vendor_busy(&self, now: Instant) -> bool {
+        self.autoplay.cast_in_flight(now)
+    }
+
     /// What the character is short of, as the shopping rules want it:
     /// a weenie class, a name and how many more to buy.
     ///
@@ -3035,10 +3045,14 @@ impl Client {
                 // out. The same rules run in the panel and in
                 // `cargo run -p ac-vendor --example trip`, so a trip
                 // can be argued about without a server being awake.
-                if run
-                    .last_sell
-                    .is_some_and(|t| now.duration_since(t) < SELL_EVERY)
-                {
+                // Wait on the counter's answer, not on a clock. The
+                // server says when it has finished with what it was
+                // handed -- the goods leave the pack, the shelf
+                // changes, an error comes back -- and the next thing
+                // goes out then. A fixed pause is either slower than
+                // the counter or quicker, and quicker is how a run
+                // sells a stack it has already merged away.
+                if self.vendor_busy(now) {
                     self.autoplay.growth.run = Some(run);
                     return true;
                 }

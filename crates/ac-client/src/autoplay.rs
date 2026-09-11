@@ -78,8 +78,6 @@ const LOOT_WALK: f32 = 2.5;
 fn loot_wait(away: f32) -> Duration {
     LOOT_TIMEOUT + Duration::from_secs_f32((away.max(0.0) / LOOT_WALK).min(30.0))
 }
-/// Least time between two heals, so one is not spammed.
-const HEAL_EVERY: Duration = Duration::from_millis(2500);
 /// Least time between two casts of the same buff.
 const BUFF_EVERY: Duration = Duration::from_millis(1500);
 /// A target that takes no damage for this long is let go.
@@ -119,10 +117,10 @@ const SALVAGING: u32 = 40;
 const BUFF_CHECK_EVERY: Duration = Duration::from_millis(1000);
 /// Least time between two attack orders.
 const ATTACK_EVERY: Duration = Duration::from_millis(1200);
-/// Least time between two attack spells. A war spell takes about two
-/// seconds to cast and the server refuses one sent over another, so
-/// this is paced to the casting rather than to the frame.
-const CAST_EVERY: Duration = Duration::from_millis(2600);
+/// How long to wait on a cast the server never answers for. Casting is
+/// paced by its answer, not by a clock; this only stops a character
+/// waiting for ever on one that went astray.
+const CAST_LOST: Duration = Duration::from_secs(6);
 
 /// Staying alive.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -986,6 +984,10 @@ pub struct Autoplay {
     /// `attack_target` of its own the way a swing does, so the engine
     /// remembers what it is working on.
     last_cast: Option<Instant>,
+    /// When a cast was sent and the server has not yet said it is done.
+    /// Cleared by its answer (`UseDone`), which is what paces the next
+    /// one.
+    pub(crate) cast_sent: Option<Instant>,
     casting_at: Option<u32>,
     /// The target the weapon in hand was chosen for, so it is chosen
     /// once a fight and not once a frame.
@@ -1167,9 +1169,21 @@ impl Autoplay {
 
     /// A spell of any kind went out less than a cast ago, so another
     /// sent now would queue behind it or be dropped.
-    fn cast_in_flight(&self, now: Instant) -> bool {
-        self.last_cast
-            .is_some_and(|t| now.duration_since(t) < CAST_EVERY)
+    pub(crate) fn cast_in_flight(&self, now: Instant) -> bool {
+        // The server says when a cast is finished, so that is what is
+        // waited on -- not a guess at how long spells take. A heal sent
+        // the moment the last one lands is the difference between
+        // living and dying, and no fixed interval can be both quick
+        // enough for that and slow enough never to have the next spell
+        // dropped for arriving early.
+        //
+        // The clock that remains is a backstop, not the pacing: if the
+        // server never answers at all, the character must not wait for
+        // ever.
+        match self.cast_sent {
+            Some(t) => now.duration_since(t) < CAST_LOST,
+            None => false,
+        }
     }
 
     /// Whether an urgent buff should stand aside for the attack this
@@ -1194,7 +1208,7 @@ impl Autoplay {
         buff_was_last
             && self
                 .last_buff
-                .is_some_and(|t| now.duration_since(t) < 2 * CAST_EVERY)
+                .is_some_and(|t| now.duration_since(t) < CAST_LOST)
     }
 
     /// Something worth knowing that is not what the character is doing:
@@ -1355,11 +1369,9 @@ impl Client {
         if !cfg.manage_mana {
             return false;
         }
-        if self
-            .autoplay
-            .last_vital
-            .is_some_and(|t| now.duration_since(t) < HEAL_EVERY)
-        {
+        // Same again: the next draught or cast waits on the server
+        // answering for the last, not on a clock.
+        if self.autoplay.cast_in_flight(now) {
             return false;
         }
         let frac = |i: usize| {
@@ -1675,53 +1687,17 @@ impl Client {
     }
 
     /// Heal, and break off a losing fight. True when it acted.
-    /// Hurt enough to want healing, with something that could still
-    /// mend it: a kit it knows how to use, or a heal it can cast right
-    /// now.
-    ///
-    /// The fight rule asks this before swinging. One heal is rarely
-    /// enough, and a character that heals, then swings, then heals,
-    /// then swings loses health the whole way down -- which is how one
-    /// died with healing already first on the list. A character with no
-    /// kit, no spell and no mana is not healing however long it waits,
-    /// so it fights: that is better for it than standing there.
-    pub(crate) fn too_hurt_to_fight(&mut self) -> bool {
-        let cfg = self.autoplay.config.survive.clone();
-        let health = self.health_fraction();
-        if health >= cfg.heal_below || health <= 0.0 {
-            return false;
-        }
-        self.can_still_heal(&cfg)
-    }
-
-    fn can_still_heal(&mut self, cfg: &Survive) -> bool {
-        if cfg.use_kits
-            && self.heals_with_kits()
-            && self.world.inventory().any(|o| {
-                ac_world::usable::on_self(o.usable) && o.name.contains("Healing Kit")
-            })
-        {
-            return true;
-        }
-        let heal = if cfg.heal_spell.trim().is_empty() {
-            self.best_emergency_heal().map(|(spell, _)| spell)
-        } else {
-            self.spell_by_name(&cfg.heal_spell)
-        };
-        heal.is_some_and(|spell| matches!(self.can_cast(spell), crate::magic::CastCheck::Ok))
-    }
-
     pub(crate) fn autoplay_survive(&mut self, now: Instant) -> bool {
         let cfg = self.autoplay.config.survive.clone();
         let health = self.health_fraction();
         if health >= cfg.heal_below || health <= 0.0 {
             return false;
         }
-        if self
-            .autoplay
-            .last_heal
-            .is_some_and(|t| now.duration_since(t) < HEAL_EVERY)
-        {
+        // Paced by the server, not by a clock: the next heal goes out
+        // as soon as the last one is answered for. A fixed interval is
+        // either too slow to save a character or quick enough to have
+        // the spell dropped for arriving over the last.
+        if self.autoplay.cast_in_flight(now) {
             // Waiting for the next heal is not a reason to stand
             // still. Everything below this in the list -- looting,
             // walking, tidying -- carries on; it is only the fighting
@@ -3128,14 +3104,6 @@ impl Client {
         if !cfg.enabled {
             return false;
         }
-        // Hurt, and able to mend it: heal, do not swing. The healing
-        // rule runs before this one and has already had its turn this
-        // tick; what it cannot do is stop the fighting happening in the
-        // gap while its next heal comes round, and that gap is where a
-        // character bleeds to death one exchange at a time.
-        if self.too_hurt_to_fight() {
-            return false;
-        }
         let stance = self.fighting_stance_as(cfg.style);
         if stance == Stance::Magic {
             return self.autoplay_fight_with_spells(now, &cfg);
@@ -3384,6 +3352,7 @@ impl Client {
             }
             self.cast(spell);
             self.autoplay.last_cast = Some(now);
+        self.autoplay.cast_sent = Some(now);
             let element = ac_world::elements::spell_element(spell)
                 .map(|e| e.name())
                 .unwrap_or("");
@@ -3460,11 +3429,8 @@ impl Client {
     /// tick, and mark it softened when both are on (or neither can be
     /// cast). True while there is still one to cast.
     fn autoplay_soften(&mut self, guid: u32, name: &str, now: Instant) -> bool {
-        if self
-            .autoplay
-            .last_cast
-            .is_some_and(|t| now.duration_since(t) < CAST_EVERY)
-        {
+        // Waiting on the server's answer, not on a clock.
+        if self.autoplay.cast_in_flight(now) {
             return true;
         }
         let stage = self
@@ -3510,6 +3476,7 @@ impl Client {
                 self.select(Some(guid));
                 self.cast(spell);
                 self.autoplay.last_cast = Some(now);
+        self.autoplay.cast_sent = Some(now);
                 let what = if stage == 0 {
                     "vulnerability"
                 } else {
@@ -3595,6 +3562,7 @@ impl Client {
         self.autoplay.vulned.push(guid);
         self.autoplay.last_vuln = Some(now);
         self.autoplay.last_cast = Some(now);
+        self.autoplay.cast_sent = Some(now);
         let said = format!(
             "making {name} vulnerable to {} (level {level})",
             element.name()
@@ -4555,6 +4523,7 @@ impl Client {
         // an attack thrown over it would be dropped.
         self.autoplay.last_buff = Some(now);
         self.autoplay.last_cast = Some(now);
+        self.autoplay.cast_sent = Some(now);
         true
     }
 

@@ -739,6 +739,17 @@ impl Client {
                                     let err =
                                         u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]);
                                     tracing::debug!("use done, error {err:#x}");
+                                    // The server has finished with what
+                                    // it was asked to do -- a cast, a
+                                    // use, a counter opening. That is
+                                    // the signal to send the next one:
+                                    // a heal cast the moment the last
+                                    // one lands is the difference
+                                    // between living and dying, and a
+                                    // clock cannot be both that quick
+                                    // and slow enough to never have a
+                                    // spell dropped for arriving early.
+                                    self.autoplay.cast_sent = None;
                                     // Only a refusal ends the walk.
                                     //
                                     // The server answers a use of
