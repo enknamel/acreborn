@@ -32,7 +32,7 @@ pub struct Because {
     /// In a few words: "the pack is full", "no vendor will take it".
     pub what: String,
     /// The server's own code, when it gave one (see
-    /// `crate::weenie_errors`).
+    /// [`crate::weenie_errors`]).
     pub code: Option<u32>,
 }
 

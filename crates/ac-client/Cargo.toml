@@ -6,6 +6,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+ac-agent = { path = "../ac-agent" }
+ac-vendor = { path = "../ac-vendor" }
 ac-formats = { path = "../ac-formats" }
 ac-net = { path = "../ac-net" }
 ac-scene = { path = "../ac-scene" }

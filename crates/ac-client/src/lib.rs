@@ -9,17 +9,22 @@ pub mod autoplay;
 pub mod buffs;
 pub mod creation;
 pub mod daytime;
-pub mod did;
 pub mod dodge;
 pub mod emotes;
-pub mod errand;
+// The vocabulary every system speaks now lives below this crate, in
+// `ac-agent`. Re-exported under its old names so that nothing which
+// says `crate::did` or `crate::pack` has to care where it went.
+pub use ac_agent::{did, pack, weenie_errors};
+// The shopping is its own system now (`ac-vendor`); the planner it was
+// built around keeps its old name here.
+pub use ac_vendor::errand;
+
 pub mod growth;
 pub mod holdings;
 pub mod items;
 pub mod logistics;
 pub mod magic;
 pub mod options;
-pub mod pack;
 pub mod pathfinder;
 pub mod player;
 pub mod profile;
@@ -30,7 +35,6 @@ pub mod route;
 pub mod steps;
 pub mod travel;
 pub mod weapons;
-pub mod weenie_errors;
 
 use std::time::{Duration, Instant};
 

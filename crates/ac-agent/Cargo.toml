@@ -1,0 +1,8 @@
+[package]
+name = "ac-agent"
+description = "What a character's systems all speak: what came of trying something, how long to wait before asking again, and the arithmetic of a pack full of stacks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

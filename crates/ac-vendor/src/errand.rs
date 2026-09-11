@@ -25,7 +25,7 @@
 //!
 //! See `docs/agent.md`.
 
-use crate::did::Because;
+use ac_agent::did::Because;
 
 /// What a character has to spend on a trip, and what it has room for.
 ///

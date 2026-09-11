@@ -1,0 +1,9 @@
+[package]
+name = "ac-vendor"
+description = "Autovendoring: what to compress, sell, turn into notes and buy at a counter, decided without a server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-agent = { path = "../ac-agent" }

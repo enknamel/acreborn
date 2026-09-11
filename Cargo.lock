@@ -19,6 +19,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
+name = "ac-agent"
+version = "0.0.3"
+
+[[package]]
 name = "ac-audio"
 version = "0.0.3"
 dependencies = [
@@ -41,9 +45,11 @@ dependencies = [
 name = "ac-client"
 version = "0.0.3"
 dependencies = [
+ "ac-agent",
  "ac-formats",
  "ac-net",
  "ac-scene",
+ "ac-vendor",
  "ac-world",
  "glam 0.30.10",
  "regex",
@@ -123,6 +129,13 @@ dependencies = [
  "rhai",
  "serde_json",
  "tracing",
+]
+
+[[package]]
+name = "ac-vendor"
+version = "0.0.3"
+dependencies = [
+ "ac-agent",
 ]
 
 [[package]]
