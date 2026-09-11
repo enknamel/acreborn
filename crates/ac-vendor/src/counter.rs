@@ -100,6 +100,12 @@ pub struct Ware {
     pub price: u32,
     /// How many it has, or `None` for a shelf that never empties.
     pub stock: Option<u32>,
+    /// What one of them weighs, or 0 when the counter did not say.
+    ///
+    /// A purse says how many can be paid for and this says how many can
+    /// be carried home. Buying without it is how a character came to be
+    /// too laden to buy anything and went on asking anyway.
+    pub burden: u32,
 }
 
 /// The counter being stood at.

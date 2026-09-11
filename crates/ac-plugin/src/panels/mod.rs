@@ -29,6 +29,7 @@ pub mod book;
 pub mod buffs;
 pub mod combat;
 pub mod components;
+pub mod vendoring;
 pub mod confirm;
 pub mod fellowship;
 pub mod fleet;
@@ -488,6 +489,7 @@ pub fn live() -> Vec<Box<dyn Plugin>> {
         Box::new(spellbook::Spellbook::default()),
         Box::new(spellbar::SpellBar::default()),
         Box::new(components::Components::default()),
+        Box::new(vendoring::Vendoring::default()),
         Box::new(buffs::Buffs::default()),
         Box::new(autoplay::Autoplay::default()),
         Box::new(loot_profiles::LootProfiles::default()),
@@ -530,6 +532,7 @@ pub fn demo(assets: Option<&ac_scene::Assets>) -> Vec<Box<dyn Plugin>> {
         Box::new(components::Components::demo(
             tables.as_ref().map(|(_, c)| &**c),
         )),
+        Box::new(vendoring::Vendoring::demo()),
         Box::new(buffs::Buffs::demo(tables.as_ref().map(|(t, _)| &**t))),
         Box::new(autoplay::Autoplay::demo()),
         Box::new(loot_profiles::LootProfiles::demo()),

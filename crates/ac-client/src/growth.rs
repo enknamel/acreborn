@@ -66,7 +66,7 @@ const VENDOR_REACH: f32 = 35.0;
 /// How close to stand before asking a counter to open. A vendor will
 /// not trade with somebody across the room, and says so by telling the
 /// character to walk there rather than by refusing.
-const COUNTER_REACH: f32 = 3.0;
+pub(crate) const COUNTER_REACH: f32 = 3.0;
 /// A vendor that does not answer a Use in this long is tried once more,
 /// then left.
 const VENDOR_OPEN_TIMEOUT: Duration = Duration::from_secs(12);
@@ -309,8 +309,6 @@ enum Phase {
     /// left the pack -- nothing else is remembered, because what there
     /// is to sell is asked of the pack afresh every turn.
     Selling { sent: Vec<u32> },
-    /// Purchases sent; waiting for them to arrive.
-    Buying,
 }
 
 /// A run to town in progress.
@@ -358,6 +356,13 @@ pub struct State {
     /// for ever. Prismatic Tapers at a hundred and two hundred should
     /// merge and the asking should stop when they do not.
     wont_merge: crate::did::Patience<(u32, u32)>,
+    /// The shopping, as decided by `ac-vendor`. It holds what a
+    /// snapshot cannot show: which phase the trip is in, what has been
+    /// handed over and not yet answered for, and what has been refused.
+    pub shop: ac_vendor::Run,
+    /// The last thing the shopping rules said they were doing, for the
+    /// log and the panel.
+    pub last_saying: String,
     /// The last run to town ended without buying or selling anything.
     /// Another one straight away would do the same, so it waits.
     pub run_was_futile: bool,
@@ -697,70 +702,8 @@ fn spot(at: Vec2) -> (i32, i32) {
 }
 
 /// The next move in a sale.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Sale {
-    /// Hand this over as it stands.
-    Hand(u32),
-    /// Cut this many off it first: the whole stack is worth more than
-    /// the counter will look at.
-    Cut { guid: u32, amount: u32 },
-}
 
-/// What the character wants from the stock of a vendor, and can pay
-/// for: `(stock guid, amount)` per need, cheapest match first, the
-/// purse running down as it goes.
-fn orders(needs: &[Need], stock: &[Stock], purse: u32) -> Vec<(u32, u32)> {
-    orders_within(needs, stock, purse, u32::MAX)
-}
 
-/// The same, with a weight to stay under as well as a purse.
-///
-/// A character can be rich and still unable to buy a thing: the server
-/// refuses anything that would take it past three times its carrying
-/// capacity, and a mage who has just filled its pack with scarabs is
-/// often exactly there. Asking anyway is a refusal, and asking again
-/// every trip is a character that shops for ever and never comes home.
-fn orders_within(
-    needs: &[Need],
-    stock: &[Stock],
-    mut purse: u32,
-    mut weight: u32,
-) -> Vec<(u32, u32)> {
-    let mut out: Vec<(u32, u32)> = Vec::new();
-    for need in needs {
-        let want = |s: &Stock| match &need.kind {
-            NeedKind::Named(n) => s.name.to_lowercase().contains(&n.to_lowercase()),
-            NeedKind::Ammo(kind) => ammo_stock(&s.name, *kind),
-            NeedKind::Component(wcid) => s.wcid == *wcid,
-        };
-        let Some(line) = stock
-            .iter()
-            .filter(|s| want(s) && s.price > 0)
-            .min_by_key(|s| s.price)
-        else {
-            continue;
-        };
-        let mut amount = need.want.min(purse / line.price);
-        if let Some(have) = line.stack {
-            amount = amount.min(have);
-        }
-        // Weightless things (a trade note) are limited by the purse
-        // alone; everything else by whichever runs out first.
-        if let Some(fits) = weight.checked_div(line.burden) {
-            amount = amount.min(fits);
-        }
-        if amount == 0 {
-            continue;
-        }
-        purse -= amount * line.price;
-        weight = weight.saturating_sub(amount * line.burden);
-        match out.iter_mut().find(|(g, _)| *g == line.guid) {
-            Some(o) => o.1 += amount,
-            None => out.push((line.guid, amount)),
-        }
-    }
-    out
-}
 
 /// Whether a stock line is plain ammunition of `kind`: an "Arrow", not
 /// a "Bundle of Arrowheads" or a "Fire Arrow" (the plain kind is what
@@ -789,30 +732,6 @@ fn worth_stocking(name: &str, heals_with_kits: bool) -> bool {
     !name.to_lowercase().contains("healing kit")
 }
 
-/// Which trade notes to cash to cover a bill of `need_coin` when only
-/// `purse` pyreals are in hand, as their guids.
-///
-/// Smallest face value first, so a 250,000 note is not broken to buy a
-/// stack of tapers, and only as many as the bill needs. The server pays
-/// face value for a note, so cashing one costs nothing; it is only the
-/// making of them that is dear.
-fn notes_for_bill(purse: u32, need_coin: u32, notes: &[(u32, u32)]) -> Vec<u32> {
-    let Some(short) = need_coin.checked_sub(purse).filter(|s| *s > 0) else {
-        return Vec::new();
-    };
-    let mut notes = notes.to_vec();
-    notes.sort_by_key(|(_, face)| *face);
-    let mut raised = 0;
-    let mut out = Vec::new();
-    for (guid, face) in notes {
-        if raised >= short {
-            break;
-        }
-        raised += face;
-        out.push(guid);
-    }
-    out
-}
 
 /// How far to look for a shop before settling for a nearer one with
 /// less on its shelves: the town we are in, the towns around it, then a
@@ -1673,7 +1592,7 @@ impl Client {
     }
 
     /// Pyreals carried.
-    fn purse(&self) -> u32 {
+    pub(crate) fn purse(&self) -> u32 {
         self.world
             .inventory()
             .filter(|o| o.item_type & item_type::MONEY != 0)
@@ -1964,34 +1883,6 @@ impl Client {
         !me.is_empty() && self.quartermaster_name(cfg).as_deref() == Some(me)
     }
 
-    /// Trade notes to cash so the character can pay for its shopping.
-    ///
-    /// A note is money, but not money a vendor will take: only coin
-    /// buys. Since the takings are turned into notes at every counter,
-    /// a character can walk up to the next one with a fortune in its
-    /// pack and nothing to pay with. Notes are cashed smallest first,
-    /// so a 250,000 note is not broken to buy a stack of tapers, and
-    /// only enough are cashed to cover the bill. The server pays face
-    /// value for a note, so cashing one costs nothing.
-    fn notes_to_cash(&self, need_coin: u32) -> Vec<u32> {
-        // Only notes this counter will take: one that deals in armour
-        // and nothing else cannot cash them.
-        let takes = self
-            .world
-            .open_vendor
-            .as_ref()
-            .map_or(0, |v| v.item_types & item_type::PROMISSORY_NOTE);
-        if takes == 0 {
-            return Vec::new();
-        }
-        let notes: Vec<(u32, u32)> = self
-            .world
-            .inventory()
-            .filter(|o| o.item_type & item_type::PROMISSORY_NOTE != 0 && o.value > 0)
-            .map(|o| (o.guid, o.value))
-            .collect();
-        notes_for_bill(self.purse(), need_coin, &notes)
-    }
 
     /// Everything the character is carrying that the rules would sell,
     /// whether or not a vendor is open. What the party hands its
@@ -2227,75 +2118,8 @@ impl Client {
         )
     }
 
-    /// The Mayoi notes to buy with the coin in hand, as `(stock line,
-    /// how many)`, keeping the float back.
-    ///
-    /// This is what makes room during a sale: the coin the counter has
-    /// just paid out is filling the pack, and the same counter will
-    /// take it back as notes.
-    fn notes_to_make(&self) -> Option<(u32, u32)> {
-        let float = self.autoplay.config.team.restock.float;
-        let spare = self.purse().saturating_sub(float);
-        let line = self
-            .stock()
-            .into_iter()
-            .find(|s| s.wcid == ac_world::shops::MMD && s.price > 0)?;
-        // A trade note stacks two hundred and fifty deep, and asking
-        // for more than that in one go buys a stack and strands the
-        // rest. One stack at a time is plenty: it carries sixty-two
-        // and a half million.
-        let count = (spare / line.price).min(crate::errand::NOTE_STACK);
-        // And never more than the shelf has.
-        let count = line.stack.map_or(count, |have| count.min(have));
-        (count > 0).then_some((line.guid, count))
-    }
 
-    /// The next thing to do about selling: hand something over, or cut
-    /// a stack down to what the counter will look at.
-    fn next_sale(&self, cfg: &Growth) -> Option<Sale> {
-        let ceiling = self.world.open_vendor.as_ref().map_or(0, |v| v.max_value);
-        let mut cut: Option<Sale> = None;
-        for guid in self.sale_list(cfg) {
-            let Some(o) = self.world.objects.get(&guid) else {
-                continue;
-            };
-            let it = Salable {
-                guid,
-                item_type: o.item_type,
-                value: o.value,
-                stack: o.stack_size.max(1),
-            };
-            let takes = it.at_once(ceiling);
-            if takes == 0 {
-                continue;
-            }
-            if takes >= it.stack {
-                // Goes as it stands, which is always better than
-                // cutting: handing something over is one message and
-                // cutting is two.
-                return Some(Sale::Hand(guid));
-            }
-            cut.get_or_insert(Sale::Cut {
-                guid,
-                amount: takes,
-            });
-        }
-        if cut.is_some() {
-            return cut;
-        }
-        // Nothing left to sell. Cash whatever notes the shopping is
-        // about to need: the counter takes coin, not paper, and the
-        // takings from the last stop are already notes.
-        let bill: u32 = {
-            let stock = self.stock();
-            let needs = self.grow_needs(cfg);
-            orders(&needs, &stock, u32::MAX)
-                .iter()
-                .filter_map(|(g, a)| stock.iter().find(|s| s.guid == *g).map(|s| s.price * a))
-                .sum()
-        };
-        self.notes_to_cash(bill).first().map(|g| Sale::Hand(*g))
-    }
+
 
     /// The open vendor's stock, priced.
     fn stock(&self) -> Vec<Stock> {
@@ -2501,6 +2325,34 @@ impl Client {
             format!("putting {} {} with the rest", m.amount, m.name),
         );
         Did::Acting
+    }
+
+    /// What the character is short of, as the shopping rules want it:
+    /// a weenie class, a name and how many more to buy.
+    ///
+    /// Only lines that can actually be bought. What no counter stocks
+    /// is farmed instead, and a want nobody can fill would hold a trip
+    /// open for ever.
+    pub(crate) fn vendor_shortfall(&self, cfg: &Growth) -> Vec<ac_vendor::counter::Want> {
+        self.grow_needs(cfg)
+            .into_iter()
+            .filter(|n| n.buyable && n.want > 0)
+            .filter_map(|n| {
+                let wcid = match n.kind {
+                    NeedKind::Component(wcid) => wcid,
+                    // Ammunition and named stock are matched on the
+                    // shelf by name rather than by class, so they are
+                    // left to the older path for now.
+                    _ => return None,
+                };
+                Some(ac_vendor::counter::Want {
+                    wcid,
+                    name: n.name,
+                    short: n.want,
+                    urgent: n.urgent,
+                })
+            })
+            .collect()
     }
 
     /// What the character is carrying, in burden units, and the most
@@ -3022,21 +2874,15 @@ impl Client {
                 self.autoplay.growth.run = Some(run);
                 true
             }
-            Phase::Selling { mut sent } => {
-                if self.world.open_vendor.is_none() {
-                    self.autoplay.note("the vendor closed on us", now);
-                    return self.grow_run_next(run, now, cfg, false);
-                }
-                // One thing at a time, decided afresh every turn.
-                //
-                // This used to hold a list of guids worked out when the
-                // counter opened, and then spend its life patching that
-                // list: an item sold leaves it, a stack split becomes a
-                // guid nobody listed, a merge makes a guid vanish
-                // outright. Every bug in the selling came from the list
-                // being a moment out of date. So there is no list. Each
-                // turn asks the pack what there is to sell now, and
-                // does exactly one thing about it.
+            Phase::Selling { .. } => {
+                // The shopping itself is decided in `ac-vendor`, which
+                // has no idea what a socket is: it is handed a plain
+                // description of the pack, the purse and the counter
+                // and answers with one thing to do. This side reads the
+                // world into that description and carries the answer
+                // out. The same rules run in the panel and in
+                // `cargo run -p ac-vendor --example trip`, so a trip
+                // can be argued about without a server being awake.
                 if run
                     .last_sell
                     .is_some_and(|t| now.duration_since(t) < SELL_EVERY)
@@ -3044,125 +2890,31 @@ impl Client {
                     self.autoplay.growth.run = Some(run);
                     return true;
                 }
-                // Wait for what has already gone out. The counter takes
-                // one thing at a time and answers in its own time.
-                let waiting: Vec<u32> = sent
-                    .iter()
-                    .copied()
-                    .filter(|g| self.world.is_carried(*g))
-                    .collect();
-                if !waiting.is_empty() {
-                    if elapsed < SETTLE {
-                        self.autoplay.growth.run = Some(run);
-                        return true;
+                let snap = self.vendor_snapshot(cfg);
+                let next = self.autoplay.growth.shop.step(&snap, now);
+                self.autoplay.growth.last_saying = next.saying.clone();
+                match next.act {
+                    Some(ac_vendor::Act::Close) | None => {
+                        run.sold = self.autoplay.growth.shop.sold;
+                        self.close_vendor();
+                        self.autoplay.growth.shop = ac_vendor::Run::new();
+                        return self.grow_run_next(run, now, cfg, false);
                     }
-                    // It would not take them. The kind and the worth
-                    // were checked before they were offered, so this is
-                    // the item refusing for itself and no counter will
-                    // take it (see `crate::did::Did::Refused`).
-                    for guid in &waiting {
-                        self.autoplay.growth.unsellable.note(
-                            *guid,
-                            &crate::did::Did::refused("no vendor will take it"),
-                            now,
-                        );
-                    }
-                    tracing::info!(
-                        "growth: {} item(s) the vendor would not take",
-                        waiting.len()
-                    );
-                }
-                run.sold += (sent.len() - waiting.len()) as u32;
-                sent.clear();
-
-                // Compress again before each round of selling.
-                //
-                // It is not enough to do it once on arrival. Every sale
-                // makes the character lighter, and weight is what the
-                // server weighs a pour against: stacks it would not put
-                // together with a full pack go together happily a few
-                // sales later. Nothing is in flight at this point --
-                // `sent` was just cleared -- so a stack vanishing into
-                // another pulls the ground from under nothing.
-                if matches!(
-                    self.compress(now),
-                    crate::did::Did::Acting | crate::did::Did::Waiting(_)
-                ) {
-                    run.phase = Phase::Selling { sent };
-                    self.autoplay.growth.run = Some(run);
-                    return true;
-                }
-
-                // Selling fills the pack with change: a pyreal stack
-                // holds twenty-five thousand and then takes another
-                // slot. Once the pack is low on room the takings go
-                // into Mayoi notes -- one slot of notes carries sixty
-                // two million -- and then the selling goes on. Low on
-                // room, not out of it: waiting for the last slot means
-                // the next handful of coin has nowhere to go.
-                if self.free_space() <= self.autoplay.config.team.restock.keep_slots {
-                    if let Some((line, count)) = self.notes_to_make() {
-                        self.buy_amount(line, count);
-                        self.autoplay.say(
-                            Doing::Shopping,
-                            format!("packing the takings into {count} note(s)"),
-                        );
-                        run.last_sell = Some(now);
-                        run.since = now;
-                        run.phase = Phase::Selling { sent };
-                        self.autoplay.growth.run = Some(run);
-                        return true;
-                    }
-                }
-
-                match self.next_sale(cfg) {
-                    Some(Sale::Hand(guid)) => {
-                        self.sell(guid);
-                        sent.push(guid);
-                        run.last_sell = Some(now);
-                        run.since = now;
-                        run.phase = Phase::Selling { sent };
-                        self.autoplay.growth.run = Some(run);
-                        true
-                    }
-                    Some(Sale::Cut { guid, amount }) => {
-                        // Worth more than this counter will look at, so
-                        // cut off as much as it will take. The piece is
-                        // a new object; next turn simply asks the pack
-                        // again and finds it.
-                        if !self.split_stack(guid, None, amount) {
-                            // Nowhere to put the piece. Leave the stack
-                            // and get on with the rest.
-                            self.autoplay.growth.unsellable.note(
-                                guid,
-                                &crate::did::Did::blocked("no room to cut it down"),
-                                now,
-                            );
+                    Some(act) => {
+                        // A refusal on this side is an answer too: the
+                        // rules are told, so that they stop asking
+                        // rather than spend the afternoon on it.
+                        if !self.do_vendor_act(&act, &next.saying) {
+                            self.autoplay
+                                .note(format!("could not {}: {act:?}", next.saying), now);
                         }
                         run.last_sell = Some(now);
                         run.since = now;
-                        run.phase = Phase::Selling { sent };
+                        run.phase = Phase::Selling { sent: Vec::new() };
                         self.autoplay.growth.run = Some(run);
-                        true
-                    }
-                    None => {
-                        let sold = run.sold;
-                        self.autoplay
-                            .say(Doing::Shopping, format!("sold {sold} item(s)"));
-                        run.phase = Phase::Buying;
-                        run.since = now;
-                        self.autoplay.growth.run = Some(run);
-                        true
+                        return true;
                     }
                 }
-            }
-            Phase::Buying => {
-                if elapsed < Duration::from_secs(2) {
-                    self.autoplay.growth.run = Some(run);
-                    return true;
-                }
-                self.close_vendor();
-                self.grow_run_next(run, now, cfg, false)
             }
         }
     }
@@ -3740,19 +3492,6 @@ mod tests {
         }
     }
 
-    fn stock(guid: u32, name: &str, wcid: u32, price: u32, stack: Option<u32>) -> Stock {
-        Stock {
-            guid,
-            name: name.into(),
-            wcid,
-            item_type: 0,
-            price,
-            stack,
-            // Weightless unless a test says otherwise; the ones about
-            // carrying capacity set it.
-            burden: 0,
-        }
-    }
 
     #[test]
     fn a_long_list_is_cut_short() {
@@ -3910,48 +3649,9 @@ mod tests {
         assert!(!wrong.worth_going());
     }
 
-    fn note(guid: u32, face: u32) -> Stock {
-        Stock {
-            guid,
-            name: format!("Trade Note ({face})"),
-            // Only the MMD is ever bought, so a test note is one.
-            wcid: ac_world::shops::MMD,
-            item_type: item_type::PROMISSORY_NOTE,
-            price: ac_world::shops::note_price(face),
-            stack: None,
-            // A trade note weighs nothing, which is why a fortune
-            // travels as notes.
-            burden: 0,
-        }
-    }
 
-    #[test]
-    fn only_as_many_notes_are_cashed_as_the_bill_needs() {
-        let held = vec![(1, 250_000), (2, 1_000), (3, 5_000)];
-        // Nothing owed, nothing cashed.
-        assert!(notes_for_bill(10_000, 0, &held).is_empty());
-        // Coin already covers it.
-        assert!(notes_for_bill(10_000, 8_000, &held).is_empty());
-        // Short by 4,000: the two small notes, not the fortune.
-        let cashed = notes_for_bill(1_000, 5_000, &held);
-        assert_eq!(cashed, vec![2, 3], "broke the wrong notes");
-    }
 
-    #[test]
-    fn a_big_note_is_broken_only_when_nothing_smaller_will_do() {
-        let held = vec![(1, 250_000), (2, 1_000)];
-        let cashed = notes_for_bill(0, 100_000, &held);
-        assert_eq!(cashed, vec![2, 1], "smallest first, then the rest");
-    }
 
-    #[test]
-    fn a_bill_no_amount_of_notes_covers_cashes_them_all() {
-        // Not an error: the character buys what it can afford.
-        let held = vec![(1, 100), (2, 500)];
-        assert_eq!(notes_for_bill(0, 1_000_000, &held), vec![1, 2]);
-        // And with no notes at all, nothing.
-        assert!(notes_for_bill(0, 1_000, &[]).is_empty());
-    }
 
     #[test]
     fn a_named_ground_is_not_judged_on_level() {
@@ -4019,65 +3719,7 @@ mod tests {
         assert!(worth_stocking("Mana Stone", false));
     }
 
-    #[test]
-    fn a_full_character_buys_what_it_can_carry_and_no_more() {
-        // A scarab weighs 10 and the character has room for 250.
-        let mut heavy = stock(1, "Lead Scarab", 690, 5, None);
-        heavy.burden = 10;
-        let shelf = [heavy];
-        let needs = vec![need(NeedKind::Component(690), 100)];
 
-        // Money enough for all hundred, and room enough for all
-        // hundred: it buys all hundred.
-        assert_eq!(
-            orders_within(&needs, &shelf, 10_000, 10_000),
-            vec![(1, 100)]
-        );
-        // Money enough, room for twenty-five: it buys twenty-five.
-        assert_eq!(orders_within(&needs, &shelf, 10_000, 250), vec![(1, 25)]);
-        // Room for nothing at all: it buys nothing, which is what it
-        // must do rather than ask and be refused.
-        assert!(orders_within(&needs, &shelf, 10_000, 0).is_empty());
-        assert!(orders_within(&needs, &shelf, 10_000, 9).is_empty());
-        // Whichever runs out first decides.
-        assert_eq!(orders_within(&needs, &shelf, 50, 10_000), vec![(1, 10)]);
-
-        // Something weightless is held back by the purse alone, which
-        // is why a fortune travels as trade notes.
-        let notes = [note(2, 5_000)];
-        let mut want_notes = need(NeedKind::Named("Trade Note".into()), 3);
-        want_notes.name = "Trade Note".into();
-        let asked = orders_within(&[want_notes], &notes, 1_000_000, 0);
-        assert_eq!(asked, vec![(2, 3)], "no weight, so no weight limit");
-    }
-
-    #[test]
-    fn orders_match_needs_to_stock_within_the_purse() {
-        let needs = vec![
-            need(NeedKind::Named("Healing Kit".into()), 2),
-            need(NeedKind::Ammo(ac_world::fletching::ammo_type::ARROW), 200),
-            need(NeedKind::Component(691), 30),
-        ];
-        let shelf = vec![
-            stock(1, "Handy Healing Kit", 100, 40, None),
-            stock(2, "Excellent Healing Kit", 101, 300, None),
-            stock(3, "Fire Arrow", 200, 5, None),
-            stock(4, "Arrow", 201, 1, None),
-            stock(5, "Bundle of Arrowheads", 202, 20, None),
-            stock(6, "Lead Scarab", 691, 1, Some(10)),
-        ];
-        // Cheapest kit, plain arrows, the scarab by weenie; the scarab
-        // stock is only ten deep.
-        assert_eq!(
-            orders(&needs, &shelf, 10_000),
-            vec![(1, 2), (4, 200), (6, 10)]
-        );
-        // A thin purse buys what it can, in order of need.
-        assert_eq!(orders(&needs, &shelf, 100), vec![(1, 2), (4, 20)]);
-        assert_eq!(orders(&needs, &shelf, 0), vec![]);
-        // Nothing wanted from a stock that has none of it.
-        assert!(orders(&needs, &[stock(9, "Sword", 5, 10, None)], 1000).is_empty());
-    }
 
     #[test]
     fn ammunition_is_the_plain_kind() {

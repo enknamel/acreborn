@@ -97,6 +97,7 @@ dependencies = [
  "ac-formats",
  "ac-net",
  "ac-scene",
+ "ac-vendor",
  "ac-world",
  "egui",
  "glam 0.30.10",

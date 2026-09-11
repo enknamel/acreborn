@@ -73,12 +73,14 @@ fn main() {
                     name: "Mayoi Trade Note".into(),
                     price: 287_500,
                     stock: None,
+                    burden: 1,
                 },
                 Ware {
                     wcid: 20631,
                     name: "Prismatic Taper".into(),
                     price: 26,
                     stock: None,
+                    burden: 1,
                 },
             ],
             note_face: Some(NOTE_FACE),
@@ -229,6 +231,17 @@ fn apply(snap: &mut Snapshot, act: &Act, next_guid: &mut u32) {
             for w in snap.wants.iter_mut() {
                 if w.wcid == *wcid {
                     w.short = w.short.saturating_sub(*count);
+                }
+            }
+        }
+        Act::Cash { face, count } => {
+            let have = snap.notes.get(face).copied().unwrap_or(0);
+            let sold = (*count).min(have);
+            if sold > 0 {
+                snap.notes.insert(*face, have - sold);
+                snap.coin += face * sold;
+                if have - sold == 0 {
+                    snap.slots_free += 1;
                 }
             }
         }

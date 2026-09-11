@@ -32,6 +32,7 @@ pub mod recalls;
 pub mod reconnect;
 pub mod recovery;
 pub mod route;
+pub mod shopping;
 pub mod steps;
 pub mod travel;
 pub mod weapons;

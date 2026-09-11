@@ -27,6 +27,13 @@ pub enum Act {
     Sell { guid: u32 },
     /// Buy this many of something on the shelf.
     Buy { wcid: u32, count: u32 },
+    /// Turn trade notes back into coin to pay a bill.
+    ///
+    /// A counter takes notes for what it sells, but not as change: a
+    /// purse of notes and no coin cannot buy a handful of tapers. The
+    /// notes are sold back first, which costs their markup and is
+    /// still the only way to spend them on something small.
+    Cash { face: u32, count: u32 },
     /// Shut the window; the trip is over.
     Close,
 }
@@ -343,8 +350,45 @@ impl Run {
                 continue;
             }
             let afford = purse / ware.price;
-            let count = want.short.min(afford).min(ware.stock.unwrap_or(u32::MAX));
+            // And what it can carry home. Nothing known about the
+            // weight is not a reason to refuse: buy, and let the server
+            // answer for it.
+            let liftable = match ware.burden {
+                0 => u32::MAX,
+                each => snap.burden_room() / each,
+            };
+            let count = want
+                .short
+                .min(afford)
+                .min(liftable)
+                .min(ware.stock.unwrap_or(u32::MAX));
             if count == 0 {
+                continue;
+            }
+            let bill = ware.price.saturating_mul(count);
+            // Coin first. A purse whose worth is all in notes cannot
+            // pay a small bill, so enough of them are turned back into
+            // coin -- the smallest note that covers it, so that a
+            // fortune is not broken to buy a handful of tapers.
+            if bill > snap.coin {
+                let short = bill - snap.coin;
+                if let Some((face, have)) = snap
+                    .notes
+                    .iter()
+                    .find(|(face, n)| **n > 0 && **face >= short)
+                    .or_else(|| snap.notes.iter().rev().find(|(_, n)| **n > 0))
+                {
+                    let need = short.div_ceil((*face).max(1)).min(*have);
+                    if need > 0 {
+                        return Some(Next::acting(
+                            Act::Cash {
+                                face: *face,
+                                count: need,
+                            },
+                            format!("cashing {need} note(s) to pay for {}", want.name),
+                        ));
+                    }
+                }
                 continue;
             }
             return Some(Next::acting(
@@ -405,6 +449,7 @@ mod tests {
                 name: "Mayoi Trade Note".into(),
                 price: 287_500,
                 stock: None,
+                burden: 1,
             }],
             note_face: Some(250_000),
             away: 0.0,
@@ -573,6 +618,71 @@ mod tests {
         // The dagger, not the tapers, however much they are worth.
         let next = run.step(&s, Instant::now());
         assert_eq!(next.act, Some(Act::Sell { guid: 3 }), "{}", next.saying);
+    }
+
+    #[test]
+    fn a_purse_of_notes_is_cashed_before_a_small_bill_is_paid() {
+        let mut run = Run::new();
+        let mut s = snap(Vec::new());
+        s.coin = 0;
+        s.notes.insert(250_000, 4);
+        s.wants = vec![Want {
+            wcid: 20631,
+            name: "Prismatic Taper".into(),
+            short: 100,
+            urgent: true,
+        }];
+        s.counter.as_mut().unwrap().wares.push(Ware {
+            wcid: 20631,
+            name: "Prismatic Taper".into(),
+            price: 26,
+            stock: None,
+            burden: 6,
+        });
+        // 2,600 of bill and not a coin to pay it with.
+        let next = run.step(&s, Instant::now());
+        assert_eq!(
+            next.act,
+            Some(Act::Cash {
+                face: 250_000,
+                count: 1
+            }),
+            "{}",
+            next.saying
+        );
+    }
+
+    #[test]
+    fn a_laden_character_buys_only_what_it_can_carry_home() {
+        let mut run = Run::new();
+        let mut s = snap(Vec::new());
+        s.coin = 10_000_000;
+        s.rules.float = 10_000_000;
+        // Sixty units of room, and a taper weighs six.
+        s.carried = s.capacity * 3 - 60;
+        s.wants = vec![Want {
+            wcid: 20631,
+            name: "Prismatic Taper".into(),
+            short: 500,
+            urgent: true,
+        }];
+        s.counter.as_mut().unwrap().wares.push(Ware {
+            wcid: 20631,
+            name: "Prismatic Taper".into(),
+            price: 26,
+            stock: None,
+            burden: 6,
+        });
+        let next = run.step(&s, Instant::now());
+        assert_eq!(
+            next.act,
+            Some(Act::Buy {
+                wcid: 20631,
+                count: 10
+            }),
+            "{}",
+            next.saying
+        );
     }
 
     #[test]
