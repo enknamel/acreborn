@@ -12,6 +12,7 @@ pub mod daytime;
 pub mod did;
 pub mod dodge;
 pub mod emotes;
+pub mod errand;
 pub mod growth;
 pub mod holdings;
 pub mod items;
