@@ -132,6 +132,7 @@ pub fn item_map(s: &ItemStats) -> Map {
     map.insert("name".into(), text(&s.name));
     map.insert("kind".into(), text(s.kind));
     map.insert("stack".into(), int(s.stack));
+    map.insert("max_stack".into(), int(s.max_stack));
     map.insert("wielded".into(), s.wielded.into());
     map.insert("container".into(), int(s.container));
     map.insert("value".into(), int(s.value));
@@ -195,6 +196,14 @@ fn summary(c: &Client, index: usize) -> Map {
     map.insert("total_xp".into(), int(stats.total_xp));
     map.insert("available_xp".into(), int(stats.available_xp));
     map.insert("skill_credits".into(), int(stats.skill_credits));
+    let mut attrs = Map::new();
+    for (i, name) in ["strength", "endurance", "coordination", "quickness", "focus", "self"]
+        .iter()
+        .enumerate()
+    {
+        attrs.insert((*name).into(), int(stats.attributes[i].value()));
+    }
+    map.insert("attributes".into(), attrs.into());
     for (i, vital) in ["health", "stamina", "mana"].into_iter().enumerate() {
         map.insert(vital.into(), int(stats.vitals[i].current));
         map.insert(
@@ -1297,6 +1306,17 @@ impl Api for CtxApi<'_, '_> {
         self.client().merge_stacks(from as u32, to as u32, None)
     }
 
+    fn burden(&mut self) -> Map {
+        let (carried, capacity) = self.client().burden();
+        let ceiling = capacity.saturating_mul(3);
+        let mut m = Map::new();
+        m.insert("carried".into(), int(carried));
+        m.insert("capacity".into(), int(capacity));
+        m.insert("ceiling".into(), int(ceiling));
+        m.insert("room".into(), int(ceiling.saturating_sub(carried)));
+        m
+    }
+
     fn take_all(&mut self) -> i64 {
         let c = self.client();
         let items: Vec<u32> = c
@@ -1541,6 +1561,7 @@ mod tests {
             "name",
             "kind",
             "stack",
+            "max_stack",
             "wielded",
             "container",
             "value",

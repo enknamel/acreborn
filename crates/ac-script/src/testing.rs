@@ -396,6 +396,10 @@ impl Api for Recorder {
     fn merge(&mut self, _f: i64, _t: i64) -> bool {
         false
     }
+
+    fn burden(&mut self) -> Map {
+        Map::new()
+    }
     fn take_all(&mut self) -> i64 {
         self.record("take_all");
         0

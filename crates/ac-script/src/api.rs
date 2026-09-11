@@ -281,6 +281,12 @@ pub trait Api {
     fn squelches(&mut self) -> Array;
     fn appraisal(&mut self, guid: i64) -> Dynamic;
     fn merge(&mut self, from: i64, to: i64) -> bool;
+    /// What the character is carrying and what it may carry, as
+    /// { carried, capacity, ceiling, room }. The ceiling is three
+    /// times capacity: past it the server refuses to add anything
+    /// to the pack -- including, on its own reckoning, a stack the
+    /// character is already holding (see `merge`).
+    fn burden(&mut self) -> Map;
     /// Queue everything in the open container; returns how many.
     fn take_all(&mut self) -> i64;
     fn close_container(&mut self);
@@ -563,6 +569,7 @@ pub fn register(engine: &mut Engine) {
     engine.register_fn("squelches", || with_api(|a| a.squelches()));
     engine.register_fn("appraisal", |g: i64| with_api(|a| a.appraisal(g)));
     engine.register_fn("merge", |f: i64, t: i64| with_api(|a| a.merge(f, t)));
+    engine.register_fn("burden", || with_api(|a| a.burden()));
     engine.register_fn("take_all", || with_api(|a| a.take_all()));
     engine.register_fn("close_container", || with_api(|a| a.close_container()));
     engine.register_fn("buy", |n: &str| with_api(|a| a.buy(n)));
