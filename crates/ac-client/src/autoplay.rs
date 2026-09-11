@@ -561,11 +561,11 @@ const NOT_COMING: Duration = Duration::from_millis(900);
 /// unlooted corpse no timer at all until its first heartbeat, when it
 /// takes the default of five minutes and counts down from there
 /// (`WorldObject_Decay`), so this is the whole window there is.
-const CORPSE_LIFE: Duration = Duration::from_secs(300);
+pub(crate) const CORPSE_LIFE: Duration = Duration::from_secs(300);
 
 /// How close to rotting a corpse has to be before it is worth breaking
 /// off for. Inside this there is no second chance.
-const CORPSE_URGENT: Duration = Duration::from_secs(75);
+pub(crate) const CORPSE_URGENT: Duration = Duration::from_secs(75);
 
 /// How close the character has to stand before a corpse will open.
 ///
@@ -1072,7 +1072,7 @@ pub struct Autoplay {
     take_tries: crate::did::Patience<u32>,
     /// When each corpse was first seen, so the ones about to rot can be
     /// emptied first. A corpse we never saw appear is taken as fresh.
-    corpse_seen: Vec<(u32, Instant)>,
+    pub(crate) corpse_seen: Vec<(u32, Instant)>,
     last_recruit: Option<Instant>,
     /// Where the journey after a far-off leader was bound, to plan
     /// again once it has moved on.
@@ -1528,14 +1528,29 @@ impl Client {
         for chore in crate::steps::HOUSEKEEPING {
             chore.run(self, now);
         }
-        for step in crate::steps::STEPS {
+        // The reflexes run in their order, always. Nothing is weighed
+        // against a spell already in the air.
+        for step in crate::steps::reflexes() {
             let did = step.run(self, now);
             if did.acting() {
                 self.autoplay.step = Some(step.name);
                 return;
             }
-            // Why a step stood aside is worth having when a character
-            // is doing nothing and nobody can see why.
+            if let Some(because) = did.because() {
+                tracing::trace!("autoplay: {} stood aside: {because}", step.name);
+            }
+        }
+        // The goals are weighed. Most say nothing and take their place
+        // in the table, which is the order they had; the ones with an
+        // opinion can say that a corpse about to rot is worth more than
+        // the next fight (see `crate::steps`).
+        let mut goals = crate::steps::weigh(self, now);
+        while let Some((step, _)) = goals.next(self, now) {
+            let did = step.run(self, now);
+            if did.acting() {
+                self.autoplay.step = Some(step.name);
+                return;
+            }
             if let Some(because) = did.because() {
                 tracing::trace!("autoplay: {} stood aside: {because}", step.name);
             }
@@ -1971,8 +1986,18 @@ impl Client {
             }
             // A full pack takes nothing, and asking the server anyway
             // only fills the log with refusals.
-            if self.pack_full() {
-                self.autoplay.note("pack full, leaving the loot", now);
+            // A pack runs out of two things and this only ever counted
+            // one. Eighty-four refusals in one watched run were a
+            // character with slots to spare and nothing left to lift
+            // with, asking anyway and being told no each time.
+            let laden = self.burden_room() == 0;
+            if self.pack_full() || laden {
+                let why = if laden {
+                    "too laden to carry any more"
+                } else {
+                    "pack full, leaving the loot"
+                };
+                self.autoplay.note(why, now);
                 self.autoplay.looted.push(guid);
                 self.autoplay.corpse = None;
                 self.stop_walking_to_loot();
@@ -2103,8 +2128,14 @@ impl Client {
         // the thing hitting us does not. The exception is a corpse
         // about to rot, which is worth breaking off for because there
         // is no second chance at it.
-        let fighting = self.attack_target.is_some();
-        let pressed = fighting || self.autoplay.casting_at().is_some();
+        //
+        // A cast in progress is different from a fight in progress: a
+        // spell half thrown is wasted, and the corpse keeps for the
+        // second it takes to finish. Whether the fight itself is worth
+        // breaking off is not decided here any more -- the worth of
+        // looting says that, and it rises as bodies age and pile up
+        // (see `crate::steps`).
+        let pressed = self.autoplay.casting_at().is_some();
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
         let looted = self.autoplay.looted.clone();
@@ -2193,16 +2224,22 @@ impl Client {
         let Some((left, away, guid, name)) = corpse else {
             return false;
         };
-        // Nothing is worth breaking off a fight for except a corpse
-        // that will not be there afterwards.
+        // Never mid-cast, unless the body will not be there when the
+        // spell lands.
         if pressed && left > CORPSE_URGENT {
             return false;
         }
+        // Breaking off a fight means breaking it off. The server marks
+        // a character swinging or shooting as busy and refuses to open
+        // anything for it, so letting the attack run while walking to a
+        // corpse buys "You're too busy" and nothing else -- the target
+        // goes first, then the combat stance.
+        self.attack_target = None;
+        self.autoplay.casting_at = None;
+        self.autoplay.armed_for = None;
         if self.combat {
             self.toggle_combat();
         }
-        self.autoplay.casting_at = None;
-        self.autoplay.armed_for = None;
         // Stand over it first (see [`CORPSE_REACH`]).
         if away > CORPSE_REACH {
             if let Some(at) = self.world.objects.get(&guid).and_then(|o| o.world_pos()) {
