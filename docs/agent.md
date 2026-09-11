@@ -173,6 +173,18 @@ invisible in a boolean.
 Done first because it is mechanical, testable, pays for itself
 immediately, and makes the later stages cheaper.
 
+**Done**: the looting waits (`shelved`, `refused_kinds`, `take_tries`),
+the selling ones (`unsellable`, `skip_vendors`) and the hand-over
+(`give_tries`). Six flags and five constants replaced by one policy.
+
+**Deliberately not done here**: `run_was_futile`, `too_heavy` and
+`stopped_in_town`. They look like the others but are not. All three are
+read by `Supplies::broke`, which is how a character tells the *party*
+it is done shopping and should be carried on without -- so they are
+goal-layer state, not retry bookkeeping, and forcing them into a
+`Patience` would hide that. They become one honest "this character
+cannot restock, and here is why" in stage 3.
+
 ### Stage 2 -- the chain becomes data
 
 Lift the priority chain out of control flow into an ordered table of

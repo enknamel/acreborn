@@ -244,6 +244,33 @@ impl<K: Ord + Clone> Patience<K> {
         self.held.get(key).map(|h| h.wait)
     }
 
+    /// Hold one off for a wait the caller chooses, rather than the
+    /// policy's own.
+    ///
+    /// For the few places that know something the policy does not: a
+    /// trip to town that came to nothing is worth minutes, not the
+    /// half minute a full pack is worth, because nothing about a town
+    /// changes in half a minute. It doubles from there like any other.
+    pub fn hold(&mut self, key: K, first: Duration, now: Instant) {
+        match self.held.get_mut(&key) {
+            Some(held) if !held.never => {
+                held.wait = (held.wait * 2).min(AT_MOST);
+                held.since = now;
+            }
+            Some(_) => {}
+            None => {
+                self.held.insert(
+                    key,
+                    Held {
+                        since: now,
+                        wait: first.min(AT_MOST),
+                        never: false,
+                    },
+                );
+            }
+        }
+    }
+
     /// Forget one, whatever was remembered about it: the thing it was
     /// waiting on has changed.
     pub fn forget(&mut self, key: &K) {
@@ -336,6 +363,30 @@ mod tests {
         p.note(1, &Did::Done, t1 + BLOCKED_AGAIN * 2);
         assert!(!p.held(&1, t1 + BLOCKED_AGAIN * 2));
         assert!(p.is_empty());
+    }
+
+    #[test]
+    fn a_caller_may_choose_its_own_first_wait() {
+        let t0 = Instant::now();
+        let mut p: Patience<u32> = Patience::new();
+        let five = Duration::from_secs(5 * 60);
+        // A trip to town that came to nothing is worth minutes, not
+        // the half minute a full pack is worth.
+        p.hold(1, five, t0);
+        assert!(p.held(&1, t0 + five - Duration::from_secs(1)));
+        assert!(!p.held(&1, t0 + five));
+        // And it doubles from there like anything else.
+        p.hold(1, five, t0 + five);
+        assert!(p.held(&1, t0 + five * 2));
+        assert!(!p.held(&1, t0 + five * 3));
+        // A chosen wait never beats the ceiling either.
+        let mut q: Patience<u32> = Patience::new();
+        q.hold(1, Duration::from_secs(365 * 24 * 60 * 60), t0);
+        assert_eq!(q.waited(&1), Some(AT_MOST));
+        // And it does not disturb something already given up on.
+        q.note(2, &Did::refused("never"), t0);
+        q.hold(2, five, t0);
+        assert!(q.held(&2, t0 + Duration::from_secs(24 * 60 * 60)));
     }
 
     #[test]
