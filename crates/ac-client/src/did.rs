@@ -233,6 +233,17 @@ impl<K: Ord + Clone> Patience<K> {
         }
     }
 
+    /// How long the wait on this one has grown to, if it is being held
+    /// at all.
+    ///
+    /// A caller that must keep asking for things in order uses this to
+    /// tell "not yet" from "not coming": a wait that has doubled a few
+    /// times is a thing that has been asked for a few times and has
+    /// not budged.
+    pub fn waited(&self, key: &K) -> Option<Duration> {
+        self.held.get(key).map(|h| h.wait)
+    }
+
     /// Forget one, whatever was remembered about it: the thing it was
     /// waiting on has changed.
     pub fn forget(&mut self, key: &K) {

@@ -50,20 +50,7 @@ const LOOT_TIMEOUT: Duration = Duration::from_millis(2500);
 /// How many times to ask before leaving a corpse alone. Asking is
 /// cheap now that it is asked from arm's length.
 const LOOT_TRIES: u32 = 3;
-/// How many times to ask for one item before leaving it where it is.
-const TAKE_TRIES: u32 = 3;
-/// How long to leave a kind of thing alone after the server says it
-/// cannot be had yet, and the longest that wait ever grows to.
-///
-/// The server never says when the wait is up, so this is a guess that
-/// corrects itself: each refusal doubles it. Guessing short is the
-/// cheap mistake -- an ask that fails is one message and four hundred
-/// milliseconds, and it happens at most once per corpse -- while
-/// guessing long means walking past a thing that came back hours ago.
-/// A session can run for days, so nothing is ever given up on for
-/// good.
-const REFUSED_AGAIN_IN: Duration = Duration::from_secs(30 * 60);
-const REFUSED_AT_MOST: Duration = Duration::from_secs(4 * 60 * 60);
+
 /// How many goes at handing the same thing over before the party is
 /// let on without it.
 const GIVE_TRIES: u32 = 6;
@@ -72,11 +59,6 @@ const REACH_PROGRESS: f32 = 1.0;
 /// Walking towards something for this long without getting closer is
 /// not walking towards it any more.
 const REACH_GIVE_UP: Duration = Duration::from_secs(20);
-/// How long a corpse that would not open is left alone before it is
-/// tried again. A corpse is locked to the group that killed it until
-/// it has rotted past half its life -- a couple of minutes -- so this
-/// is roughly how long it takes for that to change.
-const SHELVED_FOR: Duration = Duration::from_secs(45);
 /// How long a corpse may stay open before the character gives up on
 /// it. Emptying one takes a second or two; anything past this is an
 /// item the server will not hand over, and standing there asking for
@@ -568,6 +550,11 @@ const MERGE_EVERY: Duration = Duration::from_millis(600);
 /// time and refuses the rest as "you're too busy", so they go one by
 /// one rather than all at once.
 const TAKE_EVERY: Duration = Duration::from_millis(400);
+/// A wait that has doubled this far means the item has been asked for
+/// several times and has not moved -- three asks, starting a quarter
+/// of a second apart and doubling. It is not coming, so the queue goes
+/// on without it rather than standing behind it.
+const NOT_COMING: Duration = Duration::from_millis(900);
 
 /// How long a monster's corpse lasts before it rots away. ACE gives an
 /// unlooted corpse no timer at all until its first heartbeat, when it
@@ -1022,14 +1009,13 @@ pub struct Autoplay {
     corpse: Option<(u32, Instant, Duration, u32)>,
     /// Corpses already emptied.
     pub(crate) looted: Vec<u32>,
-    /// Corpses that would not open, and when they last refused. A
-    /// corpse is locked to the group that killed it until it has rotted
-    /// a while, so this is a "later", not a "never".
-    pub(crate) shelved: Vec<(u32, Instant)>,
+    /// Corpses that would not open. A corpse is locked to the group
+    /// that killed it until it has rotted a while, so this is a
+    /// "later", not a "never", and the wait grows if it keeps saying no.
+    pub(crate) shelved: crate::did::Patience<u32>,
     /// Weenie classes the server has refused to hand over because they
-    /// can only be had so often: `(weenie, when it last refused, how
-    /// long to wait)`. See `Client::loot_refused`.
-    pub(crate) refused_kinds: Vec<(u32, Instant, Duration)>,
+    /// can only be had so often. See `Client::loot_refused`.
+    pub(crate) refused_kinds: crate::did::Patience<u32>,
     /// The corpse being walked to, if the looting set the walk going.
     /// A follower is walking after its leader with the same machinery,
     /// and that walk is not ours to cancel.
@@ -1074,11 +1060,11 @@ pub struct Autoplay {
     /// when the last one was asked for. The server takes one at a time.
     take_queue: Vec<u32>,
     last_take: Option<Instant>,
-    /// How many times each of those has been asked for. The server can
-    /// refuse -- a full pack, a chest that will not give the thing up
-    /// -- and it refuses in chat, not in a reply we can wait on, so the
-    /// only way to hear "no" is to notice the item has not moved.
-    take_tries: std::collections::BTreeMap<u32, u32>,
+    /// Items asked for and not moved. The server can refuse -- a full
+    /// pack, a chest that will not give the thing up -- and it refuses
+    /// in chat, not in a reply we can wait on, so the only way to hear
+    /// "no" is to notice the item has not moved.
+    take_tries: crate::did::Patience<u32>,
     /// When each corpse was first seen, so the ones about to rot can be
     /// emptied first. A corpse we never saw appear is taken as fresh.
     corpse_seen: Vec<(u32, Instant)>,
@@ -1860,11 +1846,13 @@ impl Client {
     pub(crate) fn loot_refused(&mut self, code: u32) {
         // YouHaveSolvedThisQuestTooRecently / TooManyTimes: what gates
         // the drops that can only be had so often.
-        let first = match code {
-            0x043E => REFUSED_AGAIN_IN,
-            0x043F => REFUSED_AGAIN_IN * 4,
-            _ => return,
-        };
+        // YouHaveSolvedThisQuestTooRecently / TooManyTimes: what gates
+        // the drops that can only be had so often. Both are waits --
+        // the first will certainly lift, and a solve cap can be raised
+        // -- so neither is a `Refused`, which would mean never.
+        if !matches!(code, 0x043E | 0x043F) {
+            return;
+        }
         let Some(&guid) = self.autoplay.take_queue.first() else {
             return;
         };
@@ -1874,30 +1862,16 @@ impl Client {
         let (wcid, name) = (o.weenie_class_id, o.name.clone());
         if wcid != 0 {
             let now = Instant::now();
-            // Each refusal doubles the wait, to a ceiling. A cooldown
-            // of an hour is picked up within the hour; a daily one
-            // costs a handful of wasted asks a day, which is nothing
-            // against missing the thing for a day.
-            let wait = match self
-                .autoplay
-                .refused_kinds
-                .iter_mut()
-                .find(|(w, ..)| *w == wcid)
-            {
-                Some((_, at, wait)) => {
-                    *at = now;
-                    *wait = (*wait * 2).min(REFUSED_AT_MOST);
-                    *wait
-                }
-                None => {
-                    self.autoplay.refused_kinds.push((wcid, now, first));
-                    first
-                }
-            };
-            tracing::info!(
-                "autoplay: {name} cannot be had yet; leaving its kind for {} minutes",
-                wait.as_secs() / 60
+            // The wait doubles with each refusal, so a cooldown of an
+            // hour is picked up within the hour and a daily one costs a
+            // handful of wasted asks a day -- nothing against missing
+            // the thing for a day.
+            self.autoplay.refused_kinds.note(
+                wcid,
+                &crate::did::Did::Blocked(crate::did::Because::server(code)),
+                now,
             );
+            tracing::info!("autoplay: {name} cannot be had yet; leaving its kind for a while");
         }
         self.autoplay.take_queue.retain(|g| *g != guid);
     }
@@ -1905,10 +1879,7 @@ impl Client {
     /// Whether this kind of thing is still inside the wait a refusal
     /// put on it.
     fn refused_lately(&self, wcid: u32, now: Instant) -> bool {
-        self.autoplay
-            .refused_kinds
-            .iter()
-            .any(|(w, at, wait)| *w == wcid && now.duration_since(*at) < *wait)
+        self.autoplay.refused_kinds.held(&wcid, now)
     }
 
     /// Let go of a walk toward a corpse, wherever that corpse has been
@@ -1976,8 +1947,11 @@ impl Client {
                 tracing::info!(
                     "autoplay: corpse {guid:#010x} will not open yet; trying again later"
                 );
-                self.autoplay.shelved.retain(|(g, _)| *g != guid);
-                self.autoplay.shelved.push((guid, now));
+                self.autoplay.shelved.note(
+                    guid,
+                    &crate::did::Did::blocked("it will not open yet"),
+                    now,
+                );
                 return false;
             }
             let open = self.world.open_container.clone();
@@ -2085,32 +2059,42 @@ impl Client {
             // Asking again every four hundred milliseconds until the
             // corpse rots is not persistence, it is a stuck character.
             let still: Vec<u32> = self.autoplay.take_queue.clone();
-            let tries = &self.autoplay.take_tries;
             self.autoplay.take_queue = still
                 .into_iter()
                 .filter(|g| items.contains(g) && !self.world.is_carried(*g))
-                .filter(|g| tries.get(g).copied().unwrap_or(0) < TAKE_TRIES)
                 .collect();
             if let Some(next) = self.autoplay.take_queue.first().copied() {
+                // One at a time, in order, and the order does not
+                // change while one is outstanding. Skipping over the
+                // item at the front because its wait has not run out
+                // would start the next take before this one had
+                // finished, and asking for two at once is what
+                // "Source item not found!" is.
                 let ready = self
                     .autoplay
                     .last_take
-                    .is_none_or(|t| now.duration_since(t) >= TAKE_EVERY);
+                    .is_none_or(|t| now.duration_since(t) >= TAKE_EVERY)
+                    && !self.autoplay.take_tries.held(&next, now);
                 if ready {
-                    let n = self.autoplay.take_tries.entry(next).or_insert(0);
-                    *n += 1;
-                    let n = *n;
+                    // The server answers a take by moving the item, or
+                    // refuses it in chat -- never in a reply we can wait
+                    // on. So the ask itself is recorded as waiting, and
+                    // an item that keeps not moving is asked for less
+                    // and less often: a quarter second, then a half,
+                    // then a second. A take that works takes the item
+                    // out of the corpse and so out of the queue, which
+                    // is what ends it.
+                    //
+                    // Waiting rather than blocked because a slow answer
+                    // is the common case and must not be mistaken for a
+                    // refusal.
+                    self.autoplay.take_tries.note(
+                        next,
+                        &crate::did::Did::waiting("it has not come out yet"),
+                        now,
+                    );
                     self.take(next);
                     self.autoplay.last_take = Some(now);
-                    if n == TAKE_TRIES {
-                        let what = self
-                            .world
-                            .objects
-                            .get(&next)
-                            .map(|o| o.name.clone())
-                            .unwrap_or_else(|| format!("{next:#010x}"));
-                        tracing::info!("autoplay: leaving {what}; it will not come out");
-                    }
                 }
                 return true;
             }
@@ -2141,13 +2125,9 @@ impl Client {
         let me = self.player.as_ref().map(|p| p.world_position());
         let Some(me) = me else { return false };
         let looted = self.autoplay.looted.clone();
-        // A corpse set aside for being locked is tried again once the
-        // wait is up; one that has gone is forgotten.
-        let here: std::collections::BTreeSet<u32> = self.world.objects.keys().copied().collect();
-        self.autoplay
-            .shelved
-            .retain(|(g, t)| here.contains(g) && now.duration_since(*t) < SHELVED_FOR);
-        let shelved: Vec<u32> = self.autoplay.shelved.iter().map(|(g, _)| *g).collect();
+        // A corpse set aside for being locked is tried again once its
+        // wait is up; waits that have run out stop being remembered.
+        self.autoplay.shelved.tidy(now);
         // Note when each corpse turned up, so the ones running out can
         // be emptied first. Forgotten once emptied, so the list stays
         // the size of what is on the ground.
@@ -2202,7 +2182,7 @@ impl Client {
             .objects
             .values()
             .filter(|o| o.object_desc_flags & ac_world::object_desc_flags::CORPSE != 0)
-            .filter(|o| !looted.contains(&o.guid) && !shelved.contains(&o.guid))
+            .filter(|o| !looted.contains(&o.guid) && !self.autoplay.shelved.held(&o.guid, now))
             // Another player's corpse is theirs: a teammate's gear taken
             // off their body is not loot, whatever the filters say. Our
             // own is emptied for everything on it (see below): the wand
@@ -4623,25 +4603,30 @@ impl Client {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn a_refusal_is_a_wait_that_doubles_rather_than_a_grudge() {
-        // What `loot_refused` does to the list, without a client to
-        // hang it on: the wait starts modest, doubles with each
-        // refusal, and stops growing at the ceiling.
-        let mut wait = REFUSED_AGAIN_IN;
-        assert_eq!(wait, Duration::from_secs(30 * 60));
-        for _ in 0..10 {
-            wait = (wait * 2).min(REFUSED_AT_MOST);
-        }
-        assert_eq!(wait, REFUSED_AT_MOST, "the wait has a ceiling");
+    fn a_daily_limit_is_a_wait_and_not_a_grudge() {
+        use crate::did::{Because, Did, Patience};
+        let t0 = Instant::now();
+        let mut kinds: Patience<u32> = Patience::new();
+
+        // YouHaveSolvedThisQuestTooRecently is what gates a once-a-day
+        // drop. It is a wait: the thing comes back, and a session can
+        // run for days.
+        let too_recently = Did::Blocked(Because::server(0x043E));
+        assert_eq!(too_recently.because().and_then(|b| b.code), Some(0x043E));
+        kinds.note(7299, &too_recently, t0);
+        assert!(kinds.held(&7299, t0), "left alone for now");
+        // Not for ever, though: a day later it is asked about again.
         assert!(
-            REFUSED_AT_MOST < Duration::from_secs(24 * 60 * 60),
-            "a day's cooldown is retried several times a day, not once"
+            !kinds.held(&7299, t0 + Duration::from_secs(24 * 60 * 60)),
+            "a day later it is worth another ask"
         );
-        // A max-solves refusal starts further out than a cooldown, but
-        // it is still a wait: max solves can be raised, and a session
-        // can outlive the reason.
-        assert_eq!(REFUSED_AGAIN_IN * 4, Duration::from_secs(2 * 60 * 60));
-        assert!(REFUSED_AGAIN_IN * 4 <= REFUSED_AT_MOST);
+        // Nor is "too many times", which a raised cap can lift.
+        kinds.note(7299, &Did::Blocked(Because::server(0x043F)), t0);
+        assert!(!kinds.held(&7299, t0 + Duration::from_secs(24 * 60 * 60)));
+        // Only a thing no counter will ever take is for ever, and that
+        // is a different answer entirely.
+        kinds.note(1, &Did::refused("no vendor will take it"), t0);
+        assert!(kinds.held(&1, t0 + Duration::from_secs(24 * 60 * 60)));
     }
 
     use super::*;
