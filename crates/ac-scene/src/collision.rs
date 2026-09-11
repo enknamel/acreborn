@@ -1,6 +1,7 @@
 //! Static collision geometry for a landblock: world-space triangles from
-//! the physics polygons of buildings, statics, scenery and interior cells,
-//! bucketed on a 4 m grid.
+//! the physics polygons of buildings, statics, scenery and interior cells
+//! -- plus, for a model that has none, the cylinder its Setup collides by
+//! -- bucketed on a 4 m grid.
 //!
 //! This is a deliberately simple first cut, not the client's BSP/sphere
 //! physics: a character is a vertical capsule; walls (steep triangles)
@@ -12,9 +13,10 @@
 
 use std::collections::HashMap;
 
-use ac_formats::gfxobj::{GfxObj, Polygon, Vertex};
+use ac_formats::gfxobj::{Polygon, Vertex};
 use glam::{Mat4, Vec3};
 
+use crate::interior::CellIndex;
 use crate::landblock::LandblockScene;
 use crate::model::{place, VertexTable};
 use crate::{Assets, Result};
@@ -99,6 +101,9 @@ pub struct Tri {
 pub struct CollisionWorld {
     pub tris: Vec<Tri>,
     grid: HashMap<(i32, i32), Vec<u32>>,
+    /// The interior cells the triangles came from, for
+    /// [`inside_cell`](Self::inside_cell).
+    cells: CellIndex,
 }
 
 /// Möller–Trumbore for either winding; returns the ray parameter (`d` is
@@ -166,10 +171,25 @@ impl CollisionWorld {
         for t in &other.tris {
             self.add_tri(t.a, t.b, t.c, t.cell, t.two_sided);
         }
+        self.cells.absorb(&other.cells);
     }
 
-    /// Add a polygon set (physics polygons if present, else drawing
-    /// polygons) transformed by `t`.
+    /// Whether `p` stands inside one of the interior cells this world
+    /// was built from, the way `EnvCell::point_in_cell` decides it;
+    /// true when there are no interior cells at all.
+    ///
+    /// Interior geometry has two sides, and the outer one -- the top of
+    /// the metre-thick slab a dungeon's floor is made of, the back of a
+    /// wall -- is perfectly good up-facing collision sitting in a sealed
+    /// void between the rooms. Nothing ever stands there; the client
+    /// would not even count such a spot as part of the dungeon. A
+    /// walkable grid laid over the raw triangles finds those surfaces
+    /// and fills them with nodes that connect to nothing.
+    pub fn inside_cell(&self, p: Vec3) -> bool {
+        self.cells.is_empty() || self.cells.contains(p)
+    }
+
+    /// Add a polygon set transformed by `t`.
     fn add_polys(&mut self, verts: &[(u16, Vertex)], polys: &[(u16, Polygon)], t: Mat4, cell: u32) {
         let table = VertexTable::new(verts);
         let mut pts: Vec<Vec3> = Vec::new();
@@ -188,28 +208,92 @@ impl CollisionWorld {
         }
     }
 
-    /// Add a placed object's geometry; `cell` is the interior cell it
+    /// Sides and top of an upright cylinder, as a twelve-sided prism.
+    fn add_cylinder(&mut self, base: Vec3, radius: f32, height: f32, cell: u32) {
+        const SIDES: usize = 12;
+        if radius <= 1e-3 || height <= 1e-3 {
+            return;
+        }
+        let top = base + Vec3::new(0.0, 0.0, height);
+        let ring = |c: Vec3, i: usize| {
+            let a = std::f32::consts::TAU * i as f32 / SIDES as f32;
+            c + Vec3::new(radius * a.cos(), radius * a.sin(), 0.0)
+        };
+        for i in 0..SIDES {
+            let j = (i + 1) % SIDES;
+            let (a, b) = (ring(base, i), ring(base, j));
+            let (c, d) = (ring(top, j), ring(top, i));
+            // Wound so the normals point out of the cylinder.
+            self.add_tri(a, b, c, cell, false);
+            self.add_tri(a, c, d, cell, false);
+            // The top, as a fan: a crate is stood on, not only bumped.
+            self.add_tri(top, d, c, cell, false);
+        }
+    }
+
+    /// Add a placed model's collision; `cell` is the interior cell it
     /// stands in (0 outdoors), so that standing on a door sill, a
     /// staircase or a chest inside a dungeon still counts as being in
     /// that cell.
-    fn add_gfxobj(&mut self, g: &GfxObj, t: Mat4, cell: u32) {
-        if !g.physics_polygons.is_empty() {
-            self.add_polys(&g.vertices, &g.physics_polygons, t, cell);
+    ///
+    /// What collides is decided the way `PhysicsObj::FindObjCollisions`
+    /// decides it: a part whose GfxObj has no physics polygons has no
+    /// physics BSP and so contributes nothing at all, and a model none
+    /// of whose parts has one collides by its Setup's cylinder-spheres
+    /// (or, failing those, its spheres) instead. Nine in ten GfxObjs
+    /// carry no physics polygons -- arches, door frames, trim, banners
+    /// -- and building collision from their drawing polygons instead
+    /// walled dungeons off at every doorway.
+    fn add_model(&mut self, assets: &Assets, model_id: u32, world: Mat4, cell: u32) {
+        let Ok(parts) = place(assets, model_id, world) else {
+            return;
+        };
+        let mut solid = false;
+        for part in &parts {
+            if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
+                if !g.physics_polygons.is_empty() {
+                    solid = true;
+                    self.add_polys(&g.vertices, &g.physics_polygons, part.transform, cell);
+                }
+            }
+        }
+        if solid || model_id >> 24 != 0x02 {
+            return;
+        }
+        let Ok(setup) = assets.setup(model_id) else {
+            return;
+        };
+        // Scenery is placed with a uniform scale baked into `world`.
+        let scale = world.x_axis.truncate().length();
+        if !setup.cyl_spheres.is_empty() {
+            for c in &setup.cyl_spheres {
+                self.add_cylinder(
+                    world.transform_point3(c.origin),
+                    c.radius * scale,
+                    c.height * scale,
+                    cell,
+                );
+            }
         } else {
-            self.add_polys(&g.vertices, &g.polygons, t, cell);
+            for sp in &setup.spheres {
+                let r = sp.radius * scale;
+                let centre = world.transform_point3(sp.origin);
+                self.add_cylinder(centre - Vec3::new(0.0, 0.0, r), r, 2.0 * r, cell);
+            }
         }
     }
 
     /// Build from an assembled landblock: its placed parts (buildings,
     /// statics, scenery) and interior cells.
     pub fn from_scene(assets: &Assets, scene: &LandblockScene) -> Result<Self> {
-        let mut w = CollisionWorld::default();
+        let mut w = CollisionWorld {
+            cells: CellIndex::build(assets, scene),
+            ..Default::default()
+        };
         let cells_first = scene.is_dungeon;
         if !cells_first {
-            for part in &scene.parts {
-                if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
-                    w.add_gfxobj(&g, part.transform, 0);
-                }
+            for &(id, world) in &scene.placements {
+                w.add_model(assets, id, world, 0);
             }
         }
         for cell in &scene.cells {
@@ -234,10 +318,8 @@ impl CollisionWorld {
                     );
                 }
             }
-            for part in &cell.parts {
-                if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
-                    w.add_gfxobj(&g, part.transform, cell.cell_id);
-                }
+            for &(id, world) in &cell.placements {
+                w.add_model(assets, id, world, cell.cell_id);
             }
         }
         if cells_first {
@@ -245,11 +327,8 @@ impl CollisionWorld {
             // also stand inside cells: tag them with the cell whose floor
             // is under them, else the nearest cell, so nothing in a
             // dungeon reads as outdoor geometry.
-            for part in &scene.parts {
-                let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
-                    continue;
-                };
-                let origin = part.transform.w_axis.truncate();
+            for &(id, world) in &scene.placements {
+                let origin = world.w_axis.truncate();
                 let cell = w
                     .floor_at(origin + Vec3::new(0.0, 0.0, 0.5), 5.0, 50.0)
                     .map(|(_, c)| c)
@@ -266,7 +345,7 @@ impl CollisionWorld {
                             .map(|c| c.cell_id)
                     })
                     .unwrap_or(0);
-                w.add_gfxobj(&g, part.transform, cell);
+                w.add_model(assets, id, world, cell);
             }
         }
         Ok(w)
@@ -696,10 +775,6 @@ pub fn closest_point_on_tri(p: Vec3, t: &Tri) -> Vec3 {
 /// Convenience: collision for a single model placed in the world.
 pub fn from_model(assets: &Assets, model_id: u32, world: Mat4) -> Result<CollisionWorld> {
     let mut w = CollisionWorld::default();
-    for part in place(assets, model_id, world)? {
-        if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
-            w.add_gfxobj(&g, part.transform, 0);
-        }
-    }
+    w.add_model(assets, model_id, world, 0);
     Ok(w)
 }

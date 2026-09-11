@@ -173,6 +173,30 @@ pub enum BspNode {
 }
 
 impl BspNode {
+    /// Is `p` (in the tree's own space) inside the volume a *cell* tree
+    /// describes? The client's `point_inside_cell_bsp`: descend into the
+    /// positive half-space at every split and say yes on reaching a leaf
+    /// or a split with no positive child; a point behind any splitting
+    /// plane is outside. Only meaningful for [`BspKind::Cell`] trees.
+    pub fn contains_point(&self, p: glam::Vec3) -> bool {
+        // The client's `PhysicsGlobals::EPSILON`: a point on a plane
+        // counts as being in front of it, so a spot in a doorway is
+        // inside both the cells it joins rather than neither.
+        const EPSILON: f32 = 0.0002;
+        let (plane, pos) = match self {
+            BspNode::Leaf { .. } => return true,
+            BspNode::Split { plane, pos, .. } => (plane, pos.as_deref()),
+            BspNode::Portal { plane, pos, .. } => (plane, Some(&**pos)),
+        };
+        if plane.normal.dot(p) + plane.d < -EPSILON {
+            return false;
+        }
+        match pos {
+            Some(child) => child.contains_point(p),
+            None => true,
+        }
+    }
+
     pub fn parse(r: &mut Reader, kind: BspKind) -> Result<Self> {
         let raw = r.bytes(4)?;
         // Tags are stored reversed ("nnPB" on disk for "BPnn").

@@ -428,6 +428,16 @@ impl NavGraph {
         }
         let (z, cell) = ground.surface_at(Vec3::new(q.x, q.y, p.z), cap)?;
         let feet = Vec3::new(q.x, q.y, z);
+        // Standing on interior geometry means standing in a cell. The
+        // probe is a hand's breadth up: a point exactly on the floor
+        // plane is on the boundary of the cell BSP, not inside it.
+        if cell != 0
+            && !ground
+                .collision
+                .inside_cell(feet + Vec3::new(0.0, 0.0, 0.1))
+        {
+            return None;
+        }
         ground.fits(feet, cap).then_some(NavNode {
             pos: feet,
             cell,

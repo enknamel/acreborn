@@ -16,6 +16,11 @@ pub struct LandblockScene {
     pub terrain: TerrainMesh,
     /// Static objects and buildings, in world space.
     pub parts: Vec<PlacedPart>,
+    /// The same placements before they were expanded into parts:
+    /// `(model id, world transform)`. Collision needs them whole,
+    /// because whether a model collides at all is a property of the
+    /// model rather than of any one of its parts.
+    pub placements: Vec<(u32, Mat4)>,
     pub has_info: bool,
     pub scenery_count: usize,
     /// A dungeon block: all terrain heights are zero and it only has
@@ -59,25 +64,36 @@ pub(crate) fn build(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
     } else {
         None
     };
+    let mut placements: Vec<(u32, Mat4)> = Vec::new();
     if let Some(info) = &info {
         for stab in &info.objects {
-            match place(assets, stab.id, origin * frame_to_mat(&stab.frame)) {
-                Ok(p) => parts.extend(p),
+            let world = origin * frame_to_mat(&stab.frame);
+            match place(assets, stab.id, world) {
+                Ok(p) => {
+                    placements.push((stab.id, world));
+                    parts.extend(p)
+                }
                 Err(e) => tracing::warn!("static {:#010x}: {e}", stab.id),
             }
         }
         for b in &info.buildings {
-            match place(assets, b.model_id, origin * frame_to_mat(&b.frame)) {
-                Ok(p) => parts.extend(p),
+            let world = origin * frame_to_mat(&b.frame);
+            match place(assets, b.model_id, world) {
+                Ok(p) => {
+                    placements.push((b.model_id, world));
+                    parts.extend(p)
+                }
                 Err(e) => tracing::warn!("building {:#010x}: {e}", b.model_id),
             }
         }
     }
     let mut scenery_count = 0;
     for inst in scenery::generate(assets, &lb, info.as_ref())? {
-        match place(assets, inst.obj_id, origin * inst.local) {
+        let world = origin * inst.local;
+        match place(assets, inst.obj_id, world) {
             Ok(p) => {
                 scenery_count += 1;
+                placements.push((inst.obj_id, world));
                 parts.extend(p)
             }
             Err(e) => tracing::warn!("scenery {:#010x}: {e}", inst.obj_id),
@@ -100,6 +116,7 @@ pub(crate) fn build(assets: &Assets, block_id: u32) -> Result<LandblockScene> {
         id: block_id,
         terrain,
         parts,
+        placements,
         has_info,
         scenery_count,
         cells,

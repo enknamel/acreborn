@@ -4,7 +4,8 @@ use ac_formats::environment::CellStruct;
 use ac_formats::gfxobj::{CullMode, Polygon};
 use ac_formats::landblock::{env_cell_flags, EnvCell};
 use ac_formats::surface::SurfaceBase;
-use glam::Mat4;
+use glam::{Mat4, Vec3};
+use std::rc::Rc;
 
 use crate::lighting::{cell_lights, CellLight};
 use crate::model::{
@@ -23,6 +24,10 @@ pub struct CellScene {
     pub transform: Mat4,
     pub submeshes: Vec<SubMesh>,
     pub parts: Vec<PlacedPart>,
+    /// The cell's static objects before expansion into parts:
+    /// `(model id, world transform)`, for collision (see
+    /// [`crate::landblock::LandblockScene::placements`]).
+    pub placements: Vec<(u32, Mat4)>,
     /// Lights carried by the cell's static objects, in world space.
     pub lights: Vec<CellLight>,
     /// Full ids of the cells behind this cell's portals.
@@ -121,9 +126,14 @@ pub fn load_cells(
         // client places them by the block's frame alone (as does ACViewer
         // with its landblock matrix).
         let mut parts = Vec::new();
+        let mut placements: Vec<(u32, Mat4)> = Vec::new();
         for stab in &cell.static_objects {
-            match place(assets, stab.id, origin * frame_to_mat(&stab.frame)) {
-                Ok(p) => parts.extend(p),
+            let world = origin * frame_to_mat(&stab.frame);
+            match place(assets, stab.id, world) {
+                Ok(p) => {
+                    placements.push((stab.id, world));
+                    parts.extend(p)
+                }
                 Err(e) => tracing::warn!("cell static {:#010x}: {e}", stab.id),
             }
         }
@@ -140,10 +150,97 @@ pub fn load_cells(
             transform,
             submeshes,
             parts,
+            placements,
             lights,
             portal_cells,
             seen_outside: cell.flags & env_cell_flags::SEEN_OUTSIDE != 0,
         });
     }
     Ok(out)
+}
+
+/// Which interior cells a point is inside, the way the client decides
+/// it: `EnvCell::point_in_cell` runs the cell structure's own BSP over
+/// the point in cell space.
+///
+/// This is what tells a floor from the outside of one. A dungeon is
+/// built out of boxes with walls a metre thick, and the tops and backs
+/// of those boxes are ordinary up-facing collision triangles in sealed
+/// voids between the rooms. Nothing stands there -- the client would
+/// not even call it part of the dungeon -- but a walkable-grid sampler
+/// happily lays a lattice over them.
+#[derive(Default)]
+pub struct CellIndex {
+    cells: Vec<IndexedCell>,
+}
+
+#[derive(Clone)]
+struct IndexedCell {
+    /// World-space bounds of the cell structure, as a first cut.
+    lo: Vec3,
+    hi: Vec3,
+    /// World space to cell space.
+    inverse: Mat4,
+    environment: Rc<ac_formats::environment::Environment>,
+    structure: u16,
+}
+
+impl CellIndex {
+    /// Index the interior cells of an assembled landblock. Cheap: the
+    /// environments are already in the asset cache.
+    pub fn build(assets: &Assets, scene: &crate::landblock::LandblockScene) -> CellIndex {
+        let mut cells = Vec::with_capacity(scene.cells.len());
+        for c in &scene.cells {
+            let Ok(env) = assets.environment(c.environment_id) else {
+                continue;
+            };
+            let Some((_, cs)) = env
+                .cells
+                .iter()
+                .find(|(k, _)| *k == c.cell_structure as u32)
+            else {
+                continue;
+            };
+            let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+            for (_, v) in &cs.vertices {
+                let p = c.transform.transform_point3(v.origin);
+                lo = lo.min(p);
+                hi = hi.max(p);
+            }
+            if lo.x > hi.x {
+                continue;
+            }
+            cells.push(IndexedCell {
+                lo,
+                hi,
+                inverse: c.transform.inverse(),
+                environment: env,
+                structure: c.cell_structure,
+            });
+        }
+        CellIndex { cells }
+    }
+
+    /// Take another block's cells into this index, so an area spanning
+    /// several blocks judges a point against all of them.
+    pub fn absorb(&mut self, other: &CellIndex) {
+        self.cells.extend(other.cells.iter().cloned());
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+
+    /// `p` (world space) is inside one of the cells.
+    pub fn contains(&self, p: Vec3) -> bool {
+        self.cells.iter().any(|c| {
+            p.cmpge(c.lo).all()
+                && p.cmple(c.hi).all()
+                && c.environment
+                    .cells
+                    .iter()
+                    .find(|(k, _)| *k == c.structure as u32)
+                    .is_some_and(|(_, s)| s.cell_bsp.contains_point(c.inverse.transform_point3(p)))
+        })
+    }
 }
