@@ -156,6 +156,15 @@ pub struct Restock {
     pub full_at: f32,
     /// Pyreals to keep in hand after shopping, for the next trip.
     pub float: u32,
+    /// Pack slots to keep free while selling.
+    ///
+    /// Selling fills the pack with change -- a pyreal stack holds
+    /// twenty-five thousand and then takes another slot -- so the sale
+    /// packs its takings into notes once it is down to this many free
+    /// slots, and then goes on selling. Low on room, not out of it:
+    /// waiting for the last slot means the next handful of coin has
+    /// nowhere to go and the counter stops taking things.
+    pub keep_slots: u32,
     /// Turn what is left over into trade notes rather than carrying
     /// coin, and share the notes out so everyone can pay their own way.
     pub share_money: bool,
@@ -183,6 +192,8 @@ impl Default for Restock {
             go_at: 0.35,
             full_at: 0.9,
             float: 5_000,
+            // Low on room, not out of it.
+            keep_slots: 3,
             share_money: true,
             max_rounds: 4,
             give_up_after: 900.0,
