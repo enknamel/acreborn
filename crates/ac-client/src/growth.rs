@@ -664,7 +664,13 @@ fn forecast(
         .iter()
         .filter(|it| it.taken_by(shop.buys, shop.min_value, shop.max_value))
     {
-        if let Some(paid) = shop.pays_for(it.item_type, it.value) {
+        // A counter's limits are about one of a thing, and its payment
+        // is for all of them. Judging a stack by its total refuses a
+        // hundred Pyreal Peas outright -- five million against a
+        // ceiling of one -- and then reckons the character has nothing
+        // to sell, which is how it came to walk thirty kilometres past
+        // a counter that would have bought them twenty at a time.
+        if let Some(paid) = shop.pays_for(it.item_type, it.each()) {
             f.selling += 1;
             f.takings = f
                 .takings
@@ -2219,8 +2225,12 @@ impl Client {
             .filter_map(|guid| {
                 let o = self.world.objects.get(&guid)?;
                 let stack = o.stack_size.max(1);
+                // `value` is already the whole stack's worth, so the
+                // payment is that times the rate -- not that times the
+                // stack a second time, which valued a hundred peas at
+                // five hundred million.
                 let pays = vendor
-                    .map(|v| (o.value.saturating_mul(stack) as f32 * v.buy_rate).round() as u32)
+                    .map(|v| (o.value as f32 * v.buy_rate).round() as u32)
                     .unwrap_or(0);
                 Some(ForSale {
                     guid,
@@ -3857,9 +3867,12 @@ mod tests {
         assert!(!broke.worth_going());
 
         // Unless there is something to sell, which pays for the rest.
-        // The gem is worth 400 and the shop pays half, per item in the
-        // stack.
-        let loot = [salable(9, ac_world::item_type::GEM, 400, 3)];
+        //
+        // Three gems, twelve hundred the lot: a stack's `value` is the
+        // whole stack's, which is how the server reckons it and what a
+        // counter's limits are measured against. Four hundred each, the
+        // shop pays half, so six hundred for the three.
+        let loot = [salable(9, ac_world::item_type::GEM, 1_200, 3)];
         let selling = forecast(&mage, &wants, 0, &loot);
         assert_eq!(selling.takings, 200 * 3);
         assert_eq!(selling.selling, 1);
@@ -3867,7 +3880,8 @@ mod tests {
         // What it will not buy does not count towards the trip.
         let armour = [salable(9, ac_world::item_type::ARMOR, 400, 1)];
         assert_eq!(forecast(&mage, &wants, 0, &armour).takings, 0);
-        // Nor does what is beneath its notice.
+        // Nor does what is beneath its notice -- and "beneath" is
+        // about one of them, not the pile.
         let trinket = [salable(9, ac_world::item_type::GEM, 5, 1)];
         assert_eq!(forecast(&mage, &wants, 0, &trinket).takings, 0);
 
