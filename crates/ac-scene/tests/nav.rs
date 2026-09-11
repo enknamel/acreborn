@@ -24,6 +24,7 @@ fn academy_start_room_to_the_far_end() {
         sea: None,
         no_go: None,
         outdoors_only: false,
+        doorways: &[],
     };
     let cap = Capsule::default();
     let origin = lbid::world_origin(block);

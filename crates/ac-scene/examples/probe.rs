@@ -31,6 +31,23 @@ fn main() {
             c.wall_contact(p, cap.radius, cap.height, skirt)
         );
     }
+    // Every floor in this column, and whether a node could stand on it:
+    // the three tests `NavGraph::place` makes.
+    println!("levels in this column:");
+    for (z, cell) in c.floors_at_xy(p.x, p.y) {
+        let feet = Vec3::new(p.x, p.y, z);
+        let snapped = c.resolve_above(feet, cap.radius, cap.height, cap.step_up);
+        let head = c.ceiling_at(feet, cap.radius);
+        println!(
+            "  z {:.2} cell {cell:#010x}: wall {}, ceiling {:?} (head room {:?}), snap moved {:.2}, inside_cell {}",
+            z - origin.z,
+            c.wall_contact(feet, cap.radius, cap.height, cap.step_up),
+            head.map(|h| h - origin.z),
+            head.map(|h| h - z),
+            (snapped - feet).length(),
+            c.inside_cell(feet + Vec3::new(0.0, 0.0, 0.1)),
+        );
+    }
     let r = c.resolve(p, cap.radius, cap.height);
     println!(
         "resolve -> {:?} (moved {:.3})",

@@ -1,7 +1,6 @@
 //! Static collision geometry for a landblock: world-space triangles from
 //! the physics polygons of buildings, statics, scenery and interior cells
-//! -- plus, for a model that has none, the cylinder its Setup collides by
-//! -- bucketed on a 4 m grid.
+//! bucketed on a 4 m grid.
 //!
 //! This is a deliberately simple first cut, not the client's BSP/sphere
 //! physics: a character is a vertical capsule; walls (steep triangles)
@@ -13,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use ac_formats::gfxobj::{Polygon, Vertex};
+use ac_formats::gfxobj::{GfxObj, Polygon, Vertex};
 use glam::{Mat4, Vec3};
 
 use crate::interior::CellIndex;
@@ -189,7 +188,16 @@ impl CollisionWorld {
         self.cells.is_empty() || self.cells.contains(p)
     }
 
-    /// Add a polygon set transformed by `t`.
+    /// The same question asked the other way round, for deciding
+    /// whether to *ignore* geometry: a world that knows of no interior
+    /// cells answers `false`, because not knowing where the cells are
+    /// must leave every triangle in place rather than discard them all.
+    pub fn in_known_cell(&self, p: Vec3) -> bool {
+        !self.cells.is_empty() && self.cells.contains(p)
+    }
+
+    /// Add a polygon set (physics polygons if present, else drawing
+    /// polygons) transformed by `t`.
     fn add_polys(&mut self, verts: &[(u16, Vertex)], polys: &[(u16, Polygon)], t: Mat4, cell: u32) {
         let table = VertexTable::new(verts);
         let mut pts: Vec<Vec3> = Vec::new();
@@ -208,78 +216,15 @@ impl CollisionWorld {
         }
     }
 
-    /// Sides and top of an upright cylinder, as a twelve-sided prism.
-    fn add_cylinder(&mut self, base: Vec3, radius: f32, height: f32, cell: u32) {
-        const SIDES: usize = 12;
-        if radius <= 1e-3 || height <= 1e-3 {
-            return;
-        }
-        let top = base + Vec3::new(0.0, 0.0, height);
-        let ring = |c: Vec3, i: usize| {
-            let a = std::f32::consts::TAU * i as f32 / SIDES as f32;
-            c + Vec3::new(radius * a.cos(), radius * a.sin(), 0.0)
-        };
-        for i in 0..SIDES {
-            let j = (i + 1) % SIDES;
-            let (a, b) = (ring(base, i), ring(base, j));
-            let (c, d) = (ring(top, j), ring(top, i));
-            // Wound so the normals point out of the cylinder.
-            self.add_tri(a, b, c, cell, false);
-            self.add_tri(a, c, d, cell, false);
-            // The top, as a fan: a crate is stood on, not only bumped.
-            self.add_tri(top, d, c, cell, false);
-        }
-    }
-
-    /// Add a placed model's collision; `cell` is the interior cell it
+    /// Add a placed object's geometry; `cell` is the interior cell it
     /// stands in (0 outdoors), so that standing on a door sill, a
     /// staircase or a chest inside a dungeon still counts as being in
     /// that cell.
-    ///
-    /// What collides is decided the way `PhysicsObj::FindObjCollisions`
-    /// decides it: a part whose GfxObj has no physics polygons has no
-    /// physics BSP and so contributes nothing at all, and a model none
-    /// of whose parts has one collides by its Setup's cylinder-spheres
-    /// (or, failing those, its spheres) instead. Nine in ten GfxObjs
-    /// carry no physics polygons -- arches, door frames, trim, banners
-    /// -- and building collision from their drawing polygons instead
-    /// walled dungeons off at every doorway.
-    fn add_model(&mut self, assets: &Assets, model_id: u32, world: Mat4, cell: u32) {
-        let Ok(parts) = place(assets, model_id, world) else {
-            return;
-        };
-        let mut solid = false;
-        for part in &parts {
-            if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
-                if !g.physics_polygons.is_empty() {
-                    solid = true;
-                    self.add_polys(&g.vertices, &g.physics_polygons, part.transform, cell);
-                }
-            }
-        }
-        if solid || model_id >> 24 != 0x02 {
-            return;
-        }
-        let Ok(setup) = assets.setup(model_id) else {
-            return;
-        };
-        // Scenery is placed with a uniform scale baked into `world`.
-        let scale = world.x_axis.truncate().length();
-        if !setup.cyl_spheres.is_empty() {
-            for c in &setup.cyl_spheres {
-                self.add_cylinder(
-                    world.transform_point3(c.origin),
-                    c.radius * scale,
-                    c.height * scale,
-                    cell,
-                );
-            }
+    fn add_gfxobj(&mut self, g: &GfxObj, t: Mat4, cell: u32) {
+        if !g.physics_polygons.is_empty() {
+            self.add_polys(&g.vertices, &g.physics_polygons, t, cell);
         } else {
-            for sp in &setup.spheres {
-                let r = sp.radius * scale;
-                let centre = world.transform_point3(sp.origin);
-                self.add_cylinder(centre - Vec3::new(0.0, 0.0, r), r, 2.0 * r, cell);
-            }
+            self.add_polys(&g.vertices, &g.polygons, t, cell);
         }
     }
 
@@ -292,8 +237,10 @@ impl CollisionWorld {
         };
         let cells_first = scene.is_dungeon;
         if !cells_first {
-            for &(id, world) in &scene.placements {
-                w.add_model(assets, id, world, 0);
+            for part in &scene.parts {
+                if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
+                    w.add_gfxobj(&g, part.transform, 0);
+                }
             }
         }
         for cell in &scene.cells {
@@ -318,8 +265,10 @@ impl CollisionWorld {
                     );
                 }
             }
-            for &(id, world) in &cell.placements {
-                w.add_model(assets, id, world, cell.cell_id);
+            for part in &cell.parts {
+                if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
+                    w.add_gfxobj(&g, part.transform, cell.cell_id);
+                }
             }
         }
         if cells_first {
@@ -327,8 +276,11 @@ impl CollisionWorld {
             // also stand inside cells: tag them with the cell whose floor
             // is under them, else the nearest cell, so nothing in a
             // dungeon reads as outdoor geometry.
-            for &(id, world) in &scene.placements {
-                let origin = world.w_axis.truncate();
+            for part in &scene.parts {
+                let Ok(g) = assets.gfxobj(part.gfxobj_id) else {
+                    continue;
+                };
+                let origin = part.transform.w_axis.truncate();
                 let cell = w
                     .floor_at(origin + Vec3::new(0.0, 0.0, 0.5), 5.0, 50.0)
                     .map(|(_, c)| c)
@@ -345,7 +297,7 @@ impl CollisionWorld {
                             .map(|c| c.cell_id)
                     })
                     .unwrap_or(0);
-                w.add_model(assets, id, world, cell);
+                w.add_gfxobj(&g, part.transform, cell);
             }
         }
         Ok(w)
@@ -424,6 +376,13 @@ impl CollisionWorld {
     /// `max_drop` below and `max_rise` above, with its cell id.
     pub fn floor_at(&self, p: Vec3, max_rise: f32, max_drop: f32) -> Option<(f32, u32)> {
         let mut best: Option<(f32, u32)> = None;
+        // The best among interior geometry alone. A building's exterior
+        // shell carries a solid first-floor slab across the stairwell
+        // the interior cells leave open, and it is the higher of the
+        // two, so it wins a "highest floor" contest and roofs over the
+        // stairs. The client never stands on it: inside a cell it tests
+        // the cell's own geometry and the shell is not part of that.
+        let mut indoors: Option<(f32, u32)> = None;
         for t in self.nearby(p, 0.5) {
             if t.normal.z < 0.5 {
                 continue;
@@ -439,8 +398,19 @@ impl CollisionWorld {
             if best.map(|(bz, _)| z > bz).unwrap_or(true) {
                 best = Some((z, t.cell));
             }
+            if t.cell != 0 && indoors.map(|(bz, _)| z > bz).unwrap_or(true) {
+                indoors = Some((z, t.cell));
+            }
         }
-        best
+        // Only ever swap one floor for another, never take the last one
+        // away: where a cell has no floor of its own we are better off
+        // standing on the shell than falling through the world.
+        match (best, indoors) {
+            (Some((_, 0)), Some(inside)) if self.in_known_cell(p + Vec3::new(0.0, 0.0, 0.1)) => {
+                Some(inside)
+            }
+            _ => best,
+        }
     }
 
     /// Push a capsule (feet at `p`, radius `r`, height `h`) out of steep
@@ -576,6 +546,16 @@ impl CollisionWorld {
     /// hand's breadth above the feet. Returns the ceiling's z.
     pub fn ceiling_at(&self, p: Vec3, r: f32) -> Option<f32> {
         let mut best: Option<f32> = None;
+        // The same, counting only interior geometry. A building's
+        // outside is a separate model from the cells inside it, and the
+        // two disagree: the exterior shell carries a solid first-floor
+        // slab where the interior cells leave a stairwell. The client
+        // never sees the disagreement because `EnvCell::FindCollisions`
+        // tests the cell's own structure and statics alone, while the
+        // shell belongs to the land cell -- so once you are inside, the
+        // shell is not there. Ours is one triangle soup, so we make the
+        // same distinction here.
+        let mut indoors: Option<f32> = None;
         let min_z = p.z + 0.2;
         for t in self.nearby(p, r) {
             let facing_down = t.normal.z < -0.5 || (t.two_sided && t.normal.z > 0.5);
@@ -601,6 +581,12 @@ impl CollisionWorld {
             if best.map(|b| z < b).unwrap_or(true) {
                 best = Some(z);
             }
+            if t.cell != 0 && indoors.map(|b| z < b).unwrap_or(true) {
+                indoors = Some(z);
+            }
+        }
+        if best != indoors && self.in_known_cell(p + Vec3::new(0.0, 0.0, 0.1)) {
+            return indoors;
         }
         best
     }
@@ -614,13 +600,17 @@ impl CollisionWorld {
         // A low overhang beside the path (a brazier, a bracket) pushes
         // the capsule aside like a wall; only one directly overhead
         // blocks the step.
+        let mut overhead = false;
         for _ in 0..3 {
             let pos = self.resolve_from(Some(from), target, cap.radius, cap.height, cap.step_up);
             let probe = Vec3::new(pos.x, pos.y, from.z);
             let floor = self.floor_at(probe, cap.step_up, cap.step_down);
             let feet = Vec3::new(pos.x, pos.y, floor.map(|(z, _)| z).unwrap_or(from.z));
             match self.overhang_escape(feet, cap.radius, cap.height) {
-                None => break,
+                None => {
+                    overhead = true;
+                    break;
+                }
                 Some(push) if push.length_squared() < 1e-8 => {
                     return Walk {
                         pos: feet,
@@ -629,6 +619,31 @@ impl CollisionWorld {
                     };
                 }
                 Some(push) => target = Vec3::new(feet.x + push.x, feet.y + push.y, to.z),
+            }
+        }
+        if !overhead {
+            // Three shoves and still somewhere to be pushed away from.
+            // That is not a wall, it is a doorway: one jamb pushes the
+            // capsule towards the other and the other pushes it back,
+            // and the loop runs out mid-argument. Refusing the step
+            // here pinned characters in doorways -- able to stand on
+            // either side and unable to walk between, while the route
+            // they were following was perfectly good and the server
+            // was waiting for them to arrive.
+            //
+            // Nothing is directly overhead, so take the step as first
+            // asked and let the wall resolution do what it does for
+            // every other step.
+            let pos = self.resolve_from(Some(from), to, cap.radius, cap.height, cap.step_up);
+            let probe = Vec3::new(pos.x, pos.y, from.z);
+            let floor = self.floor_at(probe, cap.step_up, cap.step_down);
+            let feet = Vec3::new(pos.x, pos.y, floor.map(|(z, _)| z).unwrap_or(from.z));
+            if self.overhang_escape(feet, cap.radius, cap.height).is_some() {
+                return Walk {
+                    pos: feet,
+                    floor,
+                    blocked: false,
+                };
             }
         }
         Walk {
@@ -645,7 +660,23 @@ impl CollisionWorld {
     pub fn overhang_escape(&self, p: Vec3, r: f32, h: f32) -> Option<glam::Vec2> {
         let min_z = p.z + 0.2;
         let mut push = glam::Vec2::ZERO;
+        // Standing inside a building, the ground outside is not a
+        // ceiling. The client chooses the cells it collides against
+        // before it collides with anything, and a capsule inside an
+        // interior cell never meets the land cell's terrain at all --
+        // the same rule `surface_at` walks by.
+        //
+        // Without this, a shop whose floor lies below the street had
+        // the underside of the street hanging over it, and every step
+        // inside was refused as having something directly overhead.
+        // The character could stand anywhere in the room and walk
+        // nowhere: pinned, while the route it was given was sound and
+        // the merchant four metres away waited.
+        let indoors = self.in_known_cell(p + Vec3::new(0.0, 0.0, 0.1));
         for t in self.nearby(p, r) {
+            if indoors && t.cell == 0 {
+                continue;
+            }
             let facing_down = t.normal.z < -0.5 || (t.two_sided && t.normal.z > 0.5);
             if !facing_down {
                 continue;
@@ -775,6 +806,10 @@ pub fn closest_point_on_tri(p: Vec3, t: &Tri) -> Vec3 {
 /// Convenience: collision for a single model placed in the world.
 pub fn from_model(assets: &Assets, model_id: u32, world: Mat4) -> Result<CollisionWorld> {
     let mut w = CollisionWorld::default();
-    w.add_model(assets, model_id, world, 0);
+    for part in place(assets, model_id, world)? {
+        if let Ok(g) = assets.gfxobj(part.gfxobj_id) {
+            w.add_gfxobj(&g, part.transform, 0);
+        }
+    }
     Ok(w)
 }

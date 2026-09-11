@@ -26,6 +26,7 @@ fn main() {
         area.collision.tris.len(),
         t0.elapsed()
     );
+    println!("{} doorways from the cell data", area.doorways.len());
     let t0 = std::time::Instant::now();
     area.build_everything();
     println!(
@@ -67,6 +68,30 @@ fn main() {
         comps.push((size, lo, hi, root));
     }
     comps.sort_by_key(|c| std::cmp::Reverse(c.0));
+    // What matters in a town: can the inside of a building reach the
+    // street? Count the nodes standing on interior floors, and how many
+    // of them are in the same group as the outdoors.
+    {
+        let mainland = comps[0].3;
+        let mut reach = vec![false; n];
+        let mut stack = vec![mainland];
+        reach[mainland as usize] = true;
+        while let Some(v) = stack.pop() {
+            for &w in area.nav.neighbours(v) {
+                if !reach[w as usize] {
+                    reach[w as usize] = true;
+                    stack.push(w);
+                }
+            }
+        }
+        let inside: Vec<usize> = (0..n).filter(|&i| area.nav.nodes[i].cell != 0).collect();
+        let joined = inside.iter().filter(|&&i| reach[i]).count();
+        println!(
+            "indoors: {joined} of {} interior nodes can reach the street ({:.0}%)",
+            inside.len(),
+            100.0 * joined as f32 / inside.len().max(1) as f32
+        );
+    }
     println!("{} reachable groups; the five biggest:", comps.len());
     for (size, lo, hi, root) in comps.iter().take(5) {
         println!(

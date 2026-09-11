@@ -24,14 +24,22 @@ pub struct CellScene {
     pub transform: Mat4,
     pub submeshes: Vec<SubMesh>,
     pub parts: Vec<PlacedPart>,
-    /// The cell's static objects before expansion into parts:
-    /// `(model id, world transform)`, for collision (see
-    /// [`crate::landblock::LandblockScene::placements`]).
-    pub placements: Vec<(u32, Mat4)>,
     /// Lights carried by the cell's static objects, in world space.
     pub lights: Vec<CellLight>,
     /// Full ids of the cells behind this cell's portals.
     pub portal_cells: Vec<u32>,
+    /// World-space middles of this cell's portal polygons: its doorways
+    /// and the openings between its rooms.
+    ///
+    /// The navigation lattice cannot be relied on to put a node in a
+    /// doorway. Holtburg's are about a metre and a half across and a
+    /// character is one and a third wide, so a node fits only when a
+    /// lattice point falls within a few centimetres of the middle --
+    /// which mostly it does not, and the building comes out sealed:
+    /// ninety-odd separate islands in one town, every interior cut off
+    /// from the street. The data says where the openings are, so the
+    /// graph is told rather than left to find them.
+    pub doorways: Vec<Vec3>,
     /// The cell can be seen from outdoors (`env_cell_flags::SEEN_OUTSIDE`).
     pub seen_outside: bool,
 }
@@ -126,14 +134,9 @@ pub fn load_cells(
         // client places them by the block's frame alone (as does ACViewer
         // with its landblock matrix).
         let mut parts = Vec::new();
-        let mut placements: Vec<(u32, Mat4)> = Vec::new();
         for stab in &cell.static_objects {
-            let world = origin * frame_to_mat(&stab.frame);
-            match place(assets, stab.id, world) {
-                Ok(p) => {
-                    placements.push((stab.id, world));
-                    parts.extend(p)
-                }
+            match place(assets, stab.id, origin * frame_to_mat(&stab.frame)) {
+                Ok(p) => parts.extend(p),
                 Err(e) => tracing::warn!("cell static {:#010x}: {e}", stab.id),
             }
         }
@@ -143,6 +146,40 @@ pub fn load_cells(
             .iter()
             .map(|p| (block_id & 0xFFFF_0000) | p.other_cell_id as u32)
             .collect();
+        // The middle of every opening, in world space. `build_cell_mesh`
+        // leaves these polygons out of the drawing because they are holes
+        // in the wall; a hole in the wall is exactly where a doorway node
+        // belongs.
+        let doorways = cs
+            .polygons
+            .iter()
+            .filter(|(id, _)| cs.portals.contains(id))
+            .filter_map(|(_, p)| {
+                // Across the opening, and at the foot of it. The middle
+                // of the polygon is half way up the doorway, and a
+                // character standing with its feet at waist height has
+                // its head in the wall above the lintel -- which is how
+                // two thirds of these were pushed aside as nowhere to
+                // stand. The threshold is what is walked over.
+                let mut mid = Vec3::ZERO;
+                let mut sill = f32::MAX;
+                let mut n = 0.0f32;
+                for v in &p.vertex_ids {
+                    let v = cs.vertices.iter().find(|(k, _)| *k as i32 == *v as i32)?;
+                    let w = transform
+                        .transform_point3(Vec3::new(v.1.origin[0], v.1.origin[1], v.1.origin[2]));
+                    mid += w;
+                    sill = sill.min(w.z);
+                    n += 1.0;
+                }
+                (n > 0.0).then(|| {
+                    let mid = mid / n;
+                    // A hand's breadth above the threshold, so the probe
+                    // starts clear of the floor plane itself.
+                    Vec3::new(mid.x, mid.y, sill + 0.1)
+                })
+            })
+            .collect();
         out.push(CellScene {
             cell_id,
             environment_id: cell.environment_id,
@@ -150,9 +187,9 @@ pub fn load_cells(
             transform,
             submeshes,
             parts,
-            placements,
             lights,
             portal_cells,
+            doorways,
             seen_outside: cell.flags & env_cell_flags::SEEN_OUTSIDE != 0,
         });
     }
@@ -172,6 +209,10 @@ pub fn load_cells(
 #[derive(Default)]
 pub struct CellIndex {
     cells: Vec<IndexedCell>,
+    /// Bounds of every cell together, so a point out in the open is
+    /// rejected without touching the list.
+    lo: Vec3,
+    hi: Vec3,
 }
 
 #[derive(Clone)]
@@ -218,12 +259,27 @@ impl CellIndex {
                 structure: c.cell_structure,
             });
         }
-        CellIndex { cells }
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for c in &cells {
+            lo = lo.min(c.lo);
+            hi = hi.max(c.hi);
+        }
+        CellIndex { cells, lo, hi }
     }
 
     /// Take another block's cells into this index, so an area spanning
     /// several blocks judges a point against all of them.
     pub fn absorb(&mut self, other: &CellIndex) {
+        if other.cells.is_empty() {
+            return;
+        }
+        if self.cells.is_empty() {
+            self.lo = other.lo;
+            self.hi = other.hi;
+        } else {
+            self.lo = self.lo.min(other.lo);
+            self.hi = self.hi.max(other.hi);
+        }
         self.cells.extend(other.cells.iter().cloned());
     }
 
@@ -233,6 +289,9 @@ impl CellIndex {
 
     /// `p` (world space) is inside one of the cells.
     pub fn contains(&self, p: Vec3) -> bool {
+        if self.cells.is_empty() || !(p.cmpge(self.lo).all() && p.cmple(self.hi).all()) {
+            return false;
+        }
         self.cells.iter().any(|c| {
             p.cmpge(c.lo).all()
                 && p.cmple(c.hi).all()

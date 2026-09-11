@@ -74,6 +74,9 @@ pub struct Area {
     pub collision: CollisionWorld,
     /// The scenes, kept for their terrain.
     scenes: HashMap<u32, Rc<LandblockScene>>,
+    /// The middle of every opening between interior cells, in world
+    /// space: the graph puts a node in each (see `nav::Ground`).
+    pub doorways: Vec<Vec3>,
     pub nav: NavGraph,
     /// A dungeon area: no terrain under it, fine lattice.
     pub dungeon: bool,
@@ -151,7 +154,15 @@ impl Area {
                 hi = hi.max(Vec2::new(chi.x, chi.y));
             }
         }
-        let spacing = if dungeon {
+        // The fine lattice wherever there are interiors to walk, the
+        // coarse one over open country -- the rule
+        // [`NavGraph::for_scene`] already states, which this
+        // constructor used to contradict by giving every surface block
+        // the 4 m lattice. A 4 m lattice puts about one node in a room:
+        // Holtburg's houses came out as a node or two per storey with
+        // nothing joining them, so a vendor upstairs was unreachable.
+        let indoors = scenes.values().any(|s| !s.cells.is_empty());
+        let spacing = if dungeon || indoors {
             INDOOR_SPACING
         } else {
             OUTDOOR_SPACING
@@ -163,10 +174,17 @@ impl Area {
                 .collect(),
             Err(_) => Vec::new(),
         };
+        // Every opening the cell data names, so the graph can put a
+        // node in each rather than hope the lattice lands on one.
+        let doorways: Vec<Vec3> = scenes
+            .values()
+            .flat_map(|s| s.cells.iter().flat_map(|c| c.doorways.iter().copied()))
+            .collect();
         Ok(Area {
             blocks,
             collision,
             scenes,
+            doorways,
             nav,
             dungeon,
             avoid: Vec::new(),
@@ -193,10 +211,11 @@ impl Area {
     /// the terrain of whichever block a point falls in, and where the
     /// sea is. The graph is handed over at the same time because every
     /// caller needs both and they borrow different fields.
-    fn with_ground<R>(&mut self, f: impl FnOnce(&Ground, &mut NavGraph) -> R) -> R {
+    pub fn with_ground<R>(&mut self, f: impl FnOnce(&Ground, &mut NavGraph) -> R) -> R {
         let Area {
             collision,
             scenes,
+            doorways,
             nav,
             dungeon,
             sea_types,
@@ -232,6 +251,7 @@ impl Area {
             sea: (!*dungeon).then_some(&sea),
             no_go: keep_off.then_some(&no_go),
             outdoors_only: *outdoors_only && !*dungeon,
+            doorways,
         };
         f(&ground, nav)
     }

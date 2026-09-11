@@ -850,6 +850,7 @@ impl Player {
             sea: None,
             no_go: None,
             outdoors_only: false,
+            doorways: &b.collision.as_ref().map(|c| c.doorways.clone()).unwrap_or_default(),
         };
         // Look from a little above the height we expect, so a floor
         // overhead is not mistaken for the one we are on.
@@ -959,6 +960,7 @@ impl Player {
             sea: (!b.dungeon).then_some(&sea),
             no_go: None,
             outdoors_only: false,
+            doorways: &b.collision.as_ref().map(|c| c.doorways.clone()).unwrap_or_default(),
         };
         Some(ground.walkable(from, to, &cap).0)
     }
@@ -999,6 +1001,13 @@ impl Player {
         let sea = |x: f32, y: f32| sea_at(&b.lb, &sea_types, x - origin.x, y - origin.y);
         // A berth from the portals we are not walking to.
         let avoid = crate::pathfinder::portal_mouths_to_avoid(from, to);
+        // The block's doorways, so the graph stands a node in each
+        // rather than leaving every building sealed.
+        let doorways = b
+            .collision
+            .as_ref()
+            .map(|c| c.doorways.clone())
+            .unwrap_or_default();
         let no_go = |x: f32, y: f32| {
             let here = glam::Vec2::new(x, y);
             avoid
@@ -1011,6 +1020,7 @@ impl Player {
             sea: (!b.dungeon).then_some(&sea),
             no_go: (!avoid.is_empty()).then_some(&no_go),
             outdoors_only: false,
+            doorways: &doorways,
         };
         let mut nav = b.nav.as_ref()?.borrow_mut();
         let (nodes, chunks) = (nav.len(), nav.chunk_count());

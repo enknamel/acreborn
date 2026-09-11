@@ -16,6 +16,10 @@ fn flat(v: Vec3) -> Vec2 {
 
 /// Repeat `nav::Ground::walkable` step by step, naming the first failure.
 fn why(ground: &Ground, a: Vec3, b: Vec3, cap: &Capsule) -> Option<(String, Vec3)> {
+    // The graph's own verdict first, so a disagreement with the
+    // step-by-step below shows up as a distinct answer rather than
+    // silently misleading.
+    let verdict = ground.walkable(a, b, cap);
     let d = b - a;
     let len = flat(d).length();
     let steps = (len / 0.5).ceil().max(1.0) as usize;
@@ -33,6 +37,12 @@ fn why(ground: &Ground, a: Vec3, b: Vec3, cap: &Capsule) -> Option<(String, Vec3
             return Some(("no floor".into(), at));
         };
         let here = Vec3::new(at.x, at.y, z);
+        if std::env::var_os("AC_WHY_DEBUG").is_some() {
+            eprintln!(
+                "    sample {i}/{steps} at ({:.2},{:.2}) from z {:.2} -> floor {:.2}",
+                at.x, at.y, prev.z, z
+            );
+        }
         if ground
             .collision
             .wall_contact(here, cap.radius, cap.height, cap.step_up)
@@ -57,6 +67,12 @@ fn why(ground: &Ground, a: Vec3, b: Vec3, cap: &Capsule) -> Option<(String, Vec3
     }
     if (prev.z - b.z).abs() > 0.3 {
         return Some((format!("landed at {:.2} not {:.2}", prev.z, b.z), prev));
+    }
+    if verdict == (false, false) {
+        return Some(("walkable() says no but the steps all pass".into(), b));
+    }
+    if verdict != (true, true) {
+        return Some((format!("one way only {verdict:?}"), b));
     }
     None
 }
@@ -160,6 +176,16 @@ fn main() {
         sizes[order[0]],
         100.0 * sizes[order[0]] as f32 / n as f32
     );
+    let dungeon = area.dungeon;
+    let terrain = |x: f32, y: f32| area.terrain_at(x, y);
+    let ground = Ground {
+        collision: &area.collision,
+        terrain: (!dungeon).then_some(&terrain),
+        sea: None,
+        no_go: None,
+        outdoors_only: false,
+        doorways: &[],
+    };
     // The decisive split: for each piece of the dungeon that IS connected
     // by its own portals, how much of it does one nav component cover?
     // A piece served by one component is faithful; a piece broken into
@@ -182,9 +208,55 @@ fn main() {
             .collect();
         pieces.sort_by_key(|(_, v)| std::cmp::Reverse(v.iter().map(|(_, k)| *k).sum::<usize>()));
         println!("nodes per portal-connected piece, and how our graph splits it:");
-        for (_, v) in pieces.iter().take(6) {
+        for (piece, v) in pieces.iter().take(6) {
             let total: usize = v.iter().map(|(_, k)| *k).sum();
             let biggest = v[0].1;
+            // Where the pieces split: the z span of each component, and
+            // the closest pair between the two biggest with its reason.
+            let span = |c: usize| {
+                let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+                for (i, &ci) in comp.iter().enumerate() {
+                    if ci == c && piece_of.get(&area.nav.nodes[i].cell) == Some(piece) {
+                        lo = lo.min(area.nav.nodes[i].pos);
+                        hi = hi.max(area.nav.nodes[i].pos);
+                    }
+                }
+                (lo, hi)
+            };
+            if v.len() > 1 {
+                let (alo, ahi) = span(v[0].0);
+                let (blo, bhi) = span(v[1].0);
+                println!(
+                    "  piece: {} nodes at z {:.1}..{:.1} vs {} nodes at z {:.1}..{:.1}",
+                    v[0].1, alo.z, ahi.z, v[1].1, blo.z, bhi.z
+                );
+                let mut best: Option<(f32, usize, usize)> = None;
+                for (i, &ci) in comp.iter().enumerate() {
+                    if ci != v[0].0 || piece_of.get(&area.nav.nodes[i].cell) != Some(piece) {
+                        continue;
+                    }
+                    for (j, &cj) in comp.iter().enumerate() {
+                        if cj != v[1].0 || piece_of.get(&area.nav.nodes[j].cell) != Some(piece) {
+                            continue;
+                        }
+                        let d = (area.nav.nodes[j].pos - area.nav.nodes[i].pos).length();
+                        if best.map(|(b, _, _)| d < b).unwrap_or(true) {
+                            best = Some((d, i, j));
+                        }
+                    }
+                }
+                if let Some((d, i, j)) = best {
+                    let (a, b) = (area.nav.nodes[i].pos, area.nav.nodes[j].pos);
+                    let r = why(&ground, a, b, &cap)
+                        .map(|(r, at)| format!("{r} at ({:.1},{:.1},{:.2})", at.x, at.y, at.z))
+                        .unwrap_or_else(|| "nothing".into());
+                    println!(
+                        "         closest {d:.2} m: ({:.1},{:.1},{:.2}) cell {:#x} -> ({:.1},{:.1},{:.2}) cell {:#x}: {r}",
+                        a.x, a.y, a.z, area.nav.nodes[i].cell,
+                        b.x, b.y, b.z, area.nav.nodes[j].cell
+                    );
+                }
+            }
             println!(
                 "  {total:>5} nodes in {} nav components; biggest covers {biggest} ({:.0}%){}",
                 v.len(),
@@ -205,13 +277,6 @@ fn main() {
     }
     let main = order[0];
     let only_main = std::env::args().nth(2).as_deref() != Some("all");
-    let ground = Ground {
-        collision: &area.collision,
-        terrain: None,
-        sea: None,
-        no_go: None,
-        outdoors_only: false,
-    };
     // Near-miss pairs across the boundary of the main component.
     let spacing = area.nav.spacing;
     let mut reasons: HashMap<String, (usize, Vec3)> = HashMap::new();

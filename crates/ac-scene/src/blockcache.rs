@@ -16,6 +16,7 @@ use std::rc::Rc;
 
 use crate::collision::{Capsule, CollisionWorld};
 use crate::nav::NavGraph;
+use glam::Vec3;
 use crate::{Assets, Result};
 
 /// How many blocks' collision the cache keeps; the least recently
@@ -31,6 +32,10 @@ pub struct BlockCollision {
     pub world: CollisionWorld,
     /// A dungeon block: no terrain to walk on.
     pub dungeon: bool,
+    /// The middle of every opening between this block's interior cells,
+    /// at the threshold, in world space. The navigation graph stands a
+    /// node in each: see `nav::Ground::doorways`.
+    pub doorways: Vec<Vec3>,
     navs: RefCell<Vec<(Capsule, Rc<RefCell<NavGraph>>)>>,
 }
 
@@ -83,6 +88,11 @@ impl BlockCache {
             block,
             world,
             dungeon: scene.is_dungeon,
+            doorways: scene
+                .cells
+                .iter()
+                .flat_map(|c| c.doorways.iter().copied())
+                .collect(),
             navs: Default::default(),
         });
         let mut blocks = self.blocks.borrow_mut();

@@ -73,6 +73,7 @@ fn main() {
         sea: None,
         no_go: None,
         outdoors_only: false,
+        doorways: &[],
     };
     // The whole block at once, for the numbers...
     let mut whole = NavGraph::for_scene(&scene, &collision, &cap);

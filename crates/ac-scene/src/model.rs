@@ -326,10 +326,22 @@ pub fn place_posed(
         }]),
         0x02 => {
             let s = assets.setup(model_id)?;
+            // The client's lookup order (`PartArray::SetPlacementFrame`,
+            // called with 0x65 for everything it places): the resting
+            // placement first, key 0 only as a fallback. They are not
+            // the same pose -- 2284 of the 2629 setups that carry both
+            // differ, 2148 of them by more than 5 cm -- and taking key 0
+            // put every one of those models somewhere the client does
+            // not draw it. The Holtburg Dungeon arch is the example
+            // that found this: under key 0 its lintel hangs at z
+            // 1.10..1.50, across the passage at waist height; under
+            // 0x65 it sits at 2.60..3.00, flush under the ceiling.
+            const RESTING: i32 = 0x65;
             let placement = s
                 .placement_frames
                 .iter()
-                .find(|(k, _)| *k == 0)
+                .find(|(k, _)| *k == RESTING)
+                .or_else(|| s.placement_frames.iter().find(|(k, _)| *k == 0))
                 .or(s.placement_frames.first());
             let mut out = Vec::with_capacity(s.parts.len());
             for (i, &part) in s.parts.iter().enumerate() {

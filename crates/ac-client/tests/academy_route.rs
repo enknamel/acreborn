@@ -25,6 +25,7 @@ fn academy_legs_are_walkable() {
         sea: None,
         no_go: None,
         outdoors_only: false,
+        doorways: &[],
     };
     let cap = Capsule::default();
     let origin = ac_world::landblock_origin(block);

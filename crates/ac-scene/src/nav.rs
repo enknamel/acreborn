@@ -60,6 +60,16 @@ pub struct Ground<'a> {
     /// walk from one outdoor spot to another, which should go over the
     /// hill rather than through the halls beneath it.
     pub outdoors_only: bool,
+    /// The middle of every opening between cells: doorways, arches, the
+    /// gaps between rooms (see `interior::CellScene::doorways`).
+    ///
+    /// A node is placed in each whatever the lattice would have done,
+    /// because a doorway is narrower than the lattice is coarse and a
+    /// character is nearly as wide as a doorway. Left to the lattice,
+    /// Holtburg came out as ninety-odd islands with every building
+    /// sealed, and a monster ten feet away inside one had no path to it
+    /// at all -- so the steering ran at the wall between instead.
+    pub doorways: &'a [Vec3],
 }
 
 impl Ground<'_> {
@@ -74,11 +84,22 @@ impl Ground<'_> {
         // Inside something: its floor is what we stand on -- unless the
         // ground runs above it, when it is a cellar or a dungeon under
         // a hill, and from up here the hill is the floor.
+        //
+        // "From up here" is the whole of it, and the cells say where we
+        // are exactly: the client picks the cells it collides against
+        // before it collides with anything, and a capsule inside an
+        // interior cell never meets the land cell's terrain at all.
+        // Holtburg is built down a slope and several houses have a
+        // lower storey below the outside grade, so without this the
+        // hillside outside is taken for the floor of the room we are
+        // standing in and the stairs up become unreachable.
         if let Some((z, cell)) = floor {
             if cell != 0 {
-                let buried = self
-                    .terrain_under(p.x, p.y)
-                    .is_some_and(|t| t > z + 0.5 && p.z >= t - cap.step_down);
+                let outside = !self.collision.in_known_cell(p + Vec3::new(0.0, 0.0, 0.1));
+                let buried = outside
+                    && self
+                        .terrain_under(p.x, p.y)
+                        .is_some_and(|t| t > z + 0.5 && p.z >= t - cap.step_down);
                 if self.outdoors_only {
                     // Not ours to stand on: only what is outside counts.
                 } else if !buried {
@@ -109,6 +130,11 @@ impl Ground<'_> {
             return None;
         }
         self.terrain?(x, y)
+    }
+
+    /// The capsule fits at `feet`: touching no wall, head room above.
+    pub fn fits_here(&self, feet: Vec3, cap: &Capsule) -> bool {
+        self.fits(feet, cap)
     }
 
     /// The capsule fits at `feet`: touching no wall, head room above.
@@ -343,6 +369,43 @@ impl NavGraph {
                 }
             }
         }
+        // The openings the data names, wherever the lattice fell.
+        let mut seeded: Vec<u32> = Vec::new();
+        for d in ground.doorways {
+            let gx = (d.x / self.spacing).round() as i32;
+            let gy = (d.y / self.spacing).round() as i32;
+            if chunk_of(gx, gy) != (cx, cy) {
+                continue;
+            }
+            if !(self.gx.0..=self.gx.1).contains(&gx) || !(self.gy.0..=self.gy.1).contains(&gy) {
+                continue;
+            }
+            if ground.no_go.is_some_and(|f| f(d.x, d.y)) {
+                continue;
+            }
+            let Some(node) = self.place(ground, *d, (gx, gy), &cap) else {
+                continue;
+            };
+            // One per opening per floor: a doorway sampled twice is two
+            // nodes a hand's breadth apart and nothing gained.
+            if self
+                .columns
+                .get(&(gx, gy))
+                .is_some_and(|ids| ids.iter().any(|&j| {
+                    let p = self.nodes[j as usize].pos;
+                    (p.z - node.pos.z).abs() < LEVEL_MERGE
+                        && flat(p - node.pos).length() < self.spacing * 0.25
+                }))
+            {
+                continue;
+            }
+            let id = self.nodes.len() as u32;
+            self.nodes.push(node);
+            self.edges.push(Vec::new());
+            self.columns.entry((gx, gy)).or_default().push(id);
+            fresh.push(id);
+            seeded.push(id);
+        }
         const DIRS: [(i32, i32); 8] = [
             (1, 0),
             (0, 1),
@@ -383,6 +446,29 @@ impl NavGraph {
                     if back {
                         self.edges[j as usize].push(i);
                     }
+                }
+            }
+        }
+        for &i in &seeded {
+            let a = self.nodes[i as usize].pos;
+            let col = self.nodes[i as usize].column;
+            let Some(others) = self.columns.get(&col).cloned() else {
+                continue;
+            };
+            for j in others {
+                if j == i {
+                    continue;
+                }
+                let b = self.nodes[j as usize].pos;
+                if (a.z - b.z).abs() > MAX_EDGE_RISE {
+                    continue;
+                }
+                let (fwd, back) = ground.walkable(a, b, &cap);
+                if fwd && !self.edges[i as usize].contains(&j) {
+                    self.edges[i as usize].push(j);
+                }
+                if back && !self.edges[j as usize].contains(&i) {
+                    self.edges[j as usize].push(i);
                 }
             }
         }
@@ -737,6 +823,7 @@ mod tests {
             sea: None,
             no_go: None,
             outdoors_only: false,
+            doorways: &[],
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -782,6 +869,7 @@ mod tests {
             sea: None,
             no_go: None,
             outdoors_only: false,
+            doorways: &[],
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -804,6 +892,7 @@ mod tests {
             sea: None,
             no_go: None,
             outdoors_only: false,
+            doorways: &[],
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
@@ -829,6 +918,7 @@ mod tests {
             sea: None,
             no_go: None,
             outdoors_only: false,
+            doorways: &[],
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, -3.0), Vec2::new(12.0, 3.0), 1.0, &cap);
@@ -867,6 +957,7 @@ mod tests {
             sea: None,
             no_go: None,
             outdoors_only: false,
+            doorways: &[],
         };
         let cap = Capsule::default();
         let mut g = NavGraph::new(Vec2::new(0.0, 0.0), Vec2::new(20.0, 8.0), 2.0, &cap);
