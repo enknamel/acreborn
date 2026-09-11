@@ -1679,6 +1679,28 @@ impl Client {
     }
 
     /// Heal, and break off a losing fight. True when it acted.
+    /// Whether anything the character has could still mend it: a kit
+    /// it knows how to use, or a heal it can cast right now.
+    ///
+    /// Asked while a heal is cooling down, to decide whether waiting is
+    /// worth more than whatever else would take the tick.
+    fn can_still_heal(&mut self, cfg: &Survive) -> bool {
+        if cfg.use_kits
+            && self.heals_with_kits()
+            && self.world.inventory().any(|o| {
+                ac_world::usable::on_self(o.usable) && o.name.contains("Healing Kit")
+            })
+        {
+            return true;
+        }
+        let heal = if cfg.heal_spell.trim().is_empty() {
+            self.best_emergency_heal().map(|(spell, _)| spell)
+        } else {
+            self.spell_by_name(&cfg.heal_spell)
+        };
+        heal.is_some_and(|spell| matches!(self.can_cast(spell), crate::magic::CastCheck::Ok))
+    }
+
     pub(crate) fn autoplay_survive(&mut self, now: Instant) -> bool {
         let cfg = self.autoplay.config.survive.clone();
         let health = self.health_fraction();
@@ -1703,7 +1725,22 @@ impl Client {
             .last_heal
             .is_some_and(|t| now.duration_since(t) < HEAL_EVERY)
         {
-            return false;
+            // Still hurt, and the next heal is only a moment away:
+            // hold the tick rather than hand it to the fight.
+            //
+            // Letting it go was how a character died with healing at
+            // the top of its list. One heal is rarely enough; it went
+            // out, the rules came straight back here, found the heal
+            // still cooling, stood aside -- and the fight, next in
+            // line, swung again. Heal, fight, heal, fight, losing
+            // health the whole way down. Being hurt is a state to stay
+            // in until it is mended, not a thing to do once.
+            //
+            // Only while something can actually mend it. A character
+            // with no kit, no spell and no mana is not healing however
+            // long it waits, and standing still is worse for it than
+            // fighting or running.
+            return self.can_still_heal(&cfg);
         }
         // A kit is quicker and cheaper than a spell -- but only to
         // someone who has trained Healing. Untrained it restores next to
