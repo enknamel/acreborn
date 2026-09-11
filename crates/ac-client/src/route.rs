@@ -124,6 +124,10 @@ impl Steering {
     }
 }
 
+/// One landblock across, in metres. A goal further off than this is
+/// not somewhere to be reached by leaning on whatever is in the way.
+const A_BLOCK: f32 = 192.0;
+
 /// No progress for this long while steering counts as stuck.
 const STUCK_AFTER: Duration = Duration::from_millis(1500);
 /// Movement below this (metres, flat) is not progress.
@@ -301,21 +305,42 @@ impl Steering {
                 None => {
                     // Nothing found, and the straight line was already
                     // judged blocked -- that is why a path was looked
-                    // for at all. Walking it anyway is walking into
-                    // whatever was in the way, which is every report of
-                    // a character "running straight at a wall": it had
-                    // decided the wall was there and set off regardless.
+                    // for at all.
                     //
-                    // Standing still is not a fix for not knowing the
-                    // way, but it is honest, and it leaves the rules
-                    // above free to plan another way out. Charging the
-                    // wall never arrives and hides the fault.
-                    tracing::debug!("route: no path to {goal:?} and the line is blocked");
+                    // Whether to set off anyway turns on how far the
+                    // goal is. Inside this landblock, leaning on what
+                    // is in the way often works: the graph is coarser
+                    // than the world, and a character sliding along a
+                    // crate reaches the far side of the room. That is
+                    // worth keeping -- taking it away stopped a
+                    // ten-metre walk across Holtburg dead.
+                    //
+                    // Out of the block it is never worth it. Nothing
+                    // within reach leads there, the goal may be in
+                    // another space entirely -- a dungeon's wall and a
+                    // vendor on the surface a hundred metres overhead
+                    // -- and walking at it is walking into rock until
+                    // something else gives up. Stand still and say so,
+                    // and let the rules above find another way out.
                     self.route = None;
                     self.route_is_wide = false;
                     self.next_check = now + REPLAN_AFTER;
-                    self.no_way = true;
-                    return me;
+                    // Out of the block, or simply too far to be in it:
+                    // indoors the caller names the block we stand in
+                    // whatever the goal is -- a dungeon's cells lie
+                    // outside its square, and without that fudge the
+                    // steering would never plan at all -- so the cell
+                    // cannot be trusted to say and the distance is
+                    // asked instead.
+                    let far = glam::Vec2::new(goal.x - me.x, goal.y - me.y).length() > A_BLOCK;
+                    if leaves_block || far {
+                        tracing::debug!("route: no way to {goal:?}, and it is not within reach");
+                        self.no_way = true;
+                        return me;
+                    }
+                    tracing::debug!("route: no path to {goal:?}, going straight");
+                    self.no_way = false;
+                    return goal;
                 }
             }
         }

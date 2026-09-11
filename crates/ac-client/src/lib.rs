@@ -1012,11 +1012,28 @@ impl Client {
                         );
                         let d = aim - pl.world_position();
                         let flat = glam::Vec2::new(d.x, d.y);
-                        if flat.length() > 1e-3 {
-                            pl.heading = (-flat.x).atan2(flat.y);
+                        // No way there at all: the line is blocked and
+                        // no route was found. Standing still is the
+                        // whole of the answer.
+                        //
+                        // This is where every "it ran straight at the
+                        // wall" actually came from. The steering had
+                        // already been taught to say "nowhere to go" --
+                        // but saying it means aiming at one's own feet,
+                        // and the mover set off forward whatever the
+                        // aim was, keeping the heading it had. So the
+                        // character leaned on the wall it had just
+                        // decided was in the way, and only the stuck
+                        // detector ever stopped it.
+                        if self.steering.no_way() {
+                            input.forward = 0.0;
+                        } else {
+                            if flat.length() > 1e-3 {
+                                pl.heading = (-flat.x).atan2(flat.y);
+                            }
+                            input.forward = 1.0;
+                            input.run = true;
                         }
-                        input.forward = 1.0;
-                        input.run = true;
                     }
                 }
             }
