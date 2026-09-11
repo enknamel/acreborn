@@ -246,11 +246,12 @@ impl Client {
             self.steering.reset();
         }
         self.dodge.approaching = Some(target);
-        // The one goal that does not go through `head_for`, and on
-        // purpose: a dodge is a reflex, the step was checked for room
-        // when it was chosen, and there is no time to plan a journey
-        // out of the way of an arrow.
-        self.follow = Some(crate::Follow { target: at, stop });
+        // Closing on something to hit it is a goal like any other, so
+        // it is named to the travel system and not steered by hand.
+        // This one was missed when the rest were converted -- and it is
+        // the goal a hunting character uses most, so it went on walking
+        // into walls after every other path had stopped.
+        self.head_for(at, stop, name);
         self.autoplay.say(
             Doing::Fighting,
             if seen {
