@@ -107,6 +107,48 @@ fn by_place(_: &Client, _: Instant) -> f32 {
 /// corpse about to rot and left one alone otherwise, written as a
 /// comparison buried in the middle of choosing a corpse. Here it is the
 /// reason looting is chosen at all, where it can be read.
+
+/// What fighting is worth: its place in the table when there is
+/// something to hit here, less than a body on the floor when there is
+/// not.
+///
+/// A fight you have to walk to is not worth leaving loot behind for.
+/// The body is already dead, it is already yours, it rots on a clock,
+/// and picking it up costs the few seconds it takes to bend down --
+/// while the creature across the room will still be there afterwards
+/// and is no further away for the wait. So a target that needs a walk
+/// scores under [`LOOT_AT_REST`], and a body at rest outranks it; one
+/// already in reach keeps its usual place and outranks the body, so a
+/// character does not stop to loot with something swinging at it.
+fn worth_fighting(client: &Client, _now: Instant) -> f32 {
+    let Some(me) = client.player.as_ref().map(|p| p.world_position()) else {
+        return UNDECIDED;
+    };
+    // Already engaged: that is a fight in hand whatever the distance.
+    if client.attack_target.is_some() {
+        return UNDECIDED;
+    }
+    // Told to finish what it kills: while one of its own bodies is
+    // still unlooted, another fight can wait.
+    if client.autoplay.config.loot.after_every_fight && client.owes_a_corpse() {
+        return WALK_TO_A_FIGHT;
+    }
+    let nearest = client
+        .world
+        .objects
+        .values()
+        .filter(|o| o.item_type & ac_world::item_type::CREATURE != 0)
+        .filter(|o| o.health.unwrap_or(0.0) > 0.0)
+        .filter_map(|o| o.world_pos())
+        .map(|at| at.distance(me))
+        .fold(f32::MAX, f32::min);
+    if nearest > IN_REACH_OF_A_FIGHT {
+        WALK_TO_A_FIGHT
+    } else {
+        UNDECIDED
+    }
+}
+
 fn worth_looting(client: &Client, now: Instant) -> f32 {
     use crate::autoplay::{CORPSE_LIFE, CORPSE_URGENT};
     let mut best: Option<std::time::Duration> = None;
@@ -171,6 +213,11 @@ const WAITING_COUNTS: usize = 6;
 /// More than any goal gets from its place in the table. For the few
 /// things that genuinely outrank everything else for a moment.
 const WORTH_A_LOT: f32 = 1_000.0;
+/// Near enough that a fight is happening rather than being gone to.
+const IN_REACH_OF_A_FIGHT: f32 = 12.0;
+/// What a fight worth walking to scores: under a body at rest, so the
+/// floor is cleared before the character sets off.
+const WALK_TO_A_FIGHT: f32 = LOOT_AT_REST - 5.0;
 
 /// Wrap one of the old `-> bool` steps: true meant it claimed the tick.
 ///
@@ -277,8 +324,8 @@ pub const STEPS: &[Step] = &[
     Step {
         name: "fight",
         layer: Layer::Goal,
+        worth: worth_fighting,
         why: "what the character is mostly for",
-        worth: by_place,
         run: claimed!(Client::autoplay_fight),
     },
     Step {
@@ -453,6 +500,13 @@ mod tests {
         // included. Stepping out of the way is worth little to a
         // character that dies while doing it.
         assert!(at("survive") < at("dodge"), "heal before stepping out");
+        // A body on the floor beats a fight that has to be walked to:
+        // it is already dead, already ours, and rotting on a clock,
+        // while the creature across the room will still be there.
+        assert!(
+            WALK_TO_A_FIGHT < LOOT_AT_REST,
+            "a fight worth walking to should not outrank a body at rest"
+        );
         assert_eq!(at("survive"), 0, "nothing comes before staying alive");
         assert!(at("survive") < at("fight"), "heal before fighting");
         assert!(at("survive") < at("loot"), "heal before looting");

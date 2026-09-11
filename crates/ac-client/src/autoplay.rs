@@ -411,6 +411,15 @@ pub struct Loot {
     /// to the older `growth.sell` searches.
     #[serde(default)]
     pub vendor_profile: String,
+    /// Finish what you kill: while a body the character made is still
+    /// unlooted and within reach, another fight waits.
+    ///
+    /// Off, a body only outranks the next fight once it has aged
+    /// enough to be in danger of rotting, which in a busy place means
+    /// the floor fills up and the oldest are lost. On, nothing is left
+    /// behind at all -- slower, and everything gets picked up.
+    #[serde(default = "yes")]
+    pub after_every_fight: bool,
     /// How laden a character is willing to get while hunting, in
     /// multiples of its carrying capacity (150 x Strength).
     ///
@@ -463,6 +472,7 @@ impl Default for Loot {
             // rather than from a list in the code.
             profile: "Starter".into(),
             vendor_profile: String::new(),
+            after_every_fight: true,
             carry_up_to: carry_up_to(),
         }
     }
@@ -580,6 +590,9 @@ const GIVE_EVERY: Duration = Duration::from_millis(700);
 /// How often a stack is poured into another. The server takes one merge
 /// at a time and answers in its own time.
 pub(crate) const MERGE_EVERY: Duration = Duration::from_millis(600);
+/// How near a body has to be to count as one the character made and
+/// should finish with before starting another fight.
+const CORPSE_IS_MINE: f32 = 25.0;
 
 /// How often one item is taken from a corpse. The server moves one at a
 /// time and refuses the rest as "you're too busy", so they go one by
@@ -3071,6 +3084,25 @@ impl Client {
     }
 
     /// There is no room for another item.
+    /// A body within reach that has not been emptied yet.
+    ///
+    /// What "within reach" means matters: a corpse across the dungeon
+    /// is not something the character owes anything to, and waiting on
+    /// it would stop the fighting altogether. This is about the one at
+    /// its feet that it just made.
+    pub fn owes_a_corpse(&self) -> bool {
+        let Some(me) = self.player.as_ref().map(|p| p.world_position()) else {
+            return false;
+        };
+        self.world
+            .objects
+            .values()
+            .filter(|o| o.object_desc_flags & ac_world::object_desc_flags::CORPSE != 0)
+            .filter(|o| !self.autoplay.looted.contains(&o.guid))
+            .filter_map(|o| o.world_pos())
+            .any(|at| at.distance(me) <= CORPSE_IS_MINE)
+    }
+
     pub fn pack_full(&self) -> bool {
         let (used, capacity) = self.item_slots();
         used >= capacity

@@ -587,6 +587,14 @@ pub fn draw(egui: &egui::Context, v: &AutoplayView, x: f32, drafts: &mut Drafts)
                     ui.checkbox(&mut cfg.loot.hand_off, "hand off")
                         .on_hover_text("Carry tagged items to the team's best salvager (highest Salvaging with an Ust)");
                 });
+                ui.checkbox(&mut cfg.loot.after_every_fight, "empty every body before the next fight")
+                    .on_hover_text(
+                        "Finish what you kill. While a body it made is still \
+                         unlooted nearby, another fight waits. Off, a body only \
+                         outranks the next fight once it is old enough to be in \
+                         danger of rotting -- which in a busy place means the floor \
+                         fills up and the oldest are lost.",
+                    );
                 ui.checkbox(&mut cfg.loot.tidy_pack, "pour loose stacks together")
                     .on_hover_text(
                         "Buy five scarabs and they arrive in their own slot beside \
