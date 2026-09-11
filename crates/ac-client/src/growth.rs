@@ -348,6 +348,10 @@ pub struct State {
     pub bought_anything: bool,
     /// How many trips the quartermaster has made this time out.
     pub round: u32,
+    /// The character came home from a counter too laden to be handed
+    /// anything. Nothing at a shop changes that, so it does not go
+    /// back until it has sold or used something.
+    pub too_heavy: bool,
     /// The last run to town ended without buying or selling anything.
     /// Another one straight away would do the same, so it waits.
     pub run_was_futile: bool,
@@ -462,6 +466,9 @@ pub struct Stock {
     pub price: u32,
     /// How many it has; `None` for unlimited.
     pub stack: Option<u32>,
+    /// What one of them weighs. A purse is not the only thing a trip
+    /// runs out of.
+    pub burden: u32,
 }
 
 /// A few names, and how many more there are. A caster short of every
@@ -666,7 +673,23 @@ fn shelf_price(need: &Need, stock: &[Stock]) -> Option<u32> {
 /// What the character wants from the stock of a vendor, and can pay
 /// for: `(stock guid, amount)` per need, cheapest match first, the
 /// purse running down as it goes.
-fn orders(needs: &[Need], stock: &[Stock], mut purse: u32) -> Vec<(u32, u32)> {
+fn orders(needs: &[Need], stock: &[Stock], purse: u32) -> Vec<(u32, u32)> {
+    orders_within(needs, stock, purse, u32::MAX)
+}
+
+/// The same, with a weight to stay under as well as a purse.
+///
+/// A character can be rich and still unable to buy a thing: the server
+/// refuses anything that would take it past three times its carrying
+/// capacity, and a mage who has just filled its pack with scarabs is
+/// often exactly there. Asking anyway is a refusal, and asking again
+/// every trip is a character that shops for ever and never comes home.
+fn orders_within(
+    needs: &[Need],
+    stock: &[Stock],
+    mut purse: u32,
+    mut weight: u32,
+) -> Vec<(u32, u32)> {
     let mut out: Vec<(u32, u32)> = Vec::new();
     for need in needs {
         let want = |s: &Stock| match &need.kind {
@@ -685,10 +708,16 @@ fn orders(needs: &[Need], stock: &[Stock], mut purse: u32) -> Vec<(u32, u32)> {
         if let Some(have) = line.stack {
             amount = amount.min(have);
         }
+        // Weightless things (a trade note) are limited by the purse
+        // alone; everything else by whichever runs out first.
+        if let Some(fits) = weight.checked_div(line.burden) {
+            amount = amount.min(fits);
+        }
         if amount == 0 {
             continue;
         }
         purse -= amount * line.price;
+        weight = weight.saturating_sub(amount * line.burden);
         match out.iter_mut().find(|(g, _)| *g == line.guid) {
             Some(o) => o.1 += amount,
             None => out.push((line.guid, amount)),
@@ -2119,6 +2148,7 @@ impl Client {
                 item_type: it.desc.item_type,
                 price: buy_price(it.desc.value, v.sell_rate, it.desc.item_type),
                 stack: (it.stack < UNLIMITED_STACK).then_some(it.stack),
+                burden: it.desc.burden,
             })
             .collect()
     }
@@ -2237,6 +2267,46 @@ impl Client {
         n
     }
 
+    /// What the character is carrying, in burden units, and the most
+    /// it may carry.
+    ///
+    /// The capacity is a hundred and fifty times Strength, plus thirty
+    /// more per rank of the carrying-capacity augmentation; the server
+    /// refuses to hand over anything that would take the character past
+    /// three times that. The comfortable place to work is well under
+    /// it: a character at twice its capacity is slow and a character at
+    /// three times it cannot pick up what it kills.
+    pub fn burden(&self) -> (u32, u32) {
+        const ENCUMBRANCE_VAL: u32 = 5;
+        const CARRY_AUGMENTATION: u32 = 230;
+        let int_of = |k: u32| {
+            self.world
+                .stats
+                .ints
+                .iter()
+                .find(|(key, _)| *key == k)
+                .map(|(_, v)| (*v).max(0) as u32)
+        };
+        // What the server says we are carrying, or the pack counted up
+        // when it has not said.
+        let now = int_of(ENCUMBRANCE_VAL).unwrap_or_else(|| {
+            self.world
+                .inventory()
+                .map(|o| o.burden.saturating_mul(o.stack_size.max(1)))
+                .sum()
+        });
+        let strength = self.wielder().attributes_current[0];
+        let augmented = 150 + 30 * int_of(CARRY_AUGMENTATION).unwrap_or(0);
+        (now, strength.saturating_mul(augmented))
+    }
+
+    /// How much more the character may be handed before the server
+    /// starts refusing: three times its capacity, less what it carries.
+    pub fn burden_room(&self) -> u32 {
+        let (now, capacity) = self.burden();
+        capacity.saturating_mul(3).saturating_sub(now)
+    }
+
     /// Which society this character belongs to, as `Faction1Bits`: 1
     /// the Celestial Hand, 2 the Eldrytch Web, 4 the Radiant Blood, 0
     /// none. The server sends it with the rest of the character's
@@ -2307,6 +2377,22 @@ impl Client {
             st.last_run = None;
             self.autoplay
                 .note("something to spend again: shopping", now);
+        }
+        // Too laden to be handed anything: a counter cannot help, so
+        // it does not go to one. Selling, using or handing something
+        // over is what lifts this, and all three happen elsewhere.
+        if self.autoplay.growth.too_heavy {
+            let needs = self.needs_now(now, cfg);
+            let room = self.burden_room();
+            // Room enough for the lightest thing it still wants is
+            // room enough to be worth the walk.
+            if room == 0 && !needs.is_empty() {
+                let (carrying, capacity) = self.burden();
+                return self.held_back(format!(
+                    "too heavy to buy anything ({carrying} of {capacity}, three times over)"
+                ));
+            }
+            self.autoplay.growth.too_heavy = false;
         }
         // Not while anything else is going on.
         if self.attack_target.is_some()
@@ -2684,7 +2770,31 @@ impl Client {
                 let needs = self.grow_needs(cfg);
                 let stock = self.stock();
                 let purse = self.purse();
-                let orders = orders(&needs, &stock, purse);
+                // Selling came first, so this is what the character can
+                // carry now that its loot has gone over the counter.
+                let room = self.burden_room();
+                let orders = orders_within(&needs, &stock, purse, room);
+                // What it could have bought with no weight to worry
+                // about: the difference is what the burden cost it.
+                let unladen = orders_within(&needs, &stock, purse, u32::MAX);
+                // Too heavy to be handed anything is not the same as
+                // having nothing to buy or no money to buy it with, and
+                // it is the one a character can do nothing about at a
+                // counter. Saying so and going is the whole of the fix
+                // for shopping for ever while over-laden.
+                if orders.is_empty() && !unladen.is_empty() {
+                    let (carrying, capacity) = self.burden();
+                    let percent = (carrying * 100).checked_div(capacity).unwrap_or(0);
+                    self.autoplay.say(
+                        Doing::Shopping,
+                        format!(
+                            "too heavy to buy anything: carrying {percent}% of what I can \
+                             ({carrying} of {capacity})"
+                        ),
+                    );
+                    self.autoplay.growth.too_heavy = true;
+                    return self.grow_run_next(run, now, cfg, false);
+                }
                 // Why a counter came to nothing is the hardest thing to
                 // see from outside: the character stands there, says it
                 // sold nothing, and walks off. Turn ac_client up to
@@ -3255,6 +3365,9 @@ mod tests {
             item_type: 0,
             price,
             stack,
+            // Weightless unless a test says otherwise; the ones about
+            // carrying capacity set it.
+            burden: 0,
         }
     }
 
@@ -3450,6 +3563,9 @@ mod tests {
             item_type: item_type::PROMISSORY_NOTE,
             price: ac_world::shops::note_price(face),
             stack: None,
+            // A trade note weighs nothing, which is why a fortune
+            // travels as notes.
+            burden: 0,
         }
     }
 
@@ -3609,6 +3725,38 @@ mod tests {
         // Everything else is judged on its own, either way.
         assert!(worth_stocking("Prismatic Taper", false));
         assert!(worth_stocking("Mana Stone", false));
+    }
+
+    #[test]
+    fn a_full_character_buys_what_it_can_carry_and_no_more() {
+        // A scarab weighs 10 and the character has room for 250.
+        let mut heavy = stock(1, "Lead Scarab", 690, 5, None);
+        heavy.burden = 10;
+        let shelf = [heavy];
+        let needs = vec![need(NeedKind::Component(690), 100)];
+
+        // Money enough for all hundred, and room enough for all
+        // hundred: it buys all hundred.
+        assert_eq!(
+            orders_within(&needs, &shelf, 10_000, 10_000),
+            vec![(1, 100)]
+        );
+        // Money enough, room for twenty-five: it buys twenty-five.
+        assert_eq!(orders_within(&needs, &shelf, 10_000, 250), vec![(1, 25)]);
+        // Room for nothing at all: it buys nothing, which is what it
+        // must do rather than ask and be refused.
+        assert!(orders_within(&needs, &shelf, 10_000, 0).is_empty());
+        assert!(orders_within(&needs, &shelf, 10_000, 9).is_empty());
+        // Whichever runs out first decides.
+        assert_eq!(orders_within(&needs, &shelf, 50, 10_000), vec![(1, 10)]);
+
+        // Something weightless is held back by the purse alone, which
+        // is why a fortune travels as trade notes.
+        let notes = [note(2, 5_000)];
+        let mut want_notes = need(NeedKind::Named("Trade Note".into()), 3);
+        want_notes.name = "Trade Note".into();
+        let asked = orders_within(&[want_notes], &notes, 1_000_000, 0);
+        assert_eq!(asked, vec![(2, 3)], "no weight, so no weight limit");
     }
 
     #[test]
