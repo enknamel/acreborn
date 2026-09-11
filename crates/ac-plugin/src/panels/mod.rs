@@ -700,6 +700,43 @@ mod tests {
     }
 
     #[test]
+    fn every_panel_can_be_opened_from_the_menu() {
+        // A panel nobody can open is a panel nobody has. The Vendoring
+        // panel was written, registered and shipped without an entry
+        // here, so it existed and could not be reached; this is what
+        // should have said so.
+        let panels = live();
+        let missing: Vec<String> = panels
+            .iter()
+            .map(|p| p.name().to_string())
+            .filter(|name| {
+                // Not everything is opened from the menu. These
+                // appear when the game says so -- a counter opens its
+                // window, a corpse its contents, a book its page --
+                // or are always on the screen.
+                !matches!(
+                    name.as_str(),
+                    "menu"
+                        | "console"
+                        | "confirm"
+                        | "nameplates"
+                        | "vitals"
+                        | "radar"
+                        | "target"
+                        | "vendor"
+                        | "trade"
+                        | "salvage"
+                        | "book"
+                        | "combat"
+                        | "loot"
+                )
+            })
+            .filter(|name| !crate::keys::ACTIONS.iter().any(|a| a.id == name.as_str()))
+            .collect();
+        assert!(missing.is_empty(), "no way to open: {missing:?}");
+    }
+
+    #[test]
     fn every_panel_has_a_demo() {
         let live = live();
         let demo = demo(None);
