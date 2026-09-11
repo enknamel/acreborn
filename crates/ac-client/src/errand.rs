@@ -251,15 +251,16 @@ pub fn plan(means: Means, sale: &[ForSale], notes: &[Note], wanted: &[Wanted], f
                 stopped = Some(Because::ours("the shelf has no more"));
             }
         }
-        if want.each > 0 {
-            let afford = left.coin / want.each;
+        // A free line is held back by nothing; a weightless one by
+        // nothing either. Both happen -- a trade note weighs nothing,
+        // which is the whole reason a fortune travels as notes.
+        if let Some(afford) = left.coin.checked_div(want.each) {
             if afford < amount {
                 amount = afford;
                 stopped = Some(Because::ours("not enough money"));
             }
         }
-        if want.weighs > 0 {
-            let carry = left.room / want.weighs;
+        if let Some(carry) = left.room.checked_div(want.weighs) {
             if carry < amount {
                 amount = carry;
                 stopped = Some(Because::ours("too laden to carry any more"));
@@ -317,8 +318,8 @@ fn affordable_bill(means: &Means, wanted: &[Wanted]) -> u32 {
         if let Some(on_shelf) = want.stock {
             amount = amount.min(on_shelf);
         }
-        if want.weighs > 0 {
-            amount = amount.min(room / want.weighs);
+        if let Some(carry) = room.checked_div(want.weighs) {
+            amount = amount.min(carry);
         }
         room = room.saturating_sub(amount.saturating_mul(want.weighs));
         bill = bill.saturating_add(amount.saturating_mul(want.each));

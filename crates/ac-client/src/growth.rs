@@ -2142,6 +2142,89 @@ impl Client {
             .collect()
     }
 
+    /// Everything the counter in front of the character will do, as
+    /// one plan: what to sell, what to cash, what to buy and what to
+    /// carry home as notes.
+    ///
+    /// The pieces were all here already and were used one at a time, in
+    /// an order written out by hand at each call site. Gathering them
+    /// makes the order one thing, and makes it the same order whether
+    /// the trip is being made or merely weighed up (see
+    /// `crate::errand`).
+    pub fn errand(&self, cfg: &Growth) -> crate::errand::Plan {
+        use crate::errand::{ForSale, Means, Note, Wanted};
+        let (carrying, capacity) = self.burden();
+        let means = Means {
+            coin: self.purse(),
+            notes: self
+                .world
+                .inventory()
+                .filter(|o| o.item_type & item_type::PROMISSORY_NOTE != 0)
+                .map(|o| o.value.saturating_mul(o.stack_size.max(1)))
+                .sum(),
+            room: capacity.saturating_mul(3).saturating_sub(carrying),
+            slots: self.free_space(),
+        };
+        let vendor = self.world.open_vendor.as_ref();
+        let sale: Vec<ForSale> = self
+            .sale_list(cfg)
+            .into_iter()
+            .filter_map(|guid| {
+                let o = self.world.objects.get(&guid)?;
+                let stack = o.stack_size.max(1);
+                let pays = vendor
+                    .map(|v| (o.value.saturating_mul(stack) as f32 * v.buy_rate).round() as u32)
+                    .unwrap_or(0);
+                Some(ForSale {
+                    guid,
+                    pays,
+                    weighs: o.burden.saturating_mul(stack),
+                })
+            })
+            .collect();
+        let notes: Vec<Note> = self
+            .world
+            .inventory()
+            .filter(|o| o.item_type & item_type::PROMISSORY_NOTE != 0)
+            .map(|o| Note {
+                guid: o.guid,
+                face: o.value.saturating_mul(o.stack_size.max(1)),
+            })
+            .collect();
+        let shelf = self.stock();
+        let wanted: Vec<Wanted> = self
+            .grow_needs(cfg)
+            .into_iter()
+            .filter(|n| n.want > 0 && n.buyable)
+            .filter_map(|need| {
+                let line = shelf
+                    .iter()
+                    .filter(|s| match &need.kind {
+                        NeedKind::Named(t) => contains_fold(&s.name, &t.to_lowercase()),
+                        NeedKind::Ammo(kind) => ammo_stock(&s.name, *kind),
+                        NeedKind::Component(wcid) => s.wcid == *wcid,
+                    })
+                    .filter(|s| s.price > 0)
+                    .min_by_key(|s| s.price)?;
+                Some(Wanted {
+                    line: line.guid,
+                    name: need.name.clone(),
+                    want: need.want,
+                    each: line.price,
+                    weighs: line.burden,
+                    stock: line.stack,
+                })
+            })
+            .collect();
+        crate::errand::plan(
+            means,
+            &sale,
+            &notes,
+            &wanted,
+            self.autoplay.config.team.restock.float,
+        )
+    }
+
     /// The open vendor's stock, priced.
     fn stock(&self) -> Vec<Stock> {
         let Some(v) = self.world.open_vendor.as_ref() else {
@@ -2792,19 +2875,31 @@ impl Client {
                 let needs = self.grow_needs(cfg);
                 let stock = self.stock();
                 let purse = self.purse();
-                // Selling came first, so this is what the character can
-                // carry now that its loot has gone over the counter.
-                let room = self.burden_room();
-                let orders = orders_within(&needs, &stock, purse, room);
-                // What it could have bought with no weight to worry
-                // about: the difference is what the burden cost it.
-                let unladen = orders_within(&needs, &stock, purse, u32::MAX);
+                // What the counter will do, as one plan. Selling has
+                // already happened, so the money and the room this is
+                // worked out from are what the loot left behind (see
+                // `crate::errand`).
+                let errand = self.errand(cfg);
+                tracing::debug!("shopping at {}: {}", run.vendor, errand.tell());
+                let orders: Vec<(u32, u32)> = errand
+                    .acts
+                    .iter()
+                    .filter_map(|a| match a {
+                        crate::errand::Act::Buy { line, amount, .. } => Some((*line, *amount)),
+                        _ => None,
+                    })
+                    .collect();
                 // Too heavy to be handed anything is not the same as
                 // having nothing to buy or no money to buy it with, and
                 // it is the one a character can do nothing about at a
-                // counter. Saying so and going is the whole of the fix
-                // for shopping for ever while over-laden.
-                if orders.is_empty() && !unladen.is_empty() {
+                // counter. The plan says which it was, so this no
+                // longer has to be worked out twice over.
+                let laden = orders.is_empty()
+                    && errand
+                        .unmet
+                        .iter()
+                        .any(|(_, _, why)| why.what.contains("laden"));
+                if laden {
                     let (carrying, capacity) = self.burden();
                     let percent = (carrying * 100).checked_div(capacity).unwrap_or(0);
                     self.autoplay.say(

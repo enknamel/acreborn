@@ -187,20 +187,46 @@ cannot restock, and here is why" in stage 3.
 
 ### Stage 2 -- the chain becomes data
 
-Lift the priority chain out of control flow into an ordered table of
-named steps. Same order, same behaviour, but the order can be read,
-logged, shown in a panel and tested.
+**Done.** `steps::STEPS`: the same order, each entry carrying its name
+and why it sits where it does, and marked reflex or goal. Tests hold
+that healing comes before hunting, that looting comes before the shops,
+and that no reflex sits below a goal.
 
 ### Stage 3 -- utility at the root
 
-Replace the static order of the *goal* steps (not the reflexes) with
-scoring. The constants that already encode the trade-offs become the
-curves.
+**Done.** Goals are scored; one with no opinion takes its place in the
+table, so nothing moved until a curve was written on purpose.
 
-### Stage 4 -- the restock planner
+The first curve: a body is worth more every second it waits and each
+one still on the floor adds to that, so past about a third of its life
+a body outranks starting another fight. A character that only broke off
+for a corpse about to rot never went back for the older ones, because
+in a busy dungeon there is always another fight.
 
-Actions with preconditions and effects over `{purse, burden, slots,
-stock, gate, reachable}`, replanned when one changes.
+### Stage 4 -- the errand planner
+
+**Done.** `errand::plan` walks the resources forward -- sell, cash, buy,
+convert -- and each act takes from the pool what it costs and gives
+back what it yields. "Cannot buy because too laden, therefore sell
+first" is not written down: it falls out of selling happening before
+buying and of weight being counted.
+
+It is arithmetic over a plain state, so it runs before the character
+leaves as well as when it arrives, which is how a trip is known to be
+worth making.
+
+## What is left
+
+- The three goal-layer flags stage one left alone: `run_was_futile`,
+  `too_heavy`, `stopped_in_town`. They belong with `Supplies::broke` as
+  one "cannot restock, and why" that the party can read.
+- The steps still answer `Did::Acting` or `Did::Done` and nothing else.
+  Each one that learns to say why it stood aside makes the log and the
+  autoplay panel better; none of them has to.
+- Reachability is not yet a precondition anywhere. The planner knows
+  what a counter stocks and what the character can pay and lift; it
+  does not know that the counter is up a flight of stairs the
+  navigation graph has no path to.
 
 ## Rules that hold whatever the structure
 
