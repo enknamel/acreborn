@@ -112,6 +112,20 @@ impl Demo {
         })
     }
 
+    /// Move the whole effect: the emitters keep the offsets their
+    /// script gave them, so the delta between the old frame and the new
+    /// one carries them along with the object they hang on.
+    pub fn set_transform(&mut self, transform: Mat4) {
+        if transform == self.transform {
+            return;
+        }
+        let delta = transform * self.transform.inverse();
+        for (_, e) in self.system.iter_mut() {
+            e.set_transform(delta * e.transform());
+        }
+        self.transform = transform;
+    }
+
     /// Run forward `seconds` at 60 Hz.
     pub fn simulate(&mut self, assets: &Assets, seconds: f32) {
         let dt = 1.0 / 60.0;

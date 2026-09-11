@@ -1808,6 +1808,7 @@ impl App {
             }
         }
         {
+            self.fx.sync_objects(&net.client.assets, &net.client.world);
             if !self.fx.is_empty() {
                 self.fx.update(&net.client.assets, self.frame_dt);
             }

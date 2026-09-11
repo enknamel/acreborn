@@ -472,8 +472,17 @@ impl ParticleSystem {
         rng: &mut Rng,
     ) -> Result<u32> {
         let info = assets.particle_emitter(emitter_info_id)?;
-        let sprite = if info.hw_gfxobj_id != 0 {
-            Sprite::from_gfxobj(assets, info.hw_gfxobj_id).unwrap_or_else(|e| {
+        // `hw_gfxobj_id` is the billboard the hardware path draws. Older
+        // emitters have only `gfxobj_id`, the model the software path
+        // spawned per particle; those models are themselves flat
+        // textured quads, so the same sprite stands in for one and the
+        // effect costs no more than any other.
+        let image_of = match info.hw_gfxobj_id {
+            0 => info.gfxobj_id,
+            id => id,
+        };
+        let sprite = if image_of != 0 {
+            Sprite::from_gfxobj(assets, image_of).unwrap_or_else(|e| {
                 tracing::warn!("emitter {emitter_info_id:#010x}: {e}; using a plain sprite");
                 Sprite::FALLBACK
             })
@@ -534,6 +543,10 @@ impl ParticleSystem {
 
     pub fn iter(&self) -> impl Iterator<Item = (u32, &Emitter)> {
         self.emitters.iter().map(|(i, e)| (*i, e))
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (u32, &mut Emitter)> {
+        self.emitters.iter_mut().map(|(i, e)| (*i, e))
     }
 
     /// Advance every emitter to `time`, dropping the finished ones.
