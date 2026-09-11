@@ -1309,9 +1309,12 @@ impl Api for CtxApi<'_, '_> {
     fn walk_to(&mut self, x: f64, y: f64, z: f64, stop: f64) -> bool {
         let target = glam::Vec3::new(x as f32, y as f32, z as f32);
         let stop = if stop > 0.0 { stop as f32 } else { 0.5 };
-        let c = self.client();
-        c.follow = Some(ac_client::Follow { target, stop });
-        c.player.is_some()
+        // Through the travel system, like everything else. Setting the
+        // steering goal here by hand made this binding the one way to
+        // move that ignored portals, recalls and whether the way was
+        // possible at all -- which also made every test written with it
+        // prove nothing about what the character actually does.
+        self.client().head_for(target, stop, "there").fine()
     }
 
     fn walk_stop(&mut self) {

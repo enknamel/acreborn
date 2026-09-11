@@ -233,6 +233,11 @@ pub struct NavNode {
 const CHUNK: i32 = 16;
 /// How far `nearest` looks around a point, in columns.
 const NEAREST_REACH: i32 = 2;
+/// How far it looks when that found nothing at all: a character with no
+/// node within three metres is stranded -- almost always because it is
+/// leaning on something -- and needs the way back to the walkable
+/// world, however far that is.
+const STRANDED_REACH: i32 = 8;
 
 pub struct NavGraph {
     pub spacing: f32,
@@ -564,9 +569,26 @@ impl NavGraph {
     /// The node nearest `p` within a few grid steps, preferring the same
     /// level (height differences count triple). Builds what it looks at.
     pub fn nearest(&mut self, ground: &Ground, p: Vec3) -> Option<u32> {
+        // Close by first, and further only if that finds nothing.
+        //
+        // Nothing nearby is the state a character gets into by walking
+        // into a wall: a node is only placed where the capsule fits
+        // clear of everything, so the moment it is leaning on the wall
+        // there is no node where it stands -- and with no node there is
+        // no path, with no path the steering heads straight for the
+        // goal, and straight for the goal is the wall it is already
+        // touching. It cannot get off the wall by any means it has.
+        //
+        // Somewhere standable is never far: a pace back down the
+        // corridor. Looking that far costs a few more chunks, and only
+        // in the rare case where the close look failed.
+        self.nearest_within(ground, p, NEAREST_REACH)
+            .or_else(|| self.nearest_within(ground, p, STRANDED_REACH))
+    }
+
+    fn nearest_within(&mut self, ground: &Ground, p: Vec3, r: i32) -> Option<u32> {
         let gx = (p.x / self.spacing).round() as i32;
         let gy = (p.y / self.spacing).round() as i32;
-        let r = NEAREST_REACH;
         self.ensure_columns(ground, gx - r, gx + r, gy - r, gy + r);
         let mut best: Option<(f32, u32)> = None;
         for dx in -r..=r {

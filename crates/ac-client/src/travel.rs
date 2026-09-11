@@ -270,6 +270,7 @@ impl Client {
                 .unwrap_or(false)
         };
         let prefs = self.travel.prefs.in_dungeon(underground);
+        tracing::info!("travel: planning to {goal:?} from {cell:#010x}, underground {underground}");
         // Portal gems in the pack are ways to get somewhere too, and
         // unlike a recall they need no skill or components: carrying one
         // is the whole requirement.
