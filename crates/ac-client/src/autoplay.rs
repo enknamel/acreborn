@@ -1008,6 +1008,8 @@ pub struct Autoplay {
     /// (the server walks us to it, so a far one is slower), and how
     /// many times we have asked.
     corpse: Option<(u32, Instant, Duration, u32)>,
+    /// Which step claimed this tick, for the log and the panel.
+    pub(crate) step: Option<&'static str>,
     /// Corpses already emptied.
     pub(crate) looted: Vec<u32>,
     /// Corpses that would not open. A corpse is locked to the group
@@ -1520,82 +1522,25 @@ impl Client {
         if self.autoplay_academy(now) {
             return;
         }
-        // A weapon waiting for empty hands is taken up as soon as they
-        // are.
-        if let Some(g) = self.autoplay.pending_wield {
-            // A shield in the off hand counts as a full hand for a
-            // weapon that cannot be held with one.
-            let offhand_matters = self
-                .stats_of(g)
-                .is_some_and(|i| crate::weapons::needs_free_offhand(&i));
-            let hands_full = self.world.wielded().any(|o| {
-                (o.item_type
-                    & (ac_world::item_type::MELEE_WEAPON
-                        | ac_world::item_type::MISSILE_WEAPON
-                        | ac_world::item_type::CASTER)
-                    != 0
-                    && o.valid_locations & ac_world::equip::MISSILE_AMMO == 0)
-                    || (offhand_matters && o.valid_locations & ac_world::equip::SHIELD != 0)
-            });
-            if !hands_full {
-                self.autoplay.pending_wield = None;
-                if self.world.is_carried(g) {
-                    self.wield_guid(g);
-                }
-            } else if !self.world.is_carried(g) && !self.world.objects.contains_key(&g) {
-                self.autoplay.pending_wield = None;
+        // Everything from here is a table rather than a chain, so the
+        // order can be read, logged and tested rather than only obeyed
+        // (see `crate::steps` and `docs/agent.md`).
+        for chore in crate::steps::HOUSEKEEPING {
+            chore.run(self, now);
+        }
+        for step in crate::steps::STEPS {
+            let did = step.run(self, now);
+            if did.acting() {
+                self.autoplay.step = Some(step.name);
+                return;
+            }
+            // Why a step stood aside is worth having when a character
+            // is doing nothing and nobody can see why.
+            if let Some(because) = did.because() {
+                tracing::trace!("autoplay: {} stood aside: {because}", step.name);
             }
         }
-        self.autoplay_shield(now);
-        // A buff about to run out goes back up before anything else is
-        // done, fight or no fight.
-        if self.autoplay_buff(now, true) {
-            return;
-        }
-        // Mana and stamina are kept up between everything else.
-        if self.autoplay_vitals(now) {
-            return;
-        }
-        self.autoplay_rearm();
-        self.autoplay_stock();
-        if self.autoplay_loot(now) {
-            return;
-        }
-        // A leader that has got well away is caught up with before
-        // anything else; a nearby one is followed once the fighting is
-        // done.
-        if self.autoplay_follow(now, true) {
-            return;
-        }
-        if self.autoplay_team(now) {
-            return;
-        }
-        // Salvage sits between the fights: it is left alone while
-        // anything is being fought, and picked up when nothing is.
-        if self.autoplay_salvage(now) {
-            return;
-        }
-        if self.autoplay_fight(now) {
-            return;
-        }
-        if self.autoplay_buff(now, false) {
-            return;
-        }
-        if self.autoplay_follow(now, false) {
-            return;
-        }
-        if self.autoplay_resume_journey() {
-            return;
-        }
-        // Tidy before anything decides the pack is full: a pack full
-        // of change is not a pack that needs emptying in town.
-        if self.autoplay_tidy(now) {
-            return;
-        }
-        // With nothing else to do: grow, find monsters, run to town.
-        if self.autoplay_grow(now) {
-            return;
-        }
+        self.autoplay.step = None;
         let doing = self.autoplay.doing;
         if doing != Doing::Idle {
             self.autoplay.say(Doing::Idle, "waiting");
@@ -1636,7 +1581,7 @@ impl Client {
     /// player that a purchase landed beside a pile of the same. This
     /// runs before the rules that decide the pack is full, so that a
     /// pack full of change does not send the character to town.
-    fn autoplay_tidy(&mut self, now: Instant) -> bool {
+    pub(crate) fn autoplay_tidy(&mut self, now: Instant) -> bool {
         if !self.autoplay.config.loot.tidy_pack {
             return false;
         }
@@ -1682,7 +1627,7 @@ impl Client {
     }
 
     /// Heal, and break off a losing fight. True when it acted.
-    fn autoplay_survive(&mut self, now: Instant) -> bool {
+    pub(crate) fn autoplay_survive(&mut self, now: Instant) -> bool {
         let cfg = self.autoplay.config.survive.clone();
         let health = self.health_fraction();
         if health >= cfg.heal_below || health <= 0.0 {
@@ -1895,9 +1840,39 @@ impl Client {
         }
     }
 
+    /// A weapon waiting for empty hands is taken up as soon as they
+    /// are: a bow cannot be drawn with a shield up, and a two-handed
+    /// weapon needs both. Runs every tick and never claims one.
+    pub(crate) fn autoplay_pending_wield(&mut self) {
+        if let Some(g) = self.autoplay.pending_wield {
+            // A shield in the off hand counts as a full hand for a
+            // weapon that cannot be held with one.
+            let offhand_matters = self
+                .stats_of(g)
+                .is_some_and(|i| crate::weapons::needs_free_offhand(&i));
+            let hands_full = self.world.wielded().any(|o| {
+                (o.item_type
+                    & (ac_world::item_type::MELEE_WEAPON
+                        | ac_world::item_type::MISSILE_WEAPON
+                        | ac_world::item_type::CASTER)
+                    != 0
+                    && o.valid_locations & ac_world::equip::MISSILE_AMMO == 0)
+                    || (offhand_matters && o.valid_locations & ac_world::equip::SHIELD != 0)
+            });
+            if !hands_full {
+                self.autoplay.pending_wield = None;
+                if self.world.is_carried(g) {
+                    self.wield_guid(g);
+                }
+            } else if !self.world.is_carried(g) && !self.world.objects.contains_key(&g) {
+                self.autoplay.pending_wield = None;
+            }
+        }
+    }
+
     /// Open the corpse of something we killed and take what is worth
     /// taking. True while looting.
-    fn autoplay_loot(&mut self, now: Instant) -> bool {
+    pub(crate) fn autoplay_loot(&mut self, now: Instant) -> bool {
         if !self.autoplay.config.loot.enabled {
             return false;
         }
@@ -2421,7 +2396,7 @@ impl Client {
 
     /// Put the shield chosen with a one-handed weapon on, once that
     /// weapon is in hand and the off hand is free.
-    fn autoplay_shield(&mut self, now: Instant) {
+    pub(crate) fn autoplay_shield(&mut self, now: Instant) {
         let Some(shield) = self.autoplay.wanted_shield else {
             return;
         };
@@ -2626,7 +2601,7 @@ impl Client {
 
     /// Salvage what the rules tagged, or carry it to whoever salvages
     /// for the team. Runs between fights. True while busy with it.
-    fn autoplay_salvage(&mut self, now: Instant) -> bool {
+    pub(crate) fn autoplay_salvage(&mut self, now: Instant) -> bool {
         let cfg = self.autoplay.config.loot.clone();
         if self.world.player_guid.is_none() {
             return false;
@@ -3023,7 +2998,7 @@ impl Client {
     }
 
     /// Pick something to fight and attack it. True when fighting.
-    fn autoplay_fight(&mut self, now: Instant) -> bool {
+    pub(crate) fn autoplay_fight(&mut self, now: Instant) -> bool {
         let cfg = self.autoplay.config.fight.clone();
         self.autoplay_fight_as(now, &cfg)
     }
@@ -3535,7 +3510,7 @@ impl Client {
 
     /// Pick the journey up again after a fight, once there is nothing
     /// else to do.
-    fn autoplay_resume_journey(&mut self) -> bool {
+    pub(crate) fn autoplay_resume_journey(&mut self) -> bool {
         let Some(goal) = self.autoplay.resume_trip else {
             return false;
         };
@@ -3665,7 +3640,7 @@ impl Client {
 
     /// Note what this character is running short of, so the others can
     /// hand it over.
-    fn autoplay_stock(&mut self) {
+    pub(crate) fn autoplay_stock(&mut self) {
         let team = self.autoplay.config.team.clone();
         if !team.enabled {
             self.autoplay.wants.clear();
@@ -3770,7 +3745,7 @@ impl Client {
     /// through a portal. With `urgent`, only a leader that has got well
     /// away counts (it is fetched before a fight); otherwise any leader
     /// further than the following distance. True while on the way.
-    fn autoplay_follow(&mut self, now: Instant, urgent: bool) -> bool {
+    pub(crate) fn autoplay_follow(&mut self, now: Instant, urgent: bool) -> bool {
         let team = self.autoplay.config.team.clone();
         if !team.enabled || !team.follow || team.lead || self.autoplay.team.leader {
             return false;
@@ -4209,7 +4184,7 @@ impl Client {
     /// The things done for the team: land the debuffs on its target,
     /// recruit it into a fellowship, hand over what someone is short of,
     /// and heal whoever is worst hurt. True when it acted.
-    fn autoplay_team(&mut self, now: Instant) -> bool {
+    pub(crate) fn autoplay_team(&mut self, now: Instant) -> bool {
         let team = self.autoplay.config.team.clone();
         if !team.enabled {
             return false;
@@ -4531,7 +4506,7 @@ impl Client {
 
     /// Take up again the weapon put down for an urgent buff, once no
     /// buff is due any more.
-    fn autoplay_rearm(&mut self) {
+    pub(crate) fn autoplay_rearm(&mut self) {
         let Some(weapon) = self.autoplay.put_down else {
             return;
         };
