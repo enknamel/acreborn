@@ -1025,6 +1025,8 @@ pub struct Autoplay {
     corpse: Option<(u32, Instant, Duration, u32)>,
     /// Which step claimed this tick, for the log and the panel.
     pub(crate) step: Option<&'static str>,
+    /// The last "stood aside" said, so the same one is not said twice.
+    aside_said: Option<String>,
     /// Corpses already emptied.
     pub(crate) looted: Vec<u32>,
     /// Corpses that would not open. A corpse is locked to the group
@@ -1551,9 +1553,7 @@ impl Client {
                 self.autoplay.step = Some(step.name);
                 return;
             }
-            if let Some(because) = did.because() {
-                tracing::trace!("autoplay: {} stood aside: {because}", step.name);
-            }
+            self.aside(step.name, &did, now);
         }
         // The goals are weighed. Most say nothing and take their place
         // in the table, which is the order they had; the ones with an
@@ -1566,9 +1566,7 @@ impl Client {
                 self.autoplay.step = Some(step.name);
                 return;
             }
-            if let Some(because) = did.because() {
-                tracing::trace!("autoplay: {} stood aside: {because}", step.name);
-            }
+            self.aside(step.name, &did, now);
         }
         self.autoplay.step = None;
         let doing = self.autoplay.doing;
@@ -1813,6 +1811,28 @@ impl Client {
                 )
             })
             .collect()
+    }
+
+    /// Say why a step stood aside, when it is worth saying.
+    ///
+    /// A character doing nothing is the hardest thing to account for
+    /// from outside: it stands there and nobody can see what it is
+    /// waiting on. `Waiting` is not worth a word -- it is the ordinary
+    /// business of a tick -- but a step that is blocked or has given up
+    /// is something the player wants to know, and once is enough: the
+    /// reason is the same on every tick until it changes.
+    fn aside(&mut self, step: &'static str, did: &crate::did::Did, now: Instant) {
+        use crate::did::Did;
+        let because = match did {
+            Did::Blocked(b) | Did::Refused(b) => b,
+            Did::Acting | Did::Done | Did::Waiting(_) => return,
+        };
+        let said = format!("{step}: {because}");
+        if self.autoplay.aside_said.as_deref() == Some(said.as_str()) {
+            return;
+        }
+        self.autoplay.aside_said = Some(said.clone());
+        self.autoplay.note(said, now);
     }
 
     /// The server has refused something with `code`. When the reason is
