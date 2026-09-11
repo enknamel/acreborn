@@ -363,6 +363,10 @@ pub struct State {
     /// The last thing the shopping rules said they were doing, for the
     /// log and the panel.
     pub last_saying: String,
+    /// The character is underground. Worked out on the tick (it needs
+    /// the block's collision, which is loaded lazily) and read by the
+    /// rules that must not plan a walk out of a dungeon.
+    pub in_dungeon: bool,
     /// The last run to town ended without buying or selling anything.
     /// Another one straight away would do the same, so it waits.
     pub run_was_futile: bool,
@@ -465,6 +469,15 @@ enum NeedKind {
     Ammo(u32),
     /// A spell component, by the weenie class of the item.
     Component(u32),
+}
+
+/// Which way out leaves the character nearest `at`, how far that is,
+/// and what it is called.
+fn nearest_way(ways: &[(Vec2, String)], at: Vec2) -> (Vec2, f32, String) {
+    ways.iter()
+        .map(|(w, name)| (*w, at.distance(*w), name.clone()))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .unwrap_or((at, 0.0, "here".to_string()))
 }
 
 /// What a vendor's stock line is, for matching against needs.
@@ -594,6 +607,36 @@ impl Forecast {
     /// What there is to spend once the selling is done.
     pub fn funds(&self) -> u32 {
         self.purse.saturating_add(self.takings)
+    }
+
+    /// Why this shop was the one chosen, in a few words.
+    ///
+    /// The choice is a ring search outwards, taking the best shop in
+    /// the first ring with anything worth the walk, ordered by whether
+    /// it fills the whole order, then by how many lines of it it
+    /// stocks, then by how near it is. So the answer is always some
+    /// mixture of those three, and worth saying out loud: "it went
+    /// there" is a bug report, "it went there because it was the only
+    /// one stocking quarrels" is an explanation.
+    pub fn why_it_was_picked(&self) -> String {
+        if self.stocks.is_empty() {
+            return match self.selling {
+                0 => "nothing wanted is sold here; nearest counter".to_string(),
+                n => format!("nowhere sells what is wanted; {n} thing(s) to sell"),
+            };
+        }
+        let what = a_few(&self.stocks.iter().map(|s| s.as_str()).collect::<Vec<_>>());
+        let covers = if self.covers_it() {
+            "the whole order".to_string()
+        } else if self.missing.is_empty() {
+            format!("{what}, but short of coin")
+        } else {
+            format!("{what} (not {})", a_few(&self.missing.iter().map(|s| s.as_str()).collect::<Vec<_>>()))
+        };
+        match self.selling {
+            0 => covers,
+            n => format!("{covers}; {n} thing(s) to sell here"),
+        }
     }
 
     /// Whether the trip fills the whole order.
@@ -929,6 +972,16 @@ impl Client {
                 self.autoplay.growth.last_outdoors = Some(Vec2::new(p.x, p.y));
             }
         }
+        // Whether we are underground decides what a journey may be made
+        // of. Knowing needs the block's collision, which loads lazily,
+        // so it is settled here once a tick rather than asked for in
+        // the middle of a decision.
+        let assets = self.assets.clone();
+        self.autoplay.growth.in_dungeon = self
+            .player
+            .as_mut()
+            .map(|pl| pl.is_indoors() && pl.in_dungeon(&assets))
+            .unwrap_or(false);
         let mode = self.grow_mode(now, &cfg);
         // A rank is one message and takes no time: it goes out even in
         // the middle of a walk to town.
@@ -2140,10 +2193,15 @@ impl Client {
             .collect()
     }
 
-    /// The best vendor to walk to from `from`: not one being avoided,
-    /// not one in `visited`, within `within` metres when given, and --
-    /// this is the point of it -- one the trip is known in advance to
-    /// achieve something at.
+    /// The best vendor to make for, given every way the character has
+    /// of being somewhere else: not one being avoided, not one in
+    /// `visited`, within `within` metres of a way out when given, and
+    /// -- this is the point of it -- one the trip is known in advance
+    /// to achieve something at.
+    ///
+    /// `ways` is where the character can cheaply be (see
+    /// [`Self::ways_out`]); a shop is judged by its distance to the
+    /// nearest of them.
     ///
     /// Comes back with the forecast it was chosen on, so the caller can
     /// decide whether to set off at all and can say why.
@@ -2151,11 +2209,18 @@ impl Client {
         &self,
         cfg: &Growth,
         needs: &[Need],
-        from: Vec2,
+        ways: &[(Vec2, String)],
         within: Option<f32>,
         visited: &[Vec2],
         now: Instant,
     ) -> Option<(String, Vec2, Forecast)> {
+        // How far a shop is: from the nearest way out, not from the
+        // feet.
+        let reach = |at: Vec2| {
+            ways.iter()
+                .map(|(w, _)| at.distance(*w))
+                .fold(f32::MAX, f32::min)
+        };
         // Counters this character can actually trade at. A society's
         // archmage is a very good archmage and no use at all to
         // somebody else's society, and a chapter house behind a quest
@@ -2164,7 +2229,7 @@ impl Client {
         let quests = cfg.gates_open.clone();
         let skip = &self.autoplay.growth.skip_vendors;
         let allowed = |at: Vec2| {
-            within.is_none_or(|w| at.distance(from) <= w)
+            within.is_none_or(|w| reach(at) <= w)
                 && !visited.iter().any(|p| p.distance(at) < 1.0)
                 && !skip.held(&spot(at), now)
         };
@@ -2194,7 +2259,7 @@ impl Client {
         for ring in vendor_rings(within) {
             let best = ac_world::shops::all()
                 .iter()
-                .filter(|s| allowed(s.xy()) && s.xy().distance(from) <= ring)
+                .filter(|s| allowed(s.xy()) && reach(s.xy()) <= ring)
                 .filter(|s| s.open_to(society, &quests))
                 .map(|s| (s, forecast(s, &wants, purse, &salables)))
                 .filter(|(_, f)| f.worth_going())
@@ -2205,7 +2270,7 @@ impl Client {
                     fb.covers_it()
                         .cmp(&fa.covers_it())
                         .then_with(|| fb.stocks.len().cmp(&fa.stocks.len()))
-                        .then_with(|| a.xy().distance(from).total_cmp(&b.xy().distance(from)))
+                        .then_with(|| reach(a.xy()).total_cmp(&reach(b.xy())))
                 })
                 .map(|(s, f)| (s.name.clone(), s.xy(), f));
             if best.is_some() {
@@ -2221,7 +2286,7 @@ impl Client {
             .iter()
             .filter(|l| l.kind == ac_world::landmarks::Kind::Vendor)
             .filter(|l| allowed(l.xy()))
-            .min_by(|a, b| a.xy().distance(from).total_cmp(&b.xy().distance(from)))
+            .min_by(|a, b| reach(a.xy()).total_cmp(&reach(b.xy())))
             .map(|l| {
                 let look = Forecast {
                     shop: l.name.clone(),
@@ -2353,6 +2418,50 @@ impl Client {
                 })
             })
             .collect()
+    }
+
+    /// Everywhere the character can get to cheaply, and what takes it
+    /// there.
+    ///
+    /// A journey is not measured from the feet. A character carries
+    /// ways of being somewhere else -- a lifestone recall, the two
+    /// portal recalls, whatever gems are in the pack -- and each lands
+    /// it at a known spot for the price of one cast. The counter worth
+    /// going to is the one nearest *any* of those, not the one nearest
+    /// where it happens to be standing.
+    ///
+    /// It matters most underground, where the feet are the one place
+    /// that leads nowhere: a dungeon lies under the landblock it
+    /// belongs to, so the nearest counter to a character in Holtburg
+    /// Dungeon is one in Holtburg, a hundred metres up through rock.
+    /// But it is just as true on the surface -- a recall to Arwic beats
+    /// a two-kilometre walk to the shop over the hill.
+    fn ways_out(&self, me: Vec2) -> Vec<(Vec2, String)> {
+        let mut out: Vec<(Vec2, String)> = Vec::new();
+        // Where it stands, unless where it stands leads nowhere.
+        if !self.autoplay.growth.in_dungeon {
+            out.push((me, "on foot".to_string()));
+        }
+        let world_xy = |p: ac_world::Position| {
+            let o = ac_world::landblock_origin(p.cell);
+            Vec2::new(o.x + p.local.x, o.y + p.local.y)
+        };
+        for r in self.castable_recalls() {
+            if let Some(p) = self.recall_destination(r.spell) {
+                out.push((world_xy(p), r.name.clone()));
+            }
+        }
+        // A gem needs no skill and no components: carrying one is the
+        // whole requirement, which often makes it the cheapest way out
+        // a character has.
+        for g in self.carried_gems() {
+            out.push((g.exit, g.name.clone()));
+        }
+        // Nothing to hand: the feet are all there is, wherever they are.
+        if out.is_empty() {
+            out.push((me, "on foot".to_string()));
+        }
+        out
     }
 
     /// What the character is carrying, in burden units, and the most
@@ -2604,11 +2713,34 @@ impl Client {
             return self.held_back("not placed in the world yet");
         };
         let me = Vec2::new(me.x, me.y);
-        let Some((vendor, at, look)) = self.pick_vendor(cfg, &needs, me, None, &[], now) else {
+        // Underground, "nearest" is measured from where the character
+        // will come up, not from where it is standing.
+        //
+        // A dungeon lies under the landblock it belongs to, so the
+        // counter nearest a character in Holtburg Dungeon is one in
+        // Holtburg -- a hundred metres away and a hundred metres of
+        // rock in between. The way out is a recall, and a recall lands
+        // somewhere particular; the shops worth considering are the
+        // ones near *that*.
+        let ways = self.ways_out(me);
+        let Some((vendor, at, look)) = self.pick_vendor(cfg, &needs, &ways, None, &[], now) else {
             self.autoplay.note("no vendor to run to", now);
             self.autoplay.growth.last_run = Some(now);
             return false;
         };
+        // Why this counter and not another, in the log. The choice is a
+        // ring search outwards from `from`, taking the best shop in the
+        // first ring with anything worth the walk, so the answer is
+        // always some mixture of what it stocks and how far off it is.
+        self.autoplay.note(
+            format!(
+                "{vendor} it is: {}, {:.0} m by {}",
+                look.why_it_was_picked(),
+                nearest_way(&ways, at).1,
+                nearest_way(&ways, at).2
+            ),
+            now,
+        );
         // Know before setting off whether the trip can achieve anything.
         // A counter with nothing the character needs, or nothing it can
         // pay for, is a walk to town and back for its own sake -- and
@@ -2943,7 +3075,14 @@ impl Client {
             // when there is reason to think it can help. A full pack is
             // reason enough on its own: that stop is to empty it.
             if let Some((vendor, at, look)) =
-                self.pick_vendor(cfg, &needs, run.town, Some(SAME_TOWN), &run.visited, now)
+                self.pick_vendor(
+                    cfg,
+                    &needs,
+                    &[(run.town, "in town".to_string())],
+                    Some(SAME_TOWN),
+                    &run.visited,
+                    now,
+                )
             {
                 if (still_full || look.worth_going()) && self.grow_travel(at, now) {
                     let what = if still_full {

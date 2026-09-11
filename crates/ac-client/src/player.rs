@@ -824,7 +824,7 @@ impl Player {
     /// (built from the assembled scene on first use, ~0.5 s once).
     /// Whether the block we stand in is a dungeon: there is no terrain
     /// under it to fall onto, and no cell-0 floor can take us outside.
-    fn in_dungeon(&mut self, assets: &Assets) -> bool {
+    pub fn in_dungeon(&mut self, assets: &Assets) -> bool {
         let blk = self.landblock();
         self.collision(assets, blk);
         self.blocks.get(&blk).map(|b| b.dungeon).unwrap_or(false)

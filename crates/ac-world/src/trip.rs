@@ -182,7 +182,25 @@ fn walk_seconds(a: Vec2, b: Vec2) -> f32 {
 /// Whether a leg on foot between two spots is believable: short enough,
 /// and not between an indoor cell and somewhere else (the character
 /// cannot walk out of the Town Network hub into the countryside).
-fn can_walk(a: Vec2, a_cell: u32, b: Vec2, b_cell: u32, reach: f32) -> bool {
+/// The same, told whether `a` is inside a dungeon. From one, nothing is
+/// walkable but the rest of the dungeon: the way out is a portal or a
+/// recall, never a stroll.
+fn can_walk_from(
+    a: Vec2,
+    a_cell: u32,
+    b: Vec2,
+    b_cell: u32,
+    reach: f32,
+    in_dungeon: bool,
+) -> bool {
+    if in_dungeon {
+        let indoors = |c: u32| c & 0xFFFF >= 0x100;
+        return indoors(b_cell) && a_cell & 0xFFFF_0000 == b_cell & 0xFFFF_0000;
+    }
+    can_walk_plain(a, a_cell, b, b_cell, reach)
+}
+
+fn can_walk_plain(a: Vec2, a_cell: u32, b: Vec2, b_cell: u32, reach: f32) -> bool {
     let indoors = |c: u32| c & 0xFFFF >= 0x100;
     // A goal given by position alone (cell 0) is outdoors in the block
     // its position lies in: from inside a shop in that block, the
@@ -254,6 +272,16 @@ pub struct Prefs {
     /// the planner are ignored: a corpse run that must not leave the
     /// dungeon, a character saving its components.
     pub use_recalls: bool,
+    /// The character is in a dungeon, so there is no walking out.
+    ///
+    /// A dungeon shares its landblock number with the ground above it,
+    /// and the only thing telling them apart is knowing which you are
+    /// in -- which the client does and this table does not. Without
+    /// being told, the planner reads a vendor a hundred metres up as a
+    /// hundred-metre stroll and sets off into the nearest wall. A
+    /// building is not the same thing: you really can walk out of a
+    /// shop door, so only a dungeon sets this.
+    pub in_dungeon: bool,
 }
 
 impl Default for Prefs {
@@ -272,6 +300,16 @@ impl Prefs {
             portal_reach: PORTAL_REACH,
             recall_seconds: RECALL_SECONDS,
             use_recalls: true,
+            in_dungeon: false,
+        }
+    }
+
+    /// The same journey, knowing the character is underground and
+    /// cannot simply walk out.
+    pub fn in_dungeon(self, yes: bool) -> Self {
+        Prefs {
+            in_dungeon: yes,
+            ..self
         }
     }
 
@@ -409,7 +447,9 @@ pub fn plan_with_recalls_and_gems(
     let recalls: &[Recall] = if prefs.use_recalls { recalls } else { &[] };
     // Straight there, when that is a believable walk and there is no
     // spell that might be quicker.
-    if recalls.is_empty() && can_walk(from, from_cell, goal, 0, prefs.walk_reach) {
+    if recalls.is_empty()
+        && can_walk_from(from, from_cell, goal, 0, prefs.walk_reach, prefs.in_dungeon)
+    {
         return Some(Trip {
             steps: vec![Step::Walk(goal)],
             seconds: walk_seconds(from, goal),
@@ -456,7 +496,11 @@ pub fn plan_with_recalls_and_gems(
         }
         let node = nodes[q.idx];
         // Could we simply walk the rest of the way?
-        if can_walk(node.at, node.cell, goal, 0, prefs.walk_reach) {
+        // Only the start is known to be underground; a node reached
+        // by a portal has been walked to from wherever that portal
+        // came out.
+        let stuck = prefs.in_dungeon && node.at == from && node.cell == from_cell;
+        if can_walk_from(node.at, node.cell, goal, 0, prefs.walk_reach, stuck) {
             let total = q.cost + walk_seconds(node.at, goal);
             if best.map(|(b, _)| total < b).unwrap_or(true) {
                 best = Some((total, q.idx));
@@ -524,7 +568,14 @@ pub fn plan_with_recalls_and_gems(
                 continue;
             }
             let mouth = p.from_xy();
-            if !can_walk(node.at, node.cell, mouth, p.from_cell, prefs.walk_reach) {
+            if !can_walk_from(
+                node.at,
+                node.cell,
+                mouth,
+                p.from_cell,
+                prefs.walk_reach,
+                stuck,
+            ) {
                 continue;
             }
             if node.at.distance(mouth) > prefs.portal_reach && node.cell & 0xFFFF < 0x100 {
@@ -610,16 +661,46 @@ pub fn plan_with_recalls_and_gems(
 mod tests {
     use super::*;
 
+
+    #[test]
+    fn there_is_no_walking_out_of_a_dungeon() {
+        // A dungeon lies under the landblock it belongs to, so a
+        // counter a hundred metres up is a hundred metres away and a
+        // hundred metres of rock in between. Told nothing, the planner
+        // calls that a stroll -- which is a character setting off into
+        // the nearest wall saying it is going to the shops.
+        let deep = Vec2::new(32_500.0, 34_600.0);
+        let surface = Vec2::new(32_560.0, 34_660.0);
+        let in_cell = 0xA9B4_0120;
+        assert!(
+            can_walk_plain(deep, in_cell, surface, 0, 1000.0),
+            "a building's door is still a walk"
+        );
+        assert!(
+            !can_walk_from(deep, in_cell, surface, 0, 1000.0, true),
+            "walked out of a dungeon"
+        );
+        // The rest of the dungeon is still walkable.
+        assert!(can_walk_from(
+            deep,
+            in_cell,
+            Vec2::new(32_510.0, 34_610.0),
+            0xA9B4_0135,
+            1000.0,
+            true
+        ));
+    }
+
     #[test]
     fn a_walk_out_of_a_shop_to_its_own_block_is_a_walk() {
         // Inside a Holtburg shop (cell A9B4016A), bound for a spot
         // outdoors in the same block (cell unknown): a walk.
         let inside = Vec2::new(0xA9 as f32 * 192.0 + 100.0, 0xB4 as f32 * 192.0 + 100.0);
         let outside = inside + Vec2::new(20.0, 10.0);
-        assert!(can_walk(inside, 0xA9B4_016A, outside, 0, 1000.0));
+        assert!(can_walk_plain(inside, 0xA9B4_016A, outside, 0, 1000.0));
         // The next block over is not walked to from indoors.
         let next = inside + Vec2::new(192.0, 0.0);
-        assert!(!can_walk(inside, 0xA9B4_016A, next, 0, 1000.0));
+        assert!(!can_walk_plain(inside, 0xA9B4_016A, next, 0, 1000.0));
     }
     use crate::towns;
 

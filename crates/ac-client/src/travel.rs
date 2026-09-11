@@ -199,7 +199,19 @@ impl Client {
         }
         let level = self.world.stats.level.max(1) as u32;
         let mut refused = self.travel.refused.clone();
-        let prefs = self.travel.prefs;
+        // Underground, there is no walking out. A dungeon shares its
+        // landblock number with the ground above it, so without saying
+        // so the planner reads a vendor a hundred metres up as a
+        // hundred-metre stroll -- which is a character setting off into
+        // the nearest wall, saying it is going to the shops.
+        let underground = {
+            let assets = self.assets.clone();
+            self.player
+                .as_mut()
+                .map(|pl| pl.is_indoors() && pl.in_dungeon(&assets))
+                .unwrap_or(false)
+        };
+        let prefs = self.travel.prefs.in_dungeon(underground);
         // Portal gems in the pack are ways to get somewhere too, and
         // unlike a recall they need no skill or components: carrying one
         // is the whole requirement.
