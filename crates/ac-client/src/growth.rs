@@ -883,6 +883,16 @@ pub struct SellRules<'a> {
     /// `Sell` tag sells whatever the searches say, a `Salvage` tag keeps
     /// the item for the salvager.
     pub tags: &'a BTreeMap<u32, LootAction>,
+    /// The spell components this character actually casts with, by
+    /// weenie class.
+    ///
+    /// Not every spell component is a spell component to the character
+    /// holding it. A Pyreal Pea is one by item type and is worth fifty
+    /// thousand at a counter: peas are what a run to town is paid for.
+    /// A Prismatic Taper is one too and is what the character is going
+    /// to town to buy. The difference is not in the type; it is whether
+    /// this character's spells burn it.
+    pub burns: &'a [u32],
 }
 
 /// Gear worth keeping rather than selling: armour, clothing or jewelry
@@ -965,11 +975,15 @@ pub fn sellable(stats: &ItemStats, ammo: bool, rules: &SellRules) -> bool {
     if crate::magic::is_focus(stats.wcid) {
         return false;
     }
+    // A spell component is kept when this character's spells burn it,
+    // and sold when they do not. See `SellRules::burns`.
+    if stats.item_type & item_type::SPELL_COMPONENTS != 0 && rules.burns.contains(&stats.wcid) {
+        return false;
+    }
     // Things a vendor should never be handed: money, the packs
-    // themselves, what spells and crafting are made of.
+    // themselves, what crafting is made of.
     let keep_types = item_type::MONEY
         | item_type::CONTAINER
-        | item_type::SPELL_COMPONENTS
         | item_type::PROMISSORY_NOTE
         | item_type::TINKERING_TOOL
         | item_type::KEY
@@ -2021,6 +2035,7 @@ impl Client {
         let wielder = self.wielder();
         let keep = self.keep_names(cfg);
         let tags = self.autoplay.tags().clone();
+        let burns = self.burns(cfg);
         self.world
             .inventory()
             .filter_map(|o| {
@@ -2031,6 +2046,7 @@ impl Client {
                     keep: &keep,
                     can_wield: stats.appraised.then(|| wielder.can_wield(&stats)),
                     tags: &tags,
+                    burns: &burns,
                 };
                 sellable(&stats, ammo, &rules).then_some(o.guid)
             })
@@ -2081,11 +2097,13 @@ impl Client {
         let wielder = self.wielder();
         let keep = self.keep_names(cfg);
         let tags = self.autoplay.tags().clone();
+        let burns = self.burns(cfg);
         let rules_for = |stats: &ItemStats| SellRules {
             sell: &cfg.sell,
             keep: &keep,
             can_wield: stats.appraised.then(|| wielder.can_wield(stats)),
             tags: &tags,
+            burns: &burns,
         };
         // The vendor profile, when the character has been given one.
         // It answers the same question the searches do -- does this go
@@ -2362,6 +2380,19 @@ impl Client {
         let n = self.grow_needs(cfg);
         self.autoplay.growth.needs_seen = Some((now, n.clone()));
         n
+    }
+
+    /// The spell components this character's spells burn, by weenie
+    /// class: what it goes to town to buy, as against what it goes to
+    /// town to sell.
+    pub fn burns(&self, cfg: &Growth) -> Vec<u32> {
+        let Ok(mapper) = self.assets.spell_component_ids() else {
+            return Vec::new();
+        };
+        self.component_targets(cfg.tapers_keep)
+            .keys()
+            .filter_map(|id| mapper.component_wcid(*id))
+            .collect()
     }
 
     /// What the character is carrying, in burden units, and the most
@@ -3194,6 +3225,45 @@ mod tests {
     }
 
     #[test]
+    fn a_pea_is_sold_and_a_taper_is_kept() {
+        // Both are spell components by item type. One is worth fifty
+        // thousand at a counter and is what a run to town is paid for;
+        // the other is what the character is going to town to buy. The
+        // type does not tell them apart -- whether this character's
+        // spells burn it does.
+        const TAPER: u32 = 691;
+        const PEA: u32 = 8330;
+        let sell = vec!["value>0".to_string()];
+        let casts = [TAPER];
+        let rules = SellRules {
+            sell: &sell,
+            keep: &[],
+            can_wield: None,
+            tags: &BTreeMap::new(),
+            burns: &casts,
+        };
+
+        let mut pea = item("Pyreal Pea", item_type::SPELL_COMPONENTS, 50_000);
+        pea.wcid = PEA;
+        assert!(sellable(&pea, false, &rules), "peas pay for the trip");
+
+        let mut taper = item("Prismatic Taper", item_type::SPELL_COMPONENTS, 5);
+        taper.wcid = TAPER;
+        assert!(!sellable(&taper, false, &rules), "and tapers are why");
+
+        // A caster that does not use tapers -- an archer, say -- would
+        // sell them like any other loot.
+        let archer = SellRules {
+            sell: &sell,
+            keep: &[],
+            can_wield: None,
+            tags: &BTreeMap::new(),
+            burns: &[],
+        };
+        assert!(sellable(&taper, false, &archer));
+    }
+
+    #[test]
     fn what_is_never_sold_is_never_sold() {
         let cfg = Growth::default();
         let sell_everything = vec!["value>0".to_string()];
@@ -3202,6 +3272,7 @@ mod tests {
             keep: &[],
             can_wield: Some(false),
             tags: &BTreeMap::new(),
+            burns: &[],
         };
         // A rule that says "sell anything" still does not sell these.
         let plain = item("Copper Pea", item_type::MISC, 40);
@@ -3239,6 +3310,7 @@ mod tests {
             keep: &[],
             can_wield: Some(false),
             tags: &tags,
+            burns: &[],
         };
         assert!(!sellable(&tinkered, false, &tagged));
 
@@ -3261,6 +3333,7 @@ mod tests {
             keep: &keep,
             can_wield: None,
             tags: &BTreeMap::new(),
+            burns: &[],
         };
         assert!(sellable(
             &item("Leather Cap", item_type::ARMOR, 120),
@@ -3338,6 +3411,7 @@ mod tests {
             keep: &keep,
             can_wield: None,
             tags: &BTreeMap::new(),
+            burns: &[],
         };
         // Plain armour off a drudge is trash and goes.
         assert!(sellable(
@@ -3377,6 +3451,7 @@ mod tests {
             keep: &keep,
             can_wield: None,
             tags: &tags,
+            burns: &[],
         };
         assert!(sellable(&hauberk, false, &sell_it));
 
@@ -3389,6 +3464,7 @@ mod tests {
                 keep: &keep,
                 can_wield: None,
                 tags: &tags,
+                burns: &[],
             };
             let mut cap = item("Leather Cap", item_type::ARMOR, 120);
             cap.guid = 7;
@@ -3404,6 +3480,7 @@ mod tests {
             keep: &keep,
             can_wield: None,
             tags: &tags,
+            burns: &[],
         };
         assert!(!sellable(&hauberk, false, &kept));
     }
@@ -3418,18 +3495,21 @@ mod tests {
             keep: &keep,
             can_wield: None,
             tags: &BTreeMap::new(),
+            burns: &[],
         };
         let usable = SellRules {
             sell: &cfg.sell,
             keep: &keep,
             can_wield: Some(true),
             tags: &BTreeMap::new(),
+            burns: &[],
         };
         let beyond = SellRules {
             sell: &cfg.sell,
             keep: &keep,
             can_wield: Some(false),
             tags: &BTreeMap::new(),
+            burns: &[],
         };
         assert!(!sellable(&sword, false, &unknown), "not appraised: kept");
         assert!(!sellable(&sword, false, &usable));
@@ -3444,6 +3524,7 @@ mod tests {
             keep: &keep,
             can_wield: Some(false),
             tags: &BTreeMap::new(),
+            burns: &[],
         };
         assert!(!sellable(&sword, false, &rules));
     }
@@ -3460,6 +3541,7 @@ mod tests {
             keep: &keep,
             can_wield: None,
             tags: &tags,
+            burns: &[],
         };
         assert!(sellable(&cheap, false, &rules), "a Sell tag sells");
         let rich = item("Ornate Ring", item_type::JEWELRY, 900);
@@ -3470,6 +3552,7 @@ mod tests {
             keep: &keep,
             can_wield: None,
             tags: &tags,
+            burns: &[],
         };
         assert!(
             !sellable(&rich, false, &rules),
@@ -3519,6 +3602,7 @@ mod tests {
             keep: &[],
             can_wield: None,
             tags: &BTreeMap::new(),
+            burns: &[],
         };
         let mut focus = item("Foci of Strife", item_type::GEM, 500);
         focus.wcid = 15271;
