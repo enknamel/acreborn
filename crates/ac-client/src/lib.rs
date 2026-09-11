@@ -9,6 +9,7 @@ pub mod autoplay;
 pub mod buffs;
 pub mod creation;
 pub mod daytime;
+pub mod did;
 pub mod dodge;
 pub mod emotes;
 pub mod growth;
