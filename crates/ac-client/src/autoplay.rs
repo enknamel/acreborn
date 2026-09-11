@@ -2308,10 +2308,7 @@ impl Client {
                 // Well inside the radius rather than on its edge: the
                 // last metre of a walk wanders, and stopping on the
                 // line means stepping back off it again.
-                self.follow = Some(crate::Follow {
-                    target: at,
-                    stop: CORPSE_REACH / 2.0,
-                });
+                self.head_for(at, CORPSE_REACH / 2.0, "the corpse");
                 // Said once for the walk, not once a frame: the
                 // distance changes every tick and the log is not a
                 // tape measure.
@@ -2842,10 +2839,7 @@ impl Client {
                 self.interrupt_travel("taking salvage to the salvager");
                 self.steering.reset();
             }
-            self.follow = Some(crate::Follow {
-                target: mate.world,
-                stop: GIVE_REACH * 0.8,
-            });
+            self.head_for(mate.world, GIVE_REACH * 0.8, &who);
             self.autoplay
                 .say(Doing::Salvaging, format!("taking salvage to {who}"));
             return true;
@@ -3892,10 +3886,7 @@ impl Client {
             if self.autoplay.follow_trip.take().is_some() && self.traveling() {
                 self.cancel_travel();
             }
-            self.follow = Some(crate::Follow {
-                target: leader.world,
-                stop: keep,
-            });
+            self.head_for(leader.world, keep, "the leader");
         } else {
             // Out of sight (through a portal, say): a journey there,
             // planned again once it has moved on. Not while it stands
@@ -4241,10 +4232,7 @@ impl Client {
             }
             return true;
         }
-        self.follow = Some(crate::Follow {
-            target: spot,
-            stop: Self::REACH * 0.6,
-        });
+        self.head_for(spot, Self::REACH * 0.6, "the spot");
         false
     }
 

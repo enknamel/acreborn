@@ -2912,10 +2912,7 @@ impl Client {
                         let where_it_is = self.world.objects.get(&guid).and_then(|o| o.world_pos());
                         if let Some(spot) = where_it_is {
                             if Vec2::new(spot.x, spot.y).distance(me) > COUNTER_REACH {
-                                self.follow = Some(crate::Follow {
-                                    target: spot,
-                                    stop: COUNTER_REACH / 2.0,
-                                });
+                                self.head_for(spot, COUNTER_REACH / 2.0, &run.vendor);
                                 self.autoplay
                                     .say(Doing::Shopping, format!("walking up to {}", run.vendor));
                                 self.autoplay.growth.run = Some(run);

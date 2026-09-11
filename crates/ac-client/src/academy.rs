@@ -905,7 +905,7 @@ impl Client {
             } => {
                 self.academy_leave_fight();
                 self.academy_open_doors(&objects, pos, now);
-                self.follow = Some(crate::Follow { target, stop });
+                self.head_for(target, stop, "the way on");
                 self.autoplay
                     .say(Doing::Training, format!("{progress}: {status}"));
                 true
@@ -1201,10 +1201,7 @@ impl Client {
         let flat = glam::Vec2::new(centre.x - pos.x, centre.y - pos.y).length();
         if flat > REACH {
             self.academy_open_doors(objects, pos, now);
-            self.follow = Some(crate::Follow {
-                target: centre,
-                stop: REACH,
-            });
+            self.head_for(centre, REACH, &name);
             self.autoplay
                 .say(Doing::Training, format!("{progress}: going after {name}"));
         } else {

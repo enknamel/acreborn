@@ -246,6 +246,10 @@ impl Client {
             self.steering.reset();
         }
         self.dodge.approaching = Some(target);
+        // The one goal that does not go through `head_for`, and on
+        // purpose: a dodge is a reflex, the step was checked for room
+        // when it was chosen, and there is no time to plan a journey
+        // out of the way of an arrow.
         self.follow = Some(crate::Follow { target: at, stop });
         self.autoplay.say(
             Doing::Fighting,

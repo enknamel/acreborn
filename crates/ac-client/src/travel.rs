@@ -30,6 +30,11 @@ use crate::Client;
 pub const ARRIVE: f32 = 3.0;
 /// Longest leg handed to the local move-to (metres).
 pub const LEG: f32 = 60.0;
+
+/// How far a goal may be and still be walked to directly. One landblock
+/// across: beyond that the way there is a journey, not a stroll, and
+/// the steering has no business trying.
+pub const WALKABLE: f32 = 192.0;
 /// The leg is cut this far short of the landblock edge so its end lies in
 /// the block the character stands in.
 const EDGE_MARGIN: f32 = 2.0;
@@ -182,6 +187,59 @@ impl Client {
     /// walking, and so are the recall spells the character can cast
     /// right now (`castable_recalls`) unless the journey's `Prefs` say
     /// `use_recalls: false`. False when nothing reaches the goal.
+    /// Go there. The one way anything asks for movement.
+    ///
+    /// Everything that wants a character to be somewhere else says so
+    /// here, and this decides *how*: a walk the steering can find its
+    /// own way through, or a journey of portals, recalls and gems. The
+    /// caller names a place and is told what came of it; it does not
+    /// choose the means, and it does not touch `follow`.
+    ///
+    /// There used to be three ways to ask -- a server-driven walk, a
+    /// journey, and a raw point handed straight to the steering -- and
+    /// nine places that took the third. Each behaved differently when
+    /// the way was blocked, so a fault fixed in one was still there in
+    /// the others: a character was taught not to walk into a wall on
+    /// its way to a corpse and went on doing it on its way to a shop.
+    ///
+    /// Within a landblock this is a walk: the steering knows how to get
+    /// round what is in the way, and a goal it cannot reach it now
+    /// refuses rather than leans on. Beyond one -- or out of a dungeon,
+    /// where the feet lead nowhere at all -- it is a journey, planned
+    /// with whatever the character can cast or carry.
+    pub fn head_for(&mut self, goal: glam::Vec3, stop: f32, why: &str) -> crate::did::Did {
+        use crate::did::Did;
+        let Some(pl) = self.player.as_ref() else {
+            return Did::waiting("not in the world yet");
+        };
+        let me = pl.world_position();
+        let away = Vec2::new(goal.x - me.x, goal.y - me.y).length();
+        let underground = {
+            let assets = self.assets.clone();
+            self.player
+                .as_mut()
+                .map(|pl| pl.is_indoors() && pl.in_dungeon(&assets))
+                .unwrap_or(false)
+        };
+        // Near enough to walk to, and somewhere the feet can get to.
+        if away <= WALKABLE && !underground {
+            if self.traveling() {
+                self.cancel_travel();
+            }
+            self.follow = Some(crate::Follow { target: goal, stop });
+            return Did::Acting;
+        }
+        // Already on the way there.
+        if self.traveling() {
+            return Did::Acting;
+        }
+        if self.travel_to(Vec2::new(goal.x, goal.y)) {
+            return Did::Acting;
+        }
+        tracing::info!("travel: no way to {why} from here");
+        Did::blocked("no way there from here")
+    }
+
     pub fn travel_to(&mut self, goal: Vec2) -> bool {
         let Some(pl) = self.player.as_ref() else {
             tracing::warn!("travel: the character is not in the world");

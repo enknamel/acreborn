@@ -152,12 +152,11 @@ impl Client {
                 let Some(at) = self.world.objects.get(guid).and_then(|o| o.world_pos()) else {
                     return false;
                 };
-                self.follow = Some(crate::Follow {
-                    target: at,
-                    stop: crate::growth::COUNTER_REACH / 2.0,
-                });
+                // Named, not steered: the travel system decides
+                // whether that is a walk across the room or a journey.
+                let did = self.head_for(at, crate::growth::COUNTER_REACH / 2.0, "the counter");
                 self.autoplay.say(Doing::Shopping, saying.to_string());
-                true
+                did.fine()
             }
             Act::Open { guid } => {
                 if self.follow.take().is_some() {
