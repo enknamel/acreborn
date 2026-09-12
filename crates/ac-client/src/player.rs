@@ -860,7 +860,11 @@ impl Player {
             sea: None,
             no_go: None,
             outdoors_only: false,
-            doorways: &b.collision.as_ref().map(|c| c.doorways.clone()).unwrap_or_default(),
+            doorways: &b
+                .collision
+                .as_ref()
+                .map(|c| c.doorways.clone())
+                .unwrap_or_default(),
         };
         // Look from a little above the height we expect, so a floor
         // overhead is not mistaken for the one we are on.
@@ -981,7 +985,11 @@ impl Player {
             sea: (!b.dungeon).then_some(&sea),
             no_go: None,
             outdoors_only: false,
-            doorways: &b.collision.as_ref().map(|c| c.doorways.clone()).unwrap_or_default(),
+            doorways: &b
+                .collision
+                .as_ref()
+                .map(|c| c.doorways.clone())
+                .unwrap_or_default(),
         };
         Some(ground.walkable(from, to, &cap).0)
     }

@@ -107,7 +107,6 @@ fn by_place(_: &Client, _: Instant) -> f32 {
 /// corpse about to rot and left one alone otherwise, written as a
 /// comparison buried in the middle of choosing a corpse. Here it is the
 /// reason looting is chosen at all, where it can be read.
-
 /// What fighting is worth: its place in the table when there is
 /// something to hit here, less than a body on the floor when there is
 /// not.
@@ -503,10 +502,11 @@ mod tests {
         // A body on the floor beats a fight that has to be walked to:
         // it is already dead, already ours, and rotting on a clock,
         // while the creature across the room will still be there.
-        assert!(
-            WALK_TO_A_FIGHT < LOOT_AT_REST,
-            "a fight worth walking to should not outrank a body at rest"
-        );
+        // A body on the floor beats a fight that has to be walked to.
+        // Held as a constant rather than an assertion because it is one:
+        // the two numbers are fixed, and the compiler checks it for
+        // free the moment either changes.
+        const _: () = assert!(WALK_TO_A_FIGHT < LOOT_AT_REST);
         assert_eq!(at("survive"), 0, "nothing comes before staying alive");
         assert!(at("survive") < at("fight"), "heal before fighting");
         assert!(at("survive") < at("loot"), "heal before looting");

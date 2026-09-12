@@ -311,7 +311,7 @@ impl Run {
         }
         // The dearest first: they are the ones most worth the slot they
         // sit in, and the ones the armful should certainly include.
-        offer.sort_by(|a, b| b.value.cmp(&a.value));
+        offer.sort_by_key(|i| std::cmp::Reverse(i.value));
 
         // Anything too dear for this counter is cut down first, on its
         // own: the piece is a new object and the armful would be naming
@@ -351,10 +351,7 @@ impl Run {
             // the coin has grown into.
             let freed = items.len() as u32 + 1;
             let cost = coin_slots(after).saturating_sub(before);
-            let left = snap
-                .slots_free
-                .saturating_add(freed)
-                .saturating_sub(cost);
+            let left = snap.slots_free.saturating_add(freed).saturating_sub(cost);
             if left < snap.rules.keep_slots && !items.is_empty() {
                 break;
             }
@@ -526,7 +523,10 @@ mod tests {
         // Near enough, but the window is shut.
         s.counter.as_mut().unwrap().away = 1.0;
         s.counter.as_mut().unwrap().open = false;
-        assert_eq!(run.step(&s, Instant::now()).act, Some(Act::Open { guid: 900 }));
+        assert_eq!(
+            run.step(&s, Instant::now()).act,
+            Some(Act::Open { guid: 900 })
+        );
     }
 
     #[test]
@@ -594,7 +594,10 @@ mod tests {
         );
         // With room to spare it gets on with the selling instead.
         s.slots_free = 20;
-        assert_eq!(run.step(&s, Instant::now()).act, Some(Act::Sell { items: vec![3] }));
+        assert_eq!(
+            run.step(&s, Instant::now()).act,
+            Some(Act::Sell { items: vec![3] })
+        );
     }
 
     #[test]
@@ -673,7 +676,12 @@ mod tests {
         }];
         // The dagger, not the tapers, however much they are worth.
         let next = run.step(&s, Instant::now());
-        assert_eq!(next.act, Some(Act::Sell { items: vec![3] }), "{}", next.saying);
+        assert_eq!(
+            next.act,
+            Some(Act::Sell { items: vec![3] }),
+            "{}",
+            next.saying
+        );
     }
 
     #[test]
@@ -763,11 +771,7 @@ mod tests {
         let mut run = Run::new();
         // Each of these turns into two slots of coin, and there are
         // only a few slots to put it in.
-        let mut s = snap(
-            (1..=8)
-                .map(|g| item(g, "Ingot", 50_000, 1, 1))
-                .collect(),
-        );
+        let mut s = snap((1..=8).map(|g| item(g, "Ingot", 50_000, 1, 1)).collect());
         s.slots_free = 5;
         s.rules.keep_slots = 3;
         match run.step(&s, Instant::now()).act {

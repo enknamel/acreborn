@@ -197,9 +197,16 @@ fn summary(c: &Client, index: usize) -> Map {
     map.insert("available_xp".into(), int(stats.available_xp));
     map.insert("skill_credits".into(), int(stats.skill_credits));
     let mut attrs = Map::new();
-    for (i, name) in ["strength", "endurance", "coordination", "quickness", "focus", "self"]
-        .iter()
-        .enumerate()
+    for (i, name) in [
+        "strength",
+        "endurance",
+        "coordination",
+        "quickness",
+        "focus",
+        "self",
+    ]
+    .iter()
+    .enumerate()
     {
         attrs.insert((*name).into(), int(stats.attributes[i].value()));
     }

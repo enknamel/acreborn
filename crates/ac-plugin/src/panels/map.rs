@@ -1076,7 +1076,10 @@ mod search_tests {
     #[test]
     fn towns_and_the_people_in_them_are_still_found() {
         let town = world_search("holtburg", holtburg());
-        assert!(town.iter().any(|(l, _, _)| l.contains("(town)")), "{town:?}");
+        assert!(
+            town.iter().any(|(l, _, _)| l.contains("(town)")),
+            "{town:?}"
+        );
         // The gazetteer's named folk and shopkeepers were already
         // searchable and must stay so.
         let folk = world_search("ulgrim", holtburg());

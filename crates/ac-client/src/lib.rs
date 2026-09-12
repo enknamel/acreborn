@@ -3231,8 +3231,7 @@ impl Client {
             return;
         }
         tracing::info!("sell {} item(s) to {vendor:#010x}", lot.len());
-        self.session
-            .send_action(action::SELL, &trade(vendor, &lot));
+        self.session.send_action(action::SELL, &trade(vendor, &lot));
     }
 
     /// Sell a pack item (its whole stack) to the open vendor.

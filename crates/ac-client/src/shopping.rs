@@ -29,8 +29,7 @@ impl Client {
         let mut notes: BTreeMap<u32, u32> = BTreeMap::new();
         for o in self.world.inventory() {
             if o.item_type & ac_world::item_type::PROMISSORY_NOTE != 0 {
-                *notes.entry(o.value / o.stack_size.max(1)).or_insert(0) +=
-                    o.stack_size.max(1);
+                *notes.entry(o.value / o.stack_size.max(1)).or_insert(0) += o.stack_size.max(1);
             }
         }
         Snapshot {
@@ -96,7 +95,10 @@ impl Client {
             .unwrap_or_default();
         let away = match (
             self.player.as_ref().map(|p| p.world_position()),
-            self.world.objects.get(&v.vendor).and_then(|o| o.world_pos()),
+            self.world
+                .objects
+                .get(&v.vendor)
+                .and_then(|o| o.world_pos()),
         ) {
             (Some(me), Some(at)) => glam::Vec2::new(at.x - me.x, at.y - me.y).length(),
             _ => 0.0,
@@ -188,16 +190,12 @@ impl Client {
             Act::Buy { wcid, count } => {
                 // The shelf is addressed by the guid of the thing
                 // standing on it, which only this side knows.
-                let line = self
-                    .world
-                    .open_vendor
-                    .as_ref()
-                    .and_then(|v| {
-                        v.items
-                            .iter()
-                            .find(|w| w.desc.weenie_class_id == *wcid)
-                            .map(|w| w.guid)
-                    });
+                let line = self.world.open_vendor.as_ref().and_then(|v| {
+                    v.items
+                        .iter()
+                        .find(|w| w.desc.weenie_class_id == *wcid)
+                        .map(|w| w.guid)
+                });
                 match line {
                     Some(line) => {
                         self.buy_amount(line, *count);

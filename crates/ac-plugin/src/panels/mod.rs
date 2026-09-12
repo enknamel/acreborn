@@ -29,7 +29,6 @@ pub mod book;
 pub mod buffs;
 pub mod combat;
 pub mod components;
-pub mod vendoring;
 pub mod confirm;
 pub mod fellowship;
 pub mod fleet;
@@ -51,6 +50,7 @@ pub mod spellbook;
 pub mod target;
 pub mod trade;
 pub mod vendor;
+pub mod vendoring;
 pub mod vitals;
 
 use crate::icons::{IconCache, IconLayers};

@@ -44,7 +44,11 @@ fn main() {
                 continue;
             };
             let feet = Vec3::new(q.x, q.y, z);
-            if cell != 0 && !ground.collision.inside_cell(feet + Vec3::new(0.0, 0.0, 0.1)) {
+            if cell != 0
+                && !ground
+                    .collision
+                    .inside_cell(feet + Vec3::new(0.0, 0.0, 0.1))
+            {
                 not_in_cell += 1;
                 continue;
             }

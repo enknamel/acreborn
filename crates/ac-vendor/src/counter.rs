@@ -198,9 +198,7 @@ impl Snapshot {
     /// How much more may be carried before the server starts refusing.
     /// Three times capacity is its hard ceiling.
     pub fn burden_room(&self) -> u32 {
-        self.capacity
-            .saturating_mul(3)
-            .saturating_sub(self.carried)
+        self.capacity.saturating_mul(3).saturating_sub(self.carried)
     }
 
     pub fn item(&self, guid: u32) -> Option<&Item> {

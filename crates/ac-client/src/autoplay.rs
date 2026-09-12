@@ -3419,7 +3419,7 @@ impl Client {
             }
             self.cast(spell);
             self.autoplay.last_cast = Some(now);
-        self.autoplay.cast_sent = Some(now);
+            self.autoplay.cast_sent = Some(now);
             let element = ac_world::elements::spell_element(spell)
                 .map(|e| e.name())
                 .unwrap_or("");
@@ -3543,7 +3543,7 @@ impl Client {
                 self.select(Some(guid));
                 self.cast(spell);
                 self.autoplay.last_cast = Some(now);
-        self.autoplay.cast_sent = Some(now);
+                self.autoplay.cast_sent = Some(now);
                 let what = if stage == 0 {
                     "vulnerability"
                 } else {

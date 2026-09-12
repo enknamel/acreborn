@@ -80,10 +80,7 @@ impl Vendoring {
                 away: 1.2,
                 open: true,
                 phase: "Selling".into(),
-                next: Some((
-                    "buy 3".into(),
-                    "packing the takings into 3 note(s)".into(),
-                )),
+                next: Some(("buy 3".into(), "packing the takings into 3 note(s)".into())),
                 coin: 1_012_400,
                 notes: 14,
                 slots_free: 3,
@@ -271,9 +268,7 @@ impl Plugin for Vendoring {
         // than it answers is a trip that loses track of what it has
         // offered.
         let now = std::time::Instant::now();
-        let due = self
-            .last
-            .is_none_or(|t| now.duration_since(t) >= ACT_EVERY);
+        let due = self.last.is_none_or(|t| now.duration_since(t) >= ACT_EVERY);
         if self.step_once || (self.running && due) {
             self.step_once = false;
             self.last = Some(now);

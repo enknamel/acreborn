@@ -1201,7 +1201,7 @@ impl Client {
         let flat = glam::Vec2::new(centre.x - pos.x, centre.y - pos.y).length();
         if flat > REACH {
             self.academy_open_doors(objects, pos, now);
-            self.head_for(centre, REACH, &name);
+            self.head_for(centre, REACH, name);
             self.autoplay
                 .say(Doing::Training, format!("{progress}: going after {name}"));
         } else {

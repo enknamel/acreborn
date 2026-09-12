@@ -393,15 +393,13 @@ impl NavGraph {
             };
             // One per opening per floor: a doorway sampled twice is two
             // nodes a hand's breadth apart and nothing gained.
-            if self
-                .columns
-                .get(&(gx, gy))
-                .is_some_and(|ids| ids.iter().any(|&j| {
+            if self.columns.get(&(gx, gy)).is_some_and(|ids| {
+                ids.iter().any(|&j| {
                     let p = self.nodes[j as usize].pos;
                     (p.z - node.pos.z).abs() < LEVEL_MERGE
                         && flat(p - node.pos).length() < self.spacing * 0.25
-                }))
-            {
+                })
+            }) {
                 continue;
             }
             let id = self.nodes.len() as u32;

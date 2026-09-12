@@ -16,8 +16,8 @@ use std::rc::Rc;
 
 use crate::collision::{Capsule, CollisionWorld};
 use crate::nav::NavGraph;
-use glam::Vec3;
 use crate::{Assets, Result};
+use glam::Vec3;
 
 /// How many blocks' collision the cache keeps; the least recently
 /// asked for goes first. Characters spread over more than this many

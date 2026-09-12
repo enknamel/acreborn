@@ -91,8 +91,14 @@ fn main() {
         println!(
             "\nisland of {} nodes, floors z={:.1}..{:.1}",
             groups[g].len(),
-            groups[g].iter().map(|&i| area.nav.nodes[i as usize].pos.z).fold(f32::MAX, f32::min),
-            groups[g].iter().map(|&i| area.nav.nodes[i as usize].pos.z).fold(f32::MIN, f32::max),
+            groups[g]
+                .iter()
+                .map(|&i| area.nav.nodes[i as usize].pos.z)
+                .fold(f32::MAX, f32::min),
+            groups[g]
+                .iter()
+                .map(|&i| area.nav.nodes[i as usize].pos.z)
+                .fold(f32::MIN, f32::max),
         );
         if pairs.is_empty() {
             println!("  no node of the mainland comes within 3 m and a step of it");

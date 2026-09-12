@@ -185,14 +185,7 @@ fn walk_seconds(a: Vec2, b: Vec2) -> f32 {
 /// The same, told whether `a` is inside a dungeon. From one, nothing is
 /// walkable but the rest of the dungeon: the way out is a portal or a
 /// recall, never a stroll.
-fn can_walk_from(
-    a: Vec2,
-    a_cell: u32,
-    b: Vec2,
-    b_cell: u32,
-    reach: f32,
-    in_dungeon: bool,
-) -> bool {
+fn can_walk_from(a: Vec2, a_cell: u32, b: Vec2, b_cell: u32, reach: f32, in_dungeon: bool) -> bool {
     if in_dungeon {
         let indoors = |c: u32| c & 0xFFFF >= 0x100;
         return indoors(b_cell) && a_cell & 0xFFFF_0000 == b_cell & 0xFFFF_0000;
@@ -660,7 +653,6 @@ pub fn plan_with_recalls_and_gems(
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn there_is_no_walking_out_of_a_dungeon() {

@@ -166,8 +166,11 @@ pub fn load_cells(
                 let mut n = 0.0f32;
                 for v in &p.vertex_ids {
                     let v = cs.vertices.iter().find(|(k, _)| *k as i32 == *v as i32)?;
-                    let w = transform
-                        .transform_point3(Vec3::new(v.1.origin[0], v.1.origin[1], v.1.origin[2]));
+                    let w = transform.transform_point3(Vec3::new(
+                        v.1.origin[0],
+                        v.1.origin[1],
+                        v.1.origin[2],
+                    ));
                     mid += w;
                     sill = sill.min(w.z);
                     n += 1.0;

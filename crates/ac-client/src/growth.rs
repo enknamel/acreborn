@@ -629,7 +629,10 @@ impl Forecast {
         } else if self.missing.is_empty() {
             format!("{what}, but short of coin")
         } else {
-            format!("{what} (not {})", a_few(&self.missing.iter().map(|s| s.as_str()).collect::<Vec<_>>()))
+            format!(
+                "{what} (not {})",
+                a_few(&self.missing.iter().map(|s| s.as_str()).collect::<Vec<_>>())
+            )
         };
         match self.selling {
             0 => covers,
@@ -742,10 +745,6 @@ fn spot(at: Vec2) -> (i32, i32) {
     (at.x.round() as i32, at.y.round() as i32)
 }
 
-/// The next move in a sale.
-
-
-
 /// Whether a stock line is plain ammunition of `kind`: an "Arrow", not
 /// a "Bundle of Arrowheads" or a "Fire Arrow" (the plain kind is what
 /// is cheap and always there).
@@ -772,7 +771,6 @@ fn worth_stocking(name: &str, heals_with_kits: bool) -> bool {
     }
     !name.to_lowercase().contains("healing kit")
 }
-
 
 /// How far to look for a shop before settling for a nearer one with
 /// less on its shelves: the town we are in, the towns around it, then a
@@ -1938,7 +1936,6 @@ impl Client {
         !me.is_empty() && self.quartermaster_name(cfg).as_deref() == Some(me)
     }
 
-
     /// Everything the character is carrying that the rules would sell,
     /// whether or not a vendor is open. What the party hands its
     /// quartermaster before it leaves.
@@ -2173,9 +2170,6 @@ impl Client {
         )
     }
 
-
-
-
     /// The open vendor's stock, priced.
     fn stock(&self) -> Vec<Stock> {
         let Some(v) = self.world.open_vendor.as_ref() else {
@@ -2345,12 +2339,7 @@ impl Client {
         use crate::did::{Because, Did};
         let may_carry = self.burden_room();
         let stacks = self.pack_stacks();
-        let held = |from: u32, to: u32| {
-            self.autoplay
-                .growth
-                .wont_merge
-                .held(&(from, to), now)
-        };
+        let held = |from: u32, to: u32| self.autoplay.growth.wont_merge.held(&(from, to), now);
         let Some(m) = crate::pack::next_merge_unless(&stacks, may_carry, held) else {
             // Nothing to pour -- or nothing light enough. The two are
             // worth telling apart: one is a tidy pack, the other is a
@@ -2369,7 +2358,10 @@ impl Client {
                 0 => Because::ours("the server would not put those two together"),
                 code => Because::server(code),
             });
-            self.autoplay.growth.wont_merge.note((m.from, m.to), &did, now);
+            self.autoplay
+                .growth
+                .wont_merge
+                .note((m.from, m.to), &did, now);
             return did;
         }
         if self
@@ -2384,7 +2376,10 @@ impl Client {
             // Our own rules turned it down: not both carried, not the
             // same weenie, or the target does not stack at all.
             let did = Did::refused("those two will never join");
-            self.autoplay.growth.wont_merge.note((m.from, m.to), &did, now);
+            self.autoplay
+                .growth
+                .wont_merge
+                .note((m.from, m.to), &did, now);
             return did;
         }
         self.autoplay.say(
@@ -3064,7 +3059,7 @@ impl Client {
                         run.sold = self.autoplay.growth.shop.sold;
                         self.close_vendor();
                         self.autoplay.growth.shop = ac_vendor::Run::new();
-                        return self.grow_run_next(run, now, cfg, false);
+                        self.grow_run_next(run, now, cfg, false)
                     }
                     Some(act) => {
                         // A refusal on this side is an answer too: the
@@ -3078,7 +3073,7 @@ impl Client {
                         run.since = now;
                         run.phase = Phase::Selling { sent: Vec::new() };
                         self.autoplay.growth.run = Some(run);
-                        return true;
+                        true
                     }
                 }
             }
@@ -3108,16 +3103,14 @@ impl Client {
             // still on the list, not by which is closest -- and only
             // when there is reason to think it can help. A full pack is
             // reason enough on its own: that stop is to empty it.
-            if let Some((vendor, at, look)) =
-                self.pick_vendor(
-                    cfg,
-                    &needs,
-                    &[(run.town, "in town".to_string())],
-                    Some(SAME_TOWN),
-                    &run.visited,
-                    now,
-                )
-            {
+            if let Some((vendor, at, look)) = self.pick_vendor(
+                cfg,
+                &needs,
+                &[(run.town, "in town".to_string())],
+                Some(SAME_TOWN),
+                &run.visited,
+                now,
+            ) {
                 if (still_full || look.worth_going()) && self.grow_travel(at, now) {
                     let what = if still_full {
                         "the rest of the loot"
@@ -3665,7 +3658,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn a_long_list_is_cut_short() {
         assert_eq!(a_few(&[]), "nothing");
@@ -3822,10 +3814,6 @@ mod tests {
         assert!(!wrong.worth_going());
     }
 
-
-
-
-
     #[test]
     fn a_named_ground_is_not_judged_on_level() {
         // Hunting a place is about its loot, its money, its trophies.
@@ -3891,8 +3879,6 @@ mod tests {
         assert!(worth_stocking("Prismatic Taper", false));
         assert!(worth_stocking("Mana Stone", false));
     }
-
-
 
     #[test]
     fn ammunition_is_the_plain_kind() {

@@ -255,7 +255,10 @@ impl Client {
         // character that sets off for one spends its life planning a
         // trip it can never make.
         if at.distance(me) > crate::travel::WALKABLE {
-            tracing::info!("range: {name} is not here any more ({:.0} m off)", at.distance(me));
+            tracing::info!(
+                "range: {name} is not here any more ({:.0} m off)",
+                at.distance(me)
+            );
             self.stop_approaching();
             return false;
         }
