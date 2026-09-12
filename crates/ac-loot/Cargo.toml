@@ -1,0 +1,9 @@
+[package]
+name = "ac-loot"
+description = "Emptying a corpse: what is worth taking, in what order, and when to give up on it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-agent = { path = "../ac-agent" }

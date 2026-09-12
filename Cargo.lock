@@ -82,6 +82,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ac-loot"
+version = "0.0.3"
+dependencies = [
+ "ac-agent",
+]
+
+[[package]]
 name = "ac-nav"
 version = "0.0.3"
 dependencies = [
