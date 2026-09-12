@@ -226,7 +226,12 @@ pub struct Client {
     /// Items waiting to be appraised in the background (`appraise_all`),
     /// and the one asked for; their answers do not open the window.
     pub appraise_queue: std::collections::VecDeque<u32>,
-    pub appraise_inflight: Option<(u32, Instant)>,
+    /// Appraisals asked for and not yet answered.
+    ///
+    /// Several at once: the server answers each on its own and a
+    /// corpse of eight things asked one at a time is eight round trips
+    /// of standing over it, which is most of what made looting slow.
+    pub appraise_inflight: Vec<(u32, Instant)>,
     /// An item to put into a world container (chest, hook, storage) once
     /// the server has opened it for us: (item, container, asked at).
     pub pending_store: Option<(u32, u32, Instant)>,
@@ -386,7 +391,7 @@ impl Client {
             loot_inflight: None,
             fellow_updates: false,
             appraise_queue: Default::default(),
-            appraise_inflight: None,
+            appraise_inflight: Vec::new(),
             pending_store: None,
             selected: None,
             previous_selected: None,
@@ -2097,7 +2102,9 @@ impl Client {
         );
         // A background appraisal (appraise_all) fills the cache without
         // opening the window or writing to the chat.
-        if self.appraise_inflight.map(|(g, _)| g) != Some(a.guid) {
+        let asked = self.appraise_inflight.iter().any(|(g, _)| *g == a.guid);
+        self.appraise_inflight.retain(|(g, _)| *g != a.guid);
+        if !asked {
             for l in lines {
                 self.events.push(Event::Chat { text: l, kind: 1 });
             }

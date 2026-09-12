@@ -594,10 +594,10 @@ pub(crate) const MERGE_EVERY: Duration = Duration::from_millis(600);
 /// should finish with before starting another fight.
 const CORPSE_IS_MINE: f32 = 25.0;
 
-/// How often one item is taken from a corpse. The server moves one at a
-/// time and refuses the rest as "you're too busy", so they go one by
-/// one rather than all at once.
-const TAKE_EVERY: Duration = Duration::from_millis(400);
+/// How long to leave an item that was asked for and has not moved
+/// before asking again. Not the pace of looting -- that is set by the
+/// corpse answering -- only how long a lost request is left.
+const TAKE_AGAIN: Duration = Duration::from_millis(400);
 /// A wait that has doubled this far means the item has been asked for
 /// several times and has not moved -- three asks, starting a quarter
 /// of a second apart and doubling. It is not coming, so the queue goes
@@ -1115,7 +1115,9 @@ pub struct Autoplay {
     /// Items decided on but not yet taken from the open corpse, and
     /// when the last one was asked for. The server takes one at a time.
     take_queue: Vec<u32>,
-    last_take: Option<Instant>,
+    /// The item last asked for and when, so the next goes out the
+    /// moment this one moves rather than on a clock.
+    last_take: Option<(u32, Instant)>,
     /// Items asked for and not moved. The server can refuse -- a full
     /// pack, a chest that will not give the thing up -- and it refuses
     /// in chat, not in a reply we can wait on, so the only way to hear
@@ -2074,6 +2076,10 @@ impl Client {
                     "pack full, leaving the loot"
                 };
                 self.autoplay.note(why, now);
+                // Shut it behind us. A corpse left open is one the
+                // server still has us standing over, and the next one
+                // cannot be opened until it is let go.
+                self.close_container();
                 self.autoplay.looted.push(guid);
                 self.autoplay.corpse = None;
                 self.stop_walking_to_loot();
@@ -2154,11 +2160,23 @@ impl Client {
                 // would start the next take before this one had
                 // finished, and asking for two at once is what
                 // "Source item not found!" is.
-                let ready = self
-                    .autoplay
-                    .last_take
-                    .is_none_or(|t| now.duration_since(t) >= TAKE_EVERY)
-                    && !self.autoplay.take_tries.held(&next, now);
+                // Paced by the corpse, not by a clock.
+                //
+                // A take is answered by the item leaving the corpse --
+                // that is what takes it off the front of this queue --
+                // so when the front has changed the last one is done
+                // and the next can go at once. Only when the same item
+                // is still sitting there is there anything to wait for,
+                // and then it is a re-ask rather than the pace.
+                //
+                // It used to wait four hundred milliseconds between
+                // every item whatever happened, so a corpse of ten
+                // things took four seconds of standing over it.
+                let ready = match self.autoplay.last_take {
+                    None => true,
+                    Some((asked, _)) if asked != next => true,
+                    Some((_, when)) => now.duration_since(when) >= TAKE_AGAIN,
+                } && !self.autoplay.take_tries.held(&next, now);
                 if ready {
                     // The server answers a take by moving the item, or
                     // refuses it in chat -- never in a reply we can wait
@@ -2178,7 +2196,7 @@ impl Client {
                         now,
                     );
                     self.take(next);
-                    self.autoplay.last_take = Some(now);
+                    self.autoplay.last_take = Some((next, now));
                 }
                 return true;
             }

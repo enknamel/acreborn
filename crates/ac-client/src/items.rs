@@ -8,6 +8,12 @@
 use crate::Client;
 use ac_net::messages::Appraisal;
 use ac_world::{item_type, WorldObject};
+
+/// How many appraisals may be waiting on the server at once.
+const AT_ONCE: usize = 8;
+/// How long an unanswered appraisal is waited on before its place is
+/// given to another.
+const APPRAISAL_LOST: std::time::Duration = std::time::Duration::from_secs(2);
 use serde::{Deserialize, Serialize};
 
 /// The broad kind of an item, from its ItemType bits, as one word.
@@ -1217,7 +1223,7 @@ impl Client {
             .filter(|g| {
                 !self.appraisals.contains_key(g)
                     && !self.appraise_queue.contains(g)
-                    && self.appraise_inflight.map(|(i, _)| i) != Some(*g)
+                    && !self.appraise_inflight.iter().any(|(i, _)| i == g)
             })
             .collect();
         let n = todo.len();
@@ -1237,22 +1243,25 @@ impl Client {
     /// Send the next queued appraisal once the previous one has answered
     /// (or gone stale).
     pub fn tick_appraise(&mut self) {
-        if let Some((guid, since)) = self.appraise_inflight {
-            if self.appraisals.contains_key(&guid)
-                || since.elapsed() > std::time::Duration::from_secs(2)
-            {
-                self.appraise_inflight = None;
-            }
-        }
-        if self.appraise_inflight.is_none() {
-            while let Some(guid) = self.appraise_queue.pop_front() {
-                if self.appraisals.contains_key(&guid) || !self.world.objects.contains_key(&guid) {
-                    continue;
-                }
-                self.appraise(guid);
-                self.appraise_inflight = Some((guid, std::time::Instant::now()));
+        // Answered, or long enough gone to be lost.
+        let appraisals = &self.appraisals;
+        self.appraise_inflight.retain(|(guid, since)| {
+            !appraisals.contains_key(guid) && since.elapsed() <= APPRAISAL_LOST
+        });
+        // Several in the air at once. The server answers each on its
+        // own, so a corpse full of things need not be read one item per
+        // round trip -- which is what made standing over a body take
+        // seconds. Capped so a big pack does not become a flood.
+        while self.appraise_inflight.len() < AT_ONCE {
+            let Some(guid) = self.appraise_queue.pop_front() else {
                 break;
+            };
+            if self.appraisals.contains_key(&guid) || !self.world.objects.contains_key(&guid) {
+                continue;
             }
+            self.appraise(guid);
+            self.appraise_inflight
+                .push((guid, std::time::Instant::now()));
         }
     }
 }
@@ -1343,7 +1352,7 @@ impl Client {
             let known = self.world.objects.contains_key(&g);
             let pending = self.appraisals.contains_key(&g)
                 || self.appraise_queue.contains(&g)
-                || self.appraise_inflight.map(|(i, _)| i) == Some(g);
+                || self.appraise_inflight.iter().any(|(i, _)| *i == g);
             if known && !pending {
                 self.appraise_queue.push_back(g);
                 n += 1;
