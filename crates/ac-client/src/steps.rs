@@ -142,7 +142,7 @@ fn worth_fighting(client: &Client, _now: Instant) -> f32 {
     // Told to finish what it kills: while one of its own bodies is
     // still unlooted, another fight can wait.
     if client.autoplay.config.loot.after_every_fight && client.owes_a_corpse() {
-        return WALK_TO_A_FIGHT;
+        return fight_worth(false, true, 0.0);
     }
     let nearest = client
         .world
@@ -153,7 +153,22 @@ fn worth_fighting(client: &Client, _now: Instant) -> f32 {
         .filter_map(|o| o.world_pos())
         .map(|at| at.distance(me))
         .fold(f32::MAX, f32::min);
-    if nearest > IN_REACH_OF_A_FIGHT {
+    fight_worth(false, false, nearest)
+}
+
+/// The same judgement with the world left out, so it can be argued
+/// about on its own.
+///
+/// Every one of the three arguments has been got wrong in a live run:
+/// `engaged` read from a target that had already died, which sent the
+/// character past the body it had just made; `owes_a_body` not read at
+/// all, so bodies piled up; and `nearest` not read at all, so a fight
+/// across the room outranked loot at the character's feet.
+fn fight_worth(engaged: bool, owes_a_body: bool, nearest: f32) -> f32 {
+    if engaged {
+        return UNDECIDED;
+    }
+    if owes_a_body || nearest > IN_REACH_OF_A_FIGHT {
         WALK_TO_A_FIGHT
     } else {
         UNDECIDED
@@ -654,5 +669,30 @@ mod tests {
         // should not be many.
         let reflexes = STEPS.iter().filter(|s| s.layer == Layer::Reflex).count();
         assert!(reflexes <= 8, "{reflexes} reflexes is a lot to pay a tick");
+    }
+
+    #[test]
+    fn a_fight_in_hand_is_never_interrupted() {
+        // Swinging at something still alive outranks everything below
+        // it, whatever is on the floor.
+        assert_eq!(fight_worth(true, true, 100.0), UNDECIDED);
+    }
+
+    #[test]
+    fn a_body_it_made_comes_before_the_next_fight() {
+        // The option: finish what you kill. Even with something to hit
+        // right here, the body goes first.
+        assert!(fight_worth(false, true, 0.0) < LOOT_AT_REST);
+    }
+
+    #[test]
+    fn a_fight_across_the_room_does_not_beat_loot_at_your_feet() {
+        assert!(fight_worth(false, false, IN_REACH_OF_A_FIGHT + 1.0) < LOOT_AT_REST);
+    }
+
+    #[test]
+    fn a_fight_in_reach_still_beats_a_resting_body() {
+        // Nothing stops to loot with something swinging at it.
+        assert_eq!(fight_worth(false, false, 1.0), UNDECIDED);
     }
 }

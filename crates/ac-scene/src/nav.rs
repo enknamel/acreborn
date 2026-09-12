@@ -881,6 +881,48 @@ mod tests {
     }
 
     #[test]
+    fn a_character_pressed_against_a_wall_can_still_be_routed() {
+        // The trap that cost a day. A node is only placed where the
+        // capsule fits clear of everything, so the moment a character
+        // is leaning on a wall there is no node where it stands. With
+        // no node there is no path; with no path the steering heads
+        // straight for the goal; and straight for the goal is the wall
+        // it is already touching. It cannot get off by any means it
+        // has.
+        //
+        // Somewhere standable is never far -- a pace back down the room
+        // -- so `nearest` must find it.
+        let w = two_rooms(Some(1.6));
+        let ground = Ground {
+            collision: &w,
+            terrain: None,
+            sea: None,
+            no_go: None,
+            outdoors_only: false,
+            doorways: &[],
+        };
+        let cap = Capsule::default();
+        let mut g = NavGraph::new(Vec2::new(0.0, -4.0), Vec2::new(16.0, 4.0), 1.0, &cap);
+        g.build_all(&ground);
+        // Hard against the outer wall at x = 0, where nothing fits.
+        let against = Vec3::new(cap.radius * 0.5, 0.0, 0.0);
+        assert!(
+            !ground.fits_here(against, &cap),
+            "the fixture is wrong: the capsule fits here"
+        );
+        assert!(
+            g.nearest(&ground, against).is_some(),
+            "a character on the wall has nowhere to start from"
+        );
+        // And it can be routed out of the room it is stuck in.
+        assert!(
+            g.find_path(&ground, against, Vec3::new(12.0, 0.0, 0.0))
+                .is_some(),
+            "no way out for a character leaning on a wall"
+        );
+    }
+
+    #[test]
     fn no_path_through_a_solid_wall() {
         let w = two_rooms(None);
         let ground = Ground {

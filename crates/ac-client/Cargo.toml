@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 ac-agent = { path = "../ac-agent" }
+ac-nav = { path = "../ac-nav" }
 ac-vendor = { path = "../ac-vendor" }
 ac-formats = { path = "../ac-formats" }
 ac-net = { path = "../ac-net" }

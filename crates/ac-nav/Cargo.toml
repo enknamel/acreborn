@@ -1,0 +1,12 @@
+[package]
+name = "ac-nav"
+description = "Getting a character from where it is to where it wants to be: the route, the way round what is in between, and what to do when there is no way at all"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ac-scene = { path = "../ac-scene" }
+ac-world = { path = "../ac-world" }
+glam = "0.30"
+tracing.workspace = true

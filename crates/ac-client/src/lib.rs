@@ -15,6 +15,9 @@ pub mod emotes;
 // `ac-agent`. Re-exported under its old names so that nothing which
 // says `crate::did` or `crate::pack` has to care where it went.
 pub use ac_agent::{did, pack, weenie_errors};
+// Getting somewhere is its own system now (`ac-nav`), with the world
+// behind a trait so that a route can be argued about without one.
+pub use ac_nav::steering as route;
 // The shopping is its own system now (`ac-vendor`); the planner it was
 // built around keeps its old name here.
 pub use ac_vendor::errand;
@@ -31,7 +34,6 @@ pub mod profile;
 pub mod recalls;
 pub mod reconnect;
 pub mod recovery;
-pub mod route;
 pub mod shopping;
 pub mod steps;
 pub mod travel;
@@ -1018,16 +1020,12 @@ impl Client {
                     } else if !manual && flat.length() > stop {
                         // Straight at the goal while nothing is in the
                         // way; through the waypoints of a route otherwise.
-                        let aim = self.steering.steer(
-                            pl,
-                            &self.assets,
-                            &mut self.pathfinder,
-                            g,
-                            goal_cell,
-                            now,
-                        );
-                        let d = aim - pl.world_position();
-                        let flat = glam::Vec2::new(d.x, d.y);
+                        let mut standing = Standing {
+                            player: pl,
+                            assets: &self.assets,
+                            wide: &mut self.pathfinder,
+                        };
+                        let aim = self.steering.steer(&mut standing, g, goal_cell, now);
                         // No way there at all: the line is blocked and
                         // no route was found. Standing still is the
                         // whole of the answer.
@@ -1041,14 +1039,17 @@ impl Client {
                         // character leaned on the wall it had just
                         // decided was in the way, and only the stuck
                         // detector ever stopped it.
-                        if self.steering.no_way() {
-                            input.forward = 0.0;
-                        } else {
-                            if flat.length() > 1e-3 {
-                                pl.heading = (-flat.x).atan2(flat.y);
+                        match aim {
+                            ac_nav::Aim::NoWay => input.forward = 0.0,
+                            ac_nav::Aim::Go(at) => {
+                                let d = at - pl.world_position();
+                                let flat = glam::Vec2::new(d.x, d.y);
+                                if flat.length() > 1e-3 {
+                                    pl.heading = (-flat.x).atan2(flat.y);
+                                }
+                                input.forward = 1.0;
+                                input.run = true;
                             }
-                            input.forward = 1.0;
-                            input.run = true;
                         }
                     }
                 }
@@ -3463,6 +3464,69 @@ fn chat_handles(op: u32, ev: u32) -> bool {
                 | event::POPUP_STRING
         ),
         _ => false,
+    }
+}
+
+/// The client answering what the steering asks of the world.
+///
+/// The steering itself is in `ac-nav` and knows nothing of packets,
+/// physics or landblocks; this is the half that does. Six questions,
+/// which in a test are answered with a few rectangles and here with
+/// the character's own collision and the planner on its thread.
+pub struct Standing<'a> {
+    pub player: &'a mut player::Player,
+    pub assets: &'a ac_scene::Assets,
+    pub wide: &'a mut pathfinder::Pathfinder,
+}
+
+impl ac_nav::Ground for Standing<'_> {
+    fn at(&self) -> glam::Vec3 {
+        self.player.world_position()
+    }
+
+    fn cell(&self) -> u32 {
+        self.player.cell
+    }
+
+    fn block(&self) -> u32 {
+        self.player.landblock()
+    }
+
+    fn line_blocked(&mut self, block: u32, from: glam::Vec3, to: glam::Vec3) -> bool {
+        self.player.line_blocked(self.assets, block, from, to)
+    }
+
+    fn find_path(
+        &mut self,
+        block: u32,
+        from: glam::Vec3,
+        to: glam::Vec3,
+        goal_cell: u32,
+    ) -> Option<Vec<glam::Vec3>> {
+        self.player
+            .find_path(self.assets, block, from, to, goal_cell)
+    }
+
+    fn ask_wide(
+        &mut self,
+        from: glam::Vec3,
+        to: glam::Vec3,
+        block: u32,
+        outdoors: bool,
+        exact_to: bool,
+    ) {
+        self.wide.ask(
+            from,
+            to,
+            self.player.capsule(),
+            block,
+            pathfinder::Ends { outdoors, exact_to },
+            std::time::Instant::now(),
+        );
+    }
+
+    fn take_wide(&mut self, from: glam::Vec3, to: glam::Vec3) -> Option<Vec<glam::Vec3>> {
+        self.wide.take(from, to)
     }
 }
 

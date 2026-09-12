@@ -813,3 +813,77 @@ pub fn from_model(assets: &Assets, model_id: u32, world: Mat4) -> Result<Collisi
     }
     Ok(w)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A floor spanning a square, at height `z`, belonging to `cell`.
+    fn slab(w: &mut CollisionWorld, x0: f32, x1: f32, y0: f32, y1: f32, z: f32, cell: u32) {
+        let p = |x: f32, y: f32| Vec3::new(x, y, z);
+        w.add_tri(p(x0, y0), p(x1, y0), p(x1, y1), cell, true);
+        w.add_tri(p(x0, y0), p(x1, y1), p(x0, y1), cell, true);
+    }
+
+    /// A room whose floor lies below the ground outside it, as Holtburg's
+    /// shops do: the town is built down a slope and the street runs over
+    /// the top of them.
+    fn cellar() -> CollisionWorld {
+        let mut w = CollisionWorld::default();
+        // The room, in its own cell.
+        slab(&mut w, 0.0, 10.0, 0.0, 10.0, 0.0, 0x0111);
+        // The street above it, outdoors.
+        slab(&mut w, -5.0, 15.0, -5.0, 15.0, 3.0, 0);
+        w
+    }
+
+    #[test]
+    fn the_street_overhead_is_not_a_ceiling_when_you_are_under_it() {
+        // `overhang_escape` reads any downward-facing surface above the
+        // feet as something to duck out from under, and answers `None`
+        // when one is directly overhead -- which the walk takes as "you
+        // cannot go that way".
+        //
+        // Holtburg's shops sit below the road, so the underside of the
+        // road hung over the room and every step inside was refused.
+        // The character could stand anywhere in it and walk nowhere,
+        // which read as running at a wall from the outside.
+        let w = cellar();
+        let cap = Capsule::default();
+        let inside = Vec3::new(5.0, 5.0, 0.0);
+        // The street is three metres up and the character is 1.835 tall,
+        // so it genuinely is within head height -- which is why the
+        // naive reading refuses.
+        assert!(
+            w.overhang_escape(inside, cap.radius, cap.height).is_some(),
+            "the street was taken for a ceiling"
+        );
+    }
+
+    #[test]
+    fn a_real_ceiling_still_stops_you() {
+        // The rule is about whose geometry it is, not about ignoring
+        // low roofs: something overhead in the same cell still counts.
+        let mut w = cellar();
+        slab(&mut w, 0.0, 10.0, 0.0, 10.0, 1.0, 0x0111);
+        let cap = Capsule::default();
+        let inside = Vec3::new(5.0, 5.0, 0.0);
+        assert!(
+            w.overhang_escape(inside, cap.radius, cap.height).is_none(),
+            "walked through a ceiling a metre over its head"
+        );
+    }
+
+    #[test]
+    fn a_step_inside_a_room_under_the_street_is_allowed() {
+        // The same thing the walk itself sees: the step that was
+        // refused, from one side of the room to the other.
+        let w = cellar();
+        let cap = Capsule::default();
+        let from = Vec3::new(3.0, 5.0, 0.0);
+        let to = Vec3::new(6.0, 5.0, 0.0);
+        let walk = w.walk(from, to, &cap);
+        assert!(!walk.blocked, "a step across the room was refused");
+        assert!(walk.pos.distance(from) > 1.0, "it did not move");
+    }
+}

@@ -139,15 +139,24 @@ fn main() {
         let mut input = Input::default();
         let flat = Vec2::new(g.x - me3.x, g.y - me3.y);
         if flat.length() > 1.0 {
-            let aim = steering.steer(&mut pl, &assets, &mut wide, g, gblock, now);
-            last_aim = Some(aim);
-            let d = aim - pl.world_position();
-            let flat = Vec2::new(d.x, d.y);
-            if flat.length() > 1e-3 {
-                pl.heading = (-flat.x).atan2(flat.y);
+            let aim = {
+                let mut standing = ac_client::Standing {
+                    player: &mut pl,
+                    assets: &assets,
+                    wide: &mut wide,
+                };
+                steering.steer(&mut standing, g, gblock, now)
+            };
+            if let ac_nav::Aim::Go(at) = aim {
+                last_aim = Some(at);
+                let d = at - pl.world_position();
+                let flat = Vec2::new(d.x, d.y);
+                if flat.length() > 1e-3 {
+                    pl.heading = (-flat.x).atan2(flat.y);
+                }
+                input.forward = 1.0;
+                input.run = true;
             }
-            input.forward = 1.0;
-            input.run = true;
         }
         pl.update(&assets, &input, dt);
         let trace_from: f32 = std::env::var("WALKSIM_TRACE")

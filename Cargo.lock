@@ -47,6 +47,7 @@ version = "0.0.3"
 dependencies = [
  "ac-agent",
  "ac-formats",
+ "ac-nav",
  "ac-net",
  "ac-scene",
  "ac-vendor",
@@ -78,6 +79,16 @@ dependencies = [
  "image",
  "serde",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "ac-nav"
+version = "0.0.3"
+dependencies = [
+ "ac-scene",
+ "ac-world",
+ "glam 0.30.10",
+ "tracing",
 ]
 
 [[package]]

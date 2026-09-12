@@ -4,11 +4,7 @@
 
 use std::time::{Duration, Instant};
 
-use ac_scene::Assets;
 use glam::Vec3;
-
-use crate::pathfinder::Pathfinder;
-use crate::player::Player;
 
 /// A waypoint counts as reached within this distance (metres, flat).
 pub const ARRIVE: f32 = 0.7;
@@ -87,6 +83,51 @@ impl Route {
         }
         total
     }
+}
+
+/// What the steering needs of the world, and of the character standing
+/// in it.
+///
+/// Six questions, no more. Behind them in the client sit the physics,
+/// the landblock's triangles and a planner on its own thread; behind
+/// them in a test sit a few rectangles. That is the whole point: every
+/// navigation fault found the hard way in a live dungeon -- a goal with
+/// no path and no node to start from, a straight line walked into a
+/// wall, a dungeon treated as somewhere you can stroll out of -- is a
+/// unit test here now.
+pub trait Ground {
+    /// Where the character is.
+    fn at(&self) -> Vec3;
+    /// The cell it stands in (indoors when the low word is 0x100 or
+    /// more).
+    fn cell(&self) -> u32;
+    /// The landblock it stands in.
+    fn block(&self) -> u32;
+    /// Whether anything stands between these two points.
+    fn line_blocked(&mut self, block: u32, from: Vec3, to: Vec3) -> bool;
+    /// A walkable route within one landblock, or `None` when the graph
+    /// knows of none.
+    fn find_path(&mut self, block: u32, from: Vec3, to: Vec3, goal_cell: u32) -> Option<Vec<Vec3>>;
+    /// Ask the neighbourhood planner for a route that may leave this
+    /// block; it answers later, through `take_wide`.
+    fn ask_wide(&mut self, from: Vec3, to: Vec3, block: u32, outdoors: bool, exact_to: bool);
+    /// A neighbourhood route that has come back, if one has.
+    fn take_wide(&mut self, from: Vec3, to: Vec3) -> Option<Vec<Vec3>>;
+}
+
+/// Where to head this frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Aim {
+    /// Walk at this point. It may be the goal or the next waypoint.
+    Go(Vec3),
+    /// There is no way there from here: the line is blocked and no
+    /// route was found. Stand still and let whoever set the goal
+    /// choose another.
+    ///
+    /// This is the answer that was missing. Heading for the goal anyway
+    /// is a character leaning on the wall it has just decided is in the
+    /// way, and it never arrives.
+    NoWay,
 }
 
 /// Steering state of one character: the route being followed and the
@@ -173,15 +214,13 @@ impl Steering {
     /// and re-plans.
     pub fn steer(
         &mut self,
-        player: &mut Player,
-        assets: &Assets,
-        wide: &mut Pathfinder,
+        ground: &mut impl Ground,
         goal: Vec3,
         goal_block: u32,
         now: Instant,
-    ) -> Vec3 {
-        let me = player.world_position();
-        let block = player.landblock();
+    ) -> Aim {
+        let me = ground.at();
+        let block = ground.block();
         let far_goal = goal;
         // A goal in another landblock used to be run at in a straight
         // line, obstacles and all, which is how a character ends up
@@ -192,12 +231,31 @@ impl Steering {
         let following_wide = self.route_is_wide && self.route.is_some();
         let goal = match plan_goal(me, goal, block, leaves_block, following_wide) {
             Some(g) => g,
-            // Already outside the block we think we are in: nothing
-            // sensible to plan on, so head for it.
+            // Standing outside the square of the block we belong to, so
+            // there is no edge to aim at and nothing sensible to plan
+            // on.
+            //
+            // A dungeon is exactly this: its cells lie off the side of
+            // its own block, which is why the mover has to be told the
+            // block by the cell rather than by the position. Heading
+            // for the goal from here was the old answer, and from a
+            // dungeon the goal is a town thirty kilometres off through
+            // rock -- so it walked at the wall, and this branch let it
+            // do so behind the back of every other guard.
+            //
+            // Near enough to be in the same place, still worth trying.
+            // Anything further is refused like any other goal there is
+            // no way to.
             None => {
                 self.route = None;
                 self.route_is_wide = false;
-                return goal;
+                if glam::Vec2::new(goal.x - me.x, goal.y - me.y).length() > A_BLOCK {
+                    tracing::debug!("route: {goal:?} is not in reach and there is no way to plan");
+                    self.no_way = true;
+                    return Aim::NoWay;
+                }
+                self.no_way = false;
+                return Aim::Go(goal);
             }
         };
         match self.last_pos {
@@ -220,7 +278,7 @@ impl Steering {
             }
         }
         // A route from the neighbourhood planner, if one has come back.
-        if let Some(waypoints) = wide.take(me, far_goal) {
+        if let Some(waypoints) = ground.take_wide(me, far_goal) {
             self.route = Some(Route::new(far_goal, waypoints, now));
             self.route_is_wide = true;
             self.next_check = now + REPLAN_AFTER;
@@ -240,24 +298,20 @@ impl Steering {
         if replan {
             self.next_check = now + LINE_CHECK;
             let straight_ok =
-                now >= self.straight_blocked_until && !player.line_blocked(assets, block, me, goal);
+                now >= self.straight_blocked_until && !ground.line_blocked(block, me, goal);
             // Anything in the way, or a goal past the edge of this
             // block, is worth a neighbourhood route: the way around it
             // may leave the block entirely.
             if !straight_ok || leaves_block {
-                wide.ask(
+                ground.ask_wide(
                     me,
                     far_goal,
-                    player.capsule(),
                     block,
-                    crate::pathfinder::Ends {
-                        outdoors: player.cell & 0xFFFF < 0x100 && goal_block & 0xFFFF < 0x100,
-                        // A goal in an indoor cell is where something
-                        // stands, so its height is the answer, not a
-                        // guess to be dropped onto the ground under it.
-                        exact_to: goal_block & 0xFFFF >= 0x100,
-                    },
-                    now,
+                    ground.cell() & 0xFFFF < 0x100 && goal_block & 0xFFFF < 0x100,
+                    // A goal in an indoor cell is where something
+                    // stands, so its height is the answer, not a guess
+                    // to be dropped onto the ground under it.
+                    goal_block & 0xFFFF >= 0x100,
                 );
             }
             if straight_ok {
@@ -266,9 +320,9 @@ impl Steering {
                 }
                 self.route_is_wide = false;
                 self.no_way = false;
-                return goal;
+                return Aim::Go(goal);
             }
-            match player.find_path(assets, block, me, goal, goal_block) {
+            match ground.find_path(block, me, goal, goal_block) {
                 Some(waypoints) => {
                     let origin = ac_world::landblock_origin(block);
                     let local: Vec<[f32; 3]> = waypoints
@@ -336,17 +390,21 @@ impl Steering {
                     if leaves_block || far {
                         tracing::debug!("route: no way to {goal:?}, and it is not within reach");
                         self.no_way = true;
-                        return me;
+                        return Aim::NoWay;
                     }
                     tracing::debug!("route: no path to {goal:?}, going straight");
                     self.no_way = false;
-                    return goal;
+                    return Aim::Go(goal);
                 }
             }
         }
-        match &mut self.route {
-            Some(r) => r.target(me, |from, to| !player.line_blocked(assets, block, from, to)),
-            None => goal,
+        match self.route.take() {
+            Some(mut r) => {
+                let aim = r.target(me, |from, to| !ground.line_blocked(block, from, to));
+                self.route = Some(r);
+                Aim::Go(aim)
+            }
+            None => Aim::Go(goal),
         }
     }
 
@@ -429,112 +487,206 @@ pub fn clip_to_block(me: Vec3, goal: Vec3, block: u32) -> Option<Vec3> {
 mod tests {
     use super::*;
 
+    /// A world of the caller's choosing: what is blocked, what routes
+    /// exist, and where the character stands. Everything the steering
+    /// asks about, answered by hand.
+    #[derive(Default)]
+    struct Fake {
+        at: Vec3,
+        cell: u32,
+        block: u32,
+        /// The straight line is blocked.
+        blocked: bool,
+        /// What the landblock's graph answers with.
+        path: Option<Vec<Vec3>>,
+        /// What the neighbourhood planner answers with.
+        wide: Option<Vec<Vec3>>,
+        asked_wide: bool,
+    }
+
+    impl Ground for Fake {
+        fn at(&self) -> Vec3 {
+            self.at
+        }
+        fn cell(&self) -> u32 {
+            self.cell
+        }
+        fn block(&self) -> u32 {
+            self.block
+        }
+        fn line_blocked(&mut self, _block: u32, _from: Vec3, _to: Vec3) -> bool {
+            self.blocked
+        }
+        fn find_path(
+            &mut self,
+            _block: u32,
+            _from: Vec3,
+            _to: Vec3,
+            _goal_cell: u32,
+        ) -> Option<Vec<Vec3>> {
+            self.path.clone()
+        }
+        fn ask_wide(&mut self, _f: Vec3, _t: Vec3, _b: u32, _o: bool, _e: bool) {
+            self.asked_wide = true;
+        }
+        fn take_wide(&mut self, _f: Vec3, _t: Vec3) -> Option<Vec<Vec3>> {
+            self.wide.take()
+        }
+    }
+
+    fn near(a: Vec3, b: Vec3) -> bool {
+        a.distance(b) < 0.5
+    }
+
     #[test]
-    fn a_goal_beyond_the_block_is_clipped_to_its_edge() {
-        let block = 0x0A0B_0000;
-        let origin = ac_world::landblock_origin(block);
-        let me = origin + Vec3::new(96.0, 96.0, 0.0);
-        // Straight east, well past the edge: clipped just inside it.
-        let goal = me + Vec3::new(1000.0, 0.0, 0.0);
-        let edge = clip_to_block(me, goal, block).expect("clipped");
-        assert!((edge.x - (origin.x + 192.0 - 3.0)).abs() < 1e-3, "{edge:?}");
-        assert!((edge.y - me.y).abs() < 1e-3);
-        // A goal inside the block is left alone.
+    fn a_clear_line_is_walked_straight() {
+        let mut st = Steering::new(Instant::now());
+        let mut g = Fake {
+            at: Vec3::new(10.0, 10.0, 0.0),
+            ..Default::default()
+        };
+        let goal = Vec3::new(20.0, 10.0, 0.0);
+        match st.steer(&mut g, goal, 0, Instant::now()) {
+            Aim::Go(aim) => assert!(near(aim, goal), "{aim:?}"),
+            Aim::NoWay => panic!("refused a clear walk"),
+        }
+    }
+
+    #[test]
+    fn a_blocked_line_with_a_route_follows_the_route() {
+        let mut st = Steering::new(Instant::now());
+        let corner = Vec3::new(10.0, 20.0, 0.0);
+        let goal = Vec3::new(20.0, 20.0, 0.0);
+        let mut g = Fake {
+            at: Vec3::new(10.0, 10.0, 0.0),
+            blocked: true,
+            path: Some(vec![corner, goal]),
+            ..Default::default()
+        };
+        match st.steer(&mut g, goal, 0, Instant::now()) {
+            // The first waypoint, not the goal through the wall.
+            Aim::Go(aim) => assert!(!near(aim, goal), "walked at the goal through a wall"),
+            Aim::NoWay => panic!("refused a walk it had a route for"),
+        }
+    }
+
+    #[test]
+    fn no_route_and_a_blocked_line_nearby_still_tries() {
+        // Within the block, leaning on what is in the way often works:
+        // the graph is coarser than the world and a character sliding
+        // along a crate reaches the far side of the room. Taking this
+        // away stopped a ten-metre walk across Holtburg dead.
+        let mut st = Steering::new(Instant::now());
+        let goal = Vec3::new(20.0, 10.0, 0.0);
+        let mut g = Fake {
+            at: Vec3::new(10.0, 10.0, 0.0),
+            blocked: true,
+            path: None,
+            ..Default::default()
+        };
+        assert_eq!(st.steer(&mut g, goal, 0, Instant::now()), Aim::Go(goal));
+        assert!(!st.no_way());
+    }
+
+    #[test]
+    fn no_route_to_somewhere_far_is_refused_rather_than_walked_at() {
+        // The whole of the wall-running: the line is blocked, no route
+        // exists, and the goal is a landblock away -- through rock, as
+        // often as not. Walking at it is a character pressed against a
+        // wall with its legs going, and it never arrives.
+        let mut st = Steering::new(Instant::now());
+        let mut g = Fake {
+            at: Vec3::new(277.0, 47217.0, 0.0),
+            cell: 0x01F6_0285,
+            block: 0x01F6_0000,
+            blocked: true,
+            path: None,
+            ..Default::default()
+        };
+        // Thelnoth Cort the Healer, in Holtburg, thirty kilometres off.
+        let goal = Vec3::new(32478.0, 34719.0, 42.0);
         assert_eq!(
-            clip_to_block(me, me + Vec3::new(10.0, 0.0, 0.0), block),
-            None
+            st.steer(&mut g, goal, 0xA9B4_0111, Instant::now()),
+            Aim::NoWay
         );
-        // Standing outside the block it claims: nothing to say.
-        let elsewhere = origin + Vec3::new(500.0, 0.0, 0.0);
-        assert_eq!(clip_to_block(elsewhere, goal, block), None);
-        // A stride short of the edge with the goal beyond it: the
-        // clipped point would be behind us, so head for the goal.
-        let at_edge = origin + Vec3::new(96.0, 191.25, 0.0);
-        let beyond = at_edge + Vec3::new(3.0, 60.0, 0.0);
-        assert_eq!(clip_to_block(at_edge, beyond, block), None);
-        let near_edge = origin + Vec3::new(96.0, 189.5, 0.0);
-        assert_eq!(clip_to_block(near_edge, beyond, block), None);
-        // Five metres short, the clipped point is two ahead: fine.
-        let short = origin + Vec3::new(96.0, 187.0, 0.0);
-        let e = clip_to_block(short, short + Vec3::new(0.0, 60.0, 0.0), block).expect("ahead");
-        assert!((e.y - (origin.y + 189.0)).abs() < 1e-3, "{e:?}");
+        assert!(st.no_way(), "the caller must be able to ask");
     }
 
     #[test]
-    fn a_wide_route_is_not_clipped_at_the_block_edge() {
-        // The landblock-edge hesitation: standing a stride into 0x6E8F
-        // with the goal 55 m east, up a slope only a route through the
-        // block behind gets around.
-        let block = 0x6E8F_0000;
-        let origin = ac_world::landblock_origin(block);
-        let me = origin + Vec3::new(0.3, 92.7, 123.6);
-        let goal = origin + Vec3::new(55.0, 93.0, 142.3);
-        // The goal is in this block: nothing to clip either way.
-        assert_eq!(plan_goal(me, goal, block, false, false), Some(goal));
-        assert_eq!(plan_goal(me, goal, block, false, true), Some(goal));
-        // Straddling the edge, the character's cell says the block
-        // behind (0x6D8F): the clipped point would be under its feet,
-        // so a single-block plan has nothing to work with...
-        let behind = 0x6D8F_0000;
-        let straddling = origin + Vec3::new(-0.1, 92.7, 123.5);
-        assert_eq!(plan_goal(straddling, goal, behind, true, false), None);
-        // ...but a neighbourhood route being followed is kept, and the
-        // goal it was planned for stays the goal.
-        assert_eq!(plan_goal(straddling, goal, behind, true, true), Some(goal));
-        // Well inside a block with the goal beyond it and no wide route,
-        // the edge is what is planned on.
-        let inside = origin + Vec3::new(96.0, 96.0, 0.0);
-        let beyond = inside + Vec3::new(500.0, 0.0, 0.0);
-        let edge = plan_goal(inside, beyond, block, true, false).expect("clipped");
-        assert!((edge.x - (origin.x + 189.0)).abs() < 1e-3, "{edge:?}");
+    fn a_goal_out_of_the_block_asks_the_wider_planner() {
+        let mut st = Steering::new(Instant::now());
+        let mut g = Fake {
+            at: Vec3::new(32_500.0, 34_600.0, 42.0),
+            block: 0xA9B4_0000,
+            blocked: true,
+            ..Default::default()
+        };
+        // The next landblock over: the gate through a city wall is
+        // usually not in the block you are standing in.
+        st.steer(
+            &mut g,
+            Vec3::new(32_700.0, 34_600.0, 42.0),
+            0xABB3_0000,
+            Instant::now(),
+        );
+        assert!(g.asked_wide, "never asked for a route out of the block");
     }
 
     #[test]
-    fn waypoints_advance_within_reach_and_the_goal_stays() {
-        let now = Instant::now();
-        let goal = Vec3::new(10.0, 0.0, 0.0);
-        let mut r = Route::new(
-            goal,
-            vec![Vec3::new(2.0, 0.0, 0.0), Vec3::new(5.0, 3.0, 0.0), goal],
-            now,
-        );
-        let open = |_: Vec3, _: Vec3| true;
-        assert_eq!(r.target(Vec3::ZERO, open), Vec3::new(2.0, 0.0, 0.0));
-        assert!((r.remaining(Vec3::ZERO) - (2.0 + 18f32.sqrt() + 34f32.sqrt())).abs() < 1e-4);
-        // Within 0.7 m of the first: on to the second.
+    fn a_way_found_again_clears_the_refusal() {
+        let mut st = Steering::new(Instant::now());
+        // Inside Holtburg's square, with the goal across the street.
+        let goal = Vec3::new(32_520.0, 34_600.0, 42.0);
+        let mut g = Fake {
+            at: Vec3::new(32_500.0, 34_600.0, 42.0),
+            block: 0xA9B4_0000,
+            blocked: true,
+            path: None,
+            ..Default::default()
+        };
+        // Blocked and no route, but near: worth leaning on.
+        assert!(matches!(
+            st.steer(&mut g, goal, 0, Instant::now()),
+            Aim::Go(_)
+        ));
+        assert!(!st.no_way());
+        // The door opens and the line comes clear.
+        g.blocked = false;
+        st.reset();
+        assert!(matches!(
+            st.steer(&mut g, goal, 0, Instant::now()),
+            Aim::Go(_)
+        ));
+        assert!(!st.no_way());
+    }
+
+    #[test]
+    fn standing_off_the_edge_of_your_own_block_is_not_a_reason_to_charge() {
+        // A dungeon's cells lie off the side of the block they belong
+        // to, so a character in one is outside its own square and there
+        // is no block edge to aim at. That used to mean "head for the
+        // goal", which from a dungeon is a town thirty kilometres away
+        // through rock -- and it did it behind the back of every other
+        // guard.
+        let mut st = Steering::new(Instant::now());
+        let mut g = Fake {
+            at: Vec3::new(277.0, 47_217.0, 0.0),
+            cell: 0x01F6_0285,
+            block: 0x01F6_0000,
+            blocked: false,
+            ..Default::default()
+        };
+        let town = Vec3::new(32_478.0, 34_719.0, 42.0);
         assert_eq!(
-            r.target(Vec3::new(1.5, 0.2, 0.0), open),
-            Vec3::new(5.0, 3.0, 0.0)
+            st.steer(&mut g, town, 0xA9B4_0111, Instant::now()),
+            Aim::NoWay
         );
-        // Skipping two at once when both are close.
-        assert_eq!(r.target(Vec3::new(5.0, 2.8, 0.0), open), goal);
-        // Standing on the goal still aims at it.
-        assert_eq!(r.target(goal, open), goal);
-        assert_eq!(r.next, 2);
-        assert_eq!(r.remaining(goal), 0.0);
-    }
-
-    #[test]
-    fn a_corner_is_not_cut_when_the_wall_is_in_the_way() {
-        let now = Instant::now();
-        let goal = Vec3::new(10.0, 10.0, 0.0);
-        let corner = Vec3::new(10.0, 0.0, 0.0);
-        let mut r = Route::new(goal, vec![corner, goal], now);
-        let walled = |_: Vec3, _: Vec3| false;
-        // Near the corner but the way on is not open from here: keep
-        // aiming at the corner.
-        assert_eq!(r.target(Vec3::new(9.5, -0.3, 0.0), walled), corner);
-        // Right on it: pass it whatever the wall says.
-        assert_eq!(r.target(Vec3::new(9.9, -0.1, 0.0), walled), goal);
-    }
-
-    #[test]
-    fn a_route_goes_stale_when_the_goal_moves_or_time_passes() {
-        let now = Instant::now();
-        let goal = Vec3::new(10.0, 0.0, 0.0);
-        let r = Route::new(goal, vec![goal], now);
-        assert!(!r.stale(goal + Vec3::new(1.0, 0.0, 0.0), now));
-        assert!(r.stale(goal + Vec3::new(2.5, 0.0, 0.0), now));
-        assert!(r.stale(goal, now + REPLAN_AFTER));
+        // Something in the dungeon with it is still walked to.
+        let near_by = Vec3::new(290.0, 47_210.0, 0.0);
+        st.reset();
+        assert!(matches!(
+            st.steer(&mut g, near_by, 0x01F6_0290, Instant::now()),
+            Aim::Go(_)
+        ));
     }
 }
