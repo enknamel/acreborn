@@ -123,8 +123,20 @@ fn worth_fighting(client: &Client, _now: Instant) -> f32 {
     let Some(me) = client.player.as_ref().map(|p| p.world_position()) else {
         return UNDECIDED;
     };
-    // Already engaged: that is a fight in hand whatever the distance.
-    if client.attack_target.is_some() {
+    // Already swinging at something that is still alive: that is a
+    // fight in hand whatever the distance, and it is not interrupted.
+    //
+    // Still *alive* is the whole of it. `attack_target` holds the
+    // creature until another is chosen, so the moment after a kill it
+    // names a corpse -- and reading that as "in a fight" sent the
+    // character off to the next creature every time, past the body it
+    // had just made. Which is exactly the complaint: it never loots if
+    // there is anything at all nearby.
+    let engaged = client
+        .attack_target
+        .and_then(|t| client.world.objects.get(&t))
+        .is_some_and(|o| o.health.unwrap_or(0.0) > 0.0);
+    if engaged {
         return UNDECIDED;
     }
     // Told to finish what it kills: while one of its own bodies is
