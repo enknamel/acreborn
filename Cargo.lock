@@ -47,6 +47,7 @@ version = "0.0.3"
 dependencies = [
  "ac-agent",
  "ac-formats",
+ "ac-loot",
  "ac-nav",
  "ac-net",
  "ac-scene",

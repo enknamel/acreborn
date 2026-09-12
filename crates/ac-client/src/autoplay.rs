@@ -594,16 +594,6 @@ pub(crate) const MERGE_EVERY: Duration = Duration::from_millis(600);
 /// should finish with before starting another fight.
 const CORPSE_IS_MINE: f32 = 25.0;
 
-/// How long to leave an item that was asked for and has not moved
-/// before asking again. Not the pace of looting -- that is set by the
-/// corpse answering -- only how long a lost request is left.
-const TAKE_AGAIN: Duration = Duration::from_millis(400);
-/// A wait that has doubled this far means the item has been asked for
-/// several times and has not moved -- three asks, starting a quarter
-/// of a second apart and doubling. It is not coming, so the queue goes
-/// on without it rather than standing behind it.
-const NOT_COMING: Duration = Duration::from_millis(900);
-
 /// How long a monster's corpse lasts before it rots away. ACE gives an
 /// unlooted corpse no timer at all until its first heartbeat, when it
 /// takes the default of five minutes and counts down from there
@@ -1118,6 +1108,10 @@ pub struct Autoplay {
     /// The item last asked for and when, so the next goes out the
     /// moment this one moves rather than on a clock.
     last_take: Option<(u32, Instant)>,
+    /// Emptying the corpse in front of us, as `ac-loot` sees it: what
+    /// has been asked for, what will not come, how many have been
+    /// taken. Started afresh for each body.
+    loot_run: ac_loot::Run,
     /// Items asked for and not moved. The server can refuse -- a full
     /// pack, a chest that will not give the thing up -- and it refuses
     /// in chat, not in a reply we can wait on, so the only way to hear
@@ -1805,6 +1799,88 @@ impl Client {
     }
 
     /// What the rules say to do with an item, now.
+    /// The corpse in front of the character, as the looting rules need
+    /// to see it.
+    ///
+    /// The judging stays here -- it needs the profile, the character's
+    /// own skills, what is already carried, and whether this is the
+    /// character's own body -- and arrives in `ac-loot` as a verdict
+    /// already reached. What that crate decides is the *order*: what to
+    /// ask about, what to take, when to stop, and when to shut it.
+    fn corpse_now(&mut self, guid: u32, items: &[u32], cfg: &Loot, now: Instant) -> ac_loot::Open {
+        use crate::profile::Verdict as Judged;
+        let away = match (
+            self.player.as_ref().map(|p| p.world_position()),
+            self.world.objects.get(&guid).and_then(|o| o.world_pos()),
+        ) {
+            (Some(me), Some(at)) => at.distance(me),
+            _ => 0.0,
+        };
+        let name = self
+            .world
+            .objects
+            .get(&guid)
+            .map(|o| o.name.clone())
+            .unwrap_or_else(|| "the corpse".to_string());
+        // Our own body: everything on it is ours, and the wand and the
+        // components are what the character needs to fight again.
+        let mine = {
+            let me = self.world.stats.name.to_lowercase();
+            !me.is_empty() && name.to_lowercase() == format!("corpse of {me}")
+        };
+        let wielder = self.wielder();
+        let who = self.world.stats.name.clone();
+        let lying = items
+            .iter()
+            .filter_map(|g| {
+                let stats = self.stats_of(*g)?;
+                // A kind the server has lately said cannot be had yet
+                // is left alone for a while (see `loot_refused`).
+                if self.refused_lately(stats.wcid, now) {
+                    return None;
+                }
+                let held = self.already_carried(stats.wcid);
+                let verdict = if mine {
+                    ac_loot::Verdict::Take
+                } else {
+                    match judge_loot(
+                        &stats,
+                        self.appraisals.get(g),
+                        cfg,
+                        &self.profiles,
+                        &wielder,
+                        &who,
+                        held,
+                    ) {
+                        Judged::Decided(action, _) if action.takes() => ac_loot::Verdict::Take,
+                        Judged::Decided(_, _) => ac_loot::Verdict::Leave,
+                        // Only worth asking about when asking is allowed
+                        // and might answer.
+                        Judged::NeedsId(_) if cfg.appraise => ac_loot::Verdict::MustAsk,
+                        Judged::NeedsId(_) | Judged::None => ac_loot::Verdict::Leave,
+                    }
+                };
+                Some(ac_loot::Lying {
+                    guid: *g,
+                    name: stats.name.clone(),
+                    burden: stats.burden,
+                    verdict,
+                })
+            })
+            .collect();
+        ac_loot::Open {
+            guid,
+            name,
+            away,
+            open: true,
+            items: lying,
+            slots_free: self.free_space(),
+            carry_room: self.carry_room(),
+            may_ask: cfg.appraise,
+            asking: self.appraise_inflight.iter().map(|(g, _)| *g).collect(),
+        }
+    }
+
     fn loot_verdict(&self, stats: &crate::items::ItemStats, cfg: &Loot) -> LootAction {
         use crate::profile::Verdict;
         let me = self.wielder();
@@ -1825,32 +1901,6 @@ impl Client {
             // rule that cannot be judged has not claimed anything.
             Verdict::NeedsId(_) | Verdict::None => LootAction::Skip,
         }
-    }
-
-    /// Which of a corpse's items have to be identified before the rules
-    /// can say anything about them. Everything else is already decided.
-    fn loot_to_look_over(&self, items: &[u32], cfg: &Loot, now: Instant) -> Vec<u32> {
-        use crate::profile::Verdict;
-        let me = self.wielder();
-        let name = self.world.stats.name.clone();
-        items
-            .iter()
-            .copied()
-            .filter(|g| !self.appraisals.contains_key(g))
-            .filter(|g| {
-                let Some(stats) = self.stats_of(*g) else {
-                    return false;
-                };
-                if self.refused_lately(stats.wcid, now) {
-                    return false;
-                }
-                let held = self.already_carried(stats.wcid);
-                matches!(
-                    judge_loot(&stats, None, cfg, &self.profiles, &me, &name, held),
-                    Verdict::NeedsId(_)
-                )
-            })
-            .collect()
     }
 
     /// Say why a step stood aside, when it is worth saying.
@@ -2031,20 +2081,24 @@ impl Client {
                 return true;
             }
             let cfg = self.autoplay.config.loot.clone();
-            // Ask the server about the ones -- and only the ones -- whose
-            // fate cannot be settled without it.
-            //
-            // An identify is a round trip each, and on a corpse of eight
-            // that is eight of them before anything is picked up. So
-            // every item is judged cheaply first and only those that
-            // came back "cannot say yet" are asked about. A profile
-            // whose early rules ask about name, kind and worth empties
-            // a corpse without a single one.
-            if cfg.appraise && !self.autoplay.appraising {
-                let missing = self.loot_to_look_over(&items, &cfg, now);
-                if !missing.is_empty() {
-                    let n = missing.len();
-                    self.appraise_many(missing);
+            // What to ask about, what to take, in what order and when
+            // to stop is decided in `ac-loot`, which knows nothing of
+            // sockets or packs: it is handed the body and the character
+            // standing over it and answers with one thing to do. The
+            // judging stays here, where the profile and the character's
+            // own skills are (see `corpse_now`).
+            let at = self.corpse_now(guid, &items, &cfg, now);
+            let next = self.autoplay.loot_run.step(&at, now);
+            match next.act {
+                Some(ac_loot::Act::Approach) | Some(ac_loot::Act::Open) => {
+                    // The walking and the opening are done above; being
+                    // asked for them here means the corpse moved out of
+                    // reach, which the next turn will see.
+                    return true;
+                }
+                Some(ac_loot::Act::Ask(ids)) => {
+                    let n = ids.len();
+                    self.appraise_many(ids);
                     self.autoplay.appraising = true;
                     self.autoplay.say(
                         Doing::Looting,
@@ -2052,169 +2106,30 @@ impl Client {
                     );
                     return true;
                 }
-            }
-            if self.autoplay.appraising
-                && items.iter().any(|g| !self.appraisals.contains_key(g))
-                && now.duration_since(since) < allow
-            {
-                return true;
-            }
-            // A full pack takes nothing, and asking the server anyway
-            // only fills the log with refusals.
-            // A pack runs out of two things and this only ever counted
-            // one. Eighty-four refusals in one watched run were a
-            // character with slots to spare and nothing left to lift
-            // with, asking anyway and being told no each time.
-            // Not the server's wall but our own limit, well short of
-            // it: a character that loots until the server refuses has
-            // nothing left to lift with and cannot even tidy its pack.
-            let laden = self.carry_room() == 0;
-            if self.pack_full() || laden {
-                let why = if laden {
-                    "carrying as much as it means to, leaving the loot"
-                } else {
-                    "pack full, leaving the loot"
-                };
-                self.autoplay.note(why, now);
-                // Shut it behind us. A corpse left open is one the
-                // server still has us standing over, and the next one
-                // cannot be opened until it is let go.
-                self.close_container();
-                self.autoplay.looted.push(guid);
-                self.autoplay.corpse = None;
-                self.stop_walking_to_loot();
-                self.autoplay.appraising = false;
-                return false;
-            }
-            // Decide once, then take them one at a time. The server
-            // does one move at a time and refuses the rest as "you're
-            // too busy", queueing at most one; asking for eight at once
-            // got one item and seven refusals, and closing the corpse
-            // straight afterwards left the rest with nowhere to be
-            // found. So the wanted items become a queue.
-            if self.autoplay.take_queue.is_empty() && self.autoplay.last_take.is_none() {
-                let own_corpse = self
-                    .world
-                    .open_container
-                    .as_ref()
-                    .and_then(|c| self.world.objects.get(&c.0))
-                    .is_some_and(|o| {
-                        let me = self.world.stats.name.to_lowercase();
-                        !me.is_empty() && o.name.to_lowercase() == format!("corpse of {me}")
-                    });
-                let mut queue = Vec::new();
-                for g in &items {
-                    let Some(stats) = self.stats_of(*g) else {
-                        continue;
-                    };
-                    // A kind the server has lately said cannot be had
-                    // yet is left alone for a while (see
-                    // `loot_refused`).
-                    if self.refused_lately(stats.wcid, now) {
-                        continue;
+                Some(ac_loot::Act::Take(g)) => {
+                    if let Some(stats) = self.stats_of(g) {
+                        let action = self.loot_verdict(&stats, &cfg);
+                        if action.takes() {
+                            self.autoplay.tag(g, action);
+                        }
                     }
-                    let action = if own_corpse {
-                        // Our own body: everything on it is ours, and
-                        // the wand and the components on it are what
-                        // the character needs to fight again.
-                        LootAction::Keep
-                    } else {
-                        self.loot_verdict(&stats, &cfg)
-                    };
-                    if action.takes() {
-                        tracing::info!("autoplay: taking {} ({})", stats.name, action.label());
-                        self.autoplay.tag(*g, action);
-                        queue.push(*g);
-                    }
+                    self.take(g);
+                    self.autoplay.say(Doing::Looting, next.saying);
+                    return true;
                 }
-                if queue.is_empty() {
+                Some(ac_loot::Act::Close) | None => {
+                    let taken = self.autoplay.loot_run.taken;
                     self.close_container();
                     self.autoplay.looted.push(guid);
                     self.autoplay.corpse = None;
                     self.stop_walking_to_loot();
                     self.autoplay.appraising = false;
-                    self.autoplay.say(Doing::Looting, "nothing worth taking");
+                    self.autoplay.loot_run = ac_loot::Run::new();
+                    let _ = taken;
+                    self.autoplay.say(Doing::Looting, next.saying);
                     return true;
                 }
-                self.autoplay.take_queue = queue;
             }
-            // Whatever has left the corpse is done with, and whatever
-            // has been asked for often enough and stayed put is not
-            // coming: the pack is full, or the thing will not be moved.
-            // Asking again every four hundred milliseconds until the
-            // corpse rots is not persistence, it is a stuck character.
-            let still: Vec<u32> = self.autoplay.take_queue.clone();
-            let asked = &self.autoplay.take_tries;
-            self.autoplay.take_queue = still
-                .into_iter()
-                .filter(|g| items.contains(g) && !self.world.is_carried(*g))
-                // Asked for three times and never moved: the pack is
-                // full, or the thing will not be given up. Leave it
-                // rather than let the queue stand behind it for ever.
-                .filter(|g| asked.waited(g).is_none_or(|w| w <= NOT_COMING))
-                .collect();
-            if let Some(next) = self.autoplay.take_queue.first().copied() {
-                // One at a time, in order, and the order does not
-                // change while one is outstanding. Skipping over the
-                // item at the front because its wait has not run out
-                // would start the next take before this one had
-                // finished, and asking for two at once is what
-                // "Source item not found!" is.
-                // Paced by the corpse, not by a clock.
-                //
-                // A take is answered by the item leaving the corpse --
-                // that is what takes it off the front of this queue --
-                // so when the front has changed the last one is done
-                // and the next can go at once. Only when the same item
-                // is still sitting there is there anything to wait for,
-                // and then it is a re-ask rather than the pace.
-                //
-                // It used to wait four hundred milliseconds between
-                // every item whatever happened, so a corpse of ten
-                // things took four seconds of standing over it.
-                let ready = match self.autoplay.last_take {
-                    None => true,
-                    Some((asked, _)) if asked != next => true,
-                    Some((_, when)) => now.duration_since(when) >= TAKE_AGAIN,
-                } && !self.autoplay.take_tries.held(&next, now);
-                if ready {
-                    // The server answers a take by moving the item, or
-                    // refuses it in chat -- never in a reply we can wait
-                    // on. So the ask itself is recorded as waiting, and
-                    // an item that keeps not moving is asked for less
-                    // and less often: a quarter second, then a half,
-                    // then a second. A take that works takes the item
-                    // out of the corpse and so out of the queue, which
-                    // is what ends it.
-                    //
-                    // Waiting rather than blocked because a slow answer
-                    // is the common case and must not be mistaken for a
-                    // refusal.
-                    self.autoplay.take_tries.note(
-                        next,
-                        &crate::did::Did::waiting("it has not come out yet"),
-                        now,
-                    );
-                    self.take(next);
-                    self.autoplay.last_take = Some((next, now));
-                }
-                return true;
-            }
-            let what = self
-                .world
-                .objects
-                .get(&guid)
-                .map(|o| o.name.clone())
-                .unwrap_or_else(|| "the corpse".to_string());
-            self.close_container();
-            self.autoplay.looted.push(guid);
-            self.autoplay.corpse = None;
-            self.stop_walking_to_loot();
-            self.autoplay.appraising = false;
-            self.autoplay.last_take = None;
-            self.autoplay.take_tries.clear();
-            self.autoplay.say(Doing::Looting, format!("emptied {what}"));
-            return true;
         }
         // Look for one nearby that we have not emptied.
         //
@@ -4758,40 +4673,6 @@ impl Client {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn the_take_queue_waits_on_its_front_item_and_steps_over_a_dead_one() {
-        use crate::did::{Did, Patience};
-        let t0 = Instant::now();
-        let mut asked: Patience<u32> = Patience::new();
-        let outstanding = Did::waiting("it has not come out yet");
-
-        // Asked once: held briefly. The queue waits rather than
-        // starting a second take, because two at once is what
-        // "Source item not found!" is.
-        asked.note(1, &outstanding, t0);
-        assert!(asked.held(&1, t0));
-        assert!(
-            asked.waited(&1).is_some_and(|w| w <= NOT_COMING),
-            "one ask is not a dead item"
-        );
-
-        // Three asks, a quarter of a second apart and doubling, and it
-        // still has not moved: the queue goes on without it.
-        let mut at = t0;
-        for _ in 0..3 {
-            at += asked.waited(&1).unwrap_or_default();
-            asked.note(1, &outstanding, at);
-        }
-        assert!(
-            asked.waited(&1).is_some_and(|w| w > NOT_COMING),
-            "asked enough times to call it not coming"
-        );
-
-        // And an item that arrives clears everything remembered about
-        // it, so a later corpse's copy starts afresh.
-        asked.note(1, &Did::Done, at);
-        assert!(asked.waited(&1).is_none());
-    }
 
     #[test]
     fn a_daily_limit_is_a_wait_and_not_a_grudge() {
